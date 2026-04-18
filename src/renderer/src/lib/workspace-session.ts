@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/types'
 import type { AppState } from '../store'
 import type { OpenFile } from '../store/slices/editor'
+import { hasLivePtyForTab } from './terminal-liveness'
 
 type WorkspaceSessionSnapshot = Pick<
   AppState,
@@ -27,6 +28,7 @@ type WorkspaceSessionSnapshot = Pick<
   | 'groupsByWorktree'
   | 'layoutByWorktree'
   | 'activeGroupIdByWorktree'
+  | 'ptyIdsByTabId'
 >
 
 /** Build the editor-file portion of the workspace session for persistence.
@@ -128,15 +130,35 @@ export function buildWorkspaceSessionPayload(
   snapshot: WorkspaceSessionSnapshot
 ): WorkspaceSessionState {
   const activeWorktreeIdsOnShutdown = Object.entries(snapshot.tabsByWorktree)
-    .filter(([, tabs]) => tabs.some((tab) => tab.ptyId))
+    .filter(([, tabs]) => tabs.some((tab) => hasLivePtyForTab(tab, snapshot.ptyIdsByTabId)))
     .map(([worktreeId]) => worktreeId)
+  const terminalLayoutsByTabId = Object.fromEntries(
+    Object.entries(snapshot.terminalLayoutsByTabId).map(([tabId, layout]) => {
+      const owningTab = Object.values(snapshot.tabsByWorktree)
+        .flat()
+        .find((tab) => tab.id === tabId)
+
+      if (!owningTab || hasLivePtyForTab(owningTab, snapshot.ptyIdsByTabId)) {
+        return [tabId, layout]
+      }
+
+      // Why: shutdown clears the authoritative PTY map before TerminalPane
+      // unmounts. During that brief window, beforeunload/periodic capture can
+      // still serialize stale pane transport session IDs back into
+      // layout.ptyIdsByLeafId. Strip those deferred-reattach hints from the
+      // persisted payload whenever the live PTY map says the tab is already
+      // dead, while preserving non-PTY layout state like buffers and titles.
+      const { ptyIdsByLeafId: _stalePtyIdsByLeafId, ...layoutWithoutPtyIds } = layout
+      return [tabId, layoutWithoutPtyIds]
+    })
+  ) as WorkspaceSessionState['terminalLayoutsByTabId']
 
   return {
     activeRepoId: snapshot.activeRepoId,
     activeWorktreeId: snapshot.activeWorktreeId,
     activeTabId: snapshot.activeTabId,
     tabsByWorktree: snapshot.tabsByWorktree,
-    terminalLayoutsByTabId: snapshot.terminalLayoutsByTabId,
+    terminalLayoutsByTabId,
     // Why: session:set fully replaces the persisted object, so every write path
     // must carry forward which worktrees still had live PTYs. Dropping this
     // field silently disables eager terminal reconnect on the next restart.

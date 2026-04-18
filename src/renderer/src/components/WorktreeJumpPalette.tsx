@@ -138,6 +138,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const repos = useAppStore((s) => s.repos)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
+  const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const prCache = useAppStore((s) => s.prCache)
   const issueCache = useAppStore((s) => s.issueCache)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
@@ -172,15 +173,15 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     const all: Worktree[] = Object.values(worktreesByRepo)
       .flat()
       .filter((w) => !w.isArchived)
-    return sortWorktreesSmart(all, tabsByWorktree, repoMap, prCache)
-  }, [worktreesByRepo, tabsByWorktree, repoMap, prCache])
+    return sortWorktreesSmart(all, tabsByWorktree, ptyIdsByTabId, repoMap, prCache)
+  }, [worktreesByRepo, tabsByWorktree, ptyIdsByTabId, repoMap, prCache])
 
   const browserSortedWorktrees = useMemo(() => {
     const all: Worktree[] = Object.values(worktreesByRepo).flat()
     // Why: browser-tab search is explicitly cross-worktree, so it must keep
     // indexing live browser pages even when their owning worktree is archived.
-    return sortWorktreesSmart(all, tabsByWorktree, repoMap, prCache)
-  }, [worktreesByRepo, tabsByWorktree, repoMap, prCache])
+    return sortWorktreesSmart(all, tabsByWorktree, ptyIdsByTabId, repoMap, prCache)
+  }, [worktreesByRepo, tabsByWorktree, ptyIdsByTabId, repoMap, prCache])
 
   // Why: browser rows need worktree lookups for repo badge colors, and browser
   // search intentionally includes archived worktrees. This map must cover all
@@ -743,7 +744,8 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                 const branch = branchName(worktree.branch)
                 const status = getWorktreeStatus(
                   tabsByWorktree[worktree.id] ?? [],
-                  browserTabsByWorktree[worktree.id] ?? []
+                  browserTabsByWorktree[worktree.id] ?? [],
+                  ptyIdsByTabId
                 )
                 const statusLabel = getWorktreeStatusLabel(status)
                 const isCurrentWorktree = activeWorktreeId === worktree.id

@@ -615,7 +615,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
             // paths. In split panes, later pane spawns must not steal that
             // primary binding from the original pane or remount/close flows can
             // reattach the tab to the wrong PTY and appear to "reset" panes.
-            ptyId: t.ptyId ?? nextPtyIds[0] ?? null
+            // Replace the 'pending-reconnect' sentinel with the real ID so
+            // it doesn't leak into persisted session data or daemon reattach.
+            ptyId: t.ptyId && t.ptyId !== 'pending-reconnect' ? t.ptyId : (nextPtyIds[0] ?? null)
           }
         })
       }
@@ -717,6 +719,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ...s.ptyIdsByTabId,
         ...Object.fromEntries(tabs.map((tab) => [tab.id, [] as string[]] as const))
       }
+      const nextTerminalLayoutsByTabId = { ...s.terminalLayoutsByTabId }
       const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       const nextSuppressedPtyExitIds = {
         ...s.suppressedPtyExitIds,
@@ -733,11 +736,25 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // is later remounted.
       const nextPendingSetupSplitByTabId = { ...s.pendingSetupSplitByTabId }
       const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
+      const nextPendingReconnectTabByWorktree = { ...s.pendingReconnectTabByWorktree }
+      const nextPendingReconnectPtyIdByTabId = { ...s.pendingReconnectPtyIdByTabId }
       for (const tab of tabs) {
+        const existingLayout = nextTerminalLayoutsByTabId[tab.id]
+        if (existingLayout?.ptyIdsByLeafId) {
+          // Why: split-pane layouts persist daemon session IDs separately from
+          // the tab-level ptyId. If shutdown only clears the tab and live PTY
+          // map, a later remount can still read these leaf bindings and try to
+          // reattach to sessions the daemon has already tombstoned, producing
+          // noisy TerminalKilledError logs and failed "shutdown" UX.
+          const { ptyIdsByLeafId: _existingPtyIdsByLeafId, ...layoutWithoutPtyIds } = existingLayout
+          nextTerminalLayoutsByTabId[tab.id] = layoutWithoutPtyIds
+        }
         delete nextRuntimePaneTitlesByTabId[tab.id]
         delete nextPendingSetupSplitByTabId[tab.id]
         delete nextPendingIssueCommandSplitByTabId[tab.id]
+        delete nextPendingReconnectPtyIdByTabId[tab.id]
       }
+      delete nextPendingReconnectTabByWorktree[worktreeId]
 
       // Why: browser tabs are factored into getWorktreeStatus — leaving them
       // behind after shutdown keeps the sidebar dot green even though all
@@ -758,14 +775,23 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const shouldResetGlobalBrowser = isActiveWorktree && hadBrowserTabs
 
       return {
+        // Why: if the shut-down worktree stays selected until the async PTY
+        // kill round-trip finishes, Terminal.tsx can observe an "active but
+        // renderableTabCount === 0" worktree and auto-create a replacement
+        // terminal. Clear selection in the same synchronous state transition
+        // that nulls the PTYs so shutdown cannot resurrect itself.
+        ...(isActiveWorktree ? { activeWorktreeId: null } : {}),
         tabsByWorktree: nextTabsByWorktree,
         ptyIdsByTabId: nextPtyIdsByTabId,
+        terminalLayoutsByTabId: nextTerminalLayoutsByTabId,
         runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
         suppressedPtyExitIds: nextSuppressedPtyExitIds,
         pendingCodexPaneRestartIds: nextPendingCodexPaneRestartIds,
         codexRestartNoticeByPtyId: nextCodexRestartNoticeByPtyId,
         pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
         pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
+        pendingReconnectTabByWorktree: nextPendingReconnectTabByWorktree,
+        pendingReconnectPtyIdByTabId: nextPendingReconnectPtyIdByTabId,
         browserTabsByWorktree: nextBrowserTabsByWorktree,
         activeBrowserTabIdByWorktree: nextActiveBrowserTabIdByWorktree,
         ...(shouldResetGlobalBrowser
@@ -1036,21 +1062,23 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         session.activeRepoId && s.repos.some((repo) => repo.id === session.activeRepoId)
           ? session.activeRepoId
           : null
-
       // Why: workspaceSessionReady stays false here. It is set to true in
       // reconnectPersistedTerminals() after all eager PTY spawns complete.
       // This prevents TerminalPane from mounting and spawning duplicate PTYs
       // before the reconnect phase has set ptyId on each tab.
-      // Why: fall back to deriving the list from tabsByWorktree ptyIds when
-      // activeWorktreeIdsOnShutdown is absent (upgrade from older build).
-      // The raw tabs still carry ptyId values before clearTransientTerminalState
-      // nulls them, so we can infer which worktrees had active terminals.
-      const shutdownIds =
-        session.activeWorktreeIdsOnShutdown ??
-        Object.entries(session.tabsByWorktree)
-          .filter(([, tabs]) => tabs.some((t) => t.ptyId))
-          .map(([wId]) => wId)
-      const pendingReconnectWorktreeIds = shutdownIds.filter((id) => validWorktreeIds.has(id))
+      // Why: older sessions lack activeWorktreeIdsOnShutdown, but raw
+      // tab.ptyId was an over-broad liveness signal that could preserve
+      // stale background worktrees forever. On upgrade, only infer reconnect
+      // eligibility for the last active worktree; newer sessions carry the
+      // explicit activeWorktreeIdsOnShutdown field for multi-worktree restore.
+      const legacyUpgradeReconnectIds =
+        activeWorktreeId &&
+        (session.tabsByWorktree[activeWorktreeId] ?? []).some((tab) => tab.ptyId)
+          ? [activeWorktreeId]
+          : []
+      const pendingReconnectWorktreeIds = (
+        session.activeWorktreeIdsOnShutdown ?? legacyUpgradeReconnectIds
+      ).filter((id) => validWorktreeIds.has(id))
 
       // Why: capture which specific tabs had live PTYs per worktree from the
       // raw session data BEFORE clearTransientTerminalState nulled the ptyIds.
@@ -1227,6 +1255,30 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
                 ...s.ptyIdsByTabId,
                 [tabId]: allPtyIds
               }
+            }
+          })
+        } else if (supportsDeferredReattach) {
+          // Why: without the daemon, there is no real session ID to restore.
+          // Remove the tab's entry from ptyIdsByTabId so hasLivePtyForTab
+          // falls back to tab.ptyId for status badges. Set a sentinel on
+          // tab.ptyId so the fallback reports "live" until TerminalPane
+          // mounts and registers the real PTY via registerPtyId. Unlike
+          // putting the sentinel in the map, this approach keeps the map
+          // clean — shutdown's pty.kill loop won't try to kill a fake ID,
+          // and registerPtyId won't accumulate stale entries.
+          set((s) => {
+            const next = { ...s.tabsByWorktree }
+            if (!next[worktreeId]) {
+              return {}
+            }
+            next[worktreeId] = next[worktreeId].map((t) =>
+              t.id === tabId ? { ...t, ptyId: 'pending-reconnect' } : t
+            )
+            const nextPtyMap = { ...s.ptyIdsByTabId }
+            delete nextPtyMap[tabId]
+            return {
+              tabsByWorktree: next,
+              ptyIdsByTabId: nextPtyMap
             }
           })
         }

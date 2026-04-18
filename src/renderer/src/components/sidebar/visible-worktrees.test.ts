@@ -72,4 +72,36 @@ describe('computeVisibleWorktreeIds', () => {
 
     expect(result).toEqual([wt.id])
   })
+
+  it('hides worktrees whose tab.ptyId is stale but PTY map is empty', () => {
+    const wt = makeWorktree('wt-stale')
+
+    const result = computeVisibleWorktreeIds({ repo1: [wt] }, [wt.id], {
+      filterRepoIds: [],
+      searchQuery: '',
+      showActiveOnly: true,
+      tabsByWorktree: {
+        [wt.id]: [
+          {
+            id: 'tab-1',
+            title: 'shell',
+            ptyId: 'stale',
+            worktreeId: wt.id,
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      },
+      ptyIdsByTabId: { 'tab-1': [] },
+      browserTabsByWorktree: {},
+      activeWorktreeId: null,
+      repoMap,
+      prCache: null,
+      issueCache: null
+    })
+
+    expect(result).toEqual([])
+  })
 })

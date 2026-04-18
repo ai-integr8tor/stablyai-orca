@@ -102,6 +102,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
 
   // ── GRANULAR selectors: only subscribe to THIS worktree's data ──
   const tabs = useAppStore((s) => s.tabsByWorktree[worktree.id] ?? EMPTY_TABS)
+  const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const browserTabs = useAppStore((s) => s.browserTabsByWorktree[worktree.id] ?? EMPTY_BROWSER_TABS)
 
   const branch = branchDisplayName(worktree.branch)
@@ -124,8 +125,8 @@ const WorktreeCard = React.memo(function WorktreeCard({
 
   // Derive status
   const status: WorktreeStatus = useMemo(
-    () => getWorktreeStatus(tabs, browserTabs),
-    [tabs, browserTabs]
+    () => getWorktreeStatus(tabs, browserTabs, ptyIdsByTabId),
+    [tabs, browserTabs, ptyIdsByTabId]
   )
 
   const showPR = cardProps.includes('pr')
