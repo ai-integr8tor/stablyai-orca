@@ -3,7 +3,8 @@
 import React, { useEffect, useCallback, useMemo, useRef, useState, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
+import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT, CLOSE_BROWSER_TAB_EVENT } from '@/constants/terminal'
+import type { CloseBrowserTabDetail } from '@/constants/terminal'
 import { useAppStore } from '../store'
 import { useAllWorktrees } from '../store/selectors'
 import { findWorktreeById } from '../store/slices/worktree-helpers'
@@ -745,6 +746,11 @@ function Terminal(): React.JSX.Element | null {
         if (state.activeTabType === 'editor' && state.activeFileId) {
           handleCloseFile(state.activeFileId)
         } else if (state.activeTabType === 'browser' && state.activeBrowserTabId) {
+          // Why: destroy the webview DOM element before the store update so
+          // the BrowserPane cleanup effect does not re-park it in the hidden
+          // container — re-parking resumes paused media and leaves an
+          // unkillable background video.
+          destroyPersistentWebview(state.activeBrowserTabId)
           closeBrowserTab(state.activeBrowserTabId)
         }
         return
@@ -891,7 +897,16 @@ function Terminal(): React.JSX.Element | null {
   // call destroyPersistentWebview (renderer-only DOM code). This subscriber
   // detects when browser tabs disappear from a worktree (e.g. worktree deleted)
   // and destroys orphaned webview elements to prevent memory leaks.
-  const prevBrowserTabIdsRef = useRef<Set<string>>(new Set())
+  // Why: seed with the current set of browser tab IDs so the subscriber
+  // can detect removals even if no browserTabsByWorktree change occurred
+  // between effect setup and the first tab close (e.g. session-restored tabs).
+  const prevBrowserTabIdsRef = useRef<Set<string>>(
+    new Set(
+      Object.values(useAppStore.getState().browserTabsByWorktree)
+        .flat()
+        .map((tab) => tab.id)
+    )
+  )
   useEffect(() => {
     let prevBrowserTabs = useAppStore.getState().browserTabsByWorktree
     return useAppStore.subscribe((state) => {
@@ -912,6 +927,18 @@ function Terminal(): React.JSX.Element | null {
       prevBrowserTabIdsRef.current = currentIds
     })
   }, [])
+
+  // Why: Cmd+W inside a webview guest dispatches this event (via IPC →
+  // useIpcEvents). Routed through handleCloseBrowserTab so the same
+  // destroy → close → fallback logic runs regardless of close trigger.
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const { browserTabId } = (e as CustomEvent<CloseBrowserTabDetail>).detail
+      handleCloseBrowserTab(browserTabId)
+    }
+    window.addEventListener(CLOSE_BROWSER_TAB_EVENT, handler)
+    return () => window.removeEventListener(CLOSE_BROWSER_TAB_EVENT, handler)
+  }, [handleCloseBrowserTab])
 
   // Why: defensive guard against state inconsistency. If activeTabType is
   // 'browser' but no browser tab can be rendered (e.g. activeBrowserTabId is
