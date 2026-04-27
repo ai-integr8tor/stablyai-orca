@@ -494,7 +494,13 @@ export function connectPanePty(
         return
       }
       deps.syncPanePtyLayoutBinding(pane.id, ptyId)
-      deps.updateTabPtyId(deps.tabId, ptyId)
+      // Why: pass isReattach so updateTabPtyId does not bump the worktree's
+      // lastActivityAt. Every caller of this helper is a reattach path
+      // (deferred daemon session, deferred SSH session) rebinding an
+      // existing PTY — not a fresh activity signal. Bumping here would
+      // stamp background worktrees with Date.now() on cold-start reconnect
+      // and knock a just-created foreground worktree out of Recent.
+      deps.updateTabPtyId(deps.tabId, ptyId, { isReattach: true })
 
       if (connectResult?.coldRestore) {
         // Why: restoreScrollbackBuffers() already wrote the saved xterm
@@ -748,7 +754,10 @@ export function connectPanePty(
           }
         })
         deps.syncPanePtyLayoutBinding(pane.id, detachedLivePtyId)
-        deps.updateTabPtyId(deps.tabId, detachedLivePtyId)
+        // Why: reattaching a live in-session PTY (daemon-off split remount).
+        // The PTY already existed — no new user activity, so don't bump
+        // lastActivityAt.
+        deps.updateTabPtyId(deps.tabId, detachedLivePtyId, { isReattach: true })
       } catch (err) {
         reportError(err instanceof Error ? err.message : String(err))
         deps.clearTabPtyId(deps.tabId, detachedLivePtyId)
@@ -784,7 +793,10 @@ export function connectPanePty(
             // Persist the binding here so tab-level PTY ownership stays correct
             // even if no later spawn event or layout snapshot runs.
             deps.syncPanePtyLayoutBinding(pane.id, spawnedPtyId)
-            deps.updateTabPtyId(deps.tabId, spawnedPtyId)
+            // Why: the original mount's onPtySpawn already bumped
+            // lastActivityAt for this worktree. This remount is just
+            // re-binding to the same PTY — not a fresh activity signal.
+            deps.updateTabPtyId(deps.tabId, spawnedPtyId, { isReattach: true })
             transport.attach({
               existingPtyId: spawnedPtyId,
               cols,

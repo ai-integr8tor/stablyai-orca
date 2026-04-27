@@ -528,6 +528,13 @@ describe('connectPanePty', () => {
     expect(transport.attach).not.toHaveBeenCalled()
     await Promise.resolve()
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(2, 'leaf-pty-2')
+    // Why: deferred daemon reattach must flag updateTabPtyId with isReattach
+    // so the worktree slice skips bumpWorktreeActivity. Without the flag,
+    // cold-start reconnect of background worktree terminals would stamp
+    // lastActivityAt=Date.now() and reorder Recent against the user.
+    expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'leaf-pty-2', {
+      isReattach: true
+    })
   })
 
   it('spawns a fresh PTY when a restored daemon split session cannot reattach', async () => {
@@ -655,7 +662,13 @@ describe('connectPanePty', () => {
     )
     expect(transport.connect).not.toHaveBeenCalled()
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(2, 'pty-local-detached')
-    expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'pty-local-detached')
+    // Why: reattach must flag updateTabPtyId with isReattach so the worktree
+    // slice skips the bumpWorktreeActivity call. Without this flag, a
+    // background worktree's split-remount would stamp lastActivityAt=Date.now()
+    // and bump itself above a just-created foreground worktree in Recent.
+    expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'pty-local-detached', {
+      isReattach: true
+    })
   })
 
   it('reattaches via daemon sessionId when the daemon is enabled and an in-session PTY is live', async () => {
@@ -927,7 +940,12 @@ describe('connectPanePty', () => {
     )
     expect(mockStoreState.removeDeferredSshSessionId).toHaveBeenCalledWith('tab-1')
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, 'leaf-session')
-    expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'leaf-session')
+    // Why: SSH deferred reattach rebinds an existing remote PTY to the tab,
+    // so it must flag updateTabPtyId with isReattach to skip
+    // bumpWorktreeActivity — same contract as the daemon deferred reattach.
+    expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'leaf-session', {
+      isReattach: true
+    })
     // Why: the relay's replay buffer holds the full terminal history, so the
     // client clears xterm before writing to prevent duplication with any
     // content already in the terminal from a prior session.

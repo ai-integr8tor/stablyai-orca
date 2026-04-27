@@ -142,7 +142,7 @@ export type TerminalSlice = {
   clearTerminalTabUnread: (tabId: string) => void
   setTabCustomTitle: (tabId: string, title: string | null) => void
   setTabColor: (tabId: string, color: string | null) => void
-  updateTabPtyId: (tabId: string, ptyId: string) => void
+  updateTabPtyId: (tabId: string, ptyId: string, options?: { isReattach?: boolean }) => void
   clearTabPtyId: (tabId: string, ptyId?: string) => void
   shutdownWorktreeTerminals: (worktreeId: string) => Promise<void>
   suppressPtyExit: (ptyId: string) => void
@@ -798,7 +798,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     }
   },
 
-  updateTabPtyId: (tabId, ptyId) => {
+  updateTabPtyId: (tabId, ptyId, options) => {
     let worktreeId: string | null = null
     set((s) => {
       const next = { ...s.tabsByWorktree }
@@ -849,8 +849,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
     })
 
-    // Bump meaningful activity when a PTY spawns
-    if (worktreeId) {
+    // Bump meaningful activity when a PTY spawns. Skip on reattach: the PTY
+    // already existed (from a prior app session or a split-pane remount), so
+    // binding it to a tab is not a fresh user action. Treating it as activity
+    // would stamp background worktrees with Date.now() during cold-start
+    // reconnect and knock a just-created worktree out of the top of Recent.
+    if (worktreeId && !options?.isReattach) {
       get().bumpWorktreeActivity(worktreeId)
     }
   },
