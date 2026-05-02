@@ -91,6 +91,7 @@ function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings
     experimentalSidekick: false,
     terminalWindowsShell: 'powershell.exe',
     enableGitHubAttribution: true,
+    markdownDocumentTemplates: [],
     ...overrides
   }
 }
