@@ -177,14 +177,25 @@ function App(): React.JSX.Element {
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const activeTabId = useAppStore((s) => s.activeTabId)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
-  const agentInputs = useAppStore(
+  // Why: countWorkingAgents reads only tabsByWorktree, runtimePaneTitlesByTabId,
+  // and worktreesByRepo. Excluding numericPaneIdByPaneKey here avoids forcing
+  // the titlebar working-agent count to recompute on every pane create/close.
+  const countingInputs = useAppStore(
     useShallow((s) => ({
       tabsByWorktree: s.tabsByWorktree,
       runtimePaneTitlesByTabId: s.runtimePaneTitlesByTabId,
       worktreesByRepo: s.worktreesByRepo
     }))
   )
-  const activeAgentCount = useMemo(() => countWorkingAgents(agentInputs), [agentInputs])
+  const agentInputs = useAppStore(
+    useShallow((s) => ({
+      tabsByWorktree: s.tabsByWorktree,
+      runtimePaneTitlesByTabId: s.runtimePaneTitlesByTabId,
+      numericPaneIdByPaneKey: s.numericPaneIdByPaneKey,
+      worktreesByRepo: s.worktreesByRepo
+    }))
+  )
+  const activeAgentCount = useMemo(() => countWorkingAgents(countingInputs), [countingInputs])
   const workingAgentsPerWorktree = useMemo(
     () => getWorkingAgentsPerWorktree(agentInputs),
     [agentInputs]
@@ -881,11 +892,11 @@ function App(): React.JSX.Element {
                         </button>
                         {agents.map((agent) => (
                           <button
-                            key={`${agent.tabId}:${agent.paneId ?? 'none'}:${agent.label}`}
+                            key={`${agent.tabId}:${agent.stablePaneId ?? agent.paneId ?? 'none'}:${agent.label}`}
                             className="titlebar-agent-hovercard-agent"
                             onClick={() => {
                               activateAndRevealWorktree(worktreeId)
-                              activateTabAndFocusPane(agent.tabId, agent.paneId)
+                              activateTabAndFocusPane(agent.tabId, agent.stablePaneId)
                             }}
                           >
                             <span className="titlebar-agent-hovercard-agent-label">

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalTab, Worktree } from '../../../shared/types'
+import { makePaneKey } from '../../../shared/stable-pane-id'
 import { countWorkingAgents, getWorkingAgentsPerWorktree } from './agent-status'
 
 function makeTab(overrides: Partial<TerminalTab> = {}): TerminalTab {
@@ -145,8 +146,55 @@ describe('getWorkingAgentsPerWorktree', () => {
     ).toEqual({
       'wt-1': {
         agents: [
-          { label: 'Claude Code', status: 'working', tabId: 'tab-1', paneId: 1 },
-          { label: 'Gemini CLI', status: 'working', tabId: 'tab-1', paneId: 2 }
+          {
+            label: 'Claude Code',
+            status: 'working',
+            tabId: 'tab-1',
+            paneId: 1,
+            stablePaneId: null
+          },
+          {
+            label: 'Gemini CLI',
+            status: 'working',
+            tabId: 'tab-1',
+            paneId: 2,
+            stablePaneId: null
+          }
+        ]
+      }
+    })
+  })
+
+  it('uses the paneKey mirror to attach stablePaneId to working split-pane rows', () => {
+    const stablePaneId = '11111111-1111-4111-8111-111111111111'
+    expect(
+      getWorkingAgentsPerWorktree({
+        tabsByWorktree: {
+          'wt-1': [makeTab({ id: 'tab-1', title: '⠂ Claude Code' })]
+        },
+        runtimePaneTitlesByTabId: {
+          'tab-1': {
+            1: 'bash',
+            2: '⠂ Claude Code'
+          }
+        },
+        // Why: rows derived from numeric title state still need the stable
+        // pane id for cross-boundary focus routing.
+        numericPaneIdByPaneKey: {
+          [makePaneKey('tab-1', stablePaneId)]: 2
+        },
+        worktreesByRepo: worktrees('wt-1')
+      })
+    ).toEqual({
+      'wt-1': {
+        agents: [
+          {
+            label: 'Claude Code',
+            status: 'working',
+            tabId: 'tab-1',
+            paneId: 2,
+            stablePaneId
+          }
         ]
       }
     })
@@ -164,7 +212,15 @@ describe('getWorkingAgentsPerWorktree', () => {
       })
     ).toEqual({
       'wt-1': {
-        agents: [{ label: 'Claude Code', status: 'working', tabId: 'tab-1', paneId: null }]
+        agents: [
+          {
+            label: 'Claude Code',
+            status: 'working',
+            tabId: 'tab-1',
+            paneId: null,
+            stablePaneId: null
+          }
+        ]
       }
     })
   })

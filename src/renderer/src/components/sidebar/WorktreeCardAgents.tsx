@@ -8,6 +8,8 @@ import { useNow } from '@/components/dashboard/useNow'
 import { useWorktreeAgentRows } from './useWorktreeAgentRows'
 import { cn } from '@/lib/utils'
 import type { DashboardAgentRow as DashboardAgentRowData } from '@/components/dashboard/useDashboardData'
+import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { dismissStaleAgentRowByKey } from '../terminal-pane/stale-agent-row'
 
 type Props = {
   worktreeId: string
@@ -52,7 +54,6 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
 }: BodyProps) {
   const dropAgentStatus = useAppStore((s) => s.dropAgentStatus)
   const dismissRetainedAgent = useAppStore((s) => s.dismissRetainedAgent)
-  const acknowledgeAgents = useAppStore((s) => s.acknowledgeAgents)
 
   // Why: per-worktree collapse is session-only UI state. Single-primitive
   // subscription so the card only re-renders when THIS worktree's collapsed
@@ -86,19 +87,30 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
 
   const handleActivateAgentTab = useCallback(
     (tabId: string, paneKey: string) => {
-      acknowledgeAgents([paneKey])
-      const colon = paneKey.indexOf(':')
-      const tail = colon > 0 ? paneKey.slice(colon + 1) : ''
-      const parsed = /^\d+$/.test(tail) ? Number.parseInt(tail, 10) : NaN
-      let paneId: number | null = null
-      if (Number.isFinite(parsed) && parsed > 0) {
-        paneId = parsed
-      } else {
-        // Why: paneKey for sidebar agent rows is always ${tabId}:${paneId}
-        // with a positive integer paneId; anything else (empty, zero,
-        // non-numeric) means upstream row construction drifted.
+      // Why: dismissal happens inline for malformed/legacy paneKeys (can't
+      // decompose into a UUID stableId, so the focus dispatch can't fire);
+      // for live keys whose pane is gone, surfaceStaleAgentRow handles it
+      // via the focus-listener path.
+      const parsed = parsePaneKey(paneKey)
+      if (!parsed) {
         console.warn('[WorktreeCardAgents] malformed paneKey, skipping pane focus', paneKey)
+        dismissStaleAgentRowByKey(paneKey)
+        return
       }
+      // Why: defensive — if the row's tabId disagrees with the paneKey's
+      // embedded tabId (stale row, upstream bug), activating the row's tab
+      // while dispatching focus for a stablePaneId that belongs to a different
+      // tab would silently misroute. Mirrors the equivalent guard in
+      // ResourceUsageStatusSegment.tsx.
+      if (parsed.tabId !== tabId) {
+        console.warn('[WorktreeCardAgents] paneKey tabId mismatch, dismissing row', {
+          tabId,
+          paneKey
+        })
+        dismissStaleAgentRowByKey(paneKey)
+        return
+      }
+      const stablePaneId = parsed.stablePaneId
       // Why: route through activateAndRevealWorktree so cross-repo clicks also
       // set activeRepoId, record a nav-history entry, clear sidebar filters,
       // reveal the card, and stamp focus recency — per the design doc rule
@@ -109,10 +121,15 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
       activateAndRevealWorktree(worktreeId)
       const tabs = useAppStore.getState().tabsByWorktree[worktreeId] ?? []
       if (tabs.some((t) => t.id === tabId)) {
-        activateTabAndFocusPane(tabId, paneId)
+        activateTabAndFocusPane(tabId, stablePaneId, { ackPaneKeyOnSuccess: paneKey })
+      } else {
+        // Why: tab disappeared between render and click. Dismiss the row visibly
+        // (matching the malformed-paneKey branch above) so the user gets feedback
+        // instead of a silent no-op.
+        dismissStaleAgentRowByKey(paneKey)
       }
     },
-    [worktreeId, acknowledgeAgents]
+    [worktreeId]
   )
 
   const handleToggleCollapsed = useCallback(

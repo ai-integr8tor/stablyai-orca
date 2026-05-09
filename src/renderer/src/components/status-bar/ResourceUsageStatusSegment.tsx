@@ -38,6 +38,7 @@ import { runSleepWorktree } from '../sidebar/sleep-worktree-flow'
 import { useDaemonActions, DaemonActionDialog } from '../shared/useDaemonActions'
 import type { AppMemory, UsageValues, Worktree } from '../../../../shared/types'
 import { ORPHAN_WORKTREE_ID } from '../../../../shared/constants'
+import { parsePaneKey } from '../../../../shared/stable-pane-id'
 import {
   mergeSnapshotAndSessions,
   UNATTRIBUTED_REPO_ID,
@@ -649,6 +650,7 @@ export function ResourceUsageStatusSegment({
   const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const runtimePaneTitlesByTabId = useAppStore((s) => s.runtimePaneTitlesByTabId)
+  const numericPaneIdByPaneKey = useAppStore((s) => s.numericPaneIdByPaneKey)
   const setActiveView = useAppStore((s) => s.setActiveView)
   const repos = useAppStore((s) => s.repos)
 
@@ -738,6 +740,7 @@ export function ResourceUsageStatusSegment({
             tabsByWorktree,
             ptyIdsByTabId,
             runtimePaneTitlesByTabId,
+            numericPaneIdByPaneKey,
             workspaceSessionReady,
             repoDisplayNameById
           })
@@ -749,6 +752,7 @@ export function ResourceUsageStatusSegment({
       tabsByWorktree,
       ptyIdsByTabId,
       runtimePaneTitlesByTabId,
+      numericPaneIdByPaneKey,
       workspaceSessionReady,
       repoDisplayNameById
     ]
@@ -845,17 +849,19 @@ export function ResourceUsageStatusSegment({
         }
       }
       setActiveView('terminal')
-      // Why: snapshot-derived rows carry a `${tabId}:${paneId}` paneKey from
-      // the main-process pty registry — parse the paneId tail so split-tab
-      // clicks land focus on the *clicked* pane rather than whichever pane
-      // was last active. Daemon-only rows have paneKey=null and degrade to
-      // tab-only activation.
-      const colon = paneKey ? paneKey.indexOf(':') : -1
-      const tail = colon > 0 && paneKey ? paneKey.slice(colon + 1) : ''
-      const parsed = /^\d+$/.test(tail) ? Number.parseInt(tail, 10) : NaN
-      const paneId =
-        Number.isFinite(parsed) && parsed > 0 && paneKey?.slice(0, colon) === tabId ? parsed : null
-      activateTabAndFocusPane(tabId, paneId)
+      // Why: snapshot-derived rows carry a `${tabId}:${stablePaneId}` paneKey
+      // from the main-process pty registry — route through parsePaneKey so we
+      // only dispatch a UUID stableId into the focus pipeline. Pre-migration
+      // paneKeys with non-UUID (e.g. numeric) suffixes, or keys whose tabId
+      // doesn't match this row's tab, degrade to tab-only activation rather
+      // than triggering a misleading "pane no longer available" stale toast.
+      // Daemon-only rows have paneKey=null and likewise fall back to tab-only.
+      // For live valid keys, the focus listener resolves the UUID via the
+      // manager and surfaces a stale toast if the pane has been closed since
+      // the popover was last refreshed.
+      const parsed = paneKey ? parsePaneKey(paneKey) : null
+      const stablePaneId = parsed && parsed.tabId === tabId ? parsed.stablePaneId : null
+      activateTabAndFocusPane(tabId, stablePaneId)
     },
     [tabsByWorktree, setActiveView]
   )

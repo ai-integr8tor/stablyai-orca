@@ -201,16 +201,55 @@ export function serializePaneTree(node: HTMLElement | null): TerminalPaneLayoutN
 export function serializeTerminalLayout(
   root: HTMLDivElement | null,
   activePaneId: number | null,
-  expandedPaneId: number | null
+  expandedPaneId: number | null,
+  stablePaneIdByPaneId?: ReadonlyMap<number, string>
 ): TerminalLayoutSnapshot {
   const rootNode = serializePaneTree(
     root?.firstElementChild instanceof HTMLElement ? root.firstElementChild : null
   )
-  return {
+  const snapshot: TerminalLayoutSnapshot = {
     root: rootNode,
     activeLeafId: activePaneId === null ? null : paneLeafId(activePaneId),
     expandedLeafId: expandedPaneId === null ? null : paneLeafId(expandedPaneId)
   }
+  // Why: persist stablePaneId per leaf so layout replay rebinds the same UUID
+  // to the corresponding leaf, preserving the cross-boundary paneKey identity
+  // that retained agent rows + ORCA_PANE_KEY hooks rely on. The DOM walk
+  // already produced the numeric paneId per leaf; this lift uses the snapshot
+  // map (taken from PaneManager.getStablePaneIdMap()) to map numeric → UUID
+  // without re-deriving identity from the DOM. Skipped when the caller didn't
+  // pass the map (legacy call sites or tests that don't have a manager).
+  if (stablePaneIdByPaneId && stablePaneIdByPaneId.size > 0 && rootNode) {
+    const stablePaneIdByLeafId: Record<string, string> = {}
+    for (const leafId of collectLeafIdsInOrder(rootNode)) {
+      const numericId = parsePaneIdFromLeafId(leafId)
+      if (numericId === null) {
+        continue
+      }
+      const stableId = stablePaneIdByPaneId.get(numericId)
+      if (stableId) {
+        stablePaneIdByLeafId[leafId] = stableId
+      }
+    }
+    if (Object.keys(stablePaneIdByLeafId).length > 0) {
+      snapshot.stablePaneIdByLeafId = stablePaneIdByLeafId
+    }
+  }
+  return snapshot
+}
+
+function parsePaneIdFromLeafId(leafId: string): number | null {
+  if (!leafId.startsWith('pane:')) {
+    return null
+  }
+  const tail = leafId.slice('pane:'.length)
+  // Why: nextPaneId only allocates positive integers starting at 1. Use a strict
+  // digit regex (rather than Number(tail)) to reject non-canonical inputs like
+  // '1e3', '+2', ' 3 ', or leading zeros that Number() would silently coerce.
+  if (!/^[1-9]\d*$/.test(tail)) {
+    return null
+  }
+  return Number.parseInt(tail, 10)
 }
 
 function collectLeafIds(
@@ -289,7 +328,23 @@ export function replayTerminalLayout(
 ): Map<string, number> {
   const paneByLeafId = new Map<string, number>()
 
-  const initialPane = manager.createInitialPane({ focus: focusInitialPane })
+  // Why: pass the snapshot UUID at mint time rather than swapping it in via
+  // adoptStablePaneId after the panes are created. createInitialPane and
+  // splitPane fire onPaneCreated synchronously, which invokes connectPanePty,
+  // which captures cacheKey from pane.stablePaneId — so any post-mint adoption
+  // would lose to that synchronous read and silently bypass the entire
+  // stable-pane-id migration on every layout restore. The createdPane after
+  // splitPane(parent, dir) corresponds to the leftmost leaf in `node.second`
+  // (the new subtree), so we hint with that snapshot leaf's UUID.
+  const stableIdByLeafId = snapshot?.stablePaneIdByLeafId
+  const hintFor = (leafId: string | undefined): string | undefined =>
+    leafId && stableIdByLeafId ? stableIdByLeafId[leafId] : undefined
+
+  const initialLeafId = snapshot?.root ? getLeftmostLeafId(snapshot.root) : undefined
+  const initialPane = manager.createInitialPane({
+    focus: focusInitialPane,
+    stablePaneIdHint: hintFor(initialLeafId)
+  })
   if (!snapshot?.root) {
     paneByLeafId.set(paneLeafId(initialPane.id), initialPane.id)
     return paneByLeafId
@@ -301,8 +356,10 @@ export function replayTerminalLayout(
       return
     }
 
+    const createdLeafId = getLeftmostLeafId(node.second)
     const createdPane = manager.splitPane(paneId, node.direction as TerminalPaneSplitDirection, {
-      ratio: node.ratio
+      ratio: node.ratio,
+      stablePaneIdHint: hintFor(createdLeafId)
     })
     if (!createdPane) {
       collectLeafIds(node, paneByLeafId, paneId)
@@ -314,5 +371,41 @@ export function replayTerminalLayout(
   }
 
   restoreNode(snapshot.root, initialPane.id)
+
+  // Why: when splitPane fails inside restoreNode, collectLeafIds collapses
+  // every leaf in the failed subtree onto the same numericId. Detect those
+  // collapsed numericIds up front so the late-binding adopt loop can skip
+  // them — see comment inside the loop.
+  const duplicatedNumericIds = new Set<number>()
+  const seenNumericIds = new Set<number>()
+  for (const numericId of paneByLeafId.values()) {
+    if (seenNumericIds.has(numericId)) {
+      duplicatedNumericIds.add(numericId)
+    } else {
+      seenNumericIds.add(numericId)
+    }
+  }
+
+  // Why: defensive late-binding fallback. Mint-time hints (above) handle the
+  // common path; this only fires for leaves whose snapshot UUID either failed
+  // the v4 guard or collided with a live pane at mint time. adoptStablePaneId
+  // is a no-op when the pane already holds the snapshot UUID.
+  if (stableIdByLeafId) {
+    for (const [leafId, stableId] of Object.entries(stableIdByLeafId)) {
+      const numericId = paneByLeafId.get(leafId)
+      if (numericId == null || !stableId) {
+        continue
+      }
+      // Why: split-failed subtrees collapse every leaf onto the same numericId.
+      // adoptStablePaneId would then overwrite previous→new for each iteration,
+      // silently dropping every leaf's UUID except the last. Skip the adoption
+      // entirely for those collapsed leaves — better to keep the freshly minted
+      // UUID than to assign one snapshot UUID to a pane representing N leaves.
+      if (duplicatedNumericIds.has(numericId)) {
+        continue
+      }
+      manager.adoptStablePaneId(numericId, stableId)
+    }
+  }
   return paneByLeafId
 }

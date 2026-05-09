@@ -22,6 +22,7 @@
  * See docs/resource-usage-merge-spec.md for the full design.
  */
 
+import { parsePaneKey } from '../../../../shared/stable-pane-id'
 import type {
   MemorySnapshot,
   SessionMemory,
@@ -80,8 +81,14 @@ export type MergeContext = {
   tabsByWorktree: Record<string, TerminalTab[]>
   /** From useAppStore: maps tabId → ptyIds[] for the bound check. */
   ptyIdsByTabId: Record<string, string[]>
-  /** From useAppStore: per-tab live pane titles (for label resolution). */
+  /** From useAppStore: per-tab live pane titles (for label resolution).
+   *  Indexed by the renderer-local numeric paneId — the renderer-internal
+   *  handle that never crosses an IPC boundary. Cross-boundary callers must
+   *  resolve through `numericPaneIdByPaneKey` first. */
   runtimePaneTitlesByTabId: Record<string, Record<number, string>>
+  /** From useAppStore: maps `${tabId}:${stablePaneId}` paneKey → numeric
+   *  paneId. PaneManager writes this on pane create/adopt/close. */
+  numericPaneIdByPaneKey: Record<string, number>
   /** From useAppStore: false until the renderer has booted enough state to
    *  trust the bound/orphan distinction. Mirrors the existing gate. */
   workspaceSessionReady: boolean
@@ -137,28 +144,16 @@ function shortCwd(cwd: string): string {
   return parts.length > 2 ? parts.slice(-2).join(sep) : cwd
 }
 
-function parsePaneKey(paneKey: string | null): { tabId: string; paneRuntimeId: number } | null {
-  if (!paneKey) {
-    return null
-  }
-  const sepIdx = paneKey.indexOf(':')
-  if (sepIdx <= 0) {
-    return null
-  }
-  const paneRuntimeId = Number(paneKey.slice(sepIdx + 1))
-  if (!Number.isFinite(paneRuntimeId)) {
-    return null
-  }
-  return { tabId: paneKey.slice(0, sepIdx), paneRuntimeId }
-}
-
 function resolveSnapshotSessionLabel(
   session: SessionMemory,
   worktreeId: string,
   ctx: MergeContext
 ): string {
-  const parsed = parsePaneKey(session.paneKey)
-  if (parsed) {
+  // Why: shared parsePaneKey rejects non-UUID suffixes so pre-migration
+  // numeric paneKeys surviving in a daemon snapshot can't reach pane lookup.
+  const paneKey = session.paneKey
+  const parsed = paneKey ? parsePaneKey(paneKey) : null
+  if (parsed && paneKey) {
     const tabs = ctx.tabsByWorktree[worktreeId] ?? []
     const tabIndex = tabs.findIndex((t) => t.id === parsed.tabId)
     const tab = tabIndex >= 0 ? tabs[tabIndex] : undefined
@@ -167,9 +162,32 @@ function resolveSnapshotSessionLabel(
       if (custom) {
         return custom
       }
-      const runtime = ctx.runtimePaneTitlesByTabId[parsed.tabId]?.[parsed.paneRuntimeId]?.trim()
+      // Why: paneKey is opaque post-stablePaneId migration, but
+      // runtimePaneTitlesByTabId is still indexed by the renderer-local
+      // numeric paneId. Resolve through the store-backed mirror that
+      // PaneManager populates on pane create/adopt/close.
+      const numericId = ctx.numericPaneIdByPaneKey[paneKey]
+      const runtime =
+        typeof numericId === 'number'
+          ? ctx.runtimePaneTitlesByTabId[parsed.tabId]?.[numericId]?.trim()
+          : undefined
       if (runtime) {
         return runtime
+      }
+      // Why: when the mirror briefly lacks an entry for this paneKey, we can
+      // only borrow the same-tab runtime title if this snapshot session is the
+      // tab's sole live PTY. runtimePaneTitlesByTabId is sparse (untitled panes
+      // may have no entry), so title-map cardinality alone is not a safe pane
+      // count. The PTY binding keeps split-pane tabs ambiguous instead of
+      // mis-attributing a sibling pane's title to this session.
+      const runtimeMap = ctx.runtimePaneTitlesByTabId[parsed.tabId]
+      const tabPtyIds = ctx.ptyIdsByTabId[parsed.tabId] ?? []
+      const isOnlyPtyForTab = tabPtyIds.length === 1 && tabPtyIds[0] === session.sessionId
+      if (isOnlyPtyForTab && runtimeMap && Object.keys(runtimeMap).length === 1) {
+        const live = Object.values(runtimeMap)[0]?.trim()
+        if (live) {
+          return live
+        }
       }
       return tab.defaultTitle?.trim() || tab.title?.trim() || `Terminal ${tabIndex + 1}`
     }

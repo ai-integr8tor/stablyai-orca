@@ -9,6 +9,9 @@ import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
 import type { PtyTransport } from './pty-transport'
 import { handleTerminalFileDrop } from './terminal-drop-handler'
+import { surfaceStaleAgentRow } from './stale-agent-row'
+import { useAppStore } from '@/store'
+import { handleFocusTerminalPaneDetail } from './focus-terminal-pane-event'
 
 type UseTerminalPaneGlobalEffectsArgs = {
   tabId: string
@@ -108,18 +111,12 @@ export function useTerminalPaneGlobalEffects({
   useEffect(() => {
     const onFocusPane = (event: Event): void => {
       const detail = (event as CustomEvent<FocusTerminalPaneDetail | undefined>).detail
-      if (!detail?.tabId || detail.tabId !== tabId) {
-        return
-      }
-      const manager = managerRef.current
-      if (!manager) {
-        return
-      }
-      const pane = manager.getPanes().find((candidate) => candidate.id === detail.paneId)
-      if (!pane) {
-        return
-      }
-      manager.setActivePane(pane.id, { focus: true })
+      handleFocusTerminalPaneDetail(detail, {
+        tabId,
+        manager: managerRef.current,
+        acknowledgeAgents: (paneKeys) => useAppStore.getState().acknowledgeAgents(paneKeys),
+        surfaceStaleAgentRow
+      })
     }
     window.addEventListener(FOCUS_TERMINAL_PANE_EVENT, onFocusPane)
     return () => window.removeEventListener(FOCUS_TERMINAL_PANE_EVENT, onFocusPane)

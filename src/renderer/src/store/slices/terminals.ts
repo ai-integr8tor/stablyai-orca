@@ -8,6 +8,7 @@ import type {
   Worktree,
   WorkspaceSessionState
 } from '../../../../shared/types'
+import type { PaneKey } from '../../../../shared/stable-pane-id'
 import type { AgentStartedTelemetry } from '../../lib/worktree-activation'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { clearTransientTerminalState, emptyLayoutSnapshot } from './terminal-helpers'
@@ -63,6 +64,14 @@ export type TerminalSlice = {
   /** Live pane titles keyed by tabId then paneId. Unlike the legacy tab title,
    *  this preserves split-pane agent status per pane while TerminalPane is mounted. */
   runtimePaneTitlesByTabId: Record<string, Record<number, string>>
+  /** Mirror of PaneManager's `${tabId}:${stablePaneId}` → numeric paneId
+   *  binding, used by IPC-layer code that can't reach a manager ref (e.g.
+   *  useIpcEvents.resolvePaneKey, mergeSnapshotAndSessions) to translate an
+   *  opaque cross-boundary paneKey back to the renderer-local numeric paneId
+   *  for state keyed by it (runtimePaneTitlesByTabId). PaneManager writes this
+   *  via the onStableId* callbacks in pane-manager-options. Renderer-only
+   *  state — never persisted, never crosses an IPC boundary. */
+  numericPaneIdByPaneKey: Record<string, number>
   /** Why: per-tab activity indicators. A tab gets flagged unread when an
    *  agent in any of its panes transitions working→idle (onAgentBecameIdle
    *  in pty-connection.ts) while the tab is not currently focused. The flag
@@ -146,6 +155,14 @@ export type TerminalSlice = {
   updateTabTitle: (tabId: string, title: string) => void
   setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
+  /** Register a `${tabId}:${stablePaneId}` → numeric paneId binding when a
+   *  pane is created or adopts a snapshot UUID. Idempotent on identical
+   *  values so PaneManager's onStableId* callbacks can fire freely. */
+  registerPaneKeyMapping: (paneKey: PaneKey, paneId: number) => void
+  /** Remove a `${tabId}:${stablePaneId}` mapping when a pane closes. Silent
+   *  no-op when the entry isn't present (e.g. close fires before any mapping
+   *  was registered for a transient/legacy pane). */
+  unregisterPaneKeyMapping: (paneKey: PaneKey) => void
   /** Mark a tab as having unread activity (agent working→idle transition).
    *  Skipped when the tab is currently visible to the user — either as
    *  the global active terminal tab, or as the active tab of any split
@@ -202,8 +219,9 @@ export type TerminalSlice = {
     tabId: string
   ) => { command: string; env?: Record<string, string> } | null
   /** Per-pane timestamp (ms) when the prompt-cache countdown started (agent became idle).
-   *  Keys are `${tabId}:${paneId}` composites so split-pane tabs can track each pane
-   *  independently. null means no active timer for that pane. */
+   *  Keys are `${tabId}:${stablePaneId}` composites (matching the agentStatusByPaneKey
+   *  shape) so split-pane tabs can track each pane independently across renderer
+   *  reloads. null means no active timer for that pane. */
   cacheTimerByKey: Record<string, number | null>
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
   /** Scan all tabs and seed cache timers for any idle Claude sessions that don't
@@ -230,6 +248,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   activeTabIdByWorktree: {},
   ptyIdsByTabId: {},
   runtimePaneTitlesByTabId: {},
+  numericPaneIdByPaneKey: {},
   unreadTerminalTabs: {},
   suppressedPtyExitIds: {},
   pendingCodexPaneRestartIds: {},
@@ -255,7 +274,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   setCacheTimerStartedAt: (key, ts) => {
     set((s) => {
       const next = { ...s.cacheTimerByKey, [key]: ts }
-      // Why: when a real pane transition writes a key like `${tabId}:${paneId}`,
+      // Why: when a real pane transition writes a key like `${tabId}:${stablePaneId}`,
       // clean up any `${tabId}:seed` sentinel left by seedCacheTimersForIdleTabs.
       // This prevents phantom timers when the seeded key doesn't match the real
       // pane ID (e.g., idle Claude in pane 2 of a split tab).
@@ -475,11 +494,20 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       const nextPendingIssueCommandSplitByTabId = { ...s.pendingIssueCommandSplitByTabId }
       delete nextPendingIssueCommandSplitByTabId[tabId]
       const nextCacheTimer = { ...s.cacheTimerByKey }
-      // Why: cache timer keys are `${tabId}:${paneId}` composites. Remove all
+      // Why: cache timer keys are `${tabId}:${stablePaneId}` composites. Remove all
       // entries for the closing tab, regardless of how many panes it had.
       for (const key of Object.keys(nextCacheTimer)) {
         if (key.startsWith(`${tabId}:`)) {
           delete nextCacheTimer[key]
+        }
+      }
+      // Why: defensive sweep parallel to cacheTimerByKey — pane-manager destroy
+      // callbacks normally clear these entries, but may not have fired yet in
+      // the inter-frame window where the tab is already gone from tabsByWorktree.
+      const nextNumericPaneIdByPaneKey = { ...s.numericPaneIdByPaneKey }
+      for (const key of Object.keys(nextNumericPaneIdByPaneKey)) {
+        if (key.startsWith(`${tabId}:`)) {
+          delete nextNumericPaneIdByPaneKey[key]
         }
       }
       // Why: keep activeTabIdByWorktree in sync when a tab is closed in a
@@ -540,6 +568,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         pendingSetupSplitByTabId: nextPendingSetupSplitByTabId,
         pendingIssueCommandSplitByTabId: nextPendingIssueCommandSplitByTabId,
         cacheTimerByKey: nextCacheTimer,
+        numericPaneIdByPaneKey: nextNumericPaneIdByPaneKey,
         tabBarOrderByWorktree: nextTabBarOrderByWorktree,
         pendingSnapshotByPtyId: nextSnapshots,
         pendingColdRestoreByPtyId: nextColdRestores
@@ -757,6 +786,31 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       }
 
       return { runtimePaneTitlesByTabId: next }
+    })
+  },
+
+  registerPaneKeyMapping: (paneKey, paneId) => {
+    set((s) => {
+      if (s.numericPaneIdByPaneKey[paneKey] === paneId) {
+        return s
+      }
+      return {
+        numericPaneIdByPaneKey: {
+          ...s.numericPaneIdByPaneKey,
+          [paneKey]: paneId
+        }
+      }
+    })
+  },
+
+  unregisterPaneKeyMapping: (paneKey) => {
+    set((s) => {
+      if (!(paneKey in s.numericPaneIdByPaneKey)) {
+        return s
+      }
+      const next = { ...s.numericPaneIdByPaneKey }
+      delete next[paneKey]
+      return { numericPaneIdByPaneKey: next }
     })
   },
 

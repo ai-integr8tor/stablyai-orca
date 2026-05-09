@@ -1,6 +1,7 @@
 /* oxlint-disable max-lines */
 import type * as React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { POST_REPLAY_FOCUS_REPORTING_RESET, POST_REPLAY_MODE_RESET } from './layout-serialization'
 import type * as UseNotificationDispatchModule from './use-notification-dispatch'
 
@@ -35,6 +36,8 @@ type StoreState = {
   removeDeferredSshSessionId: ReturnType<typeof vi.fn>
   consumePendingColdRestore: ReturnType<typeof vi.fn>
   consumePendingSnapshot: ReturnType<typeof vi.fn>
+  dropAgentStatus: ReturnType<typeof vi.fn>
+  removeAgentStatus: ReturnType<typeof vi.fn>
 }
 
 type ConnectCallbacks = {
@@ -144,6 +147,10 @@ function createMockTransport(initialPtyId: string | null = null): MockTransport 
 function createPane(paneId: number) {
   return {
     id: paneId,
+    // Why: pty-connection now keys cacheKey by stablePaneId so paneKey survives
+    // a renderer-reload renumber. Use a deterministic UUID per paneId so the
+    // existing assertions (`tab-1:1`) can match by replacing the suffix.
+    stablePaneId: `aaaaaaaa-aaaa-4aaa-8aaa-${String(paneId).padStart(12, '0')}`,
     terminal: {
       cols: 120,
       rows: 40,
@@ -238,6 +245,7 @@ describe('connectPanePty', () => {
       removeDeferredSshSessionId: vi.fn(),
       consumePendingColdRestore: vi.fn(() => null),
       consumePendingSnapshot: vi.fn(() => null),
+      dropAgentStatus: vi.fn(),
       removeAgentStatus: vi.fn()
     } as StoreState
     ;(globalThis as unknown as { window: unknown }).window = {
@@ -939,6 +947,29 @@ describe('connectPanePty', () => {
     expect(deps.clearWorktreeUnread).not.toHaveBeenCalled()
   })
 
+  it('drops agent status before closing a split pane on PTY exit', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-exited')
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const manager = createManager(2)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    const onPtyExit = createdTransportOptions[0].onPtyExit as (ptyId: string) => void
+    onPtyExit('pty-exited')
+
+    const paneKey = makePaneKey('tab-1', pane.stablePaneId)
+    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey, {
+      suppressRetentionIfLiveMissing: true
+    })
+    expect(mockStoreState.removeAgentStatus).not.toHaveBeenCalled()
+    expect(manager.closePane).toHaveBeenCalledWith(1)
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+  })
+
   // Why: symmetric to the replay guard — if the pane is stale-codex (pending
   // account-switch restart), xterm onData bytes are either blocked synthetic
   // input or keystrokes that would execute under the wrong account. Either
@@ -1154,6 +1185,9 @@ describe('connectPanePty', () => {
 
     agentExitedHandler()
 
-    expect(deps.setCacheTimerStartedAt).toHaveBeenCalledWith('tab-1:1', null)
+    expect(deps.setCacheTimerStartedAt).toHaveBeenCalledWith(
+      makePaneKey('tab-1', pane.stablePaneId),
+      null
+    )
   })
 })

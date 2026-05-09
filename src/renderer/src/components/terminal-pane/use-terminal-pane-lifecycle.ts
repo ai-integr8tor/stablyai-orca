@@ -17,6 +17,7 @@ import type {
 } from '../../../../shared/types'
 import type { EventProps } from '../../../../shared/telemetry-events'
 import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
+import { makePaneKey } from '../../../../shared/stable-pane-id'
 import {
   buildFontFamily,
   collectLeafIdsInReplayCreationOrder,
@@ -525,7 +526,7 @@ export function useTerminalPaneLifecycle({
         scheduleRuntimeGraphSync()
         queueResizeAll(true)
       },
-      onPaneClosed: (paneId) => {
+      onPaneClosed: (paneId, closedStableId) => {
         const linkProviderDisposable = linkProviderDisposablesRef.current.get(paneId)
         if (linkProviderDisposable) {
           linkProviderDisposable.dispose()
@@ -575,13 +576,18 @@ export function useTerminalPaneLifecycle({
             syncPanePtyLayoutBinding(paneId, null)
             clearTabPtyId(tabId, ptyId)
           }
-          // Why: closing a pane is user-initiated teardown of this row — drop
-          // (not remove) so any retained `done` snapshot for this pane is also
-          // cleared and a same-frame live→gone transition cannot re-snapshot
-          // it via the retention sync.
-          useAppStore.getState().dropAgentStatus(`${tabId}:${paneId}`)
           transport.destroy?.()
           paneTransportsRef.current.delete(paneId)
+        }
+        // Why: drop (not remove) so any retained `done` snapshot for this pane is
+        // also cleared and a same-frame live→gone transition cannot re-snapshot it
+        // via the retention sync. Runs on every close path — including pty-exit-
+        // driven closes where transport may already be torn down — so retained
+        // agent rows never outlive the pane.
+        if (closedStableId) {
+          useAppStore.getState().dropAgentStatus(makePaneKey(tabId, closedStableId), {
+            suppressRetentionIfLiveMissing: true
+          })
         }
         clearRuntimePaneTitle(tabId, paneId)
         paneFontSizesRef.current.delete(paneId)
@@ -687,7 +693,29 @@ export function useTerminalPaneLifecycle({
       // still consumes Chromium's context budget and can blank visible panes.
       initialRenderingSuspended: !isVisibleRef.current,
       terminalGpuAcceleration: settingsRef.current?.terminalGpuAcceleration ?? 'auto',
-      debugLabel: `tab:${tabId}/wt:${worktreeId}`
+      debugLabel: `tab:${tabId}/wt:${worktreeId}`,
+      // Why: PaneManager owns the only authoritative numericId↔stablePaneId
+      // mapping. IPC-layer code (useIpcEvents.resolvePaneKey) and merge code
+      // (mergeSnapshotAndSessions) can't reach a manager ref, so the manager
+      // mirrors the binding into the store via these callbacks. paneKey is
+      // built through makePaneKey so mirror, agent-status, and ORCA_PANE_KEY
+      // consumers stay on one cross-boundary key shape.
+      onStableIdRegistered: (numericId, stablePaneId) => {
+        useAppStore.getState().registerPaneKeyMapping(makePaneKey(tabId, stablePaneId), numericId)
+      },
+      onStableIdAdopted: (numericId, stablePaneId, previousStableId) => {
+        const store = useAppStore.getState()
+        if (previousStableId && previousStableId !== stablePaneId) {
+          store.unregisterPaneKeyMapping(makePaneKey(tabId, previousStableId))
+        }
+        store.registerPaneKeyMapping(makePaneKey(tabId, stablePaneId), numericId)
+      },
+      onStableIdReleased: (_numericId, stablePaneId) => {
+        if (!stablePaneId) {
+          return
+        }
+        useAppStore.getState().unregisterPaneKeyMapping(makePaneKey(tabId, stablePaneId))
+      }
     })
 
     managerRef.current = manager

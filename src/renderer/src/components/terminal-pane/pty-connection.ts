@@ -20,6 +20,7 @@ import {
 } from './layout-serialization'
 import { warnTerminalLifecycleAnomaly } from './terminal-lifecycle-diagnostics'
 import { registerPtySerializer, registerPtyTitleSource } from './pty-buffer-serializer'
+import { makePaneKey } from '../../../../shared/stable-pane-id'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 
@@ -111,9 +112,15 @@ export function connectPanePty(
   const paneStartup = deps.startup ?? null
   deps.startup = undefined
 
-  // Why: cache timer state is keyed per-pane (not per-tab) so split-pane tabs
-  // can track each Claude session independently without overwriting each other.
-  const cacheKey = `${deps.tabId}:${pane.id}`
+  // Why: cache timer state and paneKey are keyed by stablePaneId (not the
+  // renderer-local numeric paneId) so they survive a renderer reload's
+  // pane renumber. The same string crosses the IPC boundary as
+  // ORCA_PANE_KEY, so external hooks route their events back to the
+  // correct pane post-restore.
+  // Why safe to capture synchronously: replayTerminalLayout now hints the
+  // snapshot UUID at mint time (createInitialPane/splitPane), so
+  // pane.stablePaneId is stable-from-mint by the time onPaneCreated fires.
+  const cacheKey = makePaneKey(deps.tabId, pane.stablePaneId)
   const pendingSpawnKey = `${deps.tabId}:${paneLeafId(pane.id)}`
 
   const onExit = (ptyId: string): void => {
@@ -124,9 +131,6 @@ export function connectPanePty(
     // first emitting a non-agent title, the cache timer would persist as stale
     // state. Clear it unconditionally on PTY exit.
     deps.setCacheTimerStartedAt(cacheKey, null)
-    // Why: a dead terminal has no running agent — remove its explicit status
-    // entry so the hover UI only shows what is running *now*.
-    useAppStore.getState().removeAgentStatus(cacheKey)
     // The runtime graph is the CLI's source for live terminal bindings, so
     // we must republish when a pane loses its PTY instead of waiting for a
     // broader layout change that may never happen.
@@ -142,9 +146,17 @@ export function connectPanePty(
     manager.setPaneGpuRendering(pane.id, true)
     const panes = manager.getPanes()
     if (panes.length <= 1) {
+      // Why: a dead terminal has no running agent — remove its explicit status
+      // entry so the hover UI only shows what is running now. The tab-close path
+      // owns any broader teardown cleanup for the final pane.
+      useAppStore.getState().removeAgentStatus(cacheKey)
       deps.onPtyExitRef.current(ptyId)
       return
     }
+    // Why: split-pane PTY exit closes only this pane. Drop while the live entry
+    // still exists so teardown suppresses retained `done` resurrection for the
+    // pane that is about to disappear.
+    useAppStore.getState().dropAgentStatus(cacheKey, { suppressRetentionIfLiveMissing: true })
     manager.closePane(pane.id)
   }
 
@@ -279,9 +291,12 @@ export function connectPanePty(
   }
   // Why: inject ORCA_PANE_KEY so global Claude/Codex hooks can attribute their
   // callbacks to the correct Orca pane without resolving worktrees from cwd.
-  // The key matches the `${tabId}:${paneId}` composite used for cacheTimerByKey.
-  // ORCA_TAB_ID / ORCA_WORKTREE_ID are exposed separately so the receiver has
-  // routing context without having to split paneKey back into its parts.
+  // The key matches the `${tabId}:${stablePaneId}` composite used for
+  // cacheTimerByKey + agentStatusByPaneKey, so hook callbacks land on the same
+  // identity the renderer indexes by. The format is documented as opaque —
+  // hook scripts must not parse the suffix as a number. ORCA_TAB_ID /
+  // ORCA_WORKTREE_ID are exposed separately so the receiver has routing
+  // context without having to split paneKey back into its parts.
   const paneEnv = {
     ...paneStartup?.env,
     ORCA_PANE_KEY: cacheKey,
