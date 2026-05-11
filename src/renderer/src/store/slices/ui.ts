@@ -309,6 +309,8 @@ export type UISlice = {
   setUpdateCardCollapsed: (collapsed: boolean) => void
   updateReassuranceSeen: boolean
   markUpdateReassuranceSeen: () => void
+  terminalMacPermissionsHintDismissed: boolean
+  dismissTerminalMacPermissionsHint: () => void
   isFullScreen: boolean
   setIsFullScreen: (v: boolean) => void
   /** URL opened when a new browser tab is created. Null = blank tab (default). */
@@ -738,6 +740,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         })(),
         dismissedUpdateVersion: ui.dismissedUpdateVersion ?? null,
         updateReassuranceSeen: ui.updateReassuranceSeen ?? false,
+        terminalMacPermissionsHintDismissed: ui.terminalMacPermissionsHintDismissed ?? false,
         browserDefaultUrl: ui.browserDefaultUrl ?? null,
         browserDefaultSearchEngine: ui.browserDefaultSearchEngine ?? null,
         browserKagiSessionLink: normalizeKagiSessionLink(ui.browserKagiSessionLink ?? ''),
@@ -813,6 +816,11 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
   markUpdateReassuranceSeen: () => {
     void window.api.ui.set({ updateReassuranceSeen: true }).catch(console.error)
     set({ updateReassuranceSeen: true })
+  },
+  terminalMacPermissionsHintDismissed: false,
+  dismissTerminalMacPermissionsHint: () => {
+    void window.api.ui.set({ terminalMacPermissionsHintDismissed: true }).catch(console.error)
+    set({ terminalMacPermissionsHintDismissed: true })
   },
   isFullScreen: false,
   setIsFullScreen: (v) => set({ isFullScreen: v }),

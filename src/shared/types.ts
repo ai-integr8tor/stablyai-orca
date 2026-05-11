@@ -1461,6 +1461,11 @@ export type PersistedUIState = {
   /** Once the user has seen the "your sessions won't be interrupted"
    *  reassurance card, we never show it again. */
   updateReassuranceSeen?: boolean
+  /** Whether the user has dismissed the one-shot macOS permissions toast
+   *  that points at Settings → Permissions. Global (one boolean for all
+   *  worktrees) — the toast is a one-time discoverability nudge, not a
+   *  per-worktree state. */
+  terminalMacPermissionsHintDismissed?: boolean
   /** URL to navigate to when a new browser tab is opened. Null means blank tab.
    *  Phase 3 will expand this to a full BrowserSessionProfile per workspace. */
   browserDefaultUrl?: string | null

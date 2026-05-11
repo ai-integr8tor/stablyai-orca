@@ -22,6 +22,8 @@ import {
 import { Button } from '@/components/ui/button'
 import TabBar from './tab-bar/TabBar'
 import TerminalPane from './terminal-pane/TerminalPane'
+import { MacPermissionsHint } from './MacPermissionsHint'
+import { IS_MAC } from '@/lib/new-workspace'
 import {
   ORCA_EDITOR_REQUEST_FILE_CLOSE_EVENT,
   ORCA_EDITOR_SAVE_AND_CLOSE_EVENT,
@@ -1224,6 +1226,17 @@ function Terminal(): React.JSX.Element | null {
       {/* Why: the full-width titlebar is no longer rendered in workspace view
           — tab groups + terminal extend to the top of the window instead.
           The old summary label (workspace / active surface) is removed. */}
+
+      {/* Why: this component returns null — it only fires a one-shot toast
+          via sonner. Non-Mac platforms skip the subtree entirely so its
+          store subscriptions never wire up. */}
+      {IS_MAC && (
+        <MacPermissionsHint
+          activeView={activeView}
+          activeTabType={activeTabType}
+          activeWorktreeId={activeWorktreeId}
+        />
+      )}
 
       {anyMountedWorktreeHasLayout ? (
         <div
