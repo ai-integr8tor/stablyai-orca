@@ -1233,6 +1233,9 @@ export type GlobalSettings = {
    *  and external terminal sessions. */
   codexManagedAccounts: CodexManagedAccount[]
   activeCodexManagedAccountId: string | null
+  /** Why: when true, mount the package-script runner panel inside the left
+   *  sidebar. Off by default for users who never edit JS projects in Orca. */
+  sidebarScriptRunnerEnabled: boolean
   /** Why: Claude Code keeps conversations under one shared config root. Orca
    *  persists only per-account auth material here so switching accounts does
    *  not fork prior chat/session context the way CLAUDE_CONFIG_DIR swapping would. */
