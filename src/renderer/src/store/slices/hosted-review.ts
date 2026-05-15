@@ -38,6 +38,7 @@ export type HostedReviewSlice = {
       linkedGitHubPR?: number | null
       linkedGitLabMR?: number | null
       linkedBitbucketPR?: number | null
+      linkedForgejoPR?: number | null
       linkedGiteaPR?: number | null
     }
   ) => Promise<HostedReviewInfo | null>
@@ -63,6 +64,7 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
       ((options?.linkedGitHubPR ?? null) !== null ||
         (options?.linkedGitLabMR ?? null) !== null ||
         (options?.linkedBitbucketPR ?? null) !== null ||
+        (options?.linkedForgejoPR ?? null) !== null ||
         (options?.linkedGiteaPR ?? null) !== null)
     if (!options?.force && !linkedRefetch && isFresh(cached)) {
       return cached.data
@@ -83,6 +85,7 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
           linkedGitHubPR: options?.linkedGitHubPR ?? null,
           linkedGitLabMR: options?.linkedGitLabMR ?? null,
           linkedBitbucketPR: options?.linkedBitbucketPR ?? null,
+          linkedForgejoPR: options?.linkedForgejoPR ?? null,
           linkedGiteaPR: options?.linkedGiteaPR ?? null
         }
         const review =

@@ -7,6 +7,8 @@ const {
   getPRForBranchMock,
   getBitbucketRepoSlugMock,
   getBitbucketPullRequestForBranchMock,
+  getForgejoRepoSlugMock,
+  getForgejoPullRequestForBranchMock,
   getGiteaRepoSlugMock,
   getGiteaPullRequestForBranchMock
 } = vi.hoisted(() => ({
@@ -16,6 +18,8 @@ const {
   getPRForBranchMock: vi.fn(),
   getBitbucketRepoSlugMock: vi.fn(),
   getBitbucketPullRequestForBranchMock: vi.fn(),
+  getForgejoRepoSlugMock: vi.fn(),
+  getForgejoPullRequestForBranchMock: vi.fn(),
   getGiteaRepoSlugMock: vi.fn(),
   getGiteaPullRequestForBranchMock: vi.fn()
 }))
@@ -37,6 +41,12 @@ vi.mock('../bitbucket/client', () => ({
   getBitbucketPullRequest: vi.fn()
 }))
 
+vi.mock('../forgejo/client', () => ({
+  getForgejoRepoSlug: getForgejoRepoSlugMock,
+  getForgejoPullRequestForBranch: getForgejoPullRequestForBranchMock,
+  getForgejoPullRequest: vi.fn()
+}))
+
 vi.mock('../gitea/client', () => ({
   getGiteaRepoSlug: getGiteaRepoSlugMock,
   getGiteaPullRequestForBranch: getGiteaPullRequestForBranchMock,
@@ -53,6 +63,8 @@ describe('getHostedReviewForBranch', () => {
     getPRForBranchMock.mockReset()
     getBitbucketRepoSlugMock.mockReset()
     getBitbucketPullRequestForBranchMock.mockReset()
+    getForgejoRepoSlugMock.mockReset()
+    getForgejoPullRequestForBranchMock.mockReset()
     getGiteaRepoSlugMock.mockReset()
     getGiteaPullRequestForBranchMock.mockReset()
   })
@@ -154,6 +166,7 @@ describe('getHostedReviewForBranch', () => {
     getProjectSlugMock.mockResolvedValue(null)
     getRepoSlugMock.mockResolvedValue(null)
     getBitbucketRepoSlugMock.mockResolvedValue(null)
+    getForgejoRepoSlugMock.mockResolvedValue(null)
     getGiteaRepoSlugMock.mockResolvedValue({
       host: 'git.example.com',
       owner: 'team',
@@ -188,5 +201,46 @@ describe('getHostedReviewForBranch', () => {
       headSha: 'def456'
     })
     expect(getGiteaPullRequestForBranchMock).toHaveBeenCalledWith('/repo', 'feature/gitea', 14)
+  })
+
+  it('falls through to Forgejo before generic Gitea-compatible hosts', async () => {
+    getProjectSlugMock.mockResolvedValue(null)
+    getRepoSlugMock.mockResolvedValue(null)
+    getBitbucketRepoSlugMock.mockResolvedValue(null)
+    getForgejoRepoSlugMock.mockResolvedValue({
+      host: 'code.example.com',
+      owner: 'team',
+      repo: 'orca'
+    })
+    getForgejoPullRequestForBranchMock.mockResolvedValue({
+      number: 16,
+      title: 'Forgejo branch',
+      state: 'open',
+      url: 'https://code.example.com/team/orca/pulls/16',
+      status: 'success',
+      updatedAt: '2026-05-15T00:00:00.000Z',
+      mergeable: 'MERGEABLE',
+      headSha: 'abc999'
+    })
+
+    await expect(
+      getHostedReviewForBranch({
+        repoPath: '/repo',
+        branch: 'feature/forgejo',
+        linkedForgejoPR: 16
+      })
+    ).resolves.toEqual({
+      provider: 'forgejo',
+      number: 16,
+      title: 'Forgejo branch',
+      state: 'open',
+      url: 'https://code.example.com/team/orca/pulls/16',
+      status: 'success',
+      updatedAt: '2026-05-15T00:00:00.000Z',
+      mergeable: 'MERGEABLE',
+      headSha: 'abc999'
+    })
+    expect(getForgejoPullRequestForBranchMock).toHaveBeenCalledWith('/repo', 'feature/forgejo', 16)
+    expect(getGiteaRepoSlugMock).not.toHaveBeenCalled()
   })
 })

@@ -60,6 +60,7 @@ describe('Gitea repository ref parsing', () => {
     expect(parseGiteaRepoRef('git@github.com:team/project.git')).toBeNull()
     expect(parseGiteaRepoRef('https://gitlab.com/team/project.git')).toBeNull()
     expect(parseGiteaRepoRef('https://bitbucket.org/team/project.git')).toBeNull()
+    expect(parseGiteaRepoRef('https://codeberg.org/team/project.git')).toBeNull()
   })
 
   it('reads and caches the origin remote', async () => {

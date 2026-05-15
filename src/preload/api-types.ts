@@ -312,6 +312,13 @@ export type PreflightStatus = {
    *  include it. Consumers gate on `glab?.installed` / `authenticated`. */
   glab?: { installed: boolean; authenticated: boolean }
   bitbucket?: { configured: boolean; authenticated: boolean; account: string | null }
+  forgejo?: {
+    configured: boolean
+    authenticated: boolean
+    account: string | null
+    baseUrl: string | null
+    tokenConfigured: boolean
+  }
   gitea?: {
     configured: boolean
     authenticated: boolean

@@ -9,6 +9,7 @@ const {
   hydrateShellPathMock,
   mergePathSegmentsMock,
   getBitbucketAuthStatusMock,
+  getForgejoAuthStatusMock,
   getGiteaAuthStatusMock
 } = vi.hoisted(() => ({
   handleMock: vi.fn(),
@@ -17,6 +18,7 @@ const {
   hydrateShellPathMock: vi.fn(),
   mergePathSegmentsMock: vi.fn(),
   getBitbucketAuthStatusMock: vi.fn(),
+  getForgejoAuthStatusMock: vi.fn(),
   getGiteaAuthStatusMock: vi.fn()
 }))
 
@@ -45,6 +47,10 @@ vi.mock('../bitbucket/client', () => ({
   getBitbucketAuthStatus: getBitbucketAuthStatusMock
 }))
 
+vi.mock('../forgejo/client', () => ({
+  getForgejoAuthStatus: getForgejoAuthStatusMock
+}))
+
 vi.mock('../gitea/client', () => ({
   getGiteaAuthStatus: getGiteaAuthStatusMock
 }))
@@ -68,6 +74,7 @@ describe('preflight', () => {
     baseUrl: null,
     tokenConfigured: false
   }
+  const defaultForgejoStatus = defaultGiteaStatus
 
   beforeEach(() => {
     handleMock.mockReset()
@@ -75,8 +82,10 @@ describe('preflight', () => {
     hydrateShellPathMock.mockReset()
     mergePathSegmentsMock.mockReset()
     getBitbucketAuthStatusMock.mockReset()
+    getForgejoAuthStatusMock.mockReset()
     getGiteaAuthStatusMock.mockReset()
     getBitbucketAuthStatusMock.mockResolvedValue(defaultBitbucketStatus)
+    getForgejoAuthStatusMock.mockResolvedValue(defaultForgejoStatus)
     getGiteaAuthStatusMock.mockResolvedValue(defaultGiteaStatus)
     _resetPreflightCache()
 
@@ -107,6 +116,7 @@ describe('preflight', () => {
       gh: { installed: true, authenticated: true },
       glab: { installed: true, authenticated: true },
       bitbucket: defaultBitbucketStatus,
+      forgejo: defaultForgejoStatus,
       gitea: defaultGiteaStatus
     })
     expect(execFileAsyncMock).toHaveBeenNthCalledWith(4, 'gh', ['auth', 'status'], {
@@ -209,6 +219,7 @@ describe('preflight', () => {
       gh: { installed: true, authenticated: true },
       glab: { installed: true, authenticated: true },
       bitbucket: defaultBitbucketStatus,
+      forgejo: defaultForgejoStatus,
       gitea: defaultGiteaStatus
     })
   })
@@ -236,6 +247,7 @@ describe('preflight', () => {
       gh: { installed: true, authenticated: false },
       glab: { installed: true, authenticated: true },
       bitbucket: defaultBitbucketStatus,
+      forgejo: defaultForgejoStatus,
       gitea: defaultGiteaStatus
     })
     expect(refreshedStatus).toEqual({
@@ -243,6 +255,7 @@ describe('preflight', () => {
       gh: { installed: true, authenticated: true },
       glab: { installed: true, authenticated: true },
       bitbucket: defaultBitbucketStatus,
+      forgejo: defaultForgejoStatus,
       gitea: defaultGiteaStatus
     })
   })

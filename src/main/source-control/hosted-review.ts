@@ -7,6 +7,12 @@ import {
 } from '../bitbucket/client'
 import type { BitbucketPullRequestInfo } from '../bitbucket/pull-request-mappers'
 import {
+  getForgejoPullRequest,
+  getForgejoPullRequestForBranch,
+  getForgejoRepoSlug
+} from '../forgejo/client'
+import type { ForgejoPullRequestInfo } from '../forgejo/pull-request-mappers'
+import {
   getGiteaPullRequest,
   getGiteaPullRequestForBranch,
   getGiteaRepoSlug
@@ -66,6 +72,20 @@ function mapBitbucketReview(pr: BitbucketPullRequestInfo): HostedReviewInfo {
   }
 }
 
+function mapForgejoReview(pr: ForgejoPullRequestInfo): HostedReviewInfo {
+  return {
+    provider: 'forgejo',
+    number: pr.number,
+    title: pr.title,
+    state: pr.state,
+    url: pr.url,
+    status: pr.status,
+    updatedAt: pr.updatedAt,
+    mergeable: pr.mergeable,
+    ...(pr.headSha ? { headSha: pr.headSha } : {})
+  }
+}
+
 function mapGiteaReview(pr: GiteaPullRequestInfo): HostedReviewInfo {
   return {
     provider: 'gitea',
@@ -86,6 +106,7 @@ export async function getHostedReviewForBranch(input: {
   linkedGitHubPR?: number | null
   linkedGitLabMR?: number | null
   linkedBitbucketPR?: number | null
+  linkedForgejoPR?: number | null
   linkedGiteaPR?: number | null
 }): Promise<HostedReviewInfo | null> {
   const branchName = input.branch.replace(/^refs\/heads\//, '')
@@ -94,6 +115,7 @@ export async function getHostedReviewForBranch(input: {
     input.linkedGitHubPR == null &&
     input.linkedGitLabMR == null &&
     input.linkedBitbucketPR == null &&
+    input.linkedForgejoPR == null &&
     input.linkedGiteaPR == null
   ) {
     return null
@@ -126,6 +148,16 @@ export async function getHostedReviewForBranch(input: {
     return pr ? mapBitbucketReview(pr) : null
   }
 
+  const forgejoRepo = await getForgejoRepoSlug(input.repoPath)
+  if (forgejoRepo) {
+    const pr = await getForgejoPullRequestForBranch(
+      input.repoPath,
+      branchName,
+      input.linkedForgejoPR ?? null
+    )
+    return pr ? mapForgejoReview(pr) : null
+  }
+
   const giteaRepo = await getGiteaRepoSlug(input.repoPath)
   if (giteaRepo) {
     const pr = await getGiteaPullRequestForBranch(
@@ -141,7 +173,7 @@ export async function getHostedReviewForBranch(input: {
 
 export async function getHostedReviewByNumber(input: {
   repoPath: string
-  provider: 'github' | 'gitlab' | 'bitbucket' | 'gitea'
+  provider: 'github' | 'gitlab' | 'bitbucket' | 'forgejo' | 'gitea'
   number: number
 }): Promise<HostedReviewInfo | null> {
   if (input.provider === 'gitlab') {
@@ -151,6 +183,10 @@ export async function getHostedReviewByNumber(input: {
   if (input.provider === 'bitbucket') {
     const pr = await getBitbucketPullRequest(input.repoPath, input.number)
     return pr ? mapBitbucketReview(pr) : null
+  }
+  if (input.provider === 'forgejo') {
+    const pr = await getForgejoPullRequest(input.repoPath, input.number)
+    return pr ? mapForgejoReview(pr) : null
   }
   if (input.provider === 'gitea') {
     const pr = await getGiteaPullRequest(input.repoPath, input.number)

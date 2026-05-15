@@ -8,6 +8,7 @@ const HostedReviewForBranch = z.object({
   linkedGitHubPR: z.number().int().positive().nullable().optional(),
   linkedGitLabMR: z.number().int().positive().nullable().optional(),
   linkedBitbucketPR: z.number().int().positive().nullable().optional(),
+  linkedForgejoPR: z.number().int().positive().nullable().optional(),
   linkedGiteaPR: z.number().int().positive().nullable().optional()
 })
 
@@ -22,6 +23,7 @@ export const HOSTED_REVIEW_METHODS: RpcMethod[] = [
         linkedGitHubPR: params.linkedGitHubPR ?? null,
         linkedGitLabMR: params.linkedGitLabMR ?? null,
         linkedBitbucketPR: params.linkedBitbucketPR ?? null,
+        linkedForgejoPR: params.linkedForgejoPR ?? null,
         linkedGiteaPR: params.linkedGiteaPR ?? null
       })
   })
