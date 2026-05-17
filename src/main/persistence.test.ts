@@ -679,6 +679,51 @@ describe('Store', () => {
     expect(store.getSettings().floatingTerminalDefaultedForAllUsers).toBe(true)
   })
 
+  it('defaults missing setup-script launch mode to split-vertical on load', async () => {
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {}
+    })
+
+    const store = await createStore()
+    expect(store.getSettings().setupScriptLaunchMode).toBe('split-vertical')
+    expect(store.getSettings().setupScriptLaunchModeDefaultedToSplit).toBe(true)
+
+    store.flush()
+    const persisted = readDataFile() as {
+      settings: {
+        setupScriptLaunchMode: string
+        setupScriptLaunchModeDefaultedToSplit?: boolean
+      }
+    }
+    expect(persisted.settings.setupScriptLaunchMode).toBe('split-vertical')
+    expect(persisted.settings.setupScriptLaunchModeDefaultedToSplit).toBe(true)
+  })
+
+  it('preserves a post-migration setup-script new-tab choice', async () => {
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {
+        setupScriptLaunchMode: 'new-tab',
+        setupScriptLaunchModeDefaultedToSplit: true
+      },
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {}
+    })
+
+    const store = await createStore()
+    expect(store.getSettings().setupScriptLaunchMode).toBe('new-tab')
+    expect(store.getSettings().setupScriptLaunchModeDefaultedToSplit).toBe(true)
+  })
+
   it('preserves custom notification sound paths from persisted settings', async () => {
     writeDataFile({
       schemaVersion: 1,

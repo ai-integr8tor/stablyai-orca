@@ -1,14 +1,26 @@
 export type SetupRunnerCommandPlatform = 'windows' | 'posix'
 
+export function inferSetupRunnerCommandPlatform(
+  runnerScriptPath: string
+): SetupRunnerCommandPlatform {
+  if (isWslUncPath(runnerScriptPath)) {
+    return 'posix'
+  }
+  return /^[A-Za-z]:[\\/]/.test(runnerScriptPath) || /^\\\\(?!wsl[.$\\])/i.test(runnerScriptPath)
+    ? 'windows'
+    : 'posix'
+}
+
 export function buildSetupRunnerCommand(
   runnerScriptPath: string,
   platform: SetupRunnerCommandPlatform
 ): string {
+  if (isWslUncPath(runnerScriptPath)) {
+    const linuxPath = wslUncToLinuxPath(runnerScriptPath)
+    return `bash ${quotePosixArg(linuxPath)}`
+  }
+
   if (platform === 'windows') {
-    if (isWslUncPath(runnerScriptPath)) {
-      const linuxPath = wslUncToLinuxPath(runnerScriptPath)
-      return `bash ${quotePosixArg(linuxPath)}`
-    }
     return `cmd.exe /c ${quoteWindowsArg(runnerScriptPath)}`
   }
 

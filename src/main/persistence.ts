@@ -1210,6 +1210,19 @@ export class Store {
         const migratedFloatingTerminalEnabled = floatingTerminalDefaultedForAllUsers
           ? (parsed.settings?.floatingTerminalEnabled ?? true)
           : true
+        const setupScriptLaunchModeDefaultedToSplit =
+          parsed.settings?.setupScriptLaunchModeDefaultedToSplit === true
+        // Why: early setup-location builds persisted the old new-tab default.
+        // Missing values can safely take the new split default; persisted
+        // choices are preserved because they may be intentional on macOS/Linux.
+        const migratedSetupScriptLaunchMode = setupScriptLaunchModeDefaultedToSplit
+          ? (parsed.settings?.setupScriptLaunchMode ?? defaults.settings.setupScriptLaunchMode)
+          : parsed.settings?.setupScriptLaunchMode === undefined
+            ? 'split-vertical'
+            : parsed.settings.setupScriptLaunchMode
+        if (!setupScriptLaunchModeDefaultedToSplit) {
+          this.loadNeedsSave = true
+        }
         result = {
           ...defaults,
           ...parsed,
@@ -1229,6 +1242,8 @@ export class Store {
             terminalMacOptionAsAltMigrated: true,
             floatingTerminalEnabled: migratedFloatingTerminalEnabled,
             floatingTerminalDefaultedForAllUsers: true,
+            setupScriptLaunchMode: migratedSetupScriptLaunchMode,
+            setupScriptLaunchModeDefaultedToSplit: true,
             terminalQuickCommands: normalizeTerminalQuickCommands(
               parsed.settings?.terminalQuickCommands
             ),

@@ -28,6 +28,8 @@ import {
   ensureTerminalVisible,
   worktreeExists
 } from './helpers/store'
+import { ensureSetupHookCommitted } from './helpers/dead-terminal'
+import { waitForActiveTerminalManager, waitForPaneCount } from './helpers/terminal'
 
 test.describe('Create Workspace', () => {
   test.beforeEach(async ({ orcaPage }) => {
@@ -153,5 +155,72 @@ test.describe('Create Workspace', () => {
           /* page may already be torn down */
         })
     }
+  })
+
+  test('creates setup as a split pane through the composer UI by default', async ({ orcaPage }) => {
+    await ensureSetupHookCommitted(orcaPage)
+
+    await orcaPage.evaluate(() => {
+      const state = window.__store?.getState()
+      if (!state) {
+        throw new Error('Store unavailable')
+      }
+      const repoId = state.activeRepoId
+      if (repoId) {
+        state.markOrcaHookRepoAlwaysTrusted(repoId)
+      }
+    })
+
+    const workspaceName = `e2e-setup-split-${Date.now()}`
+
+    await orcaPage.evaluate(() => {
+      window.__store?.getState().openModal('new-workspace-composer')
+    })
+
+    const dialog = orcaPage.getByRole('dialog', { name: /Create Workspace/i })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('combobox').first()).toBeVisible()
+
+    const nameInput = dialog.getByPlaceholder(/Type a name/i)
+    await expect(nameInput).toBeVisible()
+    await nameInput.fill(workspaceName)
+
+    const createButton = dialog.getByRole('button', { name: /Create Workspace/i })
+    await expect(createButton).toBeEnabled()
+    await createButton.click()
+
+    await expect(dialog).toBeHidden({ timeout: 15_000 })
+    const trustDialog = orcaPage.getByRole('dialog', { name: /Run setup script/i })
+    try {
+      await expect(trustDialog).toBeVisible({ timeout: 5_000 })
+      await trustDialog.getByRole('button', { name: /Run hooks/i }).click()
+      await expect(trustDialog).toBeHidden({ timeout: 15_000 })
+    } catch {
+      // The setup hook may already be trusted in this isolated profile.
+    }
+
+    await expect
+      .poll(async () => worktreeExists(orcaPage, workspaceName), {
+        timeout: 10_000,
+        message: `Worktree "${workspaceName}" did not appear in the store`
+      })
+      .toBe(true)
+
+    await ensureTerminalVisible(orcaPage)
+    await waitForActiveTerminalManager(orcaPage, 30_000)
+    await waitForPaneCount(orcaPage, 2, 15_000)
+
+    await expect(orcaPage.getByRole('button', { name: /^Setup\b/i })).toHaveCount(0)
+
+    const activeTerminalTabs = orcaPage.locator(
+      '[data-testid="sortable-tab"][data-active="true"]:visible'
+    )
+    await expect(activeTerminalTabs).toHaveCount(1)
+    await expect(activeTerminalTabs.first()).not.toHaveAttribute('data-tab-title', 'Setup')
+
+    const activeTabId = await activeTerminalTabs.first().getAttribute('data-tab-id')
+    expect(activeTabId).toBeTruthy()
+    const activeTerminal = orcaPage.locator(`[data-terminal-tab-id="${activeTabId}"]`)
+    await expect(activeTerminal.locator('.pane[data-pane-id]')).toHaveCount(2)
   })
 })

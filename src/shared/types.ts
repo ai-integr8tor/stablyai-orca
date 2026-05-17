@@ -1213,8 +1213,8 @@ export type TuiAgent =
 export type TaskViewPresetId = 'all' | 'issues' | 'review' | 'my-issues' | 'my-prs' | 'prs'
 
 /** Where the repo setup script runs when a worktree is created.
- *  - 'new-tab': open a background tab titled "Setup" and leave focus on the first tab (default).
- *  - 'split-vertical': split the initial terminal pane with a vertical divider.
+ *  - 'new-tab': open a background tab titled "Setup" and leave focus on the first tab.
+ *  - 'split-vertical': split the initial terminal pane with a vertical divider (default).
  *  - 'split-horizontal': split the initial terminal pane with a horizontal divider. */
 export type SetupScriptLaunchMode = 'split-vertical' | 'split-horizontal' | 'new-tab'
 
@@ -1350,9 +1350,12 @@ export type GlobalSettings = {
    *  conservative default while making the capability one toggle away. */
   terminalAllowOsc52Clipboard: boolean
   /** Where the repo setup script runs on workspace create. Defaults to a
-   *  background "Setup" tab so the user's main terminal stays immediately
-   *  usable without the setup output crowding the initial pane. */
+   *  vertical split so the agent and setup output stay in one terminal tab. */
   setupScriptLaunchMode: SetupScriptLaunchMode
+  /** One-shot migration flag for the split-by-default rollout. Before this
+   *  landed, profiles could persist the inherited "new-tab" default. Once
+   *  migrated, explicit future choices stick. */
+  setupScriptLaunchModeDefaultedToSplit?: boolean
   terminalScrollbackBytes: number
   /** Why: opening arbitrary links inside Orca uses an isolated guest browser surface.
    *  The setting stays opt-in so existing workflows continue to use the system browser

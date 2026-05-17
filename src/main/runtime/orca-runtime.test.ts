@@ -3569,6 +3569,87 @@ describe('OrcaRuntimeService', () => {
     expect(activateWorktree).toHaveBeenCalledWith('repo-1', expect.any(String), result.setup)
   })
 
+  it('does not pre-spawn setup as a standalone terminal when activated workspace setup uses split mode', async () => {
+    const splitModeStore = {
+      ...store,
+      getSettings: () => ({
+        ...store.getSettings(),
+        setupScriptLaunchMode: 'split-vertical' as const
+      })
+    }
+    const runtime = new OrcaRuntimeService(splitModeStore)
+    const activateWorktree = vi.fn()
+    const revealTerminalSession = vi.fn().mockResolvedValue({ tabId: 'tab-startup' })
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-startup' })
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    runtime.setNotifier({
+      worktreesChanged: vi.fn(),
+      reposChanged: vi.fn(),
+      activateWorktree,
+      createTerminal: vi.fn(),
+      revealTerminalSession,
+      splitTerminal: vi.fn(),
+      renameTerminal: vi.fn(),
+      focusTerminal: vi.fn(),
+      closeTerminal: vi.fn(),
+      sleepWorktree: vi.fn(),
+      terminalFitOverrideChanged: vi.fn(),
+      terminalDriverChanged: vi.fn()
+    })
+    runtime.attachWindow(1)
+
+    computeWorktreePathMock.mockReturnValue('/tmp/workspaces/runtime-hook-split-startup')
+    ensurePathWithinWorkspaceMock.mockReturnValue('/tmp/workspaces/runtime-hook-split-startup')
+    vi.mocked(getEffectiveHooks).mockReturnValue({
+      scripts: {
+        setup: 'pnpm worktree:setup'
+      }
+    })
+    vi.mocked(createSetupRunnerScript).mockReturnValue({
+      runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
+      envVars: {
+        ORCA_ROOT_PATH: '/tmp/repo',
+        ORCA_WORKTREE_PATH: '/tmp/workspaces/runtime-hook-split-startup'
+      }
+    })
+    vi.mocked(listWorktrees).mockResolvedValue([
+      {
+        path: '/tmp/workspaces/runtime-hook-split-startup',
+        head: 'def',
+        branch: 'runtime-hook-split-startup',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const result = await runtime.createManagedWorktree({
+      repoSelector: 'id:repo-1',
+      name: 'runtime-hook-split-startup',
+      runHooks: true,
+      activate: true,
+      startup: {
+        command: 'codex',
+        env: { ORCA_AGENT: 'codex' }
+      }
+    })
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/tmp/workspaces/runtime-hook-split-startup',
+        command: 'codex',
+        env: expect.objectContaining({ ORCA_AGENT: 'codex' })
+      })
+    )
+    expect(revealTerminalSession).toHaveBeenCalledTimes(1)
+    expect(activateWorktree).toHaveBeenCalledWith('repo-1', expect.any(String), result.setup)
+  })
+
   it('follows normal setup policy for CLI-created worktrees without activating them', async () => {
     const runtime = new OrcaRuntimeService(store)
     const activateWorktree = vi.fn()
@@ -3658,11 +3739,15 @@ describe('OrcaRuntimeService', () => {
         worktreeId: result.worktree.id
       })
     )
+    const expectedSetupCommand =
+      process.platform === 'win32'
+        ? 'cmd.exe /c "/tmp/repo/.git/orca/setup-runner.sh"'
+        : 'bash /tmp/repo/.git/orca/setup-runner.sh'
     expect(spawn).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         cwd: '/tmp/workspaces/runtime-hook-skip',
-        command: 'bash /tmp/repo/.git/orca/setup-runner.sh',
+        command: expectedSetupCommand,
         // Why: createTerminal stamps ORCA_PANE_KEY/TAB_ID/WORKTREE_ID into the
         // PTY env on top of the caller-supplied env so hook-based agent status
         // can attribute hook events to a stable pane.

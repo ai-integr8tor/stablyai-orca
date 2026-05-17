@@ -39,6 +39,7 @@ import { installMouseHideWhileTyping } from './mouse-hide-while-typing'
 import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-option-as-alt'
 import { resolveEffectiveTerminalAppearance } from '@/lib/terminal-theme'
 import { connectPanePty } from './pty-connection'
+import type { PtyConnectionDeps } from './pty-connection-types'
 import type { PtyTransport } from './pty-transport'
 import { getRemoteRuntimePtyEnvironmentId } from '@/runtime/runtime-terminal-stream'
 import { isPaneReplaying, type ReplayingPanesRef } from './replay-guard'
@@ -245,6 +246,12 @@ export function useTerminalPaneLifecycle({
   const osc52DisposablesRef = useRef(new Map<number, IDisposable>())
   const osc7DisposablesRef = useRef(new Map<number, IDisposable>())
   const mouseHideDisposablesRef = useRef(new Map<number, IDisposable>())
+  const setupSplitPtyDepsRef = useRef<PtyConnectionDeps | null>(null)
+  const handledSetupSplitRef = useRef<{
+    command: string
+    env?: Record<string, string>
+    direction: SetupSplitDirection
+  } | null>(null)
 
   const applyAppearance = (manager: PaneManager): void => {
     const currentSettings = settingsRef.current
@@ -392,6 +399,7 @@ export function useTerminalPaneLifecycle({
       syncPanePtyLayoutBinding,
       restoredPtyIdByLeafId: initialLayoutRef.current.ptyIdsByLeafId ?? {}
     }
+    setupSplitPtyDepsRef.current = ptyDeps
 
     const unregisterRuntimeTab = registerRuntimeTerminalTab({
       tabId,
@@ -866,6 +874,7 @@ export function useTerminalPaneLifecycle({
 
     if (setupSplit) {
       if (initialPane) {
+        handledSetupSplitRef.current = setupSplit
         const setupPane = splitPaneWithOneShotStartup(
           ptyDeps,
           { command: setupSplit.command, env: setupSplit.env },
@@ -1012,6 +1021,10 @@ export function useTerminalPaneLifecycle({
       paneTransports.clear()
       manager.destroy()
       managerRef.current = null
+      if (setupSplitPtyDepsRef.current === ptyDeps) {
+        setupSplitPtyDepsRef.current = null
+        handledSetupSplitRef.current = null
+      }
       if (e2eConfig.exposeStore) {
         window.__paneManagers?.delete(tabId)
       }
@@ -1020,6 +1033,26 @@ export function useTerminalPaneLifecycle({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId, cwd])
+
+  useEffect(() => {
+    if (!setupSplit || handledSetupSplitRef.current === setupSplit) {
+      return
+    }
+    const manager = managerRef.current
+    const ptyDeps = setupSplitPtyDepsRef.current
+    const initialPane = manager?.getActivePane() ?? manager?.getPanes()[0] ?? null
+    if (!manager || !ptyDeps || !initialPane) {
+      return
+    }
+    // Why: runtime-created startup terminals can mount before worktree
+    // activation queues the setup split. Process that late payload against the
+    // existing manager instead of waiting for a remount that may never happen.
+    handledSetupSplitRef.current = setupSplit
+    splitPaneWithOneShotStartup(ptyDeps, { command: setupSplit.command, env: setupSplit.env }, () =>
+      manager.splitPane(initialPane.id, setupSplit.direction)
+    )
+    manager.setActivePane(initialPane.id, { focus: isActiveRef.current })
+  }, [setupSplit, managerRef, isActiveRef])
 
   useEffect(() => {
     const manager = managerRef.current

@@ -190,10 +190,22 @@ export function ensureWorktreeHasInitialTerminal(
   issueCommand?: IssueCommandLaunch
 ): string | null {
   const { renderableTabCount } = store.reconcileWorktreeTabModel(worktreeId)
+  const mode = useAppStore.getState().settings?.setupScriptLaunchMode ?? 'split-vertical'
+
   // Why: activation can now restore editor- or browser-only worktrees from the
   // reconciled tab-group model. Creating a terminal just because the legacy
   // terminal slice is empty would reopen worktrees with an unexpected extra tab.
   if (!shouldAutoCreateInitialTerminal(renderableTabCount)) {
+    if (setup && mode !== 'new-tab') {
+      const targetTab = store.tabsByWorktree[worktreeId]?.[0]
+      if (targetTab) {
+        store.queueTabSetupSplit(targetTab.id, {
+          command: buildSetupRunnerCommand(setup.runnerScriptPath),
+          env: setup.envVars,
+          direction: mode === 'split-horizontal' ? 'horizontal' : 'vertical'
+        })
+      }
+    }
     return null
   }
 
@@ -215,12 +227,9 @@ export function ensureWorktreeHasInitialTerminal(
   }
 
   // Why: the setup script launch location is user-configurable. The default
-  // 'new-tab' creates a separate background tab titled "Setup" without
-  // stealing focus from the main terminal, so setup output never crowds the
-  // primary pane; 'split-vertical' and 'split-horizontal' keep the setup
-  // output adjacent to the main terminal via a split.
+  // split keeps setup output next to the initial agent in one terminal tab;
+  // 'new-tab' is still available for users who want setup unattended.
   if (setup) {
-    const mode = useAppStore.getState().settings?.setupScriptLaunchMode ?? 'new-tab'
     const setupCommand = {
       command: buildSetupRunnerCommand(setup.runnerScriptPath),
       env: setup.envVars

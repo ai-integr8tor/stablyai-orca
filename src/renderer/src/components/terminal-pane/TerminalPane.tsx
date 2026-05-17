@@ -266,7 +266,7 @@ export default function TerminalPane({
   const rightClickToPaste = isWindowsUserAgent() && (settings?.terminalRightClickToPaste ?? true)
   const [startup] = useState(() => useAppStore.getState().pendingStartupByTabId[tabId])
   const consumeTabStartupCommand = useAppStore((store) => store.consumeTabStartupCommand)
-  const [setupSplit] = useState(() => useAppStore.getState().pendingSetupSplitByTabId[tabId])
+  const setupSplit = useAppStore((store) => store.pendingSetupSplitByTabId[tabId])
   const consumeTabSetupSplit = useAppStore((store) => store.consumeTabSetupSplit)
   const [issueCommandSplit] = useState(
     () => useAppStore.getState().pendingIssueCommandSplitByTabId[tabId]
@@ -278,12 +278,6 @@ export default function TerminalPane({
       consumeTabStartupCommand(tabId)
     }
   }, [startup, tabId, consumeTabStartupCommand])
-
-  useEffect(() => {
-    if (setupSplit) {
-      consumeTabSetupSplit(tabId)
-    }
-  }, [setupSplit, tabId, consumeTabSetupSplit])
 
   // Clear the queued issue-command split once this tab has captured it for initial mount.
   useEffect(() => {
@@ -553,6 +547,12 @@ export default function TerminalPane({
     setRenamingPaneId,
     setPaneCount
   })
+
+  useEffect(() => {
+    if (setupSplit) {
+      consumeTabSetupSplit(tabId)
+    }
+  }, [setupSplit, tabId, consumeTabSetupSplit])
 
   // Why (Activity-only pane isolation): when this TerminalPane is being
   // portaled into the Activity page for a specific agent pane, hide the

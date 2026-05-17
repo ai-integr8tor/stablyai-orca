@@ -28,7 +28,8 @@ vi.mock('react', async () => {
     useLayoutEffect: () => {},
     useMemo: <T>(factory: () => T) => factory(),
     useRef: <T>(current: T) => ({ current }),
-    useState: <T>(initial: T) => [initial, vi.fn()] as const
+    useState: <T>(initial: T | (() => T)) =>
+      [typeof initial === 'function' ? (initial as () => T)() : initial, vi.fn()] as const
   }
 })
 
@@ -181,7 +182,6 @@ async function renderTabBar(props: Record<string, unknown>): Promise<unknown> {
     onSetCustomTitle: () => {},
     onSetTabColor: () => {},
     onTogglePaneExpand: () => {},
-    wslAvailable: false,
     ...props
   })
 }

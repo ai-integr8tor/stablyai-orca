@@ -309,6 +309,7 @@ type RuntimeStore = {
     refreshLocalBaseRefOnWorktreeCreate: boolean
     branchPrefix: string
     branchPrefixCustom: string
+    setupScriptLaunchMode?: GlobalSettings['setupScriptLaunchMode']
     experimentalWorktreeSymlinks?: boolean
     mobileAutoRestoreFitMs?: number | null
     voice?: VoiceSettings
@@ -5422,6 +5423,7 @@ export class OrcaRuntimeService {
     const shouldActivate = args.activate === true || args.runHooks === true
     let didSpawnStartup = false
     let didSpawnSetup = false
+    const setupScriptLaunchMode = settings.setupScriptLaunchMode ?? 'split-vertical'
     if (args.startup && this.ptyController?.spawn) {
       try {
         // Why: automation startup must not depend on a renderer TerminalPane
@@ -5440,11 +5442,17 @@ export class OrcaRuntimeService {
         console.warn(`[worktree-create] ${warning}`)
       }
     }
-    if (didSpawnStartup && setup && this.ptyController?.spawn) {
+    if (
+      didSpawnStartup &&
+      setup &&
+      this.ptyController?.spawn &&
+      (!shouldActivate || setupScriptLaunchMode === 'new-tab')
+    ) {
       try {
         // Why: reveal-on-adopt can create the startup tab before renderer
-        // activation handles setup. Spawn setup in runtime too so startup+setup
-        // cannot be skipped by the renderer's "terminal already exists" guard.
+        // activation handles setup. For split-mode setup, let activation queue
+        // the split against the adopted startup tab instead of creating a
+        // standalone Setup tab.
         await this.createTerminal(`path:${worktree.path}`, {
           title: 'Setup',
           command: buildSetupRunnerCommand(

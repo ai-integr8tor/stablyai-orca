@@ -15,7 +15,7 @@ type TestPage = Parameters<typeof getActiveWorktreeId>[0]
 
 const SETUP_HOOK_CONTENT = 'scripts:\n  setup: echo SETUP_COMPLETE\n'
 
-async function ensureSetupHookCommitted(page: TestPage): Promise<void> {
+export async function ensureSetupHookCommitted(page: TestPage): Promise<void> {
   const activeWorktreePath = await page.evaluate(() => {
     const state = window.__store?.getState()
     if (!state?.activeWorktreeId) {
