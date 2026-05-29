@@ -3582,6 +3582,40 @@ describe('registerWorktreeHandlers', () => {
     await expect(first).resolves.toBeUndefined()
   })
 
+  it('rejects concurrent deletes for the same worktree id when only archive options differ', async () => {
+    mockKnownFeatureWorktree()
+    let removalStarted!: () => void
+    let finishRemoval!: () => void
+    const started = new Promise<void>((resolve) => {
+      removalStarted = resolve
+    })
+    removeWorktreeMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          removalStarted()
+          finishRemoval = resolve
+        })
+    )
+
+    const first = handlers['worktrees:remove'](null, {
+      worktreeId: 'repo-1::/workspace/feature-wt',
+      force: true
+    }) as Promise<void>
+
+    await started
+    await expect(
+      handlers['worktrees:remove'](null, {
+        worktreeId: 'repo-1::/workspace/feature-wt',
+        force: true,
+        skipArchive: true
+      })
+    ).rejects.toThrow('Worktree deletion already in progress')
+
+    expect(removeWorktreeMock).toHaveBeenCalledTimes(1)
+    finishRemoval()
+    await expect(first).resolves.toBeUndefined()
+  })
+
   it('still rejects forced unregistered delete paths that exist on disk', async () => {
     mockKnownFeatureWorktree('/workspace/real-feature')
 
@@ -3704,6 +3738,49 @@ describe('registerWorktreeHandlers', () => {
 
     expect(killAllProcessesForWorktreeMock).not.toHaveBeenCalled()
     expect(removeWorktreeMock).not.toHaveBeenCalled()
+  })
+
+  it('force deletes after a dirty non-force failure without reusing the dirty preflight result', async () => {
+    mockKnownFeatureWorktree()
+    getEffectiveHooksMock.mockReturnValue(null)
+    assertWorktreeCleanForRemovalMock.mockImplementation(async (_worktreePath, force) => {
+      if (force) {
+        return
+      }
+      throw Object.assign(new Error('Worktree has uncommitted or untracked changes.'), {
+        stdout: '?? scratch.txt\n'
+      })
+    })
+    removeWorktreeMock.mockResolvedValue(undefined)
+
+    await expect(
+      handlers['worktrees:remove'](null, {
+        worktreeId: 'repo-1::/workspace/feature-wt'
+      })
+    ).rejects.toThrow('Failed to delete worktree at /workspace/feature-wt. ?? scratch.txt')
+
+    await expect(
+      handlers['worktrees:remove'](null, {
+        worktreeId: 'repo-1::/workspace/feature-wt',
+        force: true
+      })
+    ).resolves.toBeUndefined()
+
+    expect(assertWorktreeCleanForRemovalMock).toHaveBeenNthCalledWith(
+      1,
+      '/workspace/feature-wt',
+      false
+    )
+    expect(assertWorktreeCleanForRemovalMock).toHaveBeenNthCalledWith(
+      2,
+      '/workspace/feature-wt',
+      true
+    )
+    expect(removeWorktreeMock).toHaveBeenCalledWith(
+      '/workspace/repo',
+      '/workspace/feature-wt',
+      true
+    )
   })
 
   it('formats preflight subprocess failures and does not tear down PTYs', async () => {

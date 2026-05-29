@@ -374,6 +374,480 @@ describe('fetchWorktrees', () => {
     expect(store.getState().sortEpoch).toBe(8)
   })
 
+  it('preserves workspace state when an authoritative refresh races a dirty delete failure', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    const dirtyError =
+      "Error invoking remote method 'worktrees:remove': Error: Failed to delete worktree at /path/dirty. ?? scratch.txt"
+    let rejectRemoval!: (error: Error) => void
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectRemoval = reject
+      })
+    )
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repo1', [surviving]))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, surviving] },
+      sortEpoch: 7,
+      activeWorktreeId: dirty.id,
+      activeTabId: 'tab-dirty',
+      activeBrowserTabId: 'browser-dirty',
+      activeTabType: 'browser',
+      tabsByWorktree: {
+        [dirty.id]: [{ id: 'tab-dirty', worktreeId: dirty.id }],
+        [surviving.id]: [{ id: 'tab-surviving', worktreeId: surviving.id }]
+      },
+      rightSidebarTabByWorktree: {
+        [dirty.id]: 'source-control',
+        [surviving.id]: 'checks'
+      },
+      gitStatusByWorktree: {
+        [dirty.id]: [{ path: 'scratch.txt' }]
+      },
+      gitBranchChangesByWorktree: {
+        [dirty.id]: [{ path: 'scratch.txt' }]
+      },
+      gitBranchCompareSummaryByWorktree: {
+        [dirty.id]: { status: 'ready' }
+      },
+      gitBranchCompareRequestKeyByWorktree: {
+        [dirty.id]: 'dirty-compare'
+      },
+      openFiles: [
+        {
+          id: 'file-dirty',
+          filePath: '/path/dirty/scratch.txt',
+          relativePath: 'scratch.txt',
+          worktreeId: dirty.id,
+          language: 'text',
+          isDirty: true
+        }
+      ],
+      activeFileId: 'file-dirty',
+      activeFileIdByWorktree: {
+        [dirty.id]: 'file-dirty'
+      },
+      activeTabIdByWorktree: {
+        [dirty.id]: 'tab-dirty'
+      },
+      activeTabTypeByWorktree: {
+        [dirty.id]: 'browser'
+      },
+      editorDrafts: {
+        'file-dirty': 'unsaved draft'
+      },
+      browserTabsByWorktree: {
+        [dirty.id]: [
+          {
+            id: 'browser-dirty',
+            worktreeId: dirty.id,
+            url: 'https://example.com',
+            title: 'Example',
+            loading: false,
+            faviconUrl: null,
+            canGoBack: false,
+            canGoForward: false,
+            loadError: null,
+            createdAt: 1
+          }
+        ]
+      },
+      activeBrowserTabIdByWorktree: {
+        [dirty.id]: 'browser-dirty'
+      }
+    } as unknown as Partial<AppState>)
+
+    const deleteAttempt = store.getState().removeWorktree(dirty.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[dirty.id]?.isDeleting).toBe(true)
+    )
+    await store.getState().fetchWorktrees('repo1')
+    rejectRemoval(new Error(dirtyError))
+
+    await expect(deleteAttempt).resolves.toEqual({ ok: false, error: dirtyError })
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.tabsByWorktree[dirty.id]).toEqual([{ id: 'tab-dirty', worktreeId: dirty.id }])
+    expect(state.rightSidebarTabByWorktree[dirty.id]).toBe('source-control')
+    expect(state.gitStatusByWorktree[dirty.id]).toEqual([{ path: 'scratch.txt' }])
+    expect(state.gitBranchChangesByWorktree[dirty.id]).toEqual([{ path: 'scratch.txt' }])
+    expect(state.gitBranchCompareSummaryByWorktree[dirty.id]).toEqual({ status: 'ready' })
+    expect(state.gitBranchCompareRequestKeyByWorktree[dirty.id]).toBe('dirty-compare')
+    expect(state.openFiles).toEqual([
+      {
+        id: 'file-dirty',
+        filePath: '/path/dirty/scratch.txt',
+        relativePath: 'scratch.txt',
+        worktreeId: dirty.id,
+        language: 'text',
+        isDirty: true
+      }
+    ])
+    expect(state.activeFileId).toBe('file-dirty')
+    expect(state.activeBrowserTabId).toBe('browser-dirty')
+    expect(state.activeTabType).toBe('browser')
+    expect(state.activeFileIdByWorktree[dirty.id]).toBe('file-dirty')
+    expect(state.activeTabIdByWorktree[dirty.id]).toBe('tab-dirty')
+    expect(state.activeTabTypeByWorktree[dirty.id]).toBe('browser')
+    expect(state.editorDrafts['file-dirty']).toBe('unsaved draft')
+    expect(state.browserTabsByWorktree[dirty.id]).toEqual([
+      {
+        id: 'browser-dirty',
+        worktreeId: dirty.id,
+        url: 'https://example.com',
+        title: 'Example',
+        loading: false,
+        faviconUrl: null,
+        canGoBack: false,
+        canGoForward: false,
+        loadError: null,
+        createdAt: 1
+      }
+    ])
+    expect(state.activeBrowserTabIdByWorktree[dirty.id]).toBe('browser-dirty')
+    expect(
+      new Set(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id))
+    ).toEqual(new Set([dirty.id, surviving.id]))
+    expect(state.activeWorktreeId).toBe(dirty.id)
+    expect(state.activeTabId).toBe('tab-dirty')
+    expect(state.deleteStateByWorktreeId[dirty.id]).toEqual({
+      isDeleting: false,
+      error: dirtyError,
+      canForceDelete: true
+    })
+    expect(state.shutdownWorktreeBrowsers).not.toHaveBeenCalled()
+    expect(state.shutdownWorktreeTerminals).not.toHaveBeenCalled()
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('preserves workspace state when delete starts after refresh request but before scan result', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    const dirtyError =
+      "Error invoking remote method 'worktrees:remove': Error: Failed to delete worktree at /path/dirty. ?? scratch.txt"
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    let rejectRemoval!: (error: Error) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectRemoval = reject
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, surviving] },
+      sortEpoch: 7,
+      activeWorktreeId: dirty.id,
+      tabsByWorktree: {
+        [dirty.id]: [{ id: 'tab-dirty', worktreeId: dirty.id }]
+      }
+    } as unknown as Partial<AppState>)
+
+    const refresh = store.getState().fetchWorktrees('repo1')
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    const deleteAttempt = store.getState().removeWorktree(dirty.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[dirty.id]?.isDeleting).toBe(true)
+    )
+    resolveDetected(makeDetectedResult('repo1', [surviving]))
+    await refresh
+    rejectRemoval(new Error(dirtyError))
+
+    await expect(deleteAttempt).resolves.toEqual({ ok: false, error: dirtyError })
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.tabsByWorktree[dirty.id]).toEqual([{ id: 'tab-dirty', worktreeId: dirty.id }])
+    expect(state.activeWorktreeId).toBe(dirty.id)
+    expect(state.deleteStateByWorktreeId[dirty.id]).toEqual({
+      isDeleting: false,
+      error: dirtyError,
+      canForceDelete: true
+    })
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('ignores a refresh result that started during a dirty delete attempt and resolves after failure', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    const dirtyError =
+      "Error invoking remote method 'worktrees:remove': Error: Failed to delete worktree at /path/dirty. ?? scratch.txt"
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    let rejectRemoval!: (error: Error) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectRemoval = reject
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, surviving] },
+      detectedWorktreesByRepo: { repo1: makeDetectedResult('repo1', [dirty, surviving]) },
+      sortEpoch: 7,
+      activeWorktreeId: dirty.id,
+      tabsByWorktree: {
+        [dirty.id]: [{ id: 'tab-dirty', worktreeId: dirty.id }]
+      }
+    } as unknown as Partial<AppState>)
+
+    const refresh = store.getState().fetchWorktrees('repo1')
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    const deleteAttempt = store.getState().removeWorktree(dirty.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[dirty.id]?.isDeleting).toBe(true)
+    )
+    rejectRemoval(new Error(dirtyError))
+    await expect(deleteAttempt).resolves.toEqual({ ok: false, error: dirtyError })
+    resolveDetected(makeDetectedResult('repo1', [surviving]))
+    await refresh
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.tabsByWorktree[dirty.id]).toEqual([{ id: 'tab-dirty', worktreeId: dirty.id }])
+    expect(state.activeWorktreeId).toBe(dirty.id)
+    expect(state.deleteStateByWorktreeId[dirty.id]).toEqual({
+      isDeleting: false,
+      error: dirtyError,
+      canForceDelete: true
+    })
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('ignores a detected refresh result that started during a dirty delete attempt and resolves after failure', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    const dirtyError =
+      "Error invoking remote method 'worktrees:remove': Error: Failed to delete worktree at /path/dirty. ?? scratch.txt"
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    let rejectRemoval!: (error: Error) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectRemoval = reject
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, surviving] },
+      detectedWorktreesByRepo: { repo1: makeDetectedResult('repo1', [dirty, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchDetectedWorktrees('repo1')
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    const deleteAttempt = store.getState().removeWorktree(dirty.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[dirty.id]?.isDeleting).toBe(true)
+    )
+    rejectRemoval(new Error(dirtyError))
+    await expect(deleteAttempt).resolves.toEqual({ ok: false, error: dirtyError })
+    resolveDetected(makeDetectedResult('repo1', [surviving]))
+    await expect(refresh).resolves.toBeNull()
+
+    const state = store.getState()
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.deleteStateByWorktreeId[dirty.id]).toEqual({
+      isDeleting: false,
+      error: dirtyError,
+      canForceDelete: true
+    })
+  })
+
+  it('removes preserved detected state when an in-flight delete succeeds', async () => {
+    const store = createTestStore()
+    const deleted = makeWorktree({
+      id: 'repo1::/path/deleted',
+      repoId: 'repo1',
+      path: '/path/deleted'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    let resolveRemoval!: () => void
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveRemoval = resolve
+      })
+    )
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repo1', [surviving]))
+
+    store.setState({
+      worktreesByRepo: { repo1: [deleted, surviving] },
+      detectedWorktreesByRepo: { repo1: makeDetectedResult('repo1', [deleted, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const deleteAttempt = store.getState().removeWorktree(deleted.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[deleted.id]?.isDeleting).toBe(true)
+    )
+    await store.getState().fetchWorktrees('repo1')
+    expect(
+      store.getState().detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)
+    ).toEqual([surviving.id, deleted.id])
+
+    resolveRemoval()
+    await expect(deleteAttempt).resolves.toEqual({ ok: true })
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1.map((worktree) => worktree.id)).toEqual([surviving.id])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      surviving.id
+    ])
+    expect(state.getKnownWorktreeById(deleted.id)).toBeUndefined()
+  })
+
+  it('ignores a refresh result that started before a delete succeeded', async () => {
+    const store = createTestStore()
+    const deleted = makeWorktree({
+      id: 'repo1::/path/deleted',
+      repoId: 'repo1',
+      path: '/path/deleted'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockResolvedValueOnce(undefined)
+
+    store.setState({
+      worktreesByRepo: { repo1: [deleted, surviving] },
+      detectedWorktreesByRepo: { repo1: makeDetectedResult('repo1', [deleted, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchWorktrees('repo1')
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    await expect(store.getState().removeWorktree(deleted.id)).resolves.toEqual({ ok: true })
+    resolveDetected(makeDetectedResult('repo1', [deleted, surviving]))
+    await refresh
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1.map((worktree) => worktree.id)).toEqual([surviving.id])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      surviving.id
+    ])
+    expect(state.getKnownWorktreeById(deleted.id)).toBeUndefined()
+  })
+
+  it('ignores a detected refresh result that started before a delete succeeded', async () => {
+    const store = createTestStore()
+    const deleted = makeWorktree({
+      id: 'repo1::/path/deleted',
+      repoId: 'repo1',
+      path: '/path/deleted'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockResolvedValueOnce(undefined)
+
+    store.setState({
+      worktreesByRepo: { repo1: [deleted, surviving] },
+      detectedWorktreesByRepo: { repo1: makeDetectedResult('repo1', [deleted, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchDetectedWorktrees('repo1')
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    await expect(store.getState().removeWorktree(deleted.id)).resolves.toEqual({ ok: true })
+    resolveDetected(makeDetectedResult('repo1', [deleted, surviving]))
+    await expect(refresh).resolves.toBeNull()
+
+    const state = store.getState()
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      surviving.id
+    ])
+    expect(state.getKnownWorktreeById(deleted.id)).toBeUndefined()
+  })
+
   it('purges remembered state for hidden worktrees removed by an authoritative refresh', async () => {
     const store = createTestStore()
     const visible = makeWorktree({
@@ -412,6 +886,86 @@ describe('fetchWorktrees', () => {
     expect(store.getState().rightSidebarTabByWorktree).toEqual({ [visible.id]: 'checks' })
     expect(store.getState().tabsByWorktree[hidden.id]).toBeUndefined()
     expect(store.getState().sortEpoch).toBe(7)
+  })
+
+  it('preserves hidden detected state when an authoritative refresh races an in-flight delete', async () => {
+    const store = createTestStore()
+    const visible = makeWorktree({
+      id: 'repo1::/path/visible',
+      repoId: 'repo1',
+      path: '/path/visible'
+    })
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const previousDetected = makeDetectedResult('repo1', [visible, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repo1', [visible]))
+    store.setState({
+      worktreesByRepo: { repo1: [visible] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchWorktrees('repo1')
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1).toEqual([visible])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      visible.id,
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[1]?.visible).toBe(false)
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('preserves hidden detected state during an authoritative detected-only refresh', async () => {
+    const store = createTestStore()
+    const visible = makeWorktree({
+      id: 'repo1::/path/visible',
+      repoId: 'repo1',
+      path: '/path/visible'
+    })
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const previousDetected = makeDetectedResult('repo1', [visible, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repo1', [visible]))
+    store.setState({
+      worktreesByRepo: { repo1: [visible] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      }
+    } as Partial<AppState>)
+
+    await expect(store.getState().fetchDetectedWorktrees('repo1')).resolves.toMatchObject({
+      authoritative: true,
+      source: 'git'
+    })
+
+    const state = store.getState()
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      visible.id,
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[1]?.visible).toBe(false)
   })
 
   it('does not purge remembered state from a non-authoritative partial refresh', async () => {
@@ -458,6 +1012,221 @@ describe('fetchWorktrees', () => {
     expect(store.getState().sortEpoch).toBe(8)
   })
 
+  it('preserves an in-flight delete row during a non-authoritative partial refresh', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const fallback = makeWorktree({
+      id: 'repo1::/path/fallback',
+      repoId: 'repo1',
+      path: '/path/fallback'
+    })
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [fallback], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, fallback] },
+      deleteStateByWorktreeId: {
+        [dirty.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchWorktrees('repo1')
+
+    expect(store.getState().worktreesByRepo.repo1).toEqual([dirty, fallback])
+    expect(store.getState().sortEpoch).toBe(7)
+  })
+
+  it('preserves a hidden in-flight delete row during a non-authoritative partial refresh', async () => {
+    const store = createTestStore()
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const fallback = makeWorktree({
+      id: 'repo1::/path/fallback',
+      repoId: 'repo1',
+      path: '/path/fallback'
+    })
+    const previousDetected = makeDetectedResult('repo1', [fallback, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [fallback], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [fallback] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchWorktrees('repo1')
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1).toEqual([fallback])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      fallback.id,
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[1]?.visible).toBe(false)
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('preserves a hidden in-flight delete row during a non-authoritative empty refresh', async () => {
+    const store = createTestStore()
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const visible = makeWorktree({
+      id: 'repo1::/path/visible',
+      repoId: 'repo1',
+      path: '/path/visible'
+    })
+    const previousDetected = makeDetectedResult('repo1', [visible, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [visible] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchWorktrees('repo1')
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repo1).toEqual([visible])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[0]?.visible).toBe(false)
+    expect(state.sortEpoch).toBe(7)
+  })
+
+  it('preserves a hidden in-flight delete row during a detected-only empty refresh', async () => {
+    const store = createTestStore()
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const visible = makeWorktree({
+      id: 'repo1::/path/visible',
+      repoId: 'repo1',
+      path: '/path/visible'
+    })
+    const previousDetected = makeDetectedResult('repo1', [visible, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [visible] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      }
+    } as Partial<AppState>)
+
+    await expect(store.getState().fetchDetectedWorktrees('repo1')).resolves.toMatchObject({
+      authoritative: false,
+      source: 'metadata-fallback'
+    })
+
+    const state = store.getState()
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[0]?.visible).toBe(false)
+  })
+
+  it('preserves a hidden in-flight delete row during a detected-only partial refresh', async () => {
+    const store = createTestStore()
+    const hidden = makeWorktree({
+      id: 'repo1::/path/hidden',
+      repoId: 'repo1',
+      path: '/path/hidden'
+    })
+    const fallback = makeWorktree({
+      id: 'repo1::/path/fallback',
+      repoId: 'repo1',
+      path: '/path/fallback'
+    })
+    const previousDetected = makeDetectedResult('repo1', [fallback, hidden])
+    previousDetected.worktrees[1] = {
+      ...previousDetected.worktrees[1],
+      ownership: 'external',
+      visible: false
+    }
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [fallback], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [fallback] },
+      detectedWorktreesByRepo: { repo1: previousDetected },
+      deleteStateByWorktreeId: {
+        [hidden.id]: { isDeleting: true, error: null, canForceDelete: false }
+      }
+    } as Partial<AppState>)
+
+    await expect(store.getState().fetchDetectedWorktrees('repo1')).resolves.toMatchObject({
+      authoritative: false,
+      source: 'metadata-fallback'
+    })
+
+    const state = store.getState()
+    expect(state.detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.id)).toEqual([
+      fallback.id,
+      hidden.id
+    ])
+    expect(state.detectedWorktreesByRepo.repo1.worktrees[1]?.visible).toBe(false)
+  })
+
   it('does not purge remembered right sidebar tabs on a transient empty refresh', async () => {
     const store = createTestStore()
     const existing = makeWorktree({ id: 'repo1::/path/wt1', repoId: 'repo1', path: '/path/wt1' })
@@ -478,6 +1247,39 @@ describe('fetchWorktrees', () => {
 
     expect(store.getState().worktreesByRepo.repo1).toEqual([existing])
     expect(store.getState().rightSidebarTabByWorktree).toEqual({ [existing.id]: 'search' })
+    expect(store.getState().sortEpoch).toBe(7)
+  })
+
+  it('keeps the full cached list when a transient empty refresh overlaps an in-flight delete', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({
+      id: 'repo1::/path/dirty',
+      repoId: 'repo1',
+      path: '/path/dirty'
+    })
+    const surviving = makeWorktree({
+      id: 'repo1::/path/surviving',
+      repoId: 'repo1',
+      path: '/path/surviving'
+    })
+
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(
+      makeDetectedResult('repo1', [], {
+        authoritative: false,
+        source: 'metadata-fallback'
+      })
+    )
+    store.setState({
+      worktreesByRepo: { repo1: [dirty, surviving] },
+      deleteStateByWorktreeId: {
+        [dirty.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchWorktrees('repo1')
+
+    expect(store.getState().worktreesByRepo.repo1).toEqual([dirty, surviving])
     expect(store.getState().sortEpoch).toBe(7)
   })
 
@@ -2279,6 +3081,132 @@ describe('fetchAllWorktrees hydration-time purge (design §4.4)', () => {
 
     expect(mockApi.worktrees.list).toHaveBeenCalledTimes(4)
     expect(store.getState().tabsByWorktree['repoA::/a/new-zombie']).toBeDefined()
+  })
+
+  it('preserves an in-flight delete row during fetchAllWorktrees', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({ id: 'repoA::/a/dirty', repoId: 'repoA', path: '/a/dirty' })
+    const surviving = makeWorktree({
+      id: 'repoA::/a/surviving',
+      repoId: 'repoA',
+      path: '/a/surviving'
+    })
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repoA', [surviving]))
+    store.setState({
+      repos: [repoA],
+      worktreesByRepo: { repoA: [dirty, surviving] },
+      detectedWorktreesByRepo: { repoA: makeDetectedResult('repoA', [dirty, surviving]) },
+      deleteStateByWorktreeId: {
+        [dirty.id]: { isDeleting: true, error: null, canForceDelete: false }
+      },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    await store.getState().fetchAllWorktrees()
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repoA.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.detectedWorktreesByRepo.repoA.worktrees.map((worktree) => worktree.id)).toEqual([
+      surviving.id,
+      dirty.id
+    ])
+    expect(state.sortEpoch).toBe(7)
+    expect(state.hasHydratedWorktreePurge).toBe(true)
+  })
+
+  it('ignores a fetchAllWorktrees result that started before a delete succeeded', async () => {
+    const store = createTestStore()
+    const deleted = makeWorktree({ id: 'repoA::/a/deleted', repoId: 'repoA', path: '/a/deleted' })
+    const surviving = makeWorktree({
+      id: 'repoA::/a/surviving',
+      repoId: 'repoA',
+      path: '/a/surviving'
+    })
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockResolvedValueOnce(undefined)
+    store.setState({
+      repos: [repoA],
+      worktreesByRepo: { repoA: [deleted, surviving] },
+      detectedWorktreesByRepo: { repoA: makeDetectedResult('repoA', [deleted, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchAllWorktrees()
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    await expect(store.getState().removeWorktree(deleted.id)).resolves.toEqual({ ok: true })
+    resolveDetected(makeDetectedResult('repoA', [deleted, surviving]))
+    await refresh
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repoA.map((worktree) => worktree.id)).toEqual([surviving.id])
+    expect(state.detectedWorktreesByRepo.repoA.worktrees.map((worktree) => worktree.id)).toEqual([
+      surviving.id
+    ])
+    expect(state.hasHydratedWorktreePurge).toBe(false)
+  })
+
+  it('ignores a fetchAllWorktrees result that resolves after a dirty delete failure', async () => {
+    const store = createTestStore()
+    const dirty = makeWorktree({ id: 'repoA::/a/dirty', repoId: 'repoA', path: '/a/dirty' })
+    const surviving = makeWorktree({
+      id: 'repoA::/a/surviving',
+      repoId: 'repoA',
+      path: '/a/surviving'
+    })
+    const dirtyError =
+      "Error invoking remote method 'worktrees:remove': Error: Failed to delete worktree at /a/dirty. ?? scratch.txt"
+    let resolveDetected!: (result: DetectedWorktreeListResult) => void
+    let rejectRemoval!: (error: Error) => void
+    mockApi.worktrees.listDetected.mockReturnValueOnce(
+      new Promise<DetectedWorktreeListResult>((resolve) => {
+        resolveDetected = resolve
+      })
+    )
+    mockApi.worktrees.remove.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectRemoval = reject
+      })
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    store.setState({
+      repos: [repoA],
+      worktreesByRepo: { repoA: [dirty, surviving] },
+      detectedWorktreesByRepo: { repoA: makeDetectedResult('repoA', [dirty, surviving]) },
+      sortEpoch: 7
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchAllWorktrees()
+    await vi.waitFor(() => expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1))
+
+    const deleteAttempt = store.getState().removeWorktree(dirty.id)
+    await vi.waitFor(() =>
+      expect(store.getState().deleteStateByWorktreeId[dirty.id]?.isDeleting).toBe(true)
+    )
+    rejectRemoval(new Error(dirtyError))
+    await expect(deleteAttempt).resolves.toEqual({ ok: false, error: dirtyError })
+    resolveDetected(makeDetectedResult('repoA', [surviving]))
+    await refresh
+
+    const state = store.getState()
+    expect(state.worktreesByRepo.repoA.map((worktree) => worktree.id)).toEqual([
+      dirty.id,
+      surviving.id
+    ])
+    expect(state.deleteStateByWorktreeId[dirty.id]).toEqual({
+      isDeleting: false,
+      error: dirtyError,
+      canForceDelete: true
+    })
+    expect(state.hasHydratedWorktreePurge).toBe(false)
   })
 })
 

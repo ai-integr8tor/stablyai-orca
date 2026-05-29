@@ -49,6 +49,7 @@ import { toast } from 'sonner'
 import {
   runWorktreeBatchDelete,
   runWorktreeDelete,
+  runWorktreeDeleteWithToast,
   runWorktreeDeletesInParallel
 } from './delete-worktree-flow'
 
@@ -297,5 +298,43 @@ describe('runWorktreeDeletesInParallel', () => {
 
     expect(mocks.state.removeWorktree).toHaveBeenCalledTimes(1)
     expect(mocks.state.removeWorktree).toHaveBeenNthCalledWith(1, 'child', false)
+  })
+})
+
+describe('runWorktreeDeleteWithToast', () => {
+  beforeEach(() => {
+    mocks.state.removeWorktree.mockClear().mockResolvedValue({ ok: true })
+    mocks.state.deleteStateByWorktreeId = {}
+    vi.mocked(toast.error).mockClear()
+    vi.mocked(toast.info).mockClear()
+  })
+
+  it('force deletes from the dirty-worktree prompt with force=true', async () => {
+    mocks.state.removeWorktree.mockImplementation(async (worktreeId: string, force?: boolean) => {
+      if (force) {
+        return { ok: true }
+      }
+      mocks.state.deleteStateByWorktreeId = {
+        [worktreeId]: {
+          isDeleting: false,
+          error: 'dirty worktree',
+          canForceDelete: true
+        }
+      }
+      return { ok: false, error: 'dirty worktree' }
+    })
+
+    await expect(runWorktreeDeleteWithToast('wt-1', 'feature')).resolves.toBe(false)
+
+    const toastOptions = vi.mocked(toast.info).mock.calls[0]?.[1] as
+      | { action?: { onClick?: () => void } }
+      | undefined
+    expect(toastOptions?.action?.onClick).toBeTypeOf('function')
+    toastOptions?.action?.onClick?.()
+
+    await vi.waitFor(() => {
+      expect(mocks.state.removeWorktree).toHaveBeenLastCalledWith('wt-1', true)
+    })
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled()
   })
 })

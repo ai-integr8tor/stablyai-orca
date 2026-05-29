@@ -28,6 +28,7 @@ export type WorktreeSlice = {
   worktreeLineageById: Record<string, WorktreeLineage>
   activeWorktreeId: string | null
   deleteStateByWorktreeId: Record<string, WorktreeDeleteState>
+  worktreeDeleteEpochByRepo: Record<string, number>
   baseStatusByWorktreeId: Record<string, WorktreeBaseStatusEvent>
   remoteBranchConflictByWorktreeId: Record<string, WorktreeRemoteBranchConflictEvent>
   /**

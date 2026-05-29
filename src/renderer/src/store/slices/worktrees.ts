@@ -239,12 +239,110 @@ function toVisibleWorktrees(result: DetectedWorktreeListResult): Worktree[] {
   return result.worktrees.filter((worktree) => worktree.visible).map(toVisibleWorktree)
 }
 
+// Why: dirty non-force deletes can reject after a concurrent refresh. Until the
+// backend call resolves, the renderer must not make a missing scan row final.
+function preserveInFlightDeleteWorktrees(
+  current: Worktree[] | undefined,
+  refreshed: Worktree[],
+  inFlightDeleteIds: ReadonlySet<string>
+): Worktree[] {
+  if (!current || inFlightDeleteIds.size === 0) {
+    return refreshed
+  }
+
+  const refreshedById = new Map(refreshed.map((worktree) => [worktree.id, worktree]))
+  const next: Worktree[] = []
+  let preserved = false
+  for (const worktree of current) {
+    const refreshedWorktree = refreshedById.get(worktree.id)
+    if (refreshedWorktree) {
+      refreshedById.delete(worktree.id)
+      next.push(refreshedWorktree)
+      continue
+    }
+    if (inFlightDeleteIds.has(worktree.id)) {
+      preserved = true
+      next.push(worktree)
+    }
+  }
+
+  next.push(...refreshedById.values())
+  const orderChanged =
+    next.length === refreshed.length &&
+    next.some((worktree, index) => worktree.id !== refreshed[index].id)
+
+  if (!preserved && !orderChanged) {
+    return refreshed
+  }
+  return next
+}
+
 function getKnownWorktreeIdsForPurge(state: AppState, repoId: string): string[] {
   const detected = state.detectedWorktreesByRepo[repoId]
   if (detected?.authoritative === true) {
     return detected.worktrees.map((worktree) => worktree.id)
   }
   return (state.worktreesByRepo[repoId] ?? []).map((worktree) => worktree.id)
+}
+
+function getInFlightDeleteWorktreeIds(state: AppState, repoId: string): Set<string> {
+  const ids = new Set<string>()
+  for (const [worktreeId, deleteState] of Object.entries(state.deleteStateByWorktreeId)) {
+    if (deleteState.isDeleting && getRepoIdFromWorktreeId(worktreeId) === repoId) {
+      ids.add(worktreeId)
+    }
+  }
+  return ids
+}
+
+function preserveInFlightDeleteDetectedWorktrees(
+  state: AppState,
+  repoId: string,
+  detected: DetectedWorktreeListResult
+): DetectedWorktreeListResult {
+  const inFlightDeleteIds = getInFlightDeleteWorktreeIds(state, repoId)
+  if (inFlightDeleteIds.size === 0) {
+    return detected
+  }
+
+  const detectedIds = new Set(detected.worktrees.map((worktree) => worktree.id))
+  const previousDetectedById = new Map(
+    (state.detectedWorktreesByRepo[repoId]?.worktrees ?? []).map((worktree) => [
+      worktree.id,
+      worktree
+    ])
+  )
+  const currentVisibleById = new Map(
+    (state.worktreesByRepo[repoId] ?? []).map((worktree) => [worktree.id, worktree])
+  )
+  const preserved: DetectedWorktreeListResult['worktrees'] = []
+
+  for (const worktreeId of inFlightDeleteIds) {
+    if (detectedIds.has(worktreeId)) {
+      continue
+    }
+    const previousDetected = previousDetectedById.get(worktreeId)
+    if (previousDetected) {
+      preserved.push(previousDetected)
+      continue
+    }
+    if (!detected.authoritative) {
+      continue
+    }
+    const currentVisible = currentVisibleById.get(worktreeId)
+    if (currentVisible) {
+      preserved.push({
+        ...currentVisible,
+        ownership: 'orca-managed',
+        selectedCheckout: false,
+        visible: true
+      })
+    }
+  }
+
+  return preserved.length > 0
+    ? { ...detected, worktrees: [...detected.worktrees, ...preserved] }
+    : detected
 }
 
 function getRemovedWorktreeIdsAfterAuthoritativeScan(
@@ -256,7 +354,10 @@ function getRemovedWorktreeIdsAfterAuthoritativeScan(
     return []
   }
   const detectedIds = new Set(detected.worktrees.map((worktree) => worktree.id))
-  return getKnownWorktreeIdsForPurge(state, repoId).filter((id) => !detectedIds.has(id))
+  const inFlightDeleteIds = getInFlightDeleteWorktreeIds(state, repoId)
+  return getKnownWorktreeIdsForPurge(state, repoId).filter(
+    (id) => !detectedIds.has(id) && !inFlightDeleteIds.has(id)
+  )
 }
 
 function toLegacyDetectedWorktreeResult(
@@ -299,6 +400,26 @@ function applyDetectedWorktreeUpdates(
       return { ...worktree, ...updates }
     })
     nextByRepo[repoId] = repoChanged ? { ...result, worktrees: nextWorktrees } : result
+  }
+
+  return changed ? nextByRepo : detectedWorktreesByRepo
+}
+
+function removeDetectedWorktreeById(
+  detectedWorktreesByRepo: AppState['detectedWorktreesByRepo'],
+  worktreeId: string
+): AppState['detectedWorktreesByRepo'] {
+  let changed = false
+  const nextByRepo: AppState['detectedWorktreesByRepo'] = {}
+
+  for (const [repoId, result] of Object.entries(detectedWorktreesByRepo)) {
+    const nextWorktrees = result.worktrees.filter((worktree) => worktree.id !== worktreeId)
+    if (nextWorktrees.length !== result.worktrees.length) {
+      changed = true
+      nextByRepo[repoId] = { ...result, worktrees: nextWorktrees }
+    } else {
+      nextByRepo[repoId] = result
+    }
   }
 
   return changed ? nextByRepo : detectedWorktreesByRepo
@@ -631,6 +752,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   worktreeLineageById: {},
   activeWorktreeId: null,
   deleteStateByWorktreeId: {},
+  worktreeDeleteEpochByRepo: {},
   baseStatusByWorktreeId: {},
   remoteBranchConflictByWorktreeId: {},
   sortEpoch: 0,
@@ -640,13 +762,19 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
 
   fetchDetectedWorktrees: async (repoId) => {
     try {
+      const deleteEpochAtStart = get().worktreeDeleteEpochByRepo[repoId] ?? 0
       const result = await listDetectedWorktreesForRepo(get().settings, repoId)
+      const stateBeforeRefresh = get()
+      if ((stateBeforeRefresh.worktreeDeleteEpochByRepo[repoId] ?? 0) !== deleteEpochAtStart) {
+        return null
+      }
+      const detected = preserveInFlightDeleteDetectedWorktrees(stateBeforeRefresh, repoId, result)
       set((s) =>
-        areDetectedWorktreeResultsEqual(s.detectedWorktreesByRepo[repoId], result)
+        areDetectedWorktreeResultsEqual(s.detectedWorktreesByRepo[repoId], detected)
           ? s
-          : { detectedWorktreesByRepo: { ...s.detectedWorktreesByRepo, [repoId]: result } }
+          : { detectedWorktreesByRepo: { ...s.detectedWorktreesByRepo, [repoId]: detected } }
       )
-      return result
+      return detected
     } catch (err) {
       console.error(`Failed to fetch detected worktrees for repo ${repoId}:`, err)
       return null
@@ -656,9 +784,27 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   fetchWorktrees: async (repoId) => {
     try {
       const settings = get().settings
-      const detected = await listDetectedWorktreesForRepo(settings, repoId)
-      const worktrees = toVisibleWorktrees(detected)
-      const current = get().worktreesByRepo[repoId]
+      const deleteEpochAtStart = get().worktreeDeleteEpochByRepo[repoId] ?? 0
+      const refreshedDetected = await listDetectedWorktreesForRepo(settings, repoId)
+      const stateBeforeRefresh = get()
+      if ((stateBeforeRefresh.worktreeDeleteEpochByRepo[repoId] ?? 0) !== deleteEpochAtStart) {
+        return
+      }
+      const detected = preserveInFlightDeleteDetectedWorktrees(
+        stateBeforeRefresh,
+        repoId,
+        refreshedDetected
+      )
+      const current = stateBeforeRefresh.worktreesByRepo[repoId]
+      const visibleWorktrees = toVisibleWorktrees(detected)
+      const worktrees =
+        detected.authoritative || visibleWorktrees.length > 0
+          ? preserveInFlightDeleteWorktrees(
+              current,
+              visibleWorktrees,
+              getInFlightDeleteWorktreeIds(stateBeforeRefresh, repoId)
+            )
+          : visibleWorktrees
       if (areWorktreesEqual(current, worktrees)) {
         set((s) => {
           const removedIds = getRemovedWorktreeIdsAfterAuthoritativeScan(s, repoId, detected)
@@ -738,9 +884,27 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     const results = await Promise.all(
       repos.map(async (r) => {
         try {
-          const detected = await listDetectedWorktreesForRepo(get().settings, r.id)
-          const list = toVisibleWorktrees(detected)
-          const current = get().worktreesByRepo[r.id]
+          const deleteEpochAtStart = get().worktreeDeleteEpochByRepo[r.id] ?? 0
+          const refreshedDetected = await listDetectedWorktreesForRepo(get().settings, r.id)
+          const stateBeforeRefresh = get()
+          if ((stateBeforeRefresh.worktreeDeleteEpochByRepo[r.id] ?? 0) !== deleteEpochAtStart) {
+            return { repoId: r.id, ok: false as const }
+          }
+          const detected = preserveInFlightDeleteDetectedWorktrees(
+            stateBeforeRefresh,
+            r.id,
+            refreshedDetected
+          )
+          const current = stateBeforeRefresh.worktreesByRepo[r.id]
+          const visibleWorktrees = toVisibleWorktrees(detected)
+          const list =
+            detected.authoritative || visibleWorktrees.length > 0
+              ? preserveInFlightDeleteWorktrees(
+                  current,
+                  visibleWorktrees,
+                  getInFlightDeleteWorktreeIds(stateBeforeRefresh, r.id)
+                )
+              : visibleWorktrees
           if (
             !areWorktreesEqual(current, list) &&
             !(list.length === 0 && current && current.length > 0 && !detected.authoritative)
@@ -1211,8 +1375,22 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                 return next
               })()
             : s.lastVisitedAtByWorktreeId
+        // Why: an in-flight delete refresh may temporarily preserve this row in
+        // detected state. Successful deletion must make later lookups miss it.
+        const nextDetectedWorktrees = removeDetectedWorktreeById(
+          s.detectedWorktreesByRepo,
+          worktreeId
+        )
+        const repoId = getRepoIdFromWorktreeId(worktreeId)
         return {
           worktreesByRepo: next,
+          detectedWorktreesByRepo: nextDetectedWorktrees,
+          // Why: refreshes that started before this successful delete can carry
+          // a pre-delete scan row. Advance an epoch so they cannot re-add it.
+          worktreeDeleteEpochByRepo: {
+            ...s.worktreeDeleteEpochByRepo,
+            [repoId]: (s.worktreeDeleteEpochByRepo[repoId] ?? 0) + 1
+          },
           worktreeLineageById: nextLineage,
           tabsByWorktree: nextTabs,
           ptyIdsByTabId: nextPtyIdsByTabId,
@@ -1278,7 +1456,15 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // handled user decision point surfaced by the delete toast, not an app error.
       console.warn('Failed to remove worktree:', err)
       const error = err instanceof Error ? err.message : String(err)
+      const repoId = getRepoIdFromWorktreeId(worktreeId)
       set((s) => ({
+        // Why: refreshes that started during this delete attempt may carry a
+        // missing-row payload. Once the attempt settles, they are stale even if
+        // the delete failed and the row must remain.
+        worktreeDeleteEpochByRepo: {
+          ...s.worktreeDeleteEpochByRepo,
+          [repoId]: (s.worktreeDeleteEpochByRepo[repoId] ?? 0) + 1
+        },
         deleteStateByWorktreeId: {
           ...s.deleteStateByWorktreeId,
           [worktreeId]: {

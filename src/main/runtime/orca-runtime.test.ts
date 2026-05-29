@@ -8894,6 +8894,27 @@ describe('OrcaRuntimeService', () => {
     await expect(first).resolves.toEqual({})
   })
 
+  it('rejects concurrent runtime worktree removals for the same id when only hook options differ', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const removeStarted = deferred<void>()
+    const finishRemoval = deferred<void>()
+    vi.mocked(removeWorktree).mockImplementation(async () => {
+      removeStarted.resolve()
+      await finishRemoval.promise
+    })
+
+    const first = runtime.removeManagedWorktree(TEST_WORKTREE_ID, true, false)
+
+    await removeStarted.promise
+    await expect(runtime.removeManagedWorktree(TEST_WORKTREE_ID, true, true)).rejects.toThrow(
+      'Worktree deletion already in progress'
+    )
+
+    expect(removeWorktree).toHaveBeenCalledTimes(1)
+    finishRemoval.resolve()
+    await expect(first).resolves.toEqual({})
+  })
+
   it('treats forced runtime deletion of an already-missing unregistered worktree as cleanup', async () => {
     const parentDir = await mkdtemp(join(tmpdir(), 'orca-runtime-remove-'))
     const missingWorktreePath = join(parentDir, 'already-deleted')
@@ -9115,6 +9136,30 @@ describe('OrcaRuntimeService', () => {
 
     expect(killSpy).not.toHaveBeenCalled()
     expect(removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('force deletes after a dirty non-force runtime failure without reusing the dirty preflight result', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    vi.mocked(getEffectiveHooks).mockReturnValue(null)
+    vi.mocked(assertWorktreeCleanForRemoval).mockImplementation(async (_worktreePath, force) => {
+      if (force) {
+        return
+      }
+      throw Object.assign(new Error('Worktree has uncommitted or untracked changes.'), {
+        stdout: '?? scratch.txt\n'
+      })
+    })
+    vi.mocked(removeWorktree).mockResolvedValue(undefined)
+
+    await expect(runtime.removeManagedWorktree(TEST_WORKTREE_ID)).rejects.toThrow(
+      `Failed to delete worktree at ${TEST_WORKTREE_PATH}. ?? scratch.txt`
+    )
+
+    await expect(runtime.removeManagedWorktree(TEST_WORKTREE_ID, true)).resolves.toEqual({})
+
+    expect(assertWorktreeCleanForRemoval).toHaveBeenNthCalledWith(1, TEST_WORKTREE_PATH, false)
+    expect(assertWorktreeCleanForRemoval).toHaveBeenNthCalledWith(2, TEST_WORKTREE_PATH, true)
+    expect(removeWorktree).toHaveBeenCalledWith(TEST_REPO_PATH, TEST_WORKTREE_PATH, true)
   })
 
   it('formats preflight subprocess failures and skips PTY teardown', async () => {
