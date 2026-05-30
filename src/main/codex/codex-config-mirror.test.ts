@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Why: config mirror cases share mocked home/userData setup and fragile TOML section fixtures. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -39,6 +40,10 @@ function getSystemConfigPath(): string {
 
 function getRuntimeConfigPath(): string {
   return join(userDataDir, 'codex-runtime-home', 'home', 'config.toml')
+}
+
+function getRuntimeHooksPath(): string {
+  return join(userDataDir, 'codex-runtime-home', 'home', 'hooks.json')
 }
 
 beforeEach(() => {
@@ -93,6 +98,42 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
   })
 
+  it('does not copy system hook declarations into the runtime config', () => {
+    writeFileSync(
+      getSystemConfigPath(),
+      [
+        'model = "system-model"',
+        '',
+        '[[hooks.Stop]]',
+        'matcher = "*"',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "${CLAUDE_PLUGIN_ROOT}/scripts/on-stop.sh"',
+        '',
+        '[[hooks.UserPromptSubmit]]',
+        '[[hooks.UserPromptSubmit.hooks]]',
+        'type = "command"',
+        'command = "plain-system-hook"',
+        '',
+        '[hooks.state."system-hooks:stop:0:0"]',
+        'enabled = true',
+        'trusted_hash = "sha256:system"',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
+    expect(runtimeConfig).toContain('model = "system-model"')
+    expect(runtimeConfig).not.toContain('[[hooks.Stop]]')
+    expect(runtimeConfig).not.toContain('CLAUDE_PLUGIN_ROOT')
+    expect(runtimeConfig).not.toContain('[[hooks.UserPromptSubmit]]')
+    expect(runtimeConfig).not.toContain('plain-system-hook')
+    expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
+  })
+
   it('normalizes deprecated codex_hooks feature flag only in runtime config', () => {
     writeFileSync(
       getSystemConfigPath(),
@@ -129,9 +170,14 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
       [
         'model = "runtime-model"',
         '',
-        '[hooks.state."runtime-hooks:stop:0:0"]',
+        `[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`,
         'enabled = false',
         'trusted_hash = "sha256:runtime"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "stale-runtime-hook"',
         '',
         '[projects."/repo"]',
         'trust_level = "trusted"',
@@ -156,6 +202,11 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
         '[hooks.state."system-hooks:stop:0:0"]',
         'enabled = true',
         'trusted_hash = "sha256:system"',
+        '',
+        '[[hooks.UserPromptSubmit]]',
+        '[[hooks.UserPromptSubmit.hooks]]',
+        'type = "command"',
+        'command = "system-user-hook"',
         ''
       ].join('\n'),
       'utf-8'
@@ -169,10 +220,118 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     expect(runtimeConfig).toContain('[projects."/repo"]')
     expect(runtimeConfig).toContain('[projects."/runtime-only"]')
     expect(runtimeConfig).toContain('[projects."/system-only"]')
-    expect(runtimeConfig).toContain('[hooks.state."runtime-hooks:stop:0:0"]')
+    expect(runtimeConfig).toContain(`[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`)
     expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
+    expect(runtimeConfig).not.toContain('stale-runtime-hook')
+    expect(runtimeConfig).not.toContain('system-user-hook')
     expect(runtimeConfig).toContain('trust_level = "untrusted"')
     expect(runtimeConfig.match(/\[projects\."\/repo"\]/g)?.length).toBe(1)
+  })
+
+  it('drops runtime-local inline hook declarations during system config sync', () => {
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
+    writeFileSync(
+      getRuntimeConfigPath(),
+      [
+        'model = "runtime-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "runtime-local-hook"',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+    writeFileSync(getSystemConfigPath(), 'model = "system-model"\n', 'utf-8')
+
+    const repairDetails = syncSystemConfigIntoManagedCodexHome()
+
+    const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
+    expect(repairDetails.repairDetails).toEqual([
+      'Dropped 2 non-Orca Codex hook declaration section(s) from managed runtime config.toml.'
+    ])
+    expect(repairDetails.error).toBeNull()
+    expect(runtimeConfig).toContain('model = "system-model"')
+    expect(runtimeConfig).not.toContain('runtime-local-hook')
+  })
+
+  it('drops stale runtime inline plain hooks', () => {
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
+    writeFileSync(
+      getRuntimeConfigPath(),
+      [
+        'model = "runtime-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "old-mirrored-inline-hook"',
+        '',
+        '[hooks.state."config.toml:stop:0:0"]',
+        'enabled = true',
+        'trusted_hash = "sha256:inline"',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+    writeFileSync(getSystemConfigPath(), 'model = "system-model"\n', 'utf-8')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
+    expect(runtimeConfig).toContain('model = "system-model"')
+    expect(runtimeConfig).not.toContain('old-mirrored-inline-hook')
+    expect(runtimeConfig).not.toContain('[hooks.state."config.toml:stop:0:0"]')
+  })
+
+  it('drops stale runtime inline hooks without trusting body equality', () => {
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
+    writeFileSync(
+      getRuntimeConfigPath(),
+      [
+        'model = "runtime-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "old-mirrored-inline-hook"',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+    writeFileSync(getSystemConfigPath(), 'model = "system-model"\n', 'utf-8')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
+    expect(runtimeConfig).toContain('model = "system-model"')
+    expect(runtimeConfig).not.toContain('old-mirrored-inline-hook')
+  })
+
+  it('drops pre-marker runtime inline hooks that require plugin environment', () => {
+    mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
+    writeFileSync(
+      getRuntimeConfigPath(),
+      [
+        'model = "runtime-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "${CLAUDE_PLUGIN_ROOT}/scripts/on-stop.sh"',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+    writeFileSync(getSystemConfigPath(), 'model = "system-model"\n', 'utf-8')
+
+    syncSystemConfigIntoManagedCodexHome()
+
+    const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
+    expect(runtimeConfig).toContain('model = "system-model"')
+    expect(runtimeConfig).not.toContain('CLAUDE_PLUGIN_ROOT')
+    expect(runtimeConfig).not.toContain('[[hooks.Stop]]')
   })
 
   it('does not treat TOML table headers inside multiline strings as sections', () => {
@@ -180,7 +339,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     writeFileSync(
       getRuntimeConfigPath(),
       [
-        '[hooks.state."runtime-hooks:stop:0:0"]',
+        `[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`,
         'enabled = true',
         'trusted_hash = "sha256:runtime"',
         ''
@@ -212,7 +371,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
     expect(runtimeConfig).toContain('[hooks.state."inside-basic-string"]')
     expect(runtimeConfig).toContain('[hooks.state."inside-literal-string"]')
     expect(runtimeConfig).toContain('[model_providers.openai]')
-    expect(runtimeConfig).toContain('[hooks.state."runtime-hooks:stop:0:0"]')
+    expect(runtimeConfig).toContain(`[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`)
   })
 
   it('does not let triple quotes in comments affect runtime-owned section mirroring', () => {
@@ -224,7 +383,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
         "# example: ''' in a comment",
         'model = "runtime-model"',
         '',
-        '[hooks.state."runtime-hooks:stop:0:0"]',
+        `[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`,
         'enabled = true',
         'trusted_hash = "sha256:runtime"',
         ''
@@ -250,7 +409,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
 
     const runtimeConfig = readFileSync(getRuntimeConfigPath(), 'utf-8')
     expect(runtimeConfig).toContain('model = "system-model"')
-    expect(runtimeConfig).toContain('[hooks.state."runtime-hooks:stop:0:0"]')
+    expect(runtimeConfig).toContain(`[hooks.state."${getRuntimeHooksPath()}:stop:0:0"]`)
     expect(runtimeConfig).toContain('trusted_hash = "sha256:runtime"')
     expect(runtimeConfig).not.toContain('[hooks.state."system-hooks:stop:0:0"]')
     expect(runtimeConfig).not.toContain('trusted_hash = "sha256:system"')

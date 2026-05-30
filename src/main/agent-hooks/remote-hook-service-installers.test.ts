@@ -1,5 +1,8 @@
 /* eslint-disable max-lines -- Why: this fixture verifies the shared remote hook installer fake across every managed agent so SSH regressions are caught together. */
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 
 vi.mock('electron', () => ({
@@ -24,10 +27,15 @@ type FakeFs = {
   files: Map<string, string>
   dirs: Set<string>
   modes: Map<string, number>
+  realpaths: Map<string, string>
+  failWriteTo: Set<string>
   failRenameTo: Set<string>
 }
 
-function createFakeSftp(initialFiles: Record<string, string> = {}): {
+function createFakeSftp(
+  initialFiles: Record<string, string> = {},
+  options: { realpaths?: Record<string, string> } = {}
+): {
   sftp: SFTPWrapper
   fs: FakeFs
 } {
@@ -35,6 +43,8 @@ function createFakeSftp(initialFiles: Record<string, string> = {}): {
     files: new Map(Object.entries(initialFiles)),
     dirs: new Set(['/']),
     modes: new Map(),
+    realpaths: new Map(Object.entries(options.realpaths ?? {})),
+    failWriteTo: new Set(),
     failRenameTo: new Set()
   }
   const noEntryError = (path: string): { code: number; message: string } => ({
@@ -58,6 +68,10 @@ function createFakeSftp(initialFiles: Record<string, string> = {}): {
       options: string | { mode?: number },
       cb: (err: unknown) => void
     ): void => {
+      if (fs.failWriteTo.has(path)) {
+        cb({ code: 4, message: `write failed ${path}` })
+        return
+      }
       fs.files.set(path, content)
       if (typeof options !== 'string' && options.mode !== undefined) {
         fs.modes.set(path, options.mode)
@@ -66,7 +80,7 @@ function createFakeSftp(initialFiles: Record<string, string> = {}): {
     },
     rename: (src: string, dst: string, cb: (err: unknown) => void): void => {
       if (fs.failRenameTo.has(dst)) {
-        cb({ code: 4, message: `rename failed ${dst}` })
+        cb(Object.assign(new Error(`rename failed ${dst}`), { code: 4 }))
         return
       }
       const v = fs.files.get(src)
@@ -98,6 +112,13 @@ function createFakeSftp(initialFiles: Record<string, string> = {}): {
         return
       }
       cb(null, fakeStats(fs.modes.get(path) ?? 0o100644))
+    },
+    realpath: (path: string, cb: (err: unknown, resolvedPath?: string) => void): void => {
+      if (!fs.files.has(path)) {
+        cb(noEntryError(path))
+        return
+      }
+      cb(null, fs.realpaths.get(path) ?? path)
     },
     readdir: (path: string, cb: (err: unknown, list?: { filename: string }[]) => void): void => {
       if (fs.dirs.has(path)) {
@@ -165,7 +186,9 @@ describe('remote hook service installers', () => {
       ]
 
       for (const { install, path } of installers) {
-        const { sftp, fs } = createFakeSftp()
+        const { sftp, fs } = createFakeSftp({
+          '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n'
+        })
         const status = await install(sftp)
         expect(status.state).toBe('installed')
         const script = fs.files.get(path)
@@ -186,13 +209,61 @@ describe('remote hook service installers', () => {
   })
 
   it('installs remote Codex hooks with matching trust entries', async () => {
-    const { sftp, fs } = createFakeSftp()
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n',
+      '/home/dev/.codex/config.toml': [
+        'model = "remote-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "system-inline-hook"',
+        '',
+        '[projects."/repo"]',
+        'trust_level = "trusted"',
+        ''
+      ].join('\n'),
+      '/home/dev/.codex/hooks.json': JSON.stringify({
+        hooks: {
+          Stop: [
+            { hooks: [{ command: 'user-hook' }] },
+            {
+              hooks: [
+                {
+                  command:
+                    "if [ -x '/home/dev/.orca/agent-hooks/codex-hook.sh' ]; then /bin/sh '/home/dev/.orca/agent-hooks/codex-hook.sh'; fi"
+                }
+              ]
+            }
+          ]
+        }
+      }),
+      '/home/dev/.orca/codex-runtime-home/home/hooks.json':
+        '{"hooks":{"Stop":[{"hooks":[{"command":"stale-runtime-hook"}]}]}}\n',
+      '/home/dev/.orca/codex-runtime-home/home/config.toml': [
+        'model = "stale-runtime-model"',
+        '',
+        '[[hooks.Stop]]',
+        '[[hooks.Stop.hooks]]',
+        'type = "command"',
+        'command = "stale-inline-hook"',
+        '',
+        '[hooks.state."/home/dev/.orca/codex-runtime-home/home/hooks.json:stop:0:0"]',
+        'enabled = true',
+        'trusted_hash = "sha256:stale"',
+        ''
+      ].join('\n')
+    })
 
     const status = await new CodexHookService().installRemote(sftp, '/home/dev/')
 
-    expect(status.state).toBe('installed')
-    expect(status.configPath).toBe('/home/dev/.codex/hooks.json')
-    const hooks = JSON.parse(fs.files.get('/home/dev/.codex/hooks.json')!) as {
+    expect(status.state).toBe('partial')
+    expect(status.detail).toContain('Dropped 1 non-Orca Codex hook group(s)')
+    expect(status.detail).toContain('Dropped 2 non-Orca Codex hook declaration section(s)')
+    expect(status.configPath).toBe('/home/dev/.orca/codex-runtime-home/home/hooks.json')
+    const hooks = JSON.parse(
+      fs.files.get('/home/dev/.orca/codex-runtime-home/home/hooks.json')!
+    ) as {
       hooks: Record<string, { hooks: { command: string }[] }[]>
     }
     for (const eventName of [
@@ -207,24 +278,132 @@ describe('remote hook service installers', () => {
       expect(command).toContain('/home/dev/.orca/agent-hooks/codex-hook.sh')
       expect(command).toMatch(/^if \[ -x /)
     }
+    expect(JSON.stringify(hooks)).not.toContain('stale-runtime-hook')
     expect(fs.files.get('/home/dev/.orca/agent-hooks/codex-hook.sh')).toContain('#!/bin/sh')
     expect(fs.modes.get('/home/dev/.orca/agent-hooks/codex-hook.sh')).toBe(0o755)
-    const toml = fs.files.get('/home/dev/.codex/config.toml')
-    expect(toml).toContain('/home/dev/.codex/hooks.json:permission_request:0:0')
+    const toml = fs.files.get('/home/dev/.orca/codex-runtime-home/home/config.toml')
+    expect(toml).toContain(
+      '/home/dev/.orca/codex-runtime-home/home/hooks.json:permission_request:0:0'
+    )
     expect(toml).toContain('trusted_hash = "sha256:')
+    expect(toml).toContain('model = "remote-model"')
+    expect(toml).toContain('[projects."/repo"]')
+    expect(toml).not.toContain('system-inline-hook')
+    expect(toml).not.toContain('stale-inline-hook')
+    expect(toml).not.toContain('sha256:stale')
+    expect(fs.files.get('/home/dev/.orca/codex-runtime-home/home/auth.json')).toBe(
+      '{"account":"remote-system"}\n'
+    )
+    expect(fs.files.get('/home/dev/.codex/hooks.json')).toContain('user-hook')
+    expect(fs.files.get('/home/dev/.codex/hooks.json')).not.toContain('codex-hook.sh')
+    expect(fs.files.get('/home/dev/.codex/config.toml')).toContain('system-inline-hook')
+    expect(fs.files.has('/home/dev/.orca/codex-runtime-home/home/.orca-runtime-ready')).toBe(false)
   })
 
   it('reports Codex trust-write failures without rolling back installed hooks', async () => {
-    const { sftp, fs } = createFakeSftp()
-    fs.failRenameTo.add('/home/dev/.codex/config.toml')
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n'
+    })
+    fs.failRenameTo.add('/home/dev/.orca/codex-runtime-home/home/config.toml')
 
     const status = await new CodexHookService().installRemote(sftp, '/home/dev')
 
     expect(status.state).toBe('error')
     expect(status.managedHooksPresent).toBe(true)
     expect(status.detail).toContain('trust entries could not be written')
-    expect(fs.files.get('/home/dev/.codex/hooks.json')).toContain('codex-hook.sh')
+    expect(fs.files.get('/home/dev/.orca/codex-runtime-home/home/hooks.json')).toContain(
+      'codex-hook.sh'
+    )
     expect(fs.files.get('/home/dev/.orca/agent-hooks/codex-hook.sh')).toContain('#!/bin/sh')
+  })
+
+  it('reports remote Codex auth copy failures before enabling managed runtime home', async () => {
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n'
+    })
+    fs.failRenameTo.add('/home/dev/.orca/codex-runtime-home/home/auth.json')
+
+    const status = await new CodexHookService().installRemote(sftp, '/home/dev')
+
+    expect(status.state).toBe('error')
+    expect(status.managedHooksPresent).toBe(false)
+    expect(status.detail).toContain('rename failed')
+    expect(fs.files.has('/home/dev/.orca/codex-runtime-home/home/hooks.json')).toBe(false)
+  })
+
+  it('reports missing remote Codex auth before enabling managed runtime home', async () => {
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.orca/codex-runtime-home/home/auth.json': '{"account":"stale"}\n'
+    })
+
+    const status = await new CodexHookService().installRemote(sftp, '/home/dev')
+
+    expect(status.state).toBe('error')
+    expect(status.managedHooksPresent).toBe(false)
+    expect(status.detail).toContain('auth.json is missing')
+    expect(fs.files.has('/home/dev/.orca/codex-runtime-home/home/hooks.json')).toBe(false)
+  })
+
+  it('reports legacy remote real-home cleanup failures before enabling managed runtime home', async () => {
+    const legacyCommand =
+      "if [ -x '/home/dev/.orca/agent-hooks/codex-hook.sh' ]; then /bin/sh '/home/dev/.orca/agent-hooks/codex-hook.sh'; fi"
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n',
+      '/home/dev/.codex/hooks.json': JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: legacyCommand }] }] }
+      })
+    })
+    fs.failRenameTo.add('/home/dev/.codex/hooks.json')
+
+    const status = await new CodexHookService().installRemote(sftp, '/home/dev')
+
+    expect(status.state).toBe('error')
+    expect(status.managedHooksPresent).toBe(false)
+    expect(status.detail).toContain('rename failed')
+    expect(fs.files.has('/home/dev/.orca/codex-runtime-home/home/hooks.json')).toBe(false)
+  })
+
+  it('reports malformed legacy remote real-home hooks before enabling managed runtime home', async () => {
+    const { sftp, fs } = createFakeSftp({
+      '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n',
+      '/home/dev/.codex/hooks.json': '{not json'
+    })
+
+    const status = await new CodexHookService().installRemote(sftp, '/home/dev')
+
+    expect(status.state).toBe('error')
+    expect(status.managedHooksPresent).toBe(false)
+    expect(status.detail).toContain('Could not parse legacy remote Codex hooks.json')
+    expect(fs.files.has('/home/dev/.orca/codex-runtime-home/home/hooks.json')).toBe(false)
+  })
+
+  it('uses the remote canonical hooks path for remote Codex trust entries', async () => {
+    const localRoot = mkdtempSync(join(tmpdir(), 'orca-remote-codex-trust-'))
+    const localActual = join(localRoot, 'actual')
+    const localLink = join(localRoot, 'link')
+    mkdirSync(localActual)
+    symlinkSync(localActual, localLink)
+    try {
+      const remoteCanonicalHooksPath = `${localLink}/hooks.json`
+      const { sftp, fs } = createFakeSftp(
+        { '/home/dev/.codex/auth.json': '{"account":"remote-system"}\n' },
+        {
+          realpaths: {
+            '/home/dev/.orca/codex-runtime-home/home/hooks.json': remoteCanonicalHooksPath
+          }
+        }
+      )
+
+      const status = await new CodexHookService().installRemote(sftp, '/home/dev')
+
+      expect(status.state).toBe('installed')
+      const toml = fs.files.get('/home/dev/.orca/codex-runtime-home/home/config.toml')
+      expect(toml).toContain(`${remoteCanonicalHooksPath}:stop:0:0`)
+      expect(toml).not.toContain(`${localActual}/hooks.json:stop:0:0`)
+      expect(toml).not.toContain('/home/dev/.orca/codex-runtime-home/home/hooks.json:stop:0:0')
+    } finally {
+      rmSync(localRoot, { recursive: true, force: true })
+    }
   })
 
   it('installs remote Gemini, Antigravity, Cursor, Command Code, and Grok configs using their CLI-specific schemas', async () => {

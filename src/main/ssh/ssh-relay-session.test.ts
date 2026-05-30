@@ -8,10 +8,16 @@ import type { Store } from '../persistence'
 import type { SshPortForwardManager } from './ssh-port-forward'
 import { AGENT_HOOK_INSTALL_PLUGINS_METHOD } from '../../shared/agent-hook-relay'
 import { SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD } from '../../shared/ssh-types'
+import { REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD } from '../../shared/remote-codex-home'
 
-const { muxRequestMock, installRemoteManagedAgentHooksMock } = vi.hoisted(() => ({
+const {
+  muxRequestMock,
+  installRemoteManagedAgentHooksMock,
+  cleanupLegacyRemoteCodexSystemHooksMock
+} = vi.hoisted(() => ({
   muxRequestMock: vi.fn(),
-  installRemoteManagedAgentHooksMock: vi.fn()
+  installRemoteManagedAgentHooksMock: vi.fn(),
+  cleanupLegacyRemoteCodexSystemHooksMock: vi.fn()
 }))
 
 vi.mock('./ssh-relay-deploy', () => ({
@@ -33,6 +39,10 @@ vi.mock('./ssh-channel-multiplexer', () => {
 
 vi.mock('../agent-hooks/remote-managed-hook-installers', () => ({
   installRemoteManagedAgentHooks: installRemoteManagedAgentHooksMock
+}))
+
+vi.mock('../codex/hook-service', () => ({
+  cleanupLegacyRemoteCodexSystemHooks: cleanupLegacyRemoteCodexSystemHooksMock
 }))
 
 vi.mock('../providers/ssh-pty-provider', () => ({
@@ -135,6 +145,8 @@ describe('SshRelaySession', () => {
     muxRequestMock.mockResolvedValue([])
     installRemoteManagedAgentHooksMock.mockReset()
     installRemoteManagedAgentHooksMock.mockResolvedValue([])
+    cleanupLegacyRemoteCodexSystemHooksMock.mockReset()
+    cleanupLegacyRemoteCodexSystemHooksMock.mockResolvedValue(undefined)
     mockDeploySuccess()
     vi.mocked(getPtyIdsForConnection).mockReturnValue([])
   })
@@ -161,6 +173,15 @@ describe('SshRelaySession', () => {
 
   it('installs remote managed hooks and relay-owned plugin assets before registering the SSH PTY provider', async () => {
     process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    installRemoteManagedAgentHooksMock.mockResolvedValue([
+      {
+        agent: 'codex',
+        state: 'installed',
+        configPath: '/home/orca/.orca/codex-runtime-home/home/hooks.json',
+        managedHooksPresent: true,
+        detail: null
+      }
+    ])
     muxRequestMock.mockImplementation(async (method: string) => {
       if (method === 'session.resolveHome') {
         return { resolvedPath: '/home/orca' }
@@ -179,6 +200,9 @@ describe('SshRelaySession', () => {
     const installPluginsCallIndex = muxRequestMock.mock.calls.findIndex(
       ([method]) => method === AGENT_HOOK_INSTALL_PLUGINS_METHOD
     )
+    const codexRuntimeConfigCalls = muxRequestMock.mock.calls.filter(
+      ([method]) => method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD
+    )
     expect(installPluginsCallIndex).toBeGreaterThanOrEqual(0)
     const installPluginsParams = muxRequestMock.mock.calls[installPluginsCallIndex]?.[1]
     expect(installPluginsParams).toMatchObject({
@@ -187,13 +211,197 @@ describe('SshRelaySession', () => {
     })
     expect(mockConn.sftp).toHaveBeenCalledTimes(1)
     expect(installRemoteManagedAgentHooksMock).toHaveBeenCalledWith(sftp, '/home/orca')
+    expect(codexRuntimeConfigCalls).toEqual([
+      [REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD, { codexHomePath: null }],
+      [
+        REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD,
+        { codexHomePath: '/home/orca/.orca/codex-runtime-home/home' }
+      ]
+    ])
     expect(sftp.end).toHaveBeenCalledTimes(1)
+    const firstCodexRuntimeConfigCallIndex = muxRequestMock.mock.calls.findIndex(
+      ([method]) => method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD
+    )
+    expect(muxRequestMock.mock.invocationCallOrder[firstCodexRuntimeConfigCallIndex]).toBeLessThan(
+      installRemoteManagedAgentHooksMock.mock.invocationCallOrder[0]
+    )
     expect(installRemoteManagedAgentHooksMock.mock.invocationCallOrder[0]).toBeLessThan(
       muxRequestMock.mock.invocationCallOrder[installPluginsCallIndex]
     )
     expect(muxRequestMock.mock.invocationCallOrder[installPluginsCallIndex]).toBeLessThan(
       vi.mocked(registerSshPtyProvider).mock.invocationCallOrder[0]
     )
+  })
+
+  it('disables relay Codex runtime home before remote hook prep can fail', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    let resolveHomeCalls = 0
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD) {
+        return { codexHomePath: null }
+      }
+      if (method === 'session.resolveHome') {
+        resolveHomeCalls += 1
+        if (resolveHomeCalls === 1) {
+          return { resolvedPath: '/home/orca' }
+        }
+        throw new Error('home unavailable')
+      }
+      return { ok: true }
+    })
+    const { mockConn, mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await session.establish(mockConn)
+
+    expect(muxRequestMock).toHaveBeenCalledWith(REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD, {
+      codexHomePath: null
+    })
+    expect(installRemoteManagedAgentHooksMock).not.toHaveBeenCalled()
+    expect(registerSshPtyProvider).toHaveBeenCalledWith('target-1', expect.anything())
+  })
+
+  it('leaves relay Codex runtime home disabled when remote Codex hook install fails', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    installRemoteManagedAgentHooksMock.mockResolvedValue([
+      {
+        agent: 'codex',
+        state: 'error',
+        configPath: '/home/orca/.orca/codex-runtime-home/home/hooks.json',
+        managedHooksPresent: false,
+        detail: 'trust write failed'
+      }
+    ])
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === 'session.resolveHome') {
+        return { resolvedPath: '/home/orca' }
+      }
+      return { ok: true }
+    })
+    const sftp = { end: vi.fn() }
+    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    const mockConn = {
+      sftp: vi.fn().mockResolvedValue(sftp)
+    } as unknown as SshConnection
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await session.establish(mockConn)
+
+    const codexRuntimeConfigCalls = muxRequestMock.mock.calls.filter(
+      ([method]) => method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD
+    )
+    expect(codexRuntimeConfigCalls).toEqual([
+      [REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD, { codexHomePath: null }]
+    ])
+    expect(registerSshPtyProvider).toHaveBeenCalledWith('target-1', expect.anything())
+  })
+
+  it('cleans legacy remote Codex hooks without reinstalling when status hooks are disabled', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === 'session.resolveHome') {
+        return { resolvedPath: '/home/orca' }
+      }
+      return { ok: true }
+    })
+    const sftp = { end: vi.fn() }
+    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    ;(
+      mockStore as unknown as { getSettings: () => { agentStatusHooksEnabled: boolean } }
+    ).getSettings = vi.fn(() => ({ agentStatusHooksEnabled: false }))
+    const mockConn = {
+      sftp: vi.fn().mockResolvedValue(sftp)
+    } as unknown as SshConnection
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await session.establish(mockConn)
+
+    expect(cleanupLegacyRemoteCodexSystemHooksMock).toHaveBeenCalledWith(sftp, '/home/orca')
+    expect(installRemoteManagedAgentHooksMock).not.toHaveBeenCalled()
+    expect(registerSshPtyProvider).toHaveBeenCalledWith('target-1', expect.anything())
+  })
+
+  it('does not register providers when disabled-hook remote Codex cleanup fails', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    cleanupLegacyRemoteCodexSystemHooksMock.mockRejectedValue(new Error('cleanup failed'))
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === 'session.resolveHome') {
+        return { resolvedPath: '/home/orca' }
+      }
+      return { ok: true }
+    })
+    const sftp = { end: vi.fn() }
+    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    ;(
+      mockStore as unknown as { getSettings: () => { agentStatusHooksEnabled: boolean } }
+    ).getSettings = vi.fn(() => ({ agentStatusHooksEnabled: false }))
+    const mockConn = {
+      sftp: vi.fn().mockResolvedValue(sftp)
+    } as unknown as SshConnection
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await expect(session.establish(mockConn)).rejects.toThrow('cleanup failed')
+
+    expect(registerSshPtyProvider).not.toHaveBeenCalled()
+  })
+
+  it('does not register providers when stale relay Codex runtime home cannot be cleared', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === 'session.resolveHome') {
+        return { resolvedPath: '/home/orca' }
+      }
+      if (method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD) {
+        throw new Error('configure failed')
+      }
+      return { ok: true }
+    })
+    const { mockConn, mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await expect(session.establish(mockConn)).rejects.toThrow('configure failed')
+
+    expect(installRemoteManagedAgentHooksMock).not.toHaveBeenCalled()
+    expect(registerSshPtyProvider).not.toHaveBeenCalled()
+  })
+
+  it('does not register providers when relay Codex runtime home cannot be enabled', async () => {
+    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
+    installRemoteManagedAgentHooksMock.mockResolvedValue([
+      {
+        agent: 'codex',
+        state: 'installed',
+        configPath: '/home/orca/.orca/codex-runtime-home/home/hooks.json',
+        managedHooksPresent: true,
+        detail: null
+      }
+    ])
+    let configureCalls = 0
+    muxRequestMock.mockImplementation(async (method: string) => {
+      if (method === 'session.resolveHome') {
+        return { resolvedPath: '/home/orca' }
+      }
+      if (method === REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD) {
+        configureCalls += 1
+        if (configureCalls === 2) {
+          throw new Error('enable failed')
+        }
+        return { codexHomePath: null }
+      }
+      return { ok: true }
+    })
+    const sftp = { end: vi.fn() }
+    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
+    const mockConn = {
+      sftp: vi.fn().mockResolvedValue(sftp)
+    } as unknown as SshConnection
+    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
+
+    await expect(session.establish(mockConn)).rejects.toThrow('enable failed')
+
+    expect(installRemoteManagedAgentHooksMock).toHaveBeenCalledWith(sftp, '/home/orca')
+    expect(sftp.end).toHaveBeenCalledTimes(1)
+    expect(registerSshPtyProvider).not.toHaveBeenCalled()
   })
 
   it('does not register providers if dispose wins during initial plugin sync', async () => {

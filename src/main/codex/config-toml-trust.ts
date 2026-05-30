@@ -60,6 +60,10 @@ export type CodexHookTrustState = {
 
 export type CodexProjectTrustLevel = 'trusted' | 'untrusted'
 
+type HookTrustKeyOptions = {
+  canonicalizeSourcePath?: boolean
+}
+
 // Why: matches Codex's canonical_json. Sorts object keys recursively before
 // SHA-256ing; arrays preserve order.
 function canonicalize(value: unknown): unknown {
@@ -102,8 +106,12 @@ export function computeTrustedHash(entry: CodexTrustEntry): string {
   return `sha256:${createHash('sha256').update(serialized).digest('hex')}`
 }
 
-export function computeTrustKey(entry: CodexTrustEntry): string {
-  return `${getCodexCanonicalTrustPath(entry.sourcePath)}:${entry.eventLabel}:${entry.groupIndex}:${entry.handlerIndex}`
+export function computeTrustKey(entry: CodexTrustEntry, options: HookTrustKeyOptions = {}): string {
+  const sourcePath =
+    options.canonicalizeSourcePath === false
+      ? entry.sourcePath
+      : getCodexCanonicalTrustPath(entry.sourcePath)
+  return `${sourcePath}:${entry.eventLabel}:${entry.groupIndex}:${entry.handlerIndex}`
 }
 
 export function getCodexCanonicalTrustPath(sourcePath: string): string {
@@ -214,13 +222,14 @@ export function upsertHookTrustEntries(
 
 export function upsertHookTrustEntriesInContent(
   existingContent: string,
-  entries: readonly CodexTrustEntry[]
+  entries: readonly CodexTrustEntry[],
+  options: HookTrustKeyOptions = {}
 ): string {
   const existing =
     existingContent.charCodeAt(0) === 0xfeff ? existingContent.slice(1) : existingContent
   let updated = existing
   for (const entry of entries) {
-    updated = upsertTrustBlock(updated, computeTrustKey(entry), computeTrustedHash(entry))
+    updated = upsertTrustBlock(updated, computeTrustKey(entry, options), computeTrustedHash(entry))
   }
   return updated
 }

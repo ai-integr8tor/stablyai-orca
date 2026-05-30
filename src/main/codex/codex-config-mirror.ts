@@ -1,48 +1,66 @@
+/* eslint-disable max-lines -- Why: this file mirrors TOML without reserializing user config, so section parsing and merge rules need to stay together for auditability. */
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomically } from '../codex-accounts/fs-utils'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex-home-paths'
+import { getCodexCanonicalTrustPath, parseTrustKey } from './config-toml-trust'
+
+export type CodexConfigSyncResult = {
+  repairDetails: string[]
+  error: string | null
+}
 
 function getRuntimeCodexConfigTomlPath(): string {
   return join(getOrcaManagedCodexHomePath(), 'config.toml')
+}
+
+function getRuntimeCodexHooksJsonPath(): string {
+  return join(getOrcaManagedCodexHomePath(), 'hooks.json')
 }
 
 function getSystemCodexConfigTomlPath(): string {
   return join(getSystemCodexHomePath(), 'config.toml')
 }
 
-export function syncSystemConfigIntoManagedCodexHome(): void {
+export function syncSystemConfigIntoManagedCodexHome(): CodexConfigSyncResult {
   try {
-    syncSystemConfigIntoManagedCodexHomeUnsafe()
+    return syncSystemConfigIntoManagedCodexHomeUnsafe()
   } catch (error) {
     console.warn('[codex-config] Failed to mirror system Codex config:', error)
+    return {
+      repairDetails: [],
+      error: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
-function syncSystemConfigIntoManagedCodexHomeUnsafe(): void {
+function syncSystemConfigIntoManagedCodexHomeUnsafe(): CodexConfigSyncResult {
   const systemConfigPath = getSystemCodexConfigTomlPath()
   const runtimeConfigPath = getRuntimeCodexConfigTomlPath()
   const systemConfigExists = existsSync(systemConfigPath)
   const runtimeConfigExists = existsSync(runtimeConfigPath)
   if (!systemConfigExists && !runtimeConfigExists) {
-    return
+    return { repairDetails: [], error: null }
   }
 
-  const systemConfig = normalizeDeprecatedCodexHookFeatureFlag(
-    systemConfigExists ? readFileSync(systemConfigPath, 'utf-8') : ''
-  )
+  const systemConfig = systemConfigExists ? readFileSync(systemConfigPath, 'utf-8') : ''
   if (!runtimeConfigExists) {
-    // Why: trust blocks reference a hooks.json path, so system-home hook trust
-    // entries are not valid in Orca's runtime CODEX_HOME until install remaps them.
-    writeFileAtomically(runtimeConfigPath, stripRuntimeOwnedTomlSections(systemConfig))
-    return
+    // Why: trust blocks carry source identity. Runtime hook trust is keyed to
+    // Orca's managed files and should not inherit hashes from ~/.codex.
+    writeFileAtomically(runtimeConfigPath, seedCodexRuntimeConfigFromSystemConfig(systemConfig))
+    return { repairDetails: [], error: null }
   }
 
   const runtimeConfig = readFileSync(runtimeConfigPath, 'utf-8')
-  const mergedConfig = mergeSystemCodexConfigIntoRuntime(runtimeConfig, systemConfig)
+  const { config: mergedConfig, repairDetails } = mergeCodexConfigIntoManagedRuntime(
+    runtimeConfig,
+    systemConfig,
+    getRuntimeCodexHooksJsonPath()
+  )
   if (mergedConfig !== runtimeConfig) {
     writeFileAtomically(runtimeConfigPath, mergedConfig)
   }
+  return { repairDetails, error: null }
 }
 
 function normalizeDeprecatedCodexHookFeatureFlag(config: string): string {
@@ -109,7 +127,17 @@ function normalizeFeatureSectionLines(lines: string[], start: number, end: numbe
   }
 }
 
-function mergeSystemCodexConfigIntoRuntime(runtimeConfig: string, systemConfig: string): string {
+export function seedCodexRuntimeConfigFromSystemConfig(systemConfig: string): string {
+  return stripRuntimeOwnedTomlSections(normalizeDeprecatedCodexHookFeatureFlag(systemConfig))
+}
+
+export function mergeCodexConfigIntoManagedRuntime(
+  runtimeConfig: string,
+  systemConfig: string,
+  runtimeHooksJsonPath: string,
+  options: { preserveRuntimeHookTrust?: boolean } = {}
+): { config: string; repairDetails: string[] } {
+  const preserveRuntimeHookTrust = options.preserveRuntimeHookTrust !== false
   const runtimeSections = getTomlSections(runtimeConfig)
   const runtimeProjectHeaders = new Set(
     runtimeSections
@@ -122,21 +150,41 @@ function mergeSystemCodexConfigIntoRuntime(runtimeConfig: string, systemConfig: 
       .filter((section) => getProjectTrustLevel(section.block) === 'untrusted')
       .map((section) => getTomlSectionHeaderKey(section.header))
   )
-  // Why: ordinary Codex settings should mirror ~/.codex exactly; runtime hook
-  // trust and project trust are written under Orca's managed CODEX_HOME and
-  // must survive the copy unless the user explicitly revoked project trust in
-  // the system config.
-  return joinTomlBlocks([
-    stripRuntimeOwnedTomlSections(systemConfig, runtimeProjectHeaders),
-    ...runtimeSections
-      .filter((section) => isRuntimePreservedTomlSection(section.header))
-      .filter(
-        (section) =>
-          !isRuntimeProjectTomlSection(section.header) ||
-          !systemUntrustedProjectHeaders.has(getTomlSectionHeaderKey(section.header))
-      )
-      .map((section) => section.block)
-  ])
+  const droppedRuntimeHookDeclarationCount = runtimeSections.filter((section) =>
+    isHookDeclarationTomlSection(section.header)
+  ).length
+  const repairDetails: string[] = []
+  if (droppedRuntimeHookDeclarationCount > 0) {
+    repairDetails.push(
+      `Dropped ${droppedRuntimeHookDeclarationCount} non-Orca Codex hook declaration section(s) from managed runtime config.toml.`
+    )
+    console.warn(
+      `[codex-config] dropped ${droppedRuntimeHookDeclarationCount} non-Orca Codex hook declaration section(s) from managed runtime config.toml; move them to a source-preserving Codex layer when available.`
+    )
+  }
+  const preservedRuntimeBlocks = runtimeSections
+    .filter((section) =>
+      isRuntimePreservedTomlSection(section.header, runtimeHooksJsonPath, preserveRuntimeHookTrust)
+    )
+    .filter(
+      (section) =>
+        !isRuntimeProjectTomlSection(section.header) ||
+        !systemUntrustedProjectHeaders.has(getTomlSectionHeaderKey(section.header))
+    )
+    .map((section) => section.block)
+  // Why: ordinary Codex settings should mirror ~/.codex. Runtime hook trust and
+  // project trust are written under Orca's managed CODEX_HOME and must survive
+  // the copy unless the user explicitly revoked project trust in the system config.
+  return {
+    config: joinTomlBlocks([
+      stripRuntimeOwnedTomlSections(
+        normalizeDeprecatedCodexHookFeatureFlag(systemConfig),
+        runtimeProjectHeaders
+      ),
+      ...preservedRuntimeBlocks
+    ]),
+    repairDetails
+  }
 }
 
 type TomlSection = {
@@ -160,18 +208,18 @@ function stripRuntimeOwnedTomlSections(
   const sections = getTomlSections(config)
   const firstSectionIndex = sections[0]?.start ?? -1
   const preamble = firstSectionIndex === -1 ? config : lines.slice(0, firstSectionIndex).join('\n')
-  return joinTomlBlocks([
-    preamble,
-    ...sections
-      .filter((section) => !isRuntimeHookTrustTomlSection(section.header))
-      .filter(
-        (section) =>
-          !isRuntimeProjectTomlSection(section.header) ||
-          !runtimeProjectHeaders.has(getTomlSectionHeaderKey(section.header)) ||
-          getProjectTrustLevel(section.block) === 'untrusted'
-      )
-      .map((section) => section.block)
-  ])
+  const blocks = sections
+    .filter((section) => !isRuntimeHookTrustTomlSection(section.header))
+    // Why: inline hook declarations carry source path, key, trust, and plugin
+    // identity. Copying them into Orca's managed home rewrites that identity.
+    .filter((section) => !isHookDeclarationTomlSection(section.header))
+    .filter(
+      (section) =>
+        !isRuntimeProjectTomlSection(section.header) ||
+        !runtimeProjectHeaders.has(getTomlSectionHeaderKey(section.header)) ||
+        getProjectTrustLevel(section.block) === 'untrusted'
+    )
+  return joinTomlBlocks([preamble, ...blocks.map((section) => section.block)])
 }
 
 function getTomlSections(config: string): TomlSection[] {
@@ -212,12 +260,71 @@ function getTomlSections(config: string): TomlSection[] {
   return sections
 }
 
-function isRuntimePreservedTomlSection(header: string): boolean {
-  return isRuntimeHookTrustTomlSection(header) || isRuntimeProjectTomlSection(header)
+function isRuntimePreservedTomlSection(
+  header: string,
+  runtimeHooksJsonPath: string,
+  preserveRuntimeHookTrust: boolean
+): boolean {
+  return (
+    (preserveRuntimeHookTrust &&
+      shouldPreserveRuntimeHookTrustTomlSection(header, runtimeHooksJsonPath)) ||
+    isRuntimeProjectTomlSection(header)
+  )
 }
 
 function isRuntimeHookTrustTomlSection(header: string): boolean {
   return header.trimStart().startsWith('[hooks.state.')
+}
+
+function shouldPreserveRuntimeHookTrustTomlSection(
+  header: string,
+  runtimeHooksJsonPath: string
+): boolean {
+  if (!isRuntimeHookTrustTomlSection(header)) {
+    return false
+  }
+  const key = getRuntimeHookTrustKeyFromHeader(header)
+  const parsed = key ? parseTrustKey(key) : null
+  return (
+    parsed !== null &&
+    getCodexCanonicalTrustPath(parsed.sourcePath) ===
+      getCodexCanonicalTrustPath(runtimeHooksJsonPath)
+  )
+}
+
+function getRuntimeHookTrustKeyFromHeader(header: string): string | null {
+  const match = /^[ \t]*\[hooks\.state\."((?:[^"\\]|\\.)*)"\][ \t]*$/.exec(header)
+  return match ? unescapeTomlBasicString(match[1]!) : null
+}
+
+function unescapeTomlBasicString(escaped: string): string {
+  let result = ''
+  for (let index = 0; index < escaped.length; index += 1) {
+    const char = escaped[index]
+    if (char !== '\\') {
+      result += char
+      continue
+    }
+    index += 1
+    const next = escaped[index]
+    if (next === undefined) {
+      result += '\\'
+      break
+    }
+    result +=
+      ({ b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' } as Record<string, string>)[next] ?? next
+  }
+  return result
+}
+
+function isHookDeclarationTomlSection(header: string): boolean {
+  if (isRuntimeHookTrustTomlSection(header)) {
+    return false
+  }
+  const trimmed = header.trimStart()
+  return (
+    trimmed.startsWith('[hooks]') || trimmed.startsWith('[hooks.') || trimmed.startsWith('[[hooks.')
+  )
 }
 
 function isRuntimeProjectTomlSection(header: string): boolean {

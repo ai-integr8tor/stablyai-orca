@@ -26,8 +26,13 @@ import {
   AGENT_HOOK_REQUEST_REPLAY_METHOD,
   isRemoteAgentHooksEnabled
 } from '../../shared/agent-hook-relay'
+import {
+  getRemoteOrcaCodexHomePath,
+  REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD
+} from '../../shared/remote-codex-home'
 import { _internals as openCodeInternals } from '../opencode/hook-service'
 import { getPiAgentStatusExtensionSource } from '../pi/agent-status-extension-source'
+import { cleanupLegacyRemoteCodexSystemHooks } from '../codex/hook-service'
 import {
   registerSshPtyProvider,
   unregisterSshPtyProvider,
@@ -518,10 +523,16 @@ export class SshRelaySession {
   // configs before registering the PTY provider so newly spawned agent panes
   // report status from their first prompt.
   private async installManagedHooksOnRemote(mux: SshChannelMultiplexer): Promise<void> {
-    if (!isRemoteAgentHooksEnabled() || !this.areAgentStatusHooksEnabled()) {
+    const remoteAgentHooksEnabled = isRemoteAgentHooksEnabled()
+    if (!remoteAgentHooksEnabled) {
+      await this.configureRemoteCodexRuntimeHomeOnRelay(mux, null)
       return
     }
 
+    const canConfigureCodexRuntimeHome = await this.configureRemoteCodexRuntimeHomeOnRelay(
+      mux,
+      null
+    )
     let remoteHome: string
     try {
       const result = (await mux.request('session.resolveHome', { path: '~' })) as {
@@ -544,17 +555,59 @@ export class SshRelaySession {
     }
 
     let sftp: Awaited<ReturnType<SshConnection['sftp']>> | null = null
+    let shouldEnableCodexRuntimeHome = false
+    const hooksEnabled = this.areAgentStatusHooksEnabled()
     try {
+      if (!hooksEnabled) {
+        sftp = await this.requireReadyConnection().sftp()
+        await cleanupLegacyRemoteCodexSystemHooks(sftp, remoteHome)
+        return
+      }
       sftp = await this.requireReadyConnection().sftp()
-      await installRemoteManagedAgentHooks(sftp, remoteHome)
+      const results = await installRemoteManagedAgentHooks(sftp, remoteHome)
+      const codexResult = results.find((result) => result.agent === 'codex')
+      if (canConfigureCodexRuntimeHome && codexResult && codexResult.state !== 'error') {
+        shouldEnableCodexRuntimeHome = true
+      }
     } catch (error) {
       console.warn(
         `[ssh-relay-session] remote managed hook install failed for ${this.targetId}: ${
           error instanceof Error ? error.message : String(error)
         }`
       )
+      if (!hooksEnabled) {
+        throw error
+      }
     } finally {
       ;(sftp as { end?: () => void } | null)?.end?.()
+    }
+    if (shouldEnableCodexRuntimeHome) {
+      await this.configureRemoteCodexRuntimeHomeOnRelay(mux, getRemoteOrcaCodexHomePath(remoteHome))
+    }
+  }
+
+  private async configureRemoteCodexRuntimeHomeOnRelay(
+    mux: SshChannelMultiplexer,
+    codexHomePath: string | null
+  ): Promise<boolean> {
+    try {
+      await mux.request(REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD, { codexHomePath })
+      return true
+    } catch (error) {
+      const code = (error as { code?: unknown })?.code
+      if (
+        code === -32601 ||
+        code === 'CONNECTION_LOST' ||
+        code === 'DISPOSED' ||
+        mux.isDisposed()
+      ) {
+        return false
+      }
+      throw new Error(
+        `[ssh-relay-session] failed to configure remote Codex runtime home for ${this.targetId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
     }
   }
 
@@ -812,9 +865,10 @@ export class SshRelaySession {
   }
 
   private wireUpPtyEvents(ptyProvider: SshPtyProvider): void {
+    const getWin = this.getMainWindow
     ptyProvider.onData((payload) => {
       const seq = this.runtime?.onPtyData(payload.id, payload.data, Date.now())
-      const win = this.getMainWindow()
+      const win = getWin()
       if (win && !win.isDestroyed()) {
         win.webContents.send('pty:data', {
           ...payload,
@@ -823,7 +877,7 @@ export class SshRelaySession {
       }
     })
     ptyProvider.onReplay((payload) => {
-      const win = this.getMainWindow()
+      const win = getWin()
       if (win && !win.isDestroyed()) {
         win.webContents.send('pty:replay', payload)
       }
@@ -834,7 +888,7 @@ export class SshRelaySession {
       deletePtyOwnership(payload.id)
       this.store.markSshRemotePtyLease(this.targetId, relayPtyId, 'terminated')
       this.runtime?.onPtyExit(payload.id, payload.code)
-      const win = this.getMainWindow()
+      const win = getWin()
       if (win && !win.isDestroyed()) {
         win.webContents.send('pty:exit', payload)
       }

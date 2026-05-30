@@ -315,29 +315,15 @@ if (hasSingleInstanceLock) {
 function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget): string | null {
   const runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target)
   const hooksEnabled = isAgentStatusHooksEnabled(store?.getSettings())
-  try {
-    // Why: launch prep is reachable after startup via PTY/runtime paths; honor
-    // the persisted off switch so those launches cannot reinstall removed hooks.
-    const status = hooksEnabled
-      ? codexHookService.install()
-      : codexHookService.refreshRuntimeUserHooks()
-    if (status.state === 'error') {
-      console.warn(
-        `[codex-hook-service] failed to ${
-          hooksEnabled ? 'refresh' : 'refresh user'
-        } runtime hooks before launch`,
-        status.detail
-      )
-    }
-  } catch (error) {
-    // Why: hook install/removal is best-effort launch prep. A malformed hooks file
-    // should not block the Codex process from starting with its prepared auth.
-    console.warn(
-      `[codex-hook-service] failed to ${
-        hooksEnabled ? 'refresh' : 'refresh user'
-      } runtime hooks before launch`,
-      error
-    )
+  // Why: launch prep is reachable after startup via PTY/runtime paths; honor
+  // the persisted off switch so those launches cannot reinstall removed hooks.
+  const status = hooksEnabled
+    ? codexHookService.install()
+    : codexHookService.refreshRuntimeUserHooks()
+  if (status.state === 'error') {
+    // Why: launching Codex with a half-prepared managed CODEX_HOME can either
+    // skip Orca status hooks or run stale source-erased hook declarations.
+    throw new Error(status.detail ?? 'Codex runtime hooks could not be prepared before launch')
   }
   return runtimeHomePath
 }
@@ -1199,7 +1185,11 @@ app.whenReady().then(async () => {
       // Why: these appearance settings are default-on for older profiles, so
       // a missing persisted value must toggle from visible -> hidden.
       const next = getNextDefaultOnAppearanceSettingValue(current[key])
-      store.updateSettings({ [key]: next }, { notifyListeners: true })
+      store.updateSettings({ [key]: next })
+      // Why: settings:get returns the current snapshot; renderer tracks
+      // settings through window.api.settings.get(). Push the new value so
+      // the sidebar/titlebar re-render without waiting for a round-trip.
+      mainWindow?.webContents.send('settings:changed', { [key]: next })
       rebuildAppMenu()
     },
     getAppearanceState: () => {

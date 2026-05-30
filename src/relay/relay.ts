@@ -46,6 +46,7 @@ import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD
 } from '../shared/ssh-types'
+import { REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD } from '../shared/remote-codex-home'
 import { assertPluginSourceUnderByteCap } from './plugin-source-limit'
 import { resolveOpenCodeSourceConfigDir, resolvePiSourceAgentDir } from './plugin-overlay-env'
 import { detectPiAgentKindFromCommand } from '../shared/pi-agent-kind'
@@ -361,11 +362,26 @@ async function main(): Promise<void> {
     )
   }
 
+  let configuredCodexHome: string | null = null
+  dispatcher.onRequest(REMOTE_CODEX_RUNTIME_HOME_CONFIGURE_METHOD, async (params) => {
+    configuredCodexHome = typeof params.codexHomePath === 'string' ? params.codexHomePath : null
+    return { codexHomePath: configuredCodexHome }
+  })
+
   // Why: every relay-spawned PTY needs the live ORCA_AGENT_HOOK_* coords. The
-  // augmenter is read on every spawn so a hook-server bind that succeeded
-  // late (or after a stop/start) lands in the next PTY's env without a
-  // restart.
-  ptyHandler.addEnvAugmenter(() => hookServer.buildPtyEnv())
+  // augmenter is read on every spawn so a hook-server bind or Codex runtime-home
+  // configure that succeeded late lands in the next PTY's env without a restart.
+  ptyHandler.addEnvAugmenter(() => {
+    const env = hookServer.buildPtyEnv()
+    if (!configuredCodexHome) {
+      return env
+    }
+    return {
+      ...env,
+      CODEX_HOME: configuredCodexHome,
+      ORCA_CODEX_HOME: configuredCodexHome
+    }
+  })
 
   // Why: per-PTY plugin overlays for OpenCode and Pi. `OPENCODE_CONFIG_DIR`
   // and `PI_CODING_AGENT_DIR` only make sense on the relay's own filesystem

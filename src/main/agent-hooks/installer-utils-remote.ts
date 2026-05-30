@@ -4,6 +4,7 @@
 // because it shares the contract with the local installer (script body,
 // hook-event shape, atomic-rename semantics) and any drift between them is
 // exactly the bug we want to avoid.
+/* eslint-disable max-lines -- Why: SFTP primitives and remote installer wrappers must share atomic-write and error-classification behavior. */
 //
 // We deliberately keep the JSON merge logic in the existing
 // `installer-utils.ts` and only swap fs primitives — the JSON shape and
@@ -135,6 +136,18 @@ export async function readTextFileRemote(
     }
     throw err
   }
+}
+
+export async function realpathRemote(sftp: SFTPWrapper, remotePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    sftp.realpath(remotePath, (err, resolvedPath) => {
+      if (err) {
+        reject(err)
+        return
+      }
+      resolve(resolvedPath)
+    })
+  })
 }
 
 export async function writeTextFileRemoteAtomic(

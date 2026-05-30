@@ -81,6 +81,26 @@ describe('getRelayShellLaunchConfig', () => {
     }
   )
 
+  it.skipIf(process.platform === 'win32')('restores relay Codex home after shell startup', () => {
+    const config = getRelayShellLaunchConfig('/bin/zsh', {
+      HOME: homeDir,
+      ORCA_CODEX_HOME: '/home/dev/.orca/codex-runtime-home/home'
+    })
+    const zshRoot = join(homeDir, '.orca-relay', 'shell-ready', 'zsh')
+
+    expect(config.args).toEqual(['-l'])
+    expect(config.env.ZDOTDIR).toBe(zshRoot)
+    expect(readFileSync(join(zshRoot, '.zshrc'), 'utf8')).toContain(
+      'export CODEX_HOME="${ORCA_CODEX_HOME}"'
+    )
+    expect(readFileSync(join(zshRoot, '.zlogin'), 'utf8')).toContain(
+      'export CODEX_HOME="${ORCA_CODEX_HOME}"'
+    )
+    expect(
+      readFileSync(join(homeDir, '.orca-relay', 'shell-ready', 'bash', 'rcfile'), 'utf8')
+    ).toContain('export CODEX_HOME="${ORCA_CODEX_HOME}"')
+  })
+
   it.skipIf(process.platform === 'win32')('rewrites stale persistent wrapper files', () => {
     const zshRoot = join(homeDir, '.orca-relay', 'shell-ready', 'zsh')
     mkdirSync(zshRoot, { recursive: true })
