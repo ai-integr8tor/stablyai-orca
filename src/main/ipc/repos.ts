@@ -917,6 +917,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
             | 'projectGroupId'
             | 'projectGroupOrder'
             | 'sourceControlAi'
+            | 'defaultIsolation'
           >
         >
       }
@@ -990,6 +991,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
         } else {
           updates.sourceControlAi = normalizedSourceControlAi
         }
+      }
+      if (
+        'defaultIsolation' in updates &&
+        updates.defaultIsolation !== undefined &&
+        updates.defaultIsolation !== 'host' &&
+        updates.defaultIsolation !== 'docker'
+      ) {
+        delete updates.defaultIsolation
       }
       const updated = store.updateRepo(args.repoId, updates)
       if (updated) {

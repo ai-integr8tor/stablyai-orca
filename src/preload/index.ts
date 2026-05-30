@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
+import { subscribeDockerBuildProgress } from './docker-build-progress-subscription'
 import type { AppIdentity } from '../shared/app-identity'
 import type { CliInstallStatus } from '../shared/cli-install-types'
 import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
@@ -14,6 +15,8 @@ import type {
   BrowserViewportOverride,
   CreateWorktreeArgs,
   CustomPet,
+  DockerBuildProgress,
+  DockerEngineStatus,
   FsChangedPayload,
   GetRateLimitResult,
   GitHubPRRefreshCandidate,
@@ -631,6 +634,21 @@ const api = {
       ipcRenderer.on('worktree:remoteBranchConflict', listener)
       return () => ipcRenderer.removeListener('worktree:remoteBranchConflict', listener)
     }
+  },
+
+  docker: {
+    engineStatus: (): Promise<DockerEngineStatus> => ipcRenderer.invoke('docker:engine-status'),
+
+    buildImage: (args: { repoId: string; worktreeId: string }): Promise<unknown> =>
+      ipcRenderer.invoke('docker:build-image', args),
+
+    setWorktreeIsolation: (args: {
+      worktreeId: string
+      isolation: 'host' | 'docker'
+    }): Promise<unknown> => ipcRenderer.invoke('docker:set-worktree-isolation', args),
+
+    onBuildProgress: (callback: (data: DockerBuildProgress) => void): (() => void) =>
+      subscribeDockerBuildProgress(ipcRenderer, callback)
   },
 
   workspaceCleanup: {

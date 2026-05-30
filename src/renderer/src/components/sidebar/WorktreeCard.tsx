@@ -21,6 +21,7 @@ import CacheTimer, { usePromptCacheCountdownStartedAt } from './CacheTimer'
 import WorktreeContextMenu from './WorktreeContextMenu'
 import { SshDisconnectedDialog } from './SshDisconnectedDialog'
 import WorktreeCardAgents from './WorktreeCardAgents'
+import IsolateToggleButton from './IsolateToggleButton'
 import { WorktreeActivityStatusIndicator } from './WorktreeActivityStatusIndicator'
 import { cn } from '@/lib/utils'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -557,7 +558,8 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const hasMetadataBadge =
     (!!repo && !hideRepoBadge) ||
     isFolder ||
-    (!!conflictOperation && conflictOperation !== 'unknown')
+    (!!conflictOperation && conflictOperation !== 'unknown') ||
+    !isFolder
   // Why: disabled mode intentionally restores the explicit metadata lane; only
   // the experimental path removes the row when it would add no visible content.
   const hasMetaRow = !compactCards || hasMetadataBadge || showBranch || cacheStartedAt != null
@@ -838,6 +840,8 @@ const WorktreeCard = React.memo(function WorktreeCard({
                   {CONFLICT_OPERATION_LABELS[conflictOperation]}
                 </Badge>
               )}
+
+              {!isFolder ? <IsolateToggleButton worktreeId={worktree.id} /> : null}
 
               {cacheStartedAt != null && (
                 <CacheTimer startedAt={cacheStartedAt} ttlMs={cacheTtlMs} />
