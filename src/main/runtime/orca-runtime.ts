@@ -459,6 +459,7 @@ type RuntimeStore = {
     defaultTuiAgent?: GlobalSettings['defaultTuiAgent']
     disabledTuiAgents?: GlobalSettings['disabledTuiAgents']
     agentCmdOverrides?: GlobalSettings['agentCmdOverrides']
+    customTuiAgents?: GlobalSettings['customTuiAgents']
     agentStatusHooksEnabled?: GlobalSettings['agentStatusHooksEnabled']
     defaultTaskSource?: GlobalSettings['defaultTaskSource']
     defaultTaskViewPreset?: GlobalSettings['defaultTaskViewPreset']
@@ -7092,8 +7093,11 @@ export class OrcaRuntimeService {
       let detected: string[] = []
       try {
         detected = repo.connectionId
-          ? await detectRemoteAgents({ connectionId: repo.connectionId })
-          : await detectInstalledAgents()
+          ? await detectRemoteAgents({
+              connectionId: repo.connectionId,
+              customAgents: settings.customTuiAgents ?? []
+            })
+          : await detectInstalledAgents(settings.customTuiAgents ?? [])
       } catch {
         detected = []
       }

@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import AgentCombobox from '@/components/agent/AgentCombobox'
 import RepoCombobox from '@/components/repo/RepoCombobox'
 import { AGENT_CATALOG } from '@/lib/agent-catalog'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
 import type {
   AutomationSchedulePreset,
@@ -326,10 +327,19 @@ export function AutomationEditorDialog({
                 <AgentCombobox
                   agents={visibleAgents}
                   value={draft.agentId}
-                  onValueChange={(agentId) =>
-                    agentId && onDraftChange((current) => ({ ...current, agentId }))
+                  onValueChange={(agentId) => {
+                    // Why: automations are built-in only in v1 (issue #2284
+                    // plan §9). AGENT_CATALOG never yields a custom id, but
+                    // the combobox signature widened — guard defensively.
+                    if (agentId && !agentId.startsWith('custom:')) {
+                      onDraftChange((current) => ({ ...current, agentId: agentId as TuiAgent }))
+                    }
+                  }}
+                  defaultAgent={
+                    isCustomTuiAgentId(settings?.defaultTuiAgent)
+                      ? null
+                      : (settings?.defaultTuiAgent ?? null)
                   }
-                  defaultAgent={settings?.defaultTuiAgent ?? null}
                   triggerClassName={`h-9 w-full min-w-0 ${PICKER_TRIGGER_CLASS}`}
                   allowNarrowTrigger
                 />

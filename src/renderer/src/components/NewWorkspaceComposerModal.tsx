@@ -6,14 +6,18 @@ import AgentSettingsDialog from '@/components/agent/AgentSettingsDialog'
 import { useComposerState } from '@/hooks/useComposerState'
 import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import { pickQuickWorkspaceAgent } from '@/lib/quick-workspace-agent-selection'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { shouldAllowComposerEnterSubmitTarget } from '@/lib/new-workspace-enter-guard'
 import { isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
 import type {
-  TuiAgent,
+  CustomTuiAgent,
+  TuiAgentId,
   WorkspaceCreateTelemetrySource,
   WorkspaceStatus
 } from '../../../shared/types'
+
+const EMPTY_CUSTOM_TUI_AGENTS: readonly CustomTuiAgent[] = []
 
 type ComposerModalData = {
   prefilledName?: string
@@ -127,35 +131,55 @@ function QuickTabBody({
   // override rather than an effect that mirrors a prop into state — deriving
   // during render keeps the selection in sync with the detected set without
   // triggering an extra commit.
-  const [quickAgentOverride, setQuickAgentOverride] = useState<TuiAgent | null | undefined>(
+  const [quickAgentOverride, setQuickAgentOverride] = useState<TuiAgentId | null | undefined>(
     undefined
   )
-  const preferredQuickAgent = useMemo<TuiAgent | null>(() => {
-    const pref = settings?.defaultTuiAgent
+  const customTuiAgents = settings?.customTuiAgents ?? EMPTY_CUSTOM_TUI_AGENTS
+  const defaultTuiAgent = settings?.defaultTuiAgent
+  const customDefaultIsValid =
+    isCustomTuiAgentId(defaultTuiAgent) &&
+    customTuiAgents.some((agent) => agent.id === defaultTuiAgent && agent.command.trim().length > 0)
+  const preferredQuickAgent = useMemo<TuiAgentId | null>(() => {
+    const pref = defaultTuiAgent
+    if (isCustomTuiAgentId(pref)) {
+      return customDefaultIsValid ? pref : null
+    }
     // Why: detection can still be pending when quick-create submits; keep the
     // prior catalog fallback while filtering disabled agents out of that choice.
     return pickQuickWorkspaceAgent(pref, cardProps.detectedAgentIds, settings?.disabledTuiAgents)
-  }, [cardProps.detectedAgentIds, settings?.defaultTuiAgent, settings?.disabledTuiAgents])
+  }, [
+    cardProps.detectedAgentIds,
+    customDefaultIsValid,
+    defaultTuiAgent,
+    settings?.disabledTuiAgents
+  ])
   const quickAgent = quickAgentOverride === undefined ? preferredQuickAgent : quickAgentOverride
 
   useEffect(() => {
+    const overrideIsCustom = isCustomTuiAgentId(quickAgentOverride)
     if (
       quickAgentOverride === undefined ||
       quickAgentOverride === null ||
-      (isTuiAgentEnabled(quickAgentOverride, settings?.disabledTuiAgents) &&
-        (cardProps.detectedAgentIds === null || cardProps.detectedAgentIds.has(quickAgentOverride)))
+      (overrideIsCustom
+        ? customTuiAgents.some(
+            (agent) => agent.id === quickAgentOverride && agent.command.trim().length > 0
+          )
+        : isTuiAgentEnabled(quickAgentOverride, settings?.disabledTuiAgents) &&
+          (cardProps.detectedAgentIds === null ||
+            cardProps.detectedAgentIds.has(quickAgentOverride)))
     ) {
       return
     }
     setQuickAgentOverride(preferredQuickAgent)
   }, [
     cardProps.detectedAgentIds,
+    customTuiAgents,
     preferredQuickAgent,
     quickAgentOverride,
     settings?.disabledTuiAgents
   ])
 
-  const handleQuickAgentChange = useCallback((agent: TuiAgent | null) => {
+  const handleQuickAgentChange = useCallback((agent: TuiAgentId | null) => {
     setQuickAgentOverride(agent)
   }, [])
 

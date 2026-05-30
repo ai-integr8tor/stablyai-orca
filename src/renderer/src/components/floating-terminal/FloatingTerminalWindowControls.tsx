@@ -3,13 +3,14 @@ import { Maximize2, Minimize2, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { AGENT_CATALOG, AgentIcon } from '@/lib/agent-catalog'
+import { AgentIcon, buildAgentCatalog } from '@/lib/agent-catalog'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
 
 type FloatingTerminalWindowControlsProps = {
@@ -27,22 +28,28 @@ export function FloatingTerminalWindowControls({
   onMinimize
 }: FloatingTerminalWindowControlsProps): React.JSX.Element {
   const defaultTuiAgent = useAppStore((s) => s.settings?.defaultTuiAgent ?? null)
+  const customTuiAgents = useAppStore((s) => s.settings?.customTuiAgents ?? [])
   const createTab = useAppStore((s) => s.createTab)
   const setActiveTabForWorktree = useAppStore((s) => s.setActiveTabForWorktree)
+  const catalog = useMemo(() => buildAgentCatalog(customTuiAgents), [customTuiAgents])
 
   const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
   const defaultAgent =
-    defaultTuiAgent &&
-    defaultTuiAgent !== 'blank' &&
-    isTuiAgentEnabled(defaultTuiAgent, disabledTuiAgents)
-      ? defaultTuiAgent
+    defaultTuiAgent && defaultTuiAgent !== 'blank'
+      ? isCustomTuiAgentId(defaultTuiAgent)
+        ? catalog.some((agent) => agent.id === defaultTuiAgent)
+          ? defaultTuiAgent
+          : null
+        : isTuiAgentEnabled(defaultTuiAgent, disabledTuiAgents)
+          ? defaultTuiAgent
+          : null
       : null
   const defaultAgentLabel = useMemo(
     () =>
       defaultAgent
-        ? (AGENT_CATALOG.find((agent) => agent.id === defaultAgent)?.label ?? defaultAgent)
+        ? (catalog.find((agent) => agent.id === defaultAgent)?.label ?? defaultAgent)
         : null,
-    [defaultAgent]
+    [catalog, defaultAgent]
   )
 
   const launchDefaultAgent = useCallback(() => {
@@ -54,6 +61,7 @@ export function FloatingTerminalWindowControls({
       agent: defaultAgent,
       prompt: '',
       cmdOverrides: state.settings?.agentCmdOverrides ?? {},
+      customTuiAgents: state.settings?.customTuiAgents ?? [],
       platform: CLIENT_PLATFORM,
       allowEmptyPromptLaunch: true
     })
@@ -100,7 +108,7 @@ export function FloatingTerminalWindowControls({
               aria-label={`Open ${defaultAgentLabel ?? defaultAgent} in floating workspace`}
               onClick={launchDefaultAgent}
             >
-              <AgentIcon agent={defaultAgent} size={14} />
+              <AgentIcon agent={defaultAgent} size={14} catalog={catalog} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={6}>

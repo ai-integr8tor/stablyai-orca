@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import RepoCombobox from '@/components/repo/RepoCombobox'
 import AgentCombobox from '@/components/agent/AgentCombobox'
-import { AGENT_CATALOG } from '@/lib/agent-catalog'
+import { AGENT_CATALOG, buildAgentCatalog } from '@/lib/agent-catalog'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { WORKSPACE_FILE_PATH_MIME } from '@/lib/workspace-file-drag'
@@ -26,7 +26,7 @@ import type {
   GitLabWorkItem,
   LinearIssue,
   SparsePreset,
-  TuiAgent
+  TuiAgentId
 } from '../../../shared/types'
 import SparseCheckoutPresetSelect from '@/components/sparse/SparseCheckoutPresetSelect'
 import SmartWorkspaceNameField, {
@@ -42,8 +42,8 @@ type NewWorkspaceComposerCardProps = {
   containerClassName?: string
   composerRef?: React.RefObject<HTMLDivElement | null>
   nameInputRef?: React.RefObject<HTMLInputElement | null>
-  quickAgent: TuiAgent | null
-  onQuickAgentChange: (agent: TuiAgent | null) => void
+  quickAgent: TuiAgentId | null
+  onQuickAgentChange: (agent: TuiAgentId | null) => void
   eligibleRepos: RepoOption[]
   repoId: string
   selectedRepoIsGit: boolean
@@ -57,7 +57,7 @@ type NewWorkspaceComposerCardProps = {
   onSmartLinearIssueSelect: (issue: LinearIssue) => void
   smartNameSelection: SmartWorkspaceNameSelection | null
   onClearSmartNameSelection: () => void
-  detectedAgentIds: Set<TuiAgent> | null
+  detectedAgentIds: Set<TuiAgentId> | null
   onOpenAgentSettings: () => void
   advancedOpen: boolean
   onToggleAdvanced: () => void
@@ -251,6 +251,7 @@ export default function NewWorkspaceComposerCard({
   const openModal = useAppStore((s) => s.openModal)
   const defaultTuiAgent = useAppStore((s) => s.settings?.defaultTuiAgent ?? null)
   const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const customTuiAgents = useAppStore((s) => s.settings?.customTuiAgents ?? [])
   const updateSettings = useAppStore((s) => s.updateSettings)
   const submitShortcutModifierLabel = getScreenSubmitModifierLabel()
   const selectedRepoName = React.useMemo(() => {
@@ -266,7 +267,7 @@ export default function NewWorkspaceComposerCard({
       : 'Reconnect'
 
   const handleSetDefaultAgent = React.useCallback(
-    (next: TuiAgent | 'blank' | null) => {
+    (next: TuiAgentId | 'blank' | null) => {
       updateSettings({ defaultTuiAgent: next })
     },
     [updateSettings]
@@ -288,11 +289,15 @@ export default function NewWorkspaceComposerCard({
         disabledTuiAgents
       )
     )
-    return AGENT_CATALOG.filter(
+    const detectedBuiltIns = AGENT_CATALOG.filter(
       (agent) =>
         enabledIds.has(agent.id) && (detectedAgentIds === null || detectedAgentIds.has(agent.id))
     )
-  }, [detectedAgentIds, disabledTuiAgents])
+    // Why: custom presets often wrap absolute paths or aliases, so manual
+    // picker surfaces keep configured custom commands selectable without PATH detection.
+    const customEntries = buildAgentCatalog(customTuiAgents).filter((agent) => agent.isCustom)
+    return [...detectedBuiltIns, ...customEntries]
+  }, [customTuiAgents, detectedAgentIds, disabledTuiAgents])
 
   const handleAddRepo = React.useCallback((): void => {
     openModal('add-repo')

@@ -10,6 +10,7 @@ import {
   type CommitMessageAgentCapability,
   type CommitMessageModelCapability
 } from '../../../../shared/commit-message-agent-spec'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import { CUSTOM_PROMPT_PLACEHOLDER } from '../../../../shared/commit-message-prompt'
 import { AgentIcon, AGENT_CATALOG } from '@/lib/agent-catalog'
 import { cn } from '@/lib/utils'
@@ -109,9 +110,13 @@ export function AiCommitPrSettingsCard(): JSX.Element | null {
   }
 
   const config = readCommitMessageAiSettings(settings)
+  const builtInDefaultTuiAgent =
+    settings.defaultTuiAgent && isCustomTuiAgentId(settings.defaultTuiAgent)
+      ? null
+      : settings.defaultTuiAgent
   const resolvedAgentId = resolveCommitMessageAgentChoice(
     config.agentId,
-    settings.defaultTuiAgent,
+    builtInDefaultTuiAgent,
     settings.disabledTuiAgents
   )
   const isCustom = isCustomAgentId(resolvedAgentId)
@@ -135,9 +140,9 @@ export function AiCommitPrSettingsCard(): JSX.Element | null {
   const unsupportedDefaultAgent =
     resolvedAgentId === null &&
     !config.agentId &&
-    settings.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
+    builtInDefaultTuiAgent &&
+    builtInDefaultTuiAgent !== 'blank'
+      ? builtInDefaultTuiAgent
       : null
   const unsupportedDefaultAgentLabel = unsupportedDefaultAgent
     ? (AGENT_CATALOG.find((a) => a.id === unsupportedDefaultAgent)?.label ??
@@ -159,7 +164,7 @@ export function AiCommitPrSettingsCard(): JSX.Element | null {
     // enable seeds the agent/model from the default agent when possible.
     const seedAgentId = resolveCommitMessageAgentChoice(
       config.agentId,
-      settings.defaultTuiAgent,
+      builtInDefaultTuiAgent,
       settings.disabledTuiAgents
     )
     if (!seedAgentId) {

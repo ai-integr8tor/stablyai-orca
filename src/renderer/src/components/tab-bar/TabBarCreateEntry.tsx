@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { FilePlus, FileText, Globe, Loader2, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { AgentIcon } from '@/lib/agent-catalog'
+import { AgentIcon, type AgentCatalogEntry } from '@/lib/agent-catalog'
 import { cn } from '@/lib/utils'
 import { useRuntimeFileListForWorktree } from '../quick-open-file-list'
 import {
@@ -14,20 +14,22 @@ import {
   findMatchingTabAgentLaunchOptions,
   type TabAgentLaunchOption
 } from './tab-agent-launch-options'
-import type { TuiAgent } from '../../../../shared/types'
+import type { TuiAgentId } from '../../../../shared/types'
 
 type TabBarCreateEntryProps = {
+  agentCatalog?: readonly AgentCatalogEntry[]
   agentOptions?: readonly TabAgentLaunchOption[]
   groupId: string
   menuOpen: boolean
   onDidOpenEntry?: () => void
-  onLaunchAgent?: (agent: TuiAgent) => void
+  onLaunchAgent?: (agent: TuiAgentId) => void
   onOpenDefaultTerminal?: () => void
   onOpenEntry?: (args: TabCreateEntryArgs) => Promise<void>
   worktreeId: string
 }
 
 export default function TabBarCreateEntry({
+  agentCatalog,
   agentOptions = [],
   groupId,
   menuOpen,
@@ -176,6 +178,7 @@ export default function TabBarCreateEntry({
             activeOptions.map((option, index) => (
               <EntryActionRow
                 key={getActiveOptionId(option)}
+                agentCatalog={agentCatalog}
                 option={option}
                 selected={index === activeSelectedIndex}
                 onClick={() => submitOption(option)}
@@ -228,15 +231,17 @@ function EntryStatusRow({
 }
 
 function EntryActionRow({
+  agentCatalog,
   onClick,
   option,
   selected
 }: {
+  agentCatalog?: readonly AgentCatalogEntry[]
   onClick: () => void
   option: ActiveOption
   selected: boolean
 }): React.JSX.Element {
-  const presentation = getActionPresentation(option)
+  const presentation = getActionPresentation(option, agentCatalog)
 
   return (
     <button
@@ -259,7 +264,10 @@ function EntryActionRow({
   )
 }
 
-function getActionPresentation(option: ActiveOption): {
+function getActionPresentation(
+  option: ActiveOption,
+  agentCatalog?: readonly AgentCatalogEntry[]
+): {
   detail: string
   icon: React.ReactNode
   label: string
@@ -267,7 +275,7 @@ function getActionPresentation(option: ActiveOption): {
   if (option.kind === 'agent') {
     return {
       detail: option.option.label,
-      icon: <AgentIcon agent={option.option.agent} size={14} />,
+      icon: <AgentIcon agent={option.option.agent} size={14} catalog={agentCatalog} />,
       label: 'Launch agent'
     }
   }

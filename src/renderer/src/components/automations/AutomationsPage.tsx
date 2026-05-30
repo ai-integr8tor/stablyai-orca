@@ -15,6 +15,7 @@ import {
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
 import type { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -256,6 +257,7 @@ export default function AutomationsPage(): React.JSX.Element {
   const defaultAgent =
     settings?.defaultTuiAgent &&
     settings.defaultTuiAgent !== 'blank' &&
+    !isCustomTuiAgentId(settings.defaultTuiAgent) &&
     isTuiAgentEnabled(settings.defaultTuiAgent, settings.disabledTuiAgents)
       ? settings.defaultTuiAgent
       : (enabledAgents[0] ?? AGENTS[0])

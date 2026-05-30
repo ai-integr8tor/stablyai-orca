@@ -15,6 +15,9 @@ import {
   AgentsPane,
   AGENTS_PANE_SEARCH_ENTRIES,
   buildAgentAvailabilitySettingsUpdate,
+  buildCreateCustomAgentSettings,
+  buildDeleteCustomAgentSettings,
+  buildUpdateCustomAgentSettings,
   createAgentAvailabilityUpdateQueue
 } from './AgentsPane'
 import { matchesSettingsSearch } from './settings-search'
@@ -283,6 +286,105 @@ describe('AgentsPane', () => {
       )
     ).toEqual({
       disabledTuiAgents: []
+    })
+  })
+
+  it('renders custom agent presets and default state', () => {
+    const markup = renderPane({
+      ...getDefaultSettings('/tmp'),
+      defaultTuiAgent: 'custom:wrapper-abc123',
+      customTuiAgents: [
+        {
+          id: 'custom:wrapper-abc123',
+          label: 'Wrapper CLI',
+          command: 'wrapper --profile dev',
+          detectCmd: 'wrapper',
+          promptInjectionMode: 'stdin-after-start'
+        }
+      ]
+    })
+
+    expect(markup).toContain('Custom agents')
+    expect(markup).toContain('Wrapper CLI')
+    expect(markup).toContain('wrapper --profile dev')
+    expect(markup).toContain('Detect command:')
+    expect(markup).toContain('Default')
+  })
+
+  it('builds create custom agent settings from trimmed draft input', () => {
+    const update = buildCreateCustomAgentSettings(getDefaultSettings('/tmp'), {
+      label: '  Wrapper CLI  ',
+      command: '  wrapper --profile dev  ',
+      detectCmd: '  wrapper  '
+    })
+
+    expect(update.customTuiAgents).toHaveLength(1)
+    expect(update.customTuiAgents[0]).toMatchObject({
+      label: 'Wrapper CLI',
+      command: 'wrapper --profile dev',
+      detectCmd: 'wrapper',
+      promptInjectionMode: 'stdin-after-start'
+    })
+    expect(update.customTuiAgents[0]?.id).toMatch(/^custom:wrapper-cli-[a-z0-9]{6}$/)
+  })
+
+  it('updates custom agent settings while keeping the stable id', () => {
+    const settings: GlobalSettings = {
+      ...getDefaultSettings('/tmp'),
+      customTuiAgents: [
+        {
+          id: 'custom:wrapper-abc123',
+          label: 'Wrapper CLI',
+          command: 'wrapper',
+          detectCmd: 'wrapper',
+          promptInjectionMode: 'stdin-after-start'
+        }
+      ]
+    }
+
+    expect(
+      buildUpdateCustomAgentSettings(settings, 'custom:wrapper-abc123', {
+        label: '  Work Wrapper  ',
+        command: '  wrapper --profile work  ',
+        detectCmd: '  '
+      })
+    ).toEqual({
+      customTuiAgents: [
+        {
+          id: 'custom:wrapper-abc123',
+          label: 'Work Wrapper',
+          command: 'wrapper --profile work',
+          detectCmd: undefined,
+          promptInjectionMode: 'stdin-after-start'
+        }
+      ]
+    })
+  })
+
+  it('deleting a custom default also removes its command override', () => {
+    const settings: GlobalSettings = {
+      ...getDefaultSettings('/tmp'),
+      defaultTuiAgent: 'custom:wrapper-abc123',
+      agentCmdOverrides: {
+        'custom:wrapper-abc123': 'wrapper --debug',
+        claude: 'claude --dangerously-skip-permissions'
+      },
+      customTuiAgents: [
+        {
+          id: 'custom:wrapper-abc123',
+          label: 'Wrapper CLI',
+          command: 'wrapper',
+          promptInjectionMode: 'stdin-after-start'
+        }
+      ]
+    }
+
+    expect(buildDeleteCustomAgentSettings(settings, 'custom:wrapper-abc123')).toEqual({
+      customTuiAgents: [],
+      defaultTuiAgent: null,
+      agentCmdOverrides: {
+        claude: 'claude --dangerously-skip-permissions'
+      }
     })
   })
 

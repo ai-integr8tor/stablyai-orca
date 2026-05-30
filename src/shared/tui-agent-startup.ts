@@ -1,9 +1,9 @@
 import { isShellProcess } from './agent-detection'
-import { TUI_AGENT_CONFIG } from './tui-agent-config'
-import type { TuiAgent } from './types'
+import { getEffectiveTuiAgent, type EffectiveTuiAgent } from './effective-tui-agent'
+import type { CustomTuiAgent, TuiAgentId } from './types'
 
 export type AgentStartupPlan = {
-  agent: TuiAgent
+  agent: TuiAgentId
   launchCommand: string
   expectedProcess: string
   followupPrompt: string | null
@@ -45,36 +45,47 @@ function commandSeparator(shell: AgentStartupShell): string {
 }
 
 function resolveBaseCommand(args: {
-  agent: TuiAgent
-  cmdOverrides: Partial<Record<TuiAgent, string>>
-  shell: AgentStartupShell
+  agent: TuiAgentId
+  cmdOverrides: Partial<Record<TuiAgentId, string>>
+  config: EffectiveTuiAgent
 }): string {
   const override = args.cmdOverrides[args.agent]
   if (override) {
     return override
   }
-  const command = TUI_AGENT_CONFIG[args.agent].launchCmd
+  const command = args.config.launchCmd
   // Why: Codex status hooks live in Orca's runtime CODEX_HOME; adding
   // --profile-v2 makes Codex load a second hook representation and warn.
   return command
 }
 
 export function buildAgentStartupPlan(args: {
-  agent: TuiAgent
+  agent: TuiAgentId
   prompt: string
-  cmdOverrides: Partial<Record<TuiAgent, string>>
+  cmdOverrides: Partial<Record<TuiAgentId, string>>
+  customTuiAgents?: readonly CustomTuiAgent[]
   platform: NodeJS.Platform
   shell?: AgentStartupShell
   allowEmptyPromptLaunch?: boolean
 }): AgentStartupPlan | null {
-  const { agent, prompt, cmdOverrides, platform, allowEmptyPromptLaunch = false } = args
+  const {
+    agent,
+    prompt,
+    cmdOverrides,
+    customTuiAgents = [],
+    platform,
+    allowEmptyPromptLaunch = false
+  } = args
   const shell = resolveStartupShell(platform, args.shell)
   const trimmedPrompt = prompt.trim()
-  const config = TUI_AGENT_CONFIG[agent]
+  const config = getEffectiveTuiAgent(agent, customTuiAgents)
+  if (!config) {
+    return null
+  }
   const baseCommand = resolveBaseCommand({
     agent,
     cmdOverrides,
-    shell
+    config
   })
 
   if (!trimmedPrompt) {
@@ -136,22 +147,26 @@ export function buildAgentStartupPlan(args: {
 }
 
 export type AgentDraftLaunchPlan = {
-  agent: TuiAgent
+  agent: TuiAgentId
   launchCommand: string
   expectedProcess: string
   env?: Record<string, string>
 }
 
 export function buildAgentDraftLaunchPlan(args: {
-  agent: TuiAgent
+  agent: TuiAgentId
   draft: string
-  cmdOverrides: Partial<Record<TuiAgent, string>>
+  cmdOverrides: Partial<Record<TuiAgentId, string>>
+  customTuiAgents?: readonly CustomTuiAgent[]
   platform: NodeJS.Platform
   shell?: AgentStartupShell
 }): AgentDraftLaunchPlan | null {
-  const { agent, draft, cmdOverrides, platform } = args
+  const { agent, draft, cmdOverrides, customTuiAgents = [], platform } = args
   const shell = resolveStartupShell(platform, args.shell)
-  const config = TUI_AGENT_CONFIG[agent]
+  const config = getEffectiveTuiAgent(agent, customTuiAgents)
+  if (!config) {
+    return null
+  }
   const trimmed = draft.trim()
   if (!trimmed) {
     return null
@@ -159,7 +174,7 @@ export function buildAgentDraftLaunchPlan(args: {
   const baseCommand = resolveBaseCommand({
     agent,
     cmdOverrides,
-    shell
+    config
   })
   if (config.draftPromptFlag) {
     const quoted = quoteStartupArg(trimmed, shell)

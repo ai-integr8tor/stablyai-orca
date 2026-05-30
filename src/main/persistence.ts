@@ -47,8 +47,11 @@ import type {
   TerminalPaneLayoutNode,
   TerminalLayoutSnapshot,
   TerminalTab,
-  WorkspaceSessionState
+  WorkspaceSessionState,
+  CustomTuiAgent,
+  TuiAgentId
 } from '../shared/types'
+import { isCustomTuiAgentId } from '../shared/effective-tui-agent'
 import type { MigrationUnsupportedPtyEntry } from '../shared/agent-status-types'
 import type { SshRemotePtyLease, SshTarget } from '../shared/ssh-types'
 import { isFolderRepo } from '../shared/repo-kind'
@@ -328,6 +331,99 @@ function normalizeNotificationSettings(value: unknown): NotificationSettings {
     customSoundId,
     customSoundVolume
   }
+}
+
+// Why: custom agent presets are user-editable settings. Validate every load
+// so a malformed entry cannot break pickers or launch planning.
+function normalizeCustomTuiAgents(value: unknown): CustomTuiAgent[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const out: CustomTuiAgent[] = []
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const candidate = entry as Partial<CustomTuiAgent>
+    const id = candidate.id
+    const label = candidate.label
+    const command = candidate.command
+    if (typeof id !== 'string' || !isCustomTuiAgentId(id) || seen.has(id)) {
+      continue
+    }
+    if (typeof label !== 'string' || label.trim().length === 0) {
+      continue
+    }
+    if (typeof command !== 'string' || command.trim().length === 0) {
+      continue
+    }
+
+    seen.add(id)
+    out.push({
+      id,
+      label: label.trim(),
+      command: command.trim(),
+      detectCmd:
+        typeof candidate.detectCmd === 'string' && candidate.detectCmd.trim()
+          ? candidate.detectCmd.trim()
+          : undefined,
+      expectedProcess:
+        typeof candidate.expectedProcess === 'string' && candidate.expectedProcess.trim()
+          ? candidate.expectedProcess.trim()
+          : undefined,
+      promptInjectionMode: 'stdin-after-start',
+      faviconDomain:
+        typeof candidate.faviconDomain === 'string' && candidate.faviconDomain.trim()
+          ? candidate.faviconDomain.trim()
+          : undefined,
+      homepageUrl:
+        typeof candidate.homepageUrl === 'string' && candidate.homepageUrl.trim()
+          ? candidate.homepageUrl.trim()
+          : undefined
+    })
+  }
+  return out
+}
+
+function normalizeDefaultTuiAgent(
+  raw: GlobalSettings['defaultTuiAgent'] | undefined,
+  customAgents: readonly CustomTuiAgent[]
+): GlobalSettings['defaultTuiAgent'] {
+  if (raw === undefined) {
+    return null
+  }
+  if (raw === null || raw === 'blank') {
+    return raw
+  }
+  if (isCustomTuiAgentId(raw)) {
+    return customAgents.some((agent) => agent.id === raw) ? raw : null
+  }
+  return raw
+}
+
+function normalizeAgentCmdOverrides(
+  raw: GlobalSettings['agentCmdOverrides'] | undefined,
+  customAgents: readonly CustomTuiAgent[]
+): GlobalSettings['agentCmdOverrides'] {
+  if (!raw || typeof raw !== 'object') {
+    return {}
+  }
+
+  const customIds = new Set(customAgents.map((agent) => agent.id))
+  const out: Partial<Record<TuiAgentId, string>> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') {
+      continue
+    }
+    if (isCustomTuiAgentId(key) && !customIds.has(key)) {
+      continue
+    }
+    out[key as TuiAgentId] = value
+  }
+  return out
 }
 
 function normalizeAutomationRunWorkspaceDisplayName(value: string | null): string | null {
@@ -1562,6 +1658,7 @@ export class Store {
           visibleTaskProviders: parsed.settings?.visibleTaskProviders,
           defaultTaskSource: parsed.settings?.defaultTaskSource
         })
+        const customTuiAgents = normalizeCustomTuiAgents(parsed.settings?.customTuiAgents)
         const primarySelectionDefaultedForLinux =
           parsed.settings?.primarySelectionMiddleClickPasteDefaultedForLinux === true
         const primarySelectionDefaultedForTerminalDefaults =
@@ -1613,6 +1710,17 @@ export class Store {
             floatingTerminalCwdMigratedToAppWorkspace: true,
             terminalQuickCommands: normalizeTerminalQuickCommands(
               parsed.settings?.terminalQuickCommands
+            ),
+            // Why: load-time guard for custom presets keeps defaults and command
+            // overrides from referencing a custom id that no longer exists.
+            customTuiAgents,
+            defaultTuiAgent: normalizeDefaultTuiAgent(
+              parsed.settings?.defaultTuiAgent,
+              customTuiAgents
+            ),
+            agentCmdOverrides: normalizeAgentCmdOverrides(
+              parsed.settings?.agentCmdOverrides,
+              customTuiAgents
             ),
             defaultTaskSource: taskProviderSettings.defaultTaskSource,
             visibleTaskProviders: taskProviderSettings.visibleTaskProviders,
@@ -2706,6 +2814,28 @@ export class Store {
     const sanitizedUpdates = { ...updates }
     if ('disabledTuiAgents' in updates) {
       sanitizedUpdates.disabledTuiAgents = normalizeDisabledTuiAgents(updates.disabledTuiAgents)
+    }
+    if (
+      'customTuiAgents' in updates ||
+      'defaultTuiAgent' in updates ||
+      'agentCmdOverrides' in updates
+    ) {
+      const customTuiAgents = normalizeCustomTuiAgents(
+        'customTuiAgents' in updates ? updates.customTuiAgents : this.state.settings.customTuiAgents
+      )
+      sanitizedUpdates.customTuiAgents = customTuiAgents
+      sanitizedUpdates.defaultTuiAgent = normalizeDefaultTuiAgent(
+        'defaultTuiAgent' in updates
+          ? updates.defaultTuiAgent
+          : this.state.settings.defaultTuiAgent,
+        customTuiAgents
+      )
+      sanitizedUpdates.agentCmdOverrides = normalizeAgentCmdOverrides(
+        'agentCmdOverrides' in updates
+          ? updates.agentCmdOverrides
+          : this.state.settings.agentCmdOverrides,
+        customTuiAgents
+      )
     }
     if ('terminalQuickCommands' in updates) {
       sanitizedUpdates.terminalQuickCommands = normalizeTerminalQuickCommands(

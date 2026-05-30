@@ -1,21 +1,68 @@
+/* eslint-disable max-lines -- Why: the catalog keeps built-in agent metadata beside icon rendering so ids, labels, and visuals stay in lockstep. */
 import React from 'react'
 import { ClaudeIcon, DroidIcon, OpenAIIcon } from '@/components/status-bar/icons'
-import type { TuiAgent } from '../../../shared/types'
+import { firstExecutableToken } from '../../../shared/effective-tui-agent'
+import type { CustomTuiAgent, TuiAgent, TuiAgentId } from '../../../shared/types'
 
 export type AgentCatalogEntry = {
-  id: TuiAgent
+  id: TuiAgentId
   label: string
   /** Default CLI binary name used for PATH detection. */
   cmd: string
   /** Domain for Google's favicon service — used for agents without an SVG icon. */
   faviconDomain?: string
-  /** Homepage/install docs URL, sourced from the README agent badge list. */
+  /** Homepage/install docs URL, sourced from the README agent badge list.
+   *  Optional because custom agents may omit it. */
+  homepageUrl?: string
+  /** True for user-defined custom agent presets. */
+  isCustom?: boolean
+  /** Built-in id whose icon should be reused when a custom preset wraps that CLI. */
+  iconSourceId?: TuiAgentId
+}
+
+type BuiltInAgentCatalogEntry = AgentCatalogEntry & {
+  id: TuiAgent
   homepageUrl: string
+}
+
+export function resolveCustomAgentIconSource(
+  agent: Pick<CustomTuiAgent, 'command' | 'detectCmd'>
+): AgentCatalogEntry | undefined {
+  const detectToken = agent.detectCmd?.trim()
+    ? firstExecutableToken(agent.detectCmd)
+    : firstExecutableToken(agent.command)
+  if (!detectToken) {
+    return undefined
+  }
+  return AGENT_CATALOG.find((entry) => entry.cmd === detectToken)
+}
+
+export function buildAgentCatalog(customAgents: readonly CustomTuiAgent[]): AgentCatalogEntry[] {
+  const customs: AgentCatalogEntry[] = []
+  for (const agent of customAgents) {
+    if (agent.command.trim().length === 0) {
+      continue
+    }
+    // Why: a custom preset for `codex --profile work` should render the Codex
+    // icon, not initials. Inherit faviconDomain from the matching built-in
+    // when the user has not set one explicitly.
+    const iconSource = agent.faviconDomain ? undefined : resolveCustomAgentIconSource(agent)
+    customs.push({
+      id: agent.id,
+      label: agent.label,
+      cmd: agent.command,
+      faviconDomain: agent.faviconDomain ?? iconSource?.faviconDomain,
+      iconSourceId: iconSource?.id,
+      homepageUrl: agent.homepageUrl,
+      isCustom: true
+    })
+  }
+  return [...AGENT_CATALOG, ...customs]
 }
 
 // Full catalog of supported agents — ordered by priority for auto-default selection.
 // homepageUrl matches the href used in the README agent badge list.
-export const AGENT_CATALOG: AgentCatalogEntry[] = [
+export const AGENT_CATALOG: BuiltInAgentCatalogEntry[] = [
   {
     id: 'claude',
     label: 'Claude',
@@ -373,10 +420,12 @@ function AgentLetterIcon({
 
 export function AgentIcon({
   agent,
-  size = 14
+  size = 14,
+  catalog = AGENT_CATALOG
 }: {
-  agent: TuiAgent | null | undefined
+  agent: TuiAgentId | null | undefined
   size?: number
+  catalog?: readonly AgentCatalogEntry[]
 }): React.JSX.Element {
   // Why: render a neutral question-mark glyph when the agent identity is not
   // yet known. Before, the caller coerced null → 'claude', which caused Codex
@@ -385,31 +434,32 @@ export function AgentIcon({
   if (!agent) {
     return <AgentLetterIcon letter="?" size={size} />
   }
-  if (agent === 'claude') {
+  const catalogEntry = catalog.find((a) => a.id === agent)
+  const iconAgent = catalogEntry?.iconSourceId ?? agent
+  if (iconAgent === 'claude') {
     return <ClaudeIcon size={size} />
   }
-  if (agent === 'codex') {
+  if (iconAgent === 'codex') {
     return <OpenAIIcon size={size} />
   }
-  if (agent === 'droid') {
+  if (iconAgent === 'droid') {
     return <DroidIcon size={size} />
   }
-  if (agent === 'pi') {
+  if (iconAgent === 'pi') {
     return <PiIcon size={size} />
   }
-  if (agent === 'omp') {
+  if (iconAgent === 'omp') {
     return <OmpIcon size={size} />
   }
-  if (agent === 'aider') {
+  if (iconAgent === 'aider') {
     return <AiderIcon size={size} />
   }
-  if (agent === 'kilo') {
+  if (iconAgent === 'kilo') {
     return <KiloIcon size={size} />
   }
-  if (agent === 'copilot') {
+  if (iconAgent === 'copilot') {
     return <CopilotIcon size={size} />
   }
-  const catalogEntry = AGENT_CATALOG.find((a) => a.id === agent)
   if (catalogEntry?.faviconDomain) {
     // Why: agents without a published SVG icon use their site favicon via
     // Google's favicon service — same source the README uses for the agent badge list.

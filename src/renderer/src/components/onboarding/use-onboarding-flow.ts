@@ -8,6 +8,7 @@ import { applyDocumentTheme } from '@/lib/document-theme'
 import { track } from '@/lib/telemetry'
 import { buildAgentPickedPayload } from './agent-picked-payload'
 import { ONBOARDING_FINAL_STEP } from '../../../../shared/constants'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import type { FeatureWallTourDepthSummary } from '../../../../shared/feature-wall-tour-depth'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import {
@@ -121,7 +122,9 @@ export function useOnboardingFlow(
   const initialStep = Math.min(Math.max(onboarding.lastCompletedStep, 0), STEPS.length - 1)
   const [stepIndex, setStepIndex] = useState(initialStep)
   const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(
-    settings?.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
+    settings?.defaultTuiAgent &&
+      settings.defaultTuiAgent !== 'blank' &&
+      !isCustomTuiAgentId(settings.defaultTuiAgent)
       ? settings.defaultTuiAgent
       : null
   )
@@ -168,7 +171,9 @@ export function useOnboardingFlow(
     }
     if (!agentInteractedRef.current) {
       const fromSettings =
-        settings.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
+        settings.defaultTuiAgent &&
+        settings.defaultTuiAgent !== 'blank' &&
+        !isCustomTuiAgentId(settings.defaultTuiAgent)
           ? settings.defaultTuiAgent
           : null
       if (fromSettings !== null) {
@@ -187,7 +192,9 @@ export function useOnboardingFlow(
   // agent lived under the `<details>` disclosure in AgentStep. AgentStep is
   // the only call site that has the real answer; main-side detected_count /
   // detection_state are merged in here from the store.
-  const detectedAgentIdsRef = useRef<readonly TuiAgent[]>(detectedAgentIds ?? [])
+  const detectedAgentIdsRef = useRef<readonly TuiAgent[]>(
+    (detectedAgentIds ?? []).filter((id): id is TuiAgent => !isCustomTuiAgentId(id))
+  )
   const isDetectingRef = useRef<boolean>(isDetectingAgents)
   const selectedAgentRef = useRef(selectedAgent)
   // Why: refs let `setSelectedAgentInteractive` (a stable useCallback) read
@@ -198,7 +205,9 @@ export function useOnboardingFlow(
   // Why: stable onboarding handlers read these values at click/async time, so
   // keep the mirrors fresh before events can run.
   selectedAgentRef.current = selectedAgent
-  detectedAgentIdsRef.current = detectedAgentIds ?? []
+  detectedAgentIdsRef.current = (detectedAgentIds ?? []).filter(
+    (id): id is TuiAgent => !isCustomTuiAgentId(id)
+  )
   isDetectingRef.current = isDetectingAgents
   pathSourceRef.current = pathSource
   pathFailureReasonRef.current = pathFailureReason
@@ -231,7 +240,10 @@ export function useOnboardingFlow(
     []
   )
 
-  const detectedSet = useMemo(() => new Set(detectedAgentIds ?? []), [detectedAgentIds])
+  const detectedSet = useMemo(
+    () => new Set((detectedAgentIds ?? []).filter((id): id is TuiAgent => !isCustomTuiAgentId(id))),
+    [detectedAgentIds]
+  )
   const currentStep = STEPS[stepIndex]
   const hasExistingProject = repos.length > 0
 

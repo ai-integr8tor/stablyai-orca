@@ -1594,6 +1594,36 @@ export type TuiAgent =
   | 'copilot' // GitHub Copilot CLI
   | 'grok' // xAI Grok CLI
 
+export type AgentPromptInjectionMode =
+  | 'argv'
+  | 'flag-prompt'
+  | 'flag-prompt-interactive'
+  | 'flag-interactive'
+  | 'stdin-after-start'
+
+/** Branded id for user-defined custom agent presets. The `custom:` prefix is the runtime boundary
+ *  that distinguishes them from built-in TuiAgent ids in pickers, settings, and detection. */
+export type CustomTuiAgentId = `custom:${string}`
+
+/** Union of every agent id Orca can launch. Use this at boundaries that must accept both built-in
+ *  and user-defined agents. Keep narrower TuiAgent typing where only built-ins are valid. */
+export type TuiAgentId = TuiAgent | CustomTuiAgentId
+
+/** A user-defined agent preset persisted in GlobalSettings.customTuiAgents. */
+export type CustomTuiAgent = {
+  id: CustomTuiAgentId
+  label: string
+  command: string
+  /** Defaults to firstExecutableToken(command) when omitted. */
+  detectCmd?: string
+  /** Defaults to firstExecutableToken(command) when omitted. */
+  expectedProcess?: string
+  /** Locked to stdin-after-start in v1 until custom CLIs can declare safer contracts. */
+  promptInjectionMode: AgentPromptInjectionMode
+  faviconDomain?: string
+  homepageUrl?: string
+}
+
 export type TaskViewPresetId = 'all' | 'issues' | 'review' | 'my-issues' | 'my-prs' | 'prs'
 
 /** Where the repo setup script runs when a worktree is created.
@@ -1869,8 +1899,8 @@ export type GlobalSettings = {
   /** Which agent to pre-select in the new-workspace composer.
    *  - null: auto (first detected agent)
    *  - 'blank': blank terminal (no agent launched)
-   *  - TuiAgent: a specific agent id */
-  defaultTuiAgent: TuiAgent | 'blank' | null
+   *  - TuiAgentId: a built-in or custom agent id */
+  defaultTuiAgent: TuiAgentId | 'blank' | null
   /** Agents hidden from future picker and automatic launch choices. Detection
    *  remains a raw PATH capability snapshot. */
   disabledTuiAgents: TuiAgent[]
@@ -1912,8 +1942,11 @@ export type GlobalSettings = {
   /** Whether to extract OAuth credentials from the local Gemini CLI installation
    *  for rate-limit fetching. Disabled by default for explicit opt-in. */
   geminiCliOAuthEnabled: boolean
-  /** Per-agent CLI command overrides. A missing key means use the catalog default binary name. */
-  agentCmdOverrides: Partial<Record<TuiAgent, string>>
+  /** Per-agent CLI command overrides. A missing key means use the catalog default binary name.
+   *  Custom agent ids (`custom:*`) are valid keys; persistence drops keys for unknown custom ids. */
+  agentCmdOverrides: Partial<Record<TuiAgentId, string>>
+  /** User-defined custom agent presets. Each is launchable alongside built-ins; default is []. */
+  customTuiAgents: CustomTuiAgent[]
   /** Why: disabling must persist so startup does not reinstall global agent
    *  hook entries right after the user removes them from Settings or CLI. */
   agentStatusHooksEnabled: boolean

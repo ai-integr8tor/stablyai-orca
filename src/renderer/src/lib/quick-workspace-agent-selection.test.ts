@@ -16,4 +16,13 @@ describe('pickQuickWorkspaceAgent', () => {
     expect(pickQuickWorkspaceAgent(null, ['codex'], ['claude'])).toBe('codex')
     expect(pickQuickWorkspaceAgent('codex', ['claude', 'codex'], ['codex'])).toBe('claude')
   })
+
+  it('ignores custom ids in the built-in auto-pick path', () => {
+    expect(pickQuickWorkspaceAgent('custom:wrapper-abc123', ['custom:wrapper-abc123'], [])).toBe(
+      null
+    )
+    expect(
+      pickQuickWorkspaceAgent('custom:wrapper-abc123', ['custom:wrapper-abc123', 'codex'], [])
+    ).toBe('codex')
+  })
 })

@@ -10,7 +10,8 @@ import { toast } from 'sonner'
 import type {
   BrowserTab as BrowserTabState,
   TerminalTab,
-  TuiAgent,
+  CustomTuiAgent,
+  TuiAgentId,
   WorkspaceVisibleTabType
 } from '../../../../shared/types'
 import { useAppStore } from '../../store'
@@ -33,6 +34,7 @@ import { useDetectedAgents } from '@/hooks/useDetectedAgents'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { useWindowsTerminalCapabilities } from '@/lib/windows-terminal-capabilities'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
+import { buildAgentCatalog } from '@/lib/agent-catalog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,13 +45,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
+import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
 
 const isWindows = navigator.userAgent.includes('Windows')
 const NEW_TAB_MENU_TERMINAL_FOCUS_RETRY_MS = 50
 const NEW_TAB_MENU_TERMINAL_FOCUS_TIMEOUT_MS = 5000
 type GitStatusEntries = ReturnType<typeof useAppStore.getState>['gitStatusByWorktree'][string]
 const EMPTY_GIT_STATUS_ENTRIES: GitStatusEntries = []
-const EMPTY_AGENT_CMD_OVERRIDES: Partial<Record<TuiAgent, string>> = {}
+const EMPTY_AGENT_CMD_OVERRIDES: Partial<Record<TuiAgentId, string>> = {}
+const EMPTY_CUSTOM_TUI_AGENTS: CustomTuiAgent[] = []
 
 type TabBarProps = {
   tabs: (TerminalTab & { unifiedTabId?: string })[]
@@ -177,6 +181,8 @@ function TabBarInner({
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )
+  const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const customTuiAgents = useAppStore((s) => s.settings?.customTuiAgents ?? EMPTY_CUSTOM_TUI_AGENTS)
   const connectionId = useAppStore((s) => {
     if (!unifiedNewTabLauncherEnabled) {
       return undefined
@@ -190,14 +196,15 @@ function TabBarInner({
     return repo?.connectionId ?? null
   })
   const { detectedIds } = useDetectedAgents(connectionId)
-  const agentLaunchOptions = useMemo(
-    () =>
-      buildTabAgentLaunchOptions(
-        orderTabLaunchAgents(defaultAgent, detectedIds ?? []),
-        agentCmdOverrides
-      ),
-    [agentCmdOverrides, defaultAgent, detectedIds]
-  )
+  const agentCatalog = useMemo(() => buildAgentCatalog(customTuiAgents), [customTuiAgents])
+  const agentLaunchOptions = useMemo(() => {
+    const enabledDetectedIds = filterEnabledTuiAgents(detectedIds ?? [], disabledTuiAgents)
+    return buildTabAgentLaunchOptions(
+      orderTabLaunchAgents(defaultAgent, enabledDetectedIds, customTuiAgents),
+      agentCmdOverrides,
+      customTuiAgents
+    )
+  }, [agentCmdOverrides, customTuiAgents, defaultAgent, detectedIds, disabledTuiAgents])
   const [runtimeHostPlatform, setRuntimeHostPlatform] = useState<NodeJS.Platform | null>(null)
   useEffect(() => {
     if (
@@ -289,7 +296,7 @@ function TabBarInner({
   const queueTerminalTabFocusAfterNewTabMenuClose = (tabId: string): void => {
     pendingNewTabMenuFocusRef.current = () => focusTerminalTabSurface(tabId)
   }
-  const launchAgentFromNewTabEntry = (agent: TuiAgent): void => {
+  const launchAgentFromNewTabEntry = (agent: TuiAgentId): void => {
     const option = agentLaunchOptions.find((candidate) => candidate.agent === agent)
     const result = launchAgentInNewTab({
       agent,
@@ -629,6 +636,7 @@ function TabBarInner({
           {!terminalOnly && onOpenEntry && unifiedNewTabLauncherEnabled ? (
             <>
               <TabBarCreateEntry
+                agentCatalog={agentCatalog}
                 worktreeId={worktreeId}
                 groupId={resolvedGroupId}
                 menuOpen={newTabMenuOpen}

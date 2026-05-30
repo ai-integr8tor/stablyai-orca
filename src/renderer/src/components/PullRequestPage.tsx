@@ -112,6 +112,7 @@ import {
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
 import { AGENT_CATALOG } from '@/lib/agent-catalog'
 import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import { getConnectionId } from '@/lib/connection-context'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import {
@@ -135,7 +136,9 @@ import type {
   PRCheckDetail,
   PRCheckRunDetails,
   PRComment,
-  TuiAgent
+  CustomTuiAgent,
+  TuiAgent,
+  TuiAgentId
 } from '../../../shared/types'
 
 // Why: the GH item dialog can be opened from any work-item list surface and
@@ -3375,11 +3378,20 @@ function buildFixBrokenChecksPrompt(item: GitHubWorkItem, checks: PRCheckDetail[
 }
 
 function pickDefaultAgent(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
-  detectedAgents: TuiAgent[],
-  disabledAgents?: TuiAgent[]
-): TuiAgent | null {
-  const enabledAgents = filterEnabledTuiAgents(detectedAgents, disabledAgents)
+  defaultAgent: TuiAgentId | 'blank' | null | undefined,
+  detectedAgents: TuiAgentId[],
+  disabledAgents?: TuiAgent[],
+  customAgents: readonly CustomTuiAgent[] = []
+): TuiAgentId | null {
+  if (defaultAgent && isCustomTuiAgentId(defaultAgent)) {
+    return customAgents.some((agent) => agent.id === defaultAgent && agent.command.trim())
+      ? defaultAgent
+      : null
+  }
+  const enabledAgents = filterEnabledTuiAgents(
+    detectedAgents.filter((id): id is TuiAgent => !isCustomTuiAgentId(id)),
+    disabledAgents
+  )
   if (defaultAgent && defaultAgent !== 'blank' && enabledAgents.includes(defaultAgent)) {
     return defaultAgent
   }
@@ -3579,7 +3591,8 @@ function ChecksTab({
       const agent = pickDefaultAgent(
         activeStore.settings?.defaultTuiAgent,
         detectedAgents,
-        activeStore.settings?.disabledTuiAgents
+        activeStore.settings?.disabledTuiAgents,
+        activeStore.settings?.customTuiAgents
       )
       if (!agent) {
         toast.error('No enabled AI agents. Configure agents in Settings.')

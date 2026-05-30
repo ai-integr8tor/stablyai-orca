@@ -3,7 +3,9 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
-import type { PathSource, ShellHydrationFailureReason } from '../../shared/types'
+import { firstExecutableToken } from '../../shared/effective-tui-agent'
+import type { CustomTuiAgent, PathSource, ShellHydrationFailureReason } from '../../shared/types'
+import type { Store } from '../persistence'
 import { hydrateShellPath, mergePathSegments } from '../startup/hydrate-shell-path'
 import { getAzureDevOpsAuthStatus } from '../azure-devops/client'
 import { getBitbucketAuthStatus } from '../bitbucket/client'
@@ -102,10 +104,26 @@ async function isCommandOnPath(command: string, wslTarget?: WslPreflightTarget):
   }
 }
 
-const KNOWN_AGENT_COMMANDS = Object.entries(TUI_AGENT_CONFIG).map(([id, config]) => ({
+const BUILT_IN_AGENT_COMMANDS = Object.entries(TUI_AGENT_CONFIG).map(([id, config]) => ({
   id,
   cmd: config.detectCmd
 }))
+
+// Why: custom agent presets (issue #2284) need to surface in detection so the
+// New Workspace / Quick Launch pickers mark them installed when their detect
+// command resolves on PATH. Falls back to the executable token of the launch
+// command when no explicit detectCmd is set.
+function getKnownAgentCommands(
+  customAgents: readonly CustomTuiAgent[]
+): { id: string; cmd: string }[] {
+  const customs = customAgents
+    .map((agent) => ({
+      id: agent.id,
+      cmd: agent.detectCmd?.trim() || firstExecutableToken(agent.command)
+    }))
+    .filter((entry) => entry.cmd.length > 0)
+  return [...BUILT_IN_AGENT_COMMANDS, ...customs]
+}
 
 function getPreflightWslTarget(context?: PreflightRuntimeContext): WslPreflightTarget | null {
   if (process.platform !== 'win32') {
@@ -134,10 +152,31 @@ async function detectCommandRuntime(
   return { installed: false }
 }
 
-export async function detectInstalledAgents(context?: PreflightRuntimeContext): Promise<string[]> {
-  const wslTarget = getPreflightWslTarget(context)
+function resolveDetectInstalledAgentsArgs(
+  customAgentsOrContext?: readonly CustomTuiAgent[] | PreflightRuntimeContext,
+  context?: PreflightRuntimeContext
+): { customAgents: readonly CustomTuiAgent[]; context?: PreflightRuntimeContext } {
+  if (isCustomAgentList(customAgentsOrContext)) {
+    return { customAgents: customAgentsOrContext, context }
+  }
+  return { customAgents: [], context: customAgentsOrContext }
+}
+
+function isCustomAgentList(
+  value: readonly CustomTuiAgent[] | PreflightRuntimeContext | undefined
+): value is readonly CustomTuiAgent[] {
+  return Array.isArray(value)
+}
+
+export async function detectInstalledAgents(
+  customAgentsOrContext?: readonly CustomTuiAgent[] | PreflightRuntimeContext,
+  context?: PreflightRuntimeContext
+): Promise<string[]> {
+  const resolved = resolveDetectInstalledAgentsArgs(customAgentsOrContext, context)
+  const wslTarget = getPreflightWslTarget(resolved.context)
+  const knownCommands = getKnownAgentCommands(resolved.customAgents)
   const checks = await Promise.all(
-    KNOWN_AGENT_COMMANDS.map(async ({ id, cmd }) => ({
+    knownCommands.map(async ({ id, cmd }) => ({
       id,
       installed: await isCommandOnPath(cmd, wslTarget ?? undefined)
     }))
@@ -169,11 +208,12 @@ export type RefreshAgentsResult = {
  * without requiring an app restart.
  */
 export async function refreshShellPathAndDetectAgents(
+  customAgents: readonly CustomTuiAgent[],
   context?: PreflightRuntimeContext
 ): Promise<RefreshAgentsResult> {
   const hydration = await hydrateShellPath({ force: true })
   const added = hydration.ok ? mergePathSegments(hydration.segments) : []
-  const agents = await detectInstalledAgents(context)
+  const agents = await detectInstalledAgents(customAgents, context)
   return {
     agents,
     addedPathSegments: added,
@@ -183,13 +223,16 @@ export async function refreshShellPathAndDetectAgents(
   }
 }
 
-export async function detectRemoteAgents(args: { connectionId: string }): Promise<string[]> {
+export async function detectRemoteAgents(args: {
+  connectionId: string
+  customAgents: readonly CustomTuiAgent[]
+}): Promise<string[]> {
   const mux = getActiveMultiplexer(args.connectionId)
   if (!mux || mux.isDisposed()) {
     throw new Error(`No active SSH connection for "${args.connectionId}"`)
   }
   const result = (await mux.request('preflight.detectAgents', {
-    commands: KNOWN_AGENT_COMMANDS
+    commands: getKnownAgentCommands(args.customAgents)
   })) as { agents: string[] }
   return result.agents
 }
@@ -280,7 +323,12 @@ export async function runPreflightCheck(
   return result
 }
 
-export function registerPreflightHandlers(): void {
+export function registerPreflightHandlers(store: Store): void {
+  // Why: custom agent presets (issue #2284) live in settings, so detection
+  // handlers read them at call time. Passing the Store keeps the IPC contract
+  // unchanged while giving every handler the freshest custom list.
+  const getCustomAgents = (): readonly CustomTuiAgent[] => store.getSettings().customTuiAgents ?? []
+
   ipcMain.handle(
     'preflight:check',
     async (
@@ -294,22 +342,23 @@ export function registerPreflightHandlers(): void {
   ipcMain.handle(
     'preflight:detectAgents',
     async (_event, args?: PreflightRuntimeContext): Promise<string[]> => {
-      return detectInstalledAgents(args)
+      return detectInstalledAgents(getCustomAgents(), args)
     }
   )
 
   ipcMain.handle('preflight:refreshAgents', async (_event, args?: PreflightRuntimeContext) => {
-    return refreshShellPathAndDetectAgents(args)
+    return refreshShellPathAndDetectAgents(getCustomAgents(), args)
   })
 
   // Why: remote worktrees need agent detection on the SSH host, not the local
-  // machine. This handler forwards the same KNOWN_AGENT_COMMANDS list to the
-  // relay's preflight.detectAgents RPC, which runs `which` inside a login shell
-  // on the remote host to match the PATH users see in PTY sessions.
+  // machine. This handler forwards the same agent command list to the relay's
+  // preflight.detectAgents RPC, which runs `which` inside a login shell on the
+  // remote host to match the PATH users see in PTY sessions. Custom agents
+  // flow through the same payload since the relay handler is protocol-agnostic.
   ipcMain.handle(
     'preflight:detectRemoteAgents',
     async (_event, args: { connectionId: string }): Promise<string[]> => {
-      return detectRemoteAgents(args)
+      return detectRemoteAgents({ ...args, customAgents: getCustomAgents() })
     }
   )
 }

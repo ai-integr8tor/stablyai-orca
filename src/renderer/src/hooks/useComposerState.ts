@@ -14,6 +14,7 @@ import {
 } from '@/lib/github-links'
 import { activateAndRevealWorktree, type AgentStartedTelemetry } from '@/lib/worktree-activation'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
@@ -29,6 +30,7 @@ import type {
   SetupRunPolicy,
   SparsePreset,
   TuiAgent,
+  TuiAgentId,
   WorktreeMeta,
   WorkspaceStatus,
   WorkspaceCreateTelemetrySource
@@ -158,7 +160,7 @@ export type ComposerCardProps = {
   onSelectLinkedItem: (item: GitHubWorkItem) => void
   tuiAgent: TuiAgent
   onTuiAgentChange: (value: TuiAgent) => void
-  detectedAgentIds: Set<TuiAgent> | null
+  detectedAgentIds: Set<TuiAgentId> | null
   onOpenAgentSettings: () => void
   advancedOpen: boolean
   onToggleAdvanced: () => void
@@ -215,7 +217,7 @@ export type UseComposerStateResult = {
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>
   nameInputRef: React.RefObject<HTMLInputElement | null>
   submit: () => Promise<void>
-  submitQuick: (agent: TuiAgent | null) => Promise<void>
+  submitQuick: (agent: TuiAgentId | null) => Promise<void>
   /** Invoked by the Enter handler to re-check whether submission should fire. */
   createDisabled: boolean
 }
@@ -416,6 +418,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   const fallbackDefaultAgent: TuiAgent =
     settings?.defaultTuiAgent &&
     settings.defaultTuiAgent !== 'blank' &&
+    !isCustomTuiAgentId(settings.defaultTuiAgent) &&
     isTuiAgentEnabled(settings.defaultTuiAgent, disabledTuiAgents)
       ? settings.defaultTuiAgent
       : (enabledCatalogAgents[0] ?? 'claude')
@@ -436,7 +439,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   })
   const ensureDetectedAgents = useAppStore((s) => s.ensureDetectedAgents)
   const ensureRemoteDetectedAgents = useAppStore((s) => s.ensureRemoteDetectedAgents)
-  const detectedAgentIds = useMemo<Set<TuiAgent> | null>(
+  const detectedAgentIds = useMemo<Set<TuiAgentId> | null>(
     () => (detectedAgentList ? new Set(detectedAgentList) : null),
     [detectedAgentList]
   )
@@ -1955,11 +1958,19 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   ])
 
   const submitQuick = useCallback(
-    async (requestedAgent: TuiAgent | null): Promise<void> => {
+    async (requestedAgent: TuiAgentId | null): Promise<void> => {
+      const customTuiAgents = settings?.customTuiAgents ?? []
       const agent =
-        requestedAgent && isTuiAgentEnabled(requestedAgent, disabledTuiAgents)
-          ? requestedAgent
-          : null
+        requestedAgent && isCustomTuiAgentId(requestedAgent)
+          ? customTuiAgents.some(
+              (candidate) => candidate.id === requestedAgent && candidate.command.trim().length > 0
+            )
+            ? requestedAgent
+            : null
+          : requestedAgent && isTuiAgentEnabled(requestedAgent, disabledTuiAgents)
+            ? requestedAgent
+            : null
+      const createdWithBuiltInAgent = agent && !isCustomTuiAgentId(agent) ? agent : undefined
       const workspaceNameSeed = getWorkspaceSeedName({
         explicitName: name,
         prompt: '',
@@ -2046,7 +2057,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           submitLinkedIssueNumber ?? undefined,
           submitLinkedPR ?? undefined,
           pushTarget,
-          agent ?? undefined,
+          createdWithBuiltInAgent,
           linkedLinearIssue,
           effectiveBranchNameOverride,
           resolvedInitialWorkspaceStatus,
@@ -2075,7 +2086,12 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         // skipped — best-effort, errors swallowed by main. Guard the IPC
         // presence so a stale preload bundle doesn't crash the launch with
         // "Cannot read properties of undefined".
-        if (agent && worktree.path && window.api.agentTrust?.markTrusted) {
+        if (
+          agent &&
+          !isCustomTuiAgentId(agent) &&
+          worktree.path &&
+          window.api.agentTrust?.markTrusted
+        ) {
           const preflight = TUI_AGENT_CONFIG[agent].preflightTrust
           if (preflight) {
             try {
@@ -2100,6 +2116,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 agent,
                 draft: quickDraftPrompt,
                 cmdOverrides: settings?.agentCmdOverrides ?? {},
+                customTuiAgents,
                 platform: CLIENT_PLATFORM
               })
 
@@ -2117,6 +2134,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             agent,
             prompt: quickPrompt,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
+            customTuiAgents,
             platform: CLIENT_PLATFORM,
             allowEmptyPromptLaunch: true
           })
@@ -2206,6 +2224,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       selectedRepoIsGit,
       selectedRepoRequiresConnection,
       settings?.agentCmdOverrides,
+      settings?.customTuiAgents,
       disabledTuiAgents,
       setSidebarOpen,
       setupDecision,

@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Terminal } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import type {
   SourceControlAiOperation,
   SourceControlAiSettings
@@ -317,9 +318,12 @@ export function CommitMessageAiPane({
       }),
     [baseAgentCapabilities, discoveryHostKey, modelDiscoveryByAgent]
   )
+  const builtInDefaultTuiAgent = isCustomTuiAgentId(settings.defaultTuiAgent)
+    ? null
+    : settings.defaultTuiAgent
   const resolvedAgentId = resolveCommitMessageAgentChoice(
     config.agentId,
-    settings.defaultTuiAgent,
+    builtInDefaultTuiAgent,
     settings.disabledTuiAgents
   )
   const unsupportedSelectedAgent =
@@ -334,9 +338,9 @@ export function CommitMessageAiPane({
   const unsupportedDefaultAgent =
     resolvedAgentId === null &&
     !config.agentId &&
-    settings.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
+    builtInDefaultTuiAgent &&
+    builtInDefaultTuiAgent !== 'blank'
+      ? builtInDefaultTuiAgent
       : null
   const unsupportedDefaultAgentLabel = unsupportedDefaultAgent
     ? (AGENT_CATALOG.find((a) => a.id === unsupportedDefaultAgent)?.label ??
@@ -494,7 +498,9 @@ export function CommitMessageAiPane({
     // so Generate works without maintaining a second agent preference. If the
     // user previously persisted 'custom', keep it and let them re-edit the
     // command — no implicit reset to a preset.
-    const defaultTuiAgent = settings.defaultTuiAgent
+    const defaultTuiAgent = isCustomTuiAgentId(settings.defaultTuiAgent)
+      ? null
+      : settings.defaultTuiAgent
     const seedAgentId = resolveCommitMessageAgentChoice(
       config.agentId,
       defaultTuiAgent,

@@ -9,6 +9,8 @@ import {
   isCustomAgentId,
   resolveCommitMessageAgentChoice
 } from '../../../../shared/commit-message-agent-spec'
+import type { DefaultTuiAgentPreference } from '../../../../shared/commit-message-agent-spec'
+import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import { useAppStore } from '@/store'
 import {
   FEATURE_WALL_AGENT_STEP_IDS,
@@ -49,11 +51,19 @@ export function useFeatureWallCompletion(
   const githubConfigured =
     preflightStatus?.gh.installed === true && preflightStatus.gh.authenticated === true
   const commitMessageAi = settings?.commitMessageAi
+  const rawDefaultTuiAgent = settings?.defaultTuiAgent
+  const builtInDefaultTuiAgent: DefaultTuiAgentPreference =
+    rawDefaultTuiAgent === null ||
+    rawDefaultTuiAgent === undefined ||
+    rawDefaultTuiAgent === 'blank' ||
+    isTuiAgent(rawDefaultTuiAgent)
+      ? rawDefaultTuiAgent
+      : null
   const resolvedCommitMessageAgent =
     settings && commitMessageAi?.enabled === true
       ? resolveCommitMessageAgentChoice(
           commitMessageAi.agentId,
-          settings.defaultTuiAgent,
+          builtInDefaultTuiAgent,
           settings.disabledTuiAgents
         )
       : null

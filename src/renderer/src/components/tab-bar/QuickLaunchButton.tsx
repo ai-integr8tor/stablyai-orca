@@ -1,12 +1,17 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { AGENT_CATALOG, AgentIcon } from '@/lib/agent-catalog'
+import {
+  AGENT_CATALOG,
+  AgentIcon,
+  buildAgentCatalog,
+  type AgentCatalogEntry
+} from '@/lib/agent-catalog'
 import { useAppStore } from '@/store'
 import { useDetectedAgents } from '@/hooks/useDetectedAgents'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
-import type { TuiAgent } from '../../../../shared/types'
+import type { CustomTuiAgent, TuiAgentId } from '../../../../shared/types'
 import type { LaunchSource } from '../../../../shared/telemetry-events'
 import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
 
@@ -31,17 +36,29 @@ export type QuickLaunchAgentMenuItemsProps = {
   onPromptDelivered?: () => void
 }
 
-function getCatalogEntry(agent: TuiAgent): { id: TuiAgent; label: string } | null {
-  return AGENT_CATALOG.find((a) => a.id === agent) ?? null
+function getCatalogEntry(
+  agent: TuiAgentId,
+  catalog: readonly AgentCatalogEntry[]
+): AgentCatalogEntry | null {
+  return catalog.find((a) => a.id === agent) ?? null
 }
 
-function orderAgents(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
-  detected: TuiAgent[]
-): TuiAgent[] {
-  const inCatalogOrder = AGENT_CATALOG.filter((entry) => detected.includes(entry.id)).map(
+export function orderAgents(
+  defaultAgent: TuiAgentId | 'blank' | null | undefined,
+  detected: TuiAgentId[],
+  customAgents: readonly CustomTuiAgent[]
+): TuiAgentId[] {
+  const detectedSet = new Set(detected)
+  const builtInOrder = AGENT_CATALOG.filter((entry) => detectedSet.has(entry.id)).map(
     (entry) => entry.id
   )
+  // Why: custom presets may wrap absolute paths or aliases that are not PATH-detectable.
+  // Keep configured custom commands launchable in manual picker surfaces.
+  const readyCustomAgents = customAgents
+    .filter((agent) => agent.command.trim().length > 0)
+    .sort((a, b) => a.label.localeCompare(b.label))
+  const readyCustoms = readyCustomAgents.map((agent) => agent.id)
+  const inCatalogOrder = [...builtInOrder, ...readyCustoms]
   if (!defaultAgent || defaultAgent === 'blank' || !inCatalogOrder.includes(defaultAgent)) {
     return inCatalogOrder
   }
@@ -113,6 +130,8 @@ function QuickLaunchAgentMenuItemsInner({
   const { detectedIds } = useDetectedAgents(connectionId)
   const defaultAgent = useAppStore((s) => s.settings?.defaultTuiAgent)
   const disabledAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const customTuiAgents = useAppStore((s) => s.settings?.customTuiAgents ?? [])
+  const catalog = useMemo(() => buildAgentCatalog(customTuiAgents), [customTuiAgents])
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
 
@@ -122,8 +141,8 @@ function QuickLaunchAgentMenuItemsInner({
   }, [openSettingsPage, openSettingsTarget])
 
   const runLaunch = useCallback(
-    (agent: TuiAgent) => {
-      const entry = getCatalogEntry(agent)
+    (agent: TuiAgentId) => {
+      const entry = getCatalogEntry(agent, catalog)
       const label = entry?.label ?? agent
       const result = launchAgentInNewTab({
         agent,
@@ -160,11 +179,20 @@ function QuickLaunchAgentMenuItemsInner({
         toast.message(getLaunchWatchdogTimeoutMessage(label))
       })
     },
-    [worktreeId, groupId, onFocusTerminal, prompt, promptDelivery, launchSource, onPromptDelivered]
+    [
+      catalog,
+      worktreeId,
+      groupId,
+      onFocusTerminal,
+      prompt,
+      promptDelivery,
+      launchSource,
+      onPromptDelivered
+    ]
   )
 
   const enabledDetectedIds = detectedIds ? filterEnabledTuiAgents(detectedIds, disabledAgents) : []
-  const agents = detectedIds ? orderAgents(defaultAgent, enabledDetectedIds) : []
+  const agents = detectedIds ? orderAgents(defaultAgent, enabledDetectedIds, customTuiAgents) : []
 
   return (
     <>
@@ -177,7 +205,7 @@ function QuickLaunchAgentMenuItemsInner({
         </DropdownMenuItem>
       ) : null}
       {agents.map((agent) => {
-        const entry = getCatalogEntry(agent)
+        const entry = getCatalogEntry(agent, catalog)
         const label = entry?.label ?? agent
         return (
           <DropdownMenuItem
@@ -186,7 +214,7 @@ function QuickLaunchAgentMenuItemsInner({
             className="gap-2 rounded-[7px] px-2 py-1.5 text-[12px] leading-5 font-medium"
             title={`Launch ${label} in a new terminal`}
           >
-            <AgentIcon agent={agent} size={14} />
+            <AgentIcon agent={agent} size={14} catalog={catalog} />
             {label}
           </DropdownMenuItem>
         )

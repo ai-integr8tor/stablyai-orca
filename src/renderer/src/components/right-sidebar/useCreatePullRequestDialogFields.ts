@@ -16,6 +16,7 @@ import {
   isCustomAgentId,
   resolveCommitMessageAgentChoice
 } from '../../../../shared/commit-message-agent-spec'
+import { isCustomTuiAgentId } from '../../../../shared/effective-tui-agent'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
 import { normalizeHostedReviewBaseRef } from '../../../../shared/hosted-review-refs'
 import {
@@ -93,7 +94,7 @@ export function useCreatePullRequestDialogFields({
     : { ...normalizedSourceControlAi, enabled: false }
   const effectiveCommitMessageAgentId = resolveCommitMessageAgentChoice(
     sourceControlAi.agentId,
-    settings?.defaultTuiAgent,
+    isCustomTuiAgentId(settings?.defaultTuiAgent) ? null : settings?.defaultTuiAgent,
     settings?.disabledTuiAgents
   )
   const resolvedPrDefaults = {

@@ -110,6 +110,7 @@ import {
 } from '@/components/github-pr-reviewer-display'
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
 import { AGENT_CATALOG } from '@/lib/agent-catalog'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection'
 import { getConnectionId } from '@/lib/connection-context'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
@@ -3259,12 +3260,19 @@ function findWorkspaceAttachedToPR(
 }
 
 function pickDefaultAgent(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
-  detectedAgents: TuiAgent[],
+  defaultAgent: TuiAgent | `custom:${string}` | 'blank' | null | undefined,
+  detectedAgents: (TuiAgent | `custom:${string}`)[],
   disabledAgents?: TuiAgent[]
 ): TuiAgent | null {
-  const enabledAgents = filterEnabledTuiAgents(detectedAgents, disabledAgents)
-  if (defaultAgent && defaultAgent !== 'blank' && enabledAgents.includes(defaultAgent)) {
+  const enabledAgents = filterEnabledTuiAgents(detectedAgents, disabledAgents).filter(
+    (agent): agent is TuiAgent => !isCustomTuiAgentId(agent)
+  )
+  if (
+    defaultAgent &&
+    defaultAgent !== 'blank' &&
+    !isCustomTuiAgentId(defaultAgent) &&
+    enabledAgents.includes(defaultAgent)
+  ) {
     return defaultAgent
   }
   return AGENT_CATALOG.find((entry) => enabledAgents.includes(entry.id))?.id ?? null

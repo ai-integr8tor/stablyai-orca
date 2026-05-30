@@ -1,8 +1,8 @@
-import { AGENT_CATALOG } from '@/lib/agent-catalog'
-import type { TuiAgent } from '../../../../shared/types'
+import { AGENT_CATALOG, buildAgentCatalog, type AgentCatalogEntry } from '@/lib/agent-catalog'
+import type { CustomTuiAgent, TuiAgentId } from '../../../../shared/types'
 
 export type TabAgentLaunchOption = {
-  agent: TuiAgent
+  agent: TuiAgentId
   aliases: readonly string[]
   label: string
 }
@@ -15,17 +15,29 @@ function compactAgentAlias(value: string): string {
   return normalizeAgentAlias(value).replace(/[\s_-]+/g, '')
 }
 
-function getCatalogEntry(agent: TuiAgent): { id: TuiAgent; label: string; cmd: string } | null {
-  return AGENT_CATALOG.find((entry) => entry.id === agent) ?? null
+function getCatalogEntry(
+  agent: TuiAgentId,
+  catalog: readonly AgentCatalogEntry[]
+): AgentCatalogEntry | null {
+  return catalog.find((entry) => entry.id === agent) ?? null
 }
 
 export function orderTabLaunchAgents(
-  defaultAgent: TuiAgent | 'blank' | null | undefined,
-  detected: readonly TuiAgent[]
-): TuiAgent[] {
-  const inCatalogOrder = AGENT_CATALOG.filter((entry) => detected.includes(entry.id)).map(
+  defaultAgent: TuiAgentId | 'blank' | null | undefined,
+  detected: readonly TuiAgentId[],
+  customAgents: readonly CustomTuiAgent[] = []
+): TuiAgentId[] {
+  const detectedSet = new Set(detected)
+  const builtInOrder = AGENT_CATALOG.filter((entry) => detectedSet.has(entry.id)).map(
     (entry) => entry.id
   )
+  // Why: custom presets can wrap absolute paths or aliases that agent detection
+  // cannot discover; the manual launch surfaces should still expose them.
+  const readyCustoms = customAgents
+    .filter((agent) => agent.command.trim().length > 0)
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((agent) => agent.id)
+  const inCatalogOrder = [...builtInOrder, ...readyCustoms]
   if (!defaultAgent || defaultAgent === 'blank' || !inCatalogOrder.includes(defaultAgent)) {
     return inCatalogOrder
   }
@@ -33,11 +45,13 @@ export function orderTabLaunchAgents(
 }
 
 export function buildTabAgentLaunchOptions(
-  agents: readonly TuiAgent[],
-  commandOverrides: Partial<Record<TuiAgent, string>> = {}
+  agents: readonly TuiAgentId[],
+  commandOverrides: Partial<Record<TuiAgentId, string>> = {},
+  customAgents: readonly CustomTuiAgent[] = []
 ): TabAgentLaunchOption[] {
+  const catalog = buildAgentCatalog(customAgents)
   return agents.map((agent) => {
-    const entry = getCatalogEntry(agent)
+    const entry = getCatalogEntry(agent, catalog)
     const label = entry?.label ?? agent
     const aliases = new Set<string>([
       normalizeAgentAlias(agent),

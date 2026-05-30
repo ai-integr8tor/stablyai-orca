@@ -1,5 +1,6 @@
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import type { GlobalSettings, OnboardingState } from '../../../shared/types'
@@ -21,12 +22,17 @@ export function buildOnboardingFolderAgentStartup(
   settings: GlobalSettings | null
 ): OnboardingFolderAgentStartup | undefined {
   const agent = settings?.defaultTuiAgent
-  if (
-    !settings ||
-    !agent ||
-    agent === 'blank' ||
-    !isTuiAgentEnabled(agent, settings.disabledTuiAgents)
-  ) {
+  if (!settings || !agent || agent === 'blank') {
+    return undefined
+  }
+  if (isCustomTuiAgentId(agent)) {
+    const customAgentReady = (settings.customTuiAgents ?? []).some(
+      (customAgent) => customAgent.id === agent && customAgent.command.trim().length > 0
+    )
+    if (!customAgentReady) {
+      return undefined
+    }
+  } else if (!isTuiAgentEnabled(agent, settings.disabledTuiAgents)) {
     return undefined
   }
 
@@ -34,6 +40,7 @@ export function buildOnboardingFolderAgentStartup(
     agent,
     prompt: '',
     cmdOverrides: settings.agentCmdOverrides ?? {},
+    customTuiAgents: settings.customTuiAgents ?? [],
     platform: getClientPlatform(),
     allowEmptyPromptLaunch: true
   })

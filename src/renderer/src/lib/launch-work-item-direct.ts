@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 import { useAppStore, type AppState } from '@/store'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
+import { isCustomTuiAgentId } from '../../../shared/effective-tui-agent'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { pickTuiAgent } from '../../../shared/tui-agent-selection'
 import { activateAndRevealWorktree, type AgentStartedTelemetry } from '@/lib/worktree-activation'
@@ -22,6 +23,7 @@ import type {
   RepoHookSettings,
   SetupDecision,
   TuiAgent,
+  TuiAgentId,
   WorkspaceCreateTelemetrySource
 } from '../../../shared/types'
 import type { LaunchSource } from '../../../shared/telemetry-events'
@@ -117,7 +119,7 @@ async function resolveSetupDecision(
 // Why: telemetry rides the queued startup so main fires `agent_started`
 // only after pty:spawn confirms the launch. No agent / no plan → no event.
 function buildStartupOpts(
-  agent: TuiAgent | null,
+  agent: TuiAgentId | null,
   plan: ReturnType<typeof buildAgentStartupPlan>,
   launchSource: LaunchSource
 ): {
@@ -227,7 +229,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let worktreeId: string
   let primaryTabId: string | null
   let startupPlan: ReturnType<typeof buildAgentStartupPlan> = null
-  let effectiveAgent: TuiAgent | null = null
+  let effectiveAgent: TuiAgentId | null = null
   let draftLaunchedNatively = false
   try {
     const result = await store.createWorktree(
@@ -252,12 +254,22 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     const worktreePath = result.worktree.path
 
     const detectedIds = new Set(await detectedAgentsPromise)
-    effectiveAgent = pickTuiAgent(
-      settings?.defaultTuiAgent,
-      detectedIds,
-      settings?.disabledTuiAgents
-    )
-    if (effectiveAgent) {
+    const customTuiAgents = settings?.customTuiAgents ?? []
+    effectiveAgent =
+      settings?.defaultTuiAgent && isCustomTuiAgentId(settings.defaultTuiAgent)
+        ? customTuiAgents.some(
+            (agent) => agent.id === settings.defaultTuiAgent && agent.command.trim().length > 0
+          )
+          ? settings.defaultTuiAgent
+          : null
+        : pickTuiAgent(
+            settings?.defaultTuiAgent && !isCustomTuiAgentId(settings.defaultTuiAgent)
+              ? settings.defaultTuiAgent
+              : null,
+            [...detectedIds].filter((id) => !isCustomTuiAgentId(id)) as TuiAgent[],
+            settings?.disabledTuiAgents
+          )
+    if (effectiveAgent && !isCustomTuiAgentId(effectiveAgent)) {
       // Why: direct task launch creates and starts the workspace in separate
       // steps so agent detection can overlap git worktree creation. Persist
       // the chosen agent once known so empty-worktree reopen can recreate it.
@@ -274,7 +286,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     // and we guard the IPC presence so a stale preload bundle (which can
     // ship a renderer that's ahead of the loaded preload) doesn't crash the
     // launch with "Cannot read properties of undefined".
-    if (effectiveAgent && worktreePath && window.api.agentTrust?.markTrusted) {
+    if (
+      effectiveAgent &&
+      !isCustomTuiAgentId(effectiveAgent) &&
+      worktreePath &&
+      window.api.agentTrust?.markTrusted
+    ) {
       const preflight = TUI_AGENT_CONFIG[effectiveAgent].preflightTrust
       if (preflight) {
         try {
@@ -302,6 +319,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
             agent: effectiveAgent,
             draft: draftContent,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
+            customTuiAgents,
             platform: CLIENT_PLATFORM
           })
     if (draftLaunchPlan) {
@@ -318,6 +336,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         agent: effectiveAgent,
         prompt: '',
         cmdOverrides: settings?.agentCmdOverrides ?? {},
+        customTuiAgents,
         platform: CLIENT_PLATFORM,
         allowEmptyPromptLaunch: true
       })

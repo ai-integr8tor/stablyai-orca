@@ -1,10 +1,36 @@
 /* eslint-disable max-lines -- Why: the Agents pane keeps catalog rows, default
    selection, per-agent controls, and runtime location together so settings
    reconciliation stays visible in one file. */
-import { useMemo, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, RefreshCw, Terminal } from 'lucide-react'
-import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
-import { AGENT_CATALOG, AgentIcon } from '@/lib/agent-catalog'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
+  Terminal,
+  Trash2,
+  X
+} from 'lucide-react'
+import type {
+  CustomTuiAgent,
+  CustomTuiAgentId,
+  GlobalSettings,
+  TuiAgent,
+  TuiAgentId
+} from '../../../../shared/types'
+import {
+  generateCustomTuiAgentId,
+  isCustomTuiAgentId
+} from '../../../../shared/effective-tui-agent'
+import {
+  AGENT_CATALOG,
+  AgentIcon,
+  buildAgentCatalog,
+  resolveCustomAgentIconSource
+} from '@/lib/agent-catalog'
 import { useDetectedAgents } from '@/hooks/useDetectedAgents'
 import { useAppStore } from '@/store'
 import { Button } from '../ui/button'
@@ -41,6 +67,8 @@ type AgentAvailabilityUpdateQueueOptions = {
   agentId: TuiAgent
   enabled: boolean
 }
+
+const EMPTY_CUSTOM_TUI_AGENTS: readonly CustomTuiAgent[] = []
 
 type AgentRowProps = {
   agentId: TuiAgent
@@ -134,6 +162,92 @@ export function AgentAvailabilityControl({
   )
 }
 
+type CustomAgentDraft = {
+  label: string
+  command: string
+  detectCmd: string
+}
+
+type CustomAgentDraftState =
+  | ({ mode: 'new' } & CustomAgentDraft)
+  | ({ mode: 'edit'; id: CustomTuiAgentId } & CustomAgentDraft)
+
+const EMPTY_CUSTOM_AGENT_DRAFT: CustomAgentDraft = {
+  label: '',
+  command: '',
+  detectCmd: ''
+}
+
+function trimCustomAgentDraft(draft: CustomAgentDraft): CustomAgentDraft {
+  return {
+    label: draft.label.trim(),
+    command: draft.command.trim(),
+    detectCmd: draft.detectCmd.trim()
+  }
+}
+
+function buildCustomAgentFromDraft(draft: CustomAgentDraft): CustomTuiAgent {
+  const trimmed = trimCustomAgentDraft(draft)
+  const label = trimmed.label || 'Custom agent'
+  return {
+    id: generateCustomTuiAgentId(label),
+    label,
+    command: trimmed.command,
+    detectCmd: trimmed.detectCmd || undefined,
+    promptInjectionMode: 'stdin-after-start'
+  }
+}
+
+function customAgentDraftFromAgent(agent: CustomTuiAgent): CustomAgentDraft {
+  return {
+    label: agent.label,
+    command: agent.command,
+    detectCmd: agent.detectCmd ?? ''
+  }
+}
+
+export function buildDeleteCustomAgentSettings(
+  settings: GlobalSettings,
+  id: CustomTuiAgentId
+): Pick<GlobalSettings, 'agentCmdOverrides' | 'customTuiAgents' | 'defaultTuiAgent'> {
+  const { [id]: _removed, ...nextOverrides } = settings.agentCmdOverrides ?? {}
+  return {
+    customTuiAgents: (settings.customTuiAgents ?? []).filter((agent) => agent.id !== id),
+    defaultTuiAgent: settings.defaultTuiAgent === id ? null : settings.defaultTuiAgent,
+    agentCmdOverrides: nextOverrides
+  }
+}
+
+export function buildCreateCustomAgentSettings(
+  settings: GlobalSettings,
+  draft: CustomAgentDraft
+): Pick<GlobalSettings, 'customTuiAgents'> {
+  return {
+    customTuiAgents: [...(settings.customTuiAgents ?? []), buildCustomAgentFromDraft(draft)]
+  }
+}
+
+export function buildUpdateCustomAgentSettings(
+  settings: GlobalSettings,
+  id: CustomTuiAgentId,
+  draft: CustomAgentDraft
+): Pick<GlobalSettings, 'customTuiAgents'> {
+  const trimmed = trimCustomAgentDraft(draft)
+  return {
+    customTuiAgents: (settings.customTuiAgents ?? []).map((agent) =>
+      agent.id === id
+        ? {
+            ...agent,
+            label: trimmed.label || agent.label,
+            command: trimmed.command,
+            detectCmd: trimmed.detectCmd || undefined,
+            promptInjectionMode: 'stdin-after-start'
+          }
+        : agent
+    )
+  }
+}
+
 function AgentCommandOverrideInput({
   defaultCmd,
   cmdOverride,
@@ -187,6 +301,246 @@ function AgentCommandOverrideInput({
           Reset
         </Button>
       )}
+    </div>
+  )
+}
+
+type CustomAgentEditorProps = {
+  draft: CustomAgentDraftState
+  onDraftChange: (patch: Partial<CustomAgentDraft>) => void
+  onSave: () => void
+  onCancel: () => void
+  inline?: boolean
+}
+
+function CustomAgentEditor({
+  draft,
+  onDraftChange,
+  onSave,
+  onCancel,
+  inline = false
+}: CustomAgentEditorProps): React.JSX.Element {
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const nameInputId = useId()
+  const commandInputId = useId()
+  const detectInputId = useId()
+  const isSaveEnabled = draft.label.trim().length > 0 && draft.command.trim().length > 0
+
+  useEffect(() => {
+    nameInputRef.current?.focus()
+    if (draft.mode === 'new') {
+      nameInputRef.current?.select()
+    }
+  }, [draft.mode])
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (isSaveEnabled) {
+          onSave()
+        }
+      }}
+      className={cn(
+        'space-y-3',
+        inline
+          ? 'border-t border-border/40 pt-3'
+          : 'rounded-md border border-border/60 bg-card/60 p-3'
+      )}
+    >
+      <div className="space-y-1.5">
+        <label htmlFor={nameInputId} className="text-xs font-medium text-muted-foreground">
+          Name
+        </label>
+        <Input
+          id={nameInputId}
+          ref={nameInputRef}
+          value={draft.label}
+          onChange={(event) => onDraftChange({ label: event.target.value })}
+          placeholder="Your agent"
+          spellCheck={false}
+          className="h-8 text-xs"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor={commandInputId} className="text-xs font-medium text-muted-foreground">
+          Launch command
+        </label>
+        <Input
+          id={commandInputId}
+          value={draft.command}
+          onChange={(event) => onDraftChange({ command: event.target.value })}
+          placeholder="agent --profile work"
+          spellCheck={false}
+          className="h-8 font-mono text-xs"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor={detectInputId} className="text-xs font-medium text-muted-foreground">
+          Detect command <span className="font-normal text-muted-foreground/70">optional</span>
+        </label>
+        <Input
+          id={detectInputId}
+          value={draft.detectCmd}
+          onChange={(event) => onDraftChange({ detectCmd: event.target.value })}
+          placeholder="agent"
+          spellCheck={false}
+          className="h-8 font-mono text-xs"
+        />
+        <span className="block text-[11px] text-muted-foreground">
+          Executable Orca looks for on PATH to mark this preset as installed, for example{' '}
+          <span className="font-mono text-foreground/70">codex</span> or{' '}
+          <span className="font-mono text-foreground/70">claude</span>. Launching always uses the
+          launch command above. Leave blank to use the first token of the launch command.
+        </span>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
+          <X className="size-3" />
+          Cancel
+        </Button>
+        <Button type="submit" size="xs" disabled={!isSaveEnabled}>
+          <Save className="size-3" />
+          Save
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+type CustomAgentRowProps = {
+  agent: CustomTuiAgent
+  isDefault: boolean
+  isEditing: boolean
+  editorDraft: CustomAgentDraftState | null
+  onSetDefault: () => void
+  onEdit: () => void
+  onCancelEdit: () => void
+  onDelete: () => void
+  onDraftChange: (patch: Partial<CustomAgentDraft>) => void
+  onSaveDraft: () => void
+}
+
+function CustomAgentRow({
+  agent,
+  isDefault,
+  isEditing,
+  editorDraft,
+  onSetDefault,
+  onEdit,
+  onCancelEdit,
+  onDelete,
+  onDraftChange,
+  onSaveDraft
+}: CustomAgentRowProps): React.JSX.Element {
+  const commandReady = agent.command.trim().length > 0
+  const catalog = useMemo(() => {
+    const iconSource = agent.faviconDomain ? undefined : resolveCustomAgentIconSource(agent)
+    return [
+      {
+        id: agent.id,
+        label: agent.label,
+        cmd: agent.command,
+        faviconDomain: agent.faviconDomain ?? iconSource?.faviconDomain,
+        iconSourceId: iconSource?.id,
+        homepageUrl: agent.homepageUrl,
+        isCustom: true
+      }
+    ]
+  }, [agent])
+
+  return (
+    <div className="py-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-background/50">
+          <AgentIcon agent={agent.id} size={16} catalog={catalog} />
+        </div>
+
+        <div className="min-w-0 flex-1 sm:min-w-[12rem]">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium leading-none">{agent.label}</span>
+            <SettingsBadge tone="accent">Custom</SettingsBadge>
+            {!commandReady && <SettingsBadge tone="muted">Missing command</SettingsBadge>}
+          </div>
+          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+            {agent.command || 'No launch command'}
+          </div>
+          {agent.detectCmd ? (
+            <div className="mt-1 truncate text-[11px] text-muted-foreground">
+              Detect command:{' '}
+              <span className="font-mono text-foreground/70">{agent.detectCmd}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {commandReady && (
+            <Button
+              type="button"
+              variant={isDefault ? 'secondary' : 'ghost'}
+              size="xs"
+              onClick={onSetDefault}
+              title={isDefault ? 'Default agent' : 'Set as default'}
+              className="h-7 gap-1 text-xs"
+            >
+              {isDefault && <Check className="size-3" />}
+              {isDefault ? 'Default' : 'Set default'}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={isEditing ? onCancelEdit : onEdit}
+            aria-label={isEditing ? `Close editor for ${agent.label}` : `Edit ${agent.label}`}
+            title={isEditing ? 'Close editor' : `Edit ${agent.label}`}
+            className={cn(
+              'size-7 text-muted-foreground hover:text-foreground',
+              isEditing && 'text-foreground'
+            )}
+          >
+            <Pencil className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onDelete}
+            aria-label={`Delete ${agent.label}`}
+            title={`Delete ${agent.label}`}
+            className="size-7 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={isEditing ? onCancelEdit : onEdit}
+            aria-label={isEditing ? 'Collapse custom agent editor' : 'Expand custom agent editor'}
+            className="size-7 text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn('size-3.5 transition-transform', isEditing && 'rotate-180')}
+            />
+          </Button>
+        </div>
+      </div>
+
+      {isEditing && editorDraft ? (
+        <div className="mt-3 pl-10">
+          <CustomAgentEditor
+            inline
+            draft={editorDraft}
+            onDraftChange={onDraftChange}
+            onSave={onSaveDraft}
+            onCancel={onCancelEdit}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -371,9 +725,25 @@ export function AgentsPane({
 
   const defaultAgent = settings.defaultTuiAgent
   const cmdOverrides = settings.agentCmdOverrides ?? {}
+  const customAgents = settings.customTuiAgents ?? EMPTY_CUSTOM_TUI_AGENTS
+  const mergedCatalog = useMemo(() => buildAgentCatalog(customAgents), [customAgents])
+  const customDefaultAgents = useMemo(
+    () => mergedCatalog.filter((agent) => agent.isCustom),
+    [mergedCatalog]
+  )
+  const validCustomIds = useMemo(() => {
+    const ids = new Set<CustomTuiAgentId>()
+    for (const agent of customDefaultAgents) {
+      if (isCustomTuiAgentId(agent.id)) {
+        ids.add(agent.id)
+      }
+    }
+    return ids
+  }, [customDefaultAgents])
+  const [customDraft, setCustomDraft] = useState<CustomAgentDraftState | null>(null)
   const disabledAgents = normalizeDisabledTuiAgents(settings.disabledTuiAgents)
 
-  const setDefault = (id: TuiAgent | 'blank' | null): void => {
+  const setDefault = (id: TuiAgentId | 'blank' | null): void => {
     updateSettings({ defaultTuiAgent: id })
   }
 
@@ -387,7 +757,7 @@ export function AgentsPane({
     })
   }
 
-  const saveOverride = (id: TuiAgent, value: string): void => {
+  const saveOverride = (id: TuiAgentId, value: string): void => {
     const next = { ...cmdOverrides }
     if (value) {
       next[id] = value
@@ -395,6 +765,50 @@ export function AgentsPane({
       delete next[id]
     }
     updateSettings({ agentCmdOverrides: next })
+  }
+
+  const addCustomAgent = (): void => {
+    setCustomDraft({
+      mode: 'new',
+      ...EMPTY_CUSTOM_AGENT_DRAFT
+    })
+  }
+
+  const editCustomAgent = (agent: CustomTuiAgent): void => {
+    setCustomDraft({
+      mode: 'edit',
+      id: agent.id,
+      ...customAgentDraftFromAgent(agent)
+    })
+  }
+
+  const deleteCustomAgent = (id: CustomTuiAgentId): void => {
+    if (customDraft?.mode === 'edit' && customDraft.id === id) {
+      setCustomDraft(null)
+    }
+    updateSettings(buildDeleteCustomAgentSettings(settings, id))
+  }
+
+  const updateCustomDraft = (patch: Partial<CustomAgentDraft>): void => {
+    setCustomDraft((current) => (current ? { ...current, ...patch } : current))
+  }
+
+  const saveCustomDraft = (): void => {
+    if (!customDraft) {
+      return
+    }
+
+    const trimmed = trimCustomAgentDraft(customDraft)
+    if (!trimmed.label || !trimmed.command) {
+      return
+    }
+
+    updateSettings(
+      customDraft.mode === 'new'
+        ? buildCreateCustomAgentSettings(settings, trimmed)
+        : buildUpdateCustomAgentSettings(settings, customDraft.id, trimmed)
+    )
+    setCustomDraft(null)
   }
 
   // Why: null means detection is in flight, not "all agents are installed".
@@ -408,14 +822,19 @@ export function AgentsPane({
   const undetectedAgents = AGENT_CATALOG.filter(
     (a) => detectedIds !== null && !detectedIds.has(a.id)
   )
+  const defaultAgentOptions = [...enabledDetectedAgents, ...customDefaultAgents]
 
   // Why: 'blank' is an explicit no-agent preference, not an auto fallback,
   // so the Auto pill should only light up when the default is null OR when a
   // selected agent id is no longer detected on PATH.
-  const isAutoDefault =
-    defaultAgent === null ||
-    (defaultAgent !== 'blank' &&
-      (!detectedIds?.has(defaultAgent) || !isTuiAgentEnabled(defaultAgent, disabledAgents)))
+  const isDefaultSelectable =
+    defaultAgent !== null &&
+    defaultAgent !== 'blank' &&
+    (isCustomTuiAgentId(defaultAgent)
+      ? validCustomIds.has(defaultAgent)
+      : (detectedIds === null || detectedIds.has(defaultAgent)) &&
+        isTuiAgentEnabled(defaultAgent, disabledAgents))
+  const isAutoDefault = defaultAgent === null || (defaultAgent !== 'blank' && !isDefaultSelectable)
   const isBlankDefault = defaultAgent === 'blank'
 
   return (
@@ -451,7 +870,7 @@ export function AgentsPane({
             {isBlankDefault && <Check className="size-3.5" />}
           </DefaultAgentPill>
 
-          {enabledDetectedAgents.map((agent) => {
+          {defaultAgentOptions.map((agent) => {
             const isActive = defaultAgent === agent.id
             return (
               <DefaultAgentPill
@@ -459,7 +878,7 @@ export function AgentsPane({
                 active={isActive}
                 onClick={() => setDefault(agent.id)}
               >
-                <AgentIcon agent={agent.id} size={14} />
+                <AgentIcon agent={agent.id} size={14} catalog={mergedCatalog} />
                 {agent.label}
                 {isActive && <Check className="size-3.5" />}
               </DefaultAgentPill>
@@ -517,6 +936,59 @@ export function AgentsPane({
           </div>
         </section>
       )}
+
+      <section className="space-y-3">
+        <SettingsSubsectionHeader
+          title={
+            <span className="flex items-center gap-2">
+              Custom agents
+              <SettingsBadge tone="muted">{customAgents.length} presets</SettingsBadge>
+            </span>
+          }
+          action={
+            <Button type="button" variant="outline" size="xs" onClick={addCustomAgent}>
+              <Plus className="size-3" />
+              Add custom
+            </Button>
+          }
+        />
+
+        {customDraft?.mode === 'new' ? (
+          <CustomAgentEditor
+            draft={customDraft}
+            onDraftChange={updateCustomDraft}
+            onSave={saveCustomDraft}
+            onCancel={() => setCustomDraft(null)}
+          />
+        ) : null}
+
+        {customAgents.length > 0 ? (
+          <div className="divide-y divide-border/40">
+            {customAgents.map((agent) => {
+              const isEditing = customDraft?.mode === 'edit' && customDraft.id === agent.id
+              return (
+                <CustomAgentRow
+                  key={agent.id}
+                  agent={agent}
+                  isDefault={defaultAgent === agent.id}
+                  isEditing={isEditing}
+                  editorDraft={isEditing ? customDraft : null}
+                  onSetDefault={() => setDefault(agent.id)}
+                  onEdit={() => editCustomAgent(agent)}
+                  onCancelEdit={() => setCustomDraft(null)}
+                  onDelete={() => deleteCustomAgent(agent.id)}
+                  onDraftChange={updateCustomDraft}
+                  onSaveDraft={saveCustomDraft}
+                />
+              )
+            })}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-border/50 px-4 py-5 text-sm text-muted-foreground">
+            Add wrappers, company CLIs, or alternate profiles as their own selectable agents.
+          </div>
+        )}
+      </section>
 
       {undetectedAgents.length > 0 && (
         <section className="space-y-3">

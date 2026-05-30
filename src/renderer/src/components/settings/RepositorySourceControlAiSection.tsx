@@ -18,6 +18,8 @@ import {
   isCustomAgentId,
   resolveCommitMessageAgentChoice
 } from '../../../../shared/commit-message-agent-spec'
+import type { DefaultTuiAgentPreference } from '../../../../shared/commit-message-agent-spec'
+import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import {
   getCommitMessageModelDiscoveryHostKeyForScope,
   LOCAL_COMMIT_MESSAGE_HOST_KEY
@@ -107,11 +109,19 @@ export function RepositorySourceControlAiSection({
     settings?.sourceControlAi,
     settings?.commitMessageAi
   )
+  const rawDefaultTuiAgent = settings?.defaultTuiAgent
+  const builtInDefaultTuiAgent: DefaultTuiAgentPreference =
+    rawDefaultTuiAgent === null ||
+    rawDefaultTuiAgent === undefined ||
+    rawDefaultTuiAgent === 'blank' ||
+    isTuiAgent(rawDefaultTuiAgent)
+      ? rawDefaultTuiAgent
+      : null
   const hostScope = getRuntimeGitScope(settings, repo.connectionId)
   const hostKey = getCommitMessageModelDiscoveryHostKeyForScope(hostScope)
   const agentId = resolveCommitMessageAgentChoice(
     source.agentId,
-    settings?.defaultTuiAgent,
+    builtInDefaultTuiAgent,
     settings?.disabledTuiAgents
   )
   const baseCapability =

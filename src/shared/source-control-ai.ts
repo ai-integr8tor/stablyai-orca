@@ -8,6 +8,7 @@ import {
   isCustomAgentId,
   resolveCommitMessageAgentChoice
 } from './commit-message-agent-spec'
+import { isCustomTuiAgentId } from './effective-tui-agent'
 import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from './commit-message-host-key'
 import type {
   CommitMessageAiModelCapability,
@@ -766,9 +767,12 @@ export function resolveSourceControlAiForOperation(
 
   // Why: a normalized null means "use the current default agent"; stale legacy
   // commitMessageAi should not make that choice sticky again.
+  const defaultTuiAgent = isCustomTuiAgentId(input.settings.defaultTuiAgent)
+    ? null
+    : input.settings.defaultTuiAgent
   const agentChoice = resolveCommitMessageAgentChoice(
     source.agentId,
-    input.settings.defaultTuiAgent,
+    defaultTuiAgent,
     input.settings.disabledTuiAgents
   )
   if (!agentChoice) {

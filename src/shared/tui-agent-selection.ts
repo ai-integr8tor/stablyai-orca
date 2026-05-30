@@ -1,4 +1,4 @@
-import type { TuiAgent } from './types'
+import type { TuiAgent, TuiAgentId } from './types'
 import { isTuiAgent } from './tui-agent-config'
 
 // Keep this order in sync with the desktop agent catalog. It defines the
@@ -73,10 +73,10 @@ export function isTuiAgentEnabled(agent: TuiAgent, disabled?: Iterable<unknown> 
   return !normalizeDisabledTuiAgents(disabled).includes(agent)
 }
 
-export function filterEnabledTuiAgents<T extends TuiAgent>(
+export function filterEnabledTuiAgents<T extends TuiAgentId>(
   agents: Iterable<T>,
   disabled?: Iterable<unknown> | null
 ): T[] {
   const disabledSet = new Set(normalizeDisabledTuiAgents(disabled))
-  return [...agents].filter((agent) => !disabledSet.has(agent))
+  return [...agents].filter((agent) => !isTuiAgent(agent) || !disabledSet.has(agent))
 }

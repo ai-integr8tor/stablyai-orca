@@ -171,6 +171,31 @@ describe('source-control AI resolution', () => {
     expect(result.ok && result.value.params.model).toBe('gpt-5.4')
   })
 
+  it('does not treat a custom TUI preset as a Source Control AI default', () => {
+    const base = settings()
+    base.defaultTuiAgent = 'custom:work-agent-abc123'
+    base.customTuiAgents = [
+      {
+        id: 'custom:work-agent-abc123',
+        label: 'Work Agent',
+        command: 'work-agent',
+        promptInjectionMode: 'stdin-after-start'
+      }
+    ]
+    base.sourceControlAi = {
+      ...base.sourceControlAi!,
+      agentId: null
+    }
+
+    const result = resolveSourceControlAiForOperation({
+      settings: base,
+      repo: null,
+      operation: 'commitMessage',
+      discoveryHostKey: 'local'
+    })
+    expect(result.ok && result.value.params.agentId).toBe('claude')
+  })
+
   it('lets a global operation model override win over the global default', () => {
     const base = settings()
     base.sourceControlAi!.modelOverridesByOperation = {
