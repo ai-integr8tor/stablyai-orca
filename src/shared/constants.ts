@@ -311,7 +311,14 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
       customAgentCommand: ''
     },
     sourceControlAi: getDefaultSourceControlAiSettings(),
-    voice: getDefaultVoiceSettings()
+    voice: getDefaultVoiceSettings(),
+    fileExplorerIconTheme: 'default',
+    fileExplorerColorThemeDark: 'default-dark',
+    fileExplorerUseSeparateLightTheme: true,
+    fileExplorerColorThemeLight: 'default-light',
+    fileExplorerColorOverridesDark: null,
+    fileExplorerColorOverridesLight: null,
+    fileExplorerIconSize: 16
   }
 }
 

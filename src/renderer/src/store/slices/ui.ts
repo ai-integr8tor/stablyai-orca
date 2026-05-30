@@ -451,6 +451,7 @@ export type UISlice = {
       | 'browser'
       | 'git'
       | 'appearance'
+      | 'file-explorer'
       | 'input'
       | 'tasks'
       | 'floating-workspace'

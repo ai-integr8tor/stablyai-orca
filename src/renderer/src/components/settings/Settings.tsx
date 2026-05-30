@@ -14,7 +14,8 @@ import { DEFAULT_APP_FONT_FAMILY } from '../../../../shared/constants'
 import { GeneralPane } from './GeneralPane'
 import { BrowserPane } from './BrowserPane'
 import { AppearancePane } from './AppearancePane'
-import { InputPane } from './InputPane'
+import { FileExplorerPane, FILE_EXPLORER_PANE_SEARCH_ENTRIES } from './FileExplorerPane'
+import { InputPane, INPUT_PANE_SEARCH_ENTRIES } from './InputPane'
 import { ShortcutsPane } from './ShortcutsPane'
 import { TerminalPane } from './TerminalPane'
 import { FloatingWorkspacePane } from './FloatingWorkspacePane'
@@ -853,6 +854,26 @@ function Settings(): React.JSX.Element {
                   {isSectionMounted('floating-workspace') ? (
                     <FloatingWorkspacePane settings={settings} updateSettings={updateSettings} />
                   ) : null}
+                </SettingsSection>
+
+                <SettingsSection
+                  id="file-explorer"
+                  title="File Explorer"
+                  description="Icon themes and sizing for the file tree."
+                  searchEntries={FILE_EXPLORER_PANE_SEARCH_ENTRIES}
+                >
+                  {isSectionMounted('file-explorer') ? (
+                    <FileExplorerPane settings={settings} updateSettings={updateSettings} />
+                  ) : null}
+                </SettingsSection>
+
+                <SettingsSection
+                  id="input"
+                  title="Input & Editing"
+                  description="Selection and editing behavior."
+                  searchEntries={INPUT_PANE_SEARCH_ENTRIES}
+                >
+                  <InputPane settings={settings} updateSettings={updateSettings} />
                 </SettingsSection>
 
                 <SettingsSection

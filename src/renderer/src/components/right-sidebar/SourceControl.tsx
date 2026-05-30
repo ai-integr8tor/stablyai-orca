@@ -70,7 +70,7 @@ import {
   runDiscardAllForArea,
   type DiscardAllArea
 } from './discard-all-sequence'
-import { getFileTypeIcon } from '@/lib/file-type-icons'
+import { useThemedFileIcon } from '@/hooks/useFileIcon'
 import {
   buildGitStatusSourceControlTree,
   buildSourceControlTree,
@@ -6302,7 +6302,7 @@ const UncommittedEntryRow = React.memo(function UncommittedEntryRow({
   commentCount: number
   showPathHint?: boolean
 }): React.JSX.Element {
-  const FileIcon = getFileTypeIcon(entry.path)
+  const FileIcon = useThemedFileIcon(entry.path)
   const fileName = basename(entry.path)
   const parentDir = dirname(entry.path)
   const dirPath = parentDir === '.' ? '' : parentDir
@@ -6504,7 +6504,7 @@ function BranchEntryRow({
   commentCount: number
   showPathHint?: boolean
 }): React.JSX.Element {
-  const FileIcon = getFileTypeIcon(entry.path)
+  const FileIcon = useThemedFileIcon(entry.path)
   const fileName = basename(entry.path)
   const parentDir = dirname(entry.path)
   const dirPath = parentDir === '.' ? '' : parentDir
