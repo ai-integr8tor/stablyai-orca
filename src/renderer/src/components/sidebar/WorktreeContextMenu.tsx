@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
+  Bot,
   Copy,
   Bell,
   BellOff,
@@ -42,6 +43,8 @@ import { getLineageRenderInfo } from './worktree-list-groups'
 import { getWorkspaceStatus, getWorkspaceStatusVisualMeta } from './workspace-status'
 import { WorktreeOpenInSubMenu } from './WorktreeOpenInMenu'
 import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
+import { QuickLaunchAgentMenuItems } from '@/components/tab-bar/QuickLaunchButton'
+import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 
 type Props = {
   worktree: Worktree
@@ -230,6 +233,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const deleteStateByWorktreeId = useAppStore((s) => s.deleteStateByWorktreeId)
   const scopeRef = useRef<HTMLDivElement>(null)
   const contextMenuOpenedAtRef = useRef<number | null>(null)
+  const skipNextCloseAutoFocusRef = useRef(false)
   const activeContextWorktrees = menuOpen ? contextWorktrees : selectedWorktrees
   const isMultiContext = activeContextWorktrees.length > 1
   const sleepableWorktrees = useMemo(
@@ -448,6 +452,10 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
     // that focus restore can scroll the virtual list away from the row the
     // user just acted on.
     event.preventDefault()
+    if (skipNextCloseAutoFocusRef.current) {
+      skipNextCloseAutoFocusRef.current = false
+      return
+    }
     const sidebar = scopeRef.current?.closest('[data-worktree-sidebar]')
     if (sidebar instanceof HTMLElement) {
       sidebar.focus({ preventScroll: true })
@@ -504,6 +512,32 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
                 connectionId={repo?.connectionId ?? null}
                 disabled={isDeleting}
               />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={isDeleting}>
+                  <Bot className="size-3.5" />
+                  Add Agent
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52">
+                  <QuickLaunchAgentMenuItems
+                    worktreeId={worktree.id}
+                    groupId={worktree.id}
+                    onFocusTerminal={focusTerminalTabSurface}
+                    launchSource="sidebar"
+                    onBeforeLaunch={() => {
+                      // Why: the newly-created terminal owns the next focus
+                      // handoff. Let focusTerminalTabSurface win instead of
+                      // sending focus back to the sidebar as the menu closes.
+                      skipNextCloseAutoFocusRef.current = true
+                      // Why: the context menu can fire from a row whose
+                      // workspace is not currently active. Activate first so
+                      // the new tab and the focusTerminalTabSurface handoff
+                      // land on the freshly-mounted pane rather than silently
+                      // appending behind a different workspace.
+                      activateAndRevealWorktree(worktree.id, { skipInitialTerminal: true })
+                    }}
+                  />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuItem onSelect={handleCopyPath} disabled={isDeleting}>
                 <Copy className="size-3.5" />
                 Copy Path
