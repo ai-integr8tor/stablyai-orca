@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
+import {
+  LinearIssueLabelCreateArgsSchema,
+  LinearIssueLabelIdArgsSchema,
+  LinearIssueLabelListArgsSchema,
+  LinearIssueLabelUpdateArgsSchema
+} from '../../../linear/label-contract'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
 
 const VALID_FILTERS = ['assigned', 'created', 'all', 'completed'] as const
@@ -204,6 +210,35 @@ export const LINEAR_METHODS: RpcMethod[] = [
     }),
     handler: async (params, { runtime }) =>
       runtime.linearIssueComments(params.issueId.trim(), params.workspaceId)
+  }),
+  defineMethod({
+    name: 'linear.listIssueLabels',
+    params: LinearIssueLabelListArgsSchema,
+    handler: async (params, { runtime }) => runtime.linearListIssueLabels(params)
+  }),
+  defineMethod({
+    name: 'linear.createIssueLabel',
+    params: LinearIssueLabelCreateArgsSchema,
+    handler: async (params, { runtime }) =>
+      runtime.linearCreateIssueLabel(params.input, params.workspaceId)
+  }),
+  defineMethod({
+    name: 'linear.updateIssueLabel',
+    params: LinearIssueLabelUpdateArgsSchema,
+    handler: async (params, { runtime }) =>
+      runtime.linearUpdateIssueLabel(params.id, params.input, params.workspaceId)
+  }),
+  defineMethod({
+    name: 'linear.retireIssueLabel',
+    params: LinearIssueLabelIdArgsSchema,
+    handler: async (params, { runtime }) =>
+      runtime.linearRetireIssueLabel(params.id, params.workspaceId)
+  }),
+  defineMethod({
+    name: 'linear.restoreIssueLabel',
+    params: LinearIssueLabelIdArgsSchema,
+    handler: async (params, { runtime }) =>
+      runtime.linearRestoreIssueLabel(params.id, params.workspaceId)
   }),
   defineMethod({
     name: 'linear.listTeams',

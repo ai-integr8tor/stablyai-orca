@@ -22,6 +22,20 @@ import {
   listProjects
 } from '../linear/projects'
 import { listTeams, getTeamStates, getTeamLabels, getTeamMembers } from '../linear/teams'
+import {
+  createIssueLabel,
+  listIssueLabels,
+  restoreIssueLabel,
+  retireIssueLabel,
+  updateIssueLabel
+} from '../linear/labels'
+import {
+  LinearIssueLabelCreateArgsSchema,
+  LinearIssueLabelIdArgsSchema,
+  LinearIssueLabelListArgsSchema,
+  LinearIssueLabelUpdateArgsSchema,
+  parseLinearLabelPayload
+} from '../linear/label-contract'
 import type { LinearListFilter } from '../linear/issues'
 import type {
   LinearCustomViewModel,
@@ -54,7 +68,6 @@ function normalizeCustomViewModel(value: unknown): LinearCustomViewModel {
   }
   return value
 }
-
 export function registerLinearHandlers(): void {
   ipcMain.handle('linear:connect', async (_event, args: { apiKey: string }) => {
     if (typeof args?.apiKey !== 'string' || !args.apiKey.trim()) {
@@ -361,6 +374,64 @@ export function registerLinearHandlers(): void {
         limit,
         normalizeConcreteWorkspaceId(args.workspaceId)
       )
+    }
+  )
+
+  ipcMain.handle(
+    'linear:listIssueLabels',
+    async (
+      _event,
+      args?: { workspaceId?: LinearWorkspaceSelection; teamId?: string; includeArchived?: boolean }
+    ) => {
+      const parsed = parseLinearLabelPayload(LinearIssueLabelListArgsSchema, args)
+      if (!parsed.ok) {
+        throw new Error(parsed.error)
+      }
+      return listIssueLabels(parsed.value)
+    }
+  )
+
+  ipcMain.handle(
+    'linear:createIssueLabel',
+    async (_event, args: { input?: unknown; workspaceId?: string }) => {
+      const parsed = parseLinearLabelPayload(LinearIssueLabelCreateArgsSchema, args)
+      if (!parsed.ok) {
+        return parsed
+      }
+      return createIssueLabel(parsed.value.input, parsed.value.workspaceId)
+    }
+  )
+
+  ipcMain.handle(
+    'linear:updateIssueLabel',
+    async (_event, args: { id?: string; input?: unknown; workspaceId?: string }) => {
+      const parsed = parseLinearLabelPayload(LinearIssueLabelUpdateArgsSchema, args)
+      if (!parsed.ok) {
+        return parsed
+      }
+      return updateIssueLabel(parsed.value.id, parsed.value.input, parsed.value.workspaceId)
+    }
+  )
+
+  ipcMain.handle(
+    'linear:retireIssueLabel',
+    async (_event, args: { id?: string; workspaceId?: string }) => {
+      const parsed = parseLinearLabelPayload(LinearIssueLabelIdArgsSchema, args)
+      if (!parsed.ok) {
+        return parsed
+      }
+      return retireIssueLabel(parsed.value.id, parsed.value.workspaceId)
+    }
+  )
+
+  ipcMain.handle(
+    'linear:restoreIssueLabel',
+    async (_event, args: { id?: string; workspaceId?: string }) => {
+      const parsed = parseLinearLabelPayload(LinearIssueLabelIdArgsSchema, args)
+      if (!parsed.ok) {
+        return parsed
+      }
+      return restoreIssueLabel(parsed.value.id, parsed.value.workspaceId)
     }
   )
 

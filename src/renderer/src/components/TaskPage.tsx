@@ -111,6 +111,7 @@ import PullRequestPage from '@/components/PullRequestPage'
 import GitLabItemDialog from '@/components/GitLabItemDialog'
 import ProjectViewWrapper from '@/components/github-project/ProjectViewWrapper'
 import LinearIssueWorkspace from '@/components/LinearIssueWorkspace'
+import LinearLabelsWorkspace from '@/components/LinearLabelsWorkspace'
 import {
   LinearCollectionNotice,
   LinearCustomViewTable,
@@ -403,6 +404,10 @@ const LINEAR_PRIORITY_LABELS: Record<number, string> = {
   3: 'Medium',
   4: 'Low'
 }
+
+type LinearSubView = 'issues' | 'labels'
+
+const LINEAR_SUB_VIEWS: readonly LinearSubView[] = ['issues', 'labels']
 
 type LinearViewMode = 'list' | 'board'
 type LinearMode = 'issues' | 'projects' | 'views'
@@ -2838,6 +2843,7 @@ export default function TaskPage(): React.JSX.Element {
   const [linearIssues, setLinearIssues] = useState<LinearIssue[]>([])
   const [linearLoading, setLinearLoading] = useState(false)
   const [linearError, setLinearError] = useState<string | null>(null)
+  const [linearSubView, setLinearSubView] = useState<LinearSubView>('issues')
   const [linearSearchInput, setLinearSearchInput] = useState('')
   const [appliedLinearSearch, setAppliedLinearSearch] = useState('')
   const [activeLinearPreset, setActiveLinearPreset] = useState<LinearPresetId>('all')
@@ -4681,7 +4687,7 @@ export default function TaskPage(): React.JSX.Element {
     if (!taskResumeApplied) {
       return
     }
-    if (taskSource !== 'linear') {
+    if (taskSource !== 'linear' || linearSubView !== 'issues') {
       return
     }
     if (linearMode !== 'issues') {
@@ -4769,6 +4775,7 @@ export default function TaskPage(): React.JSX.Element {
   }, [
     taskSource,
     linearMode,
+    linearSubView,
     linearStatus.connected,
     selectedLinearWorkspaceId,
     appliedLinearSearch,
@@ -5213,6 +5220,23 @@ export default function TaskPage(): React.JSX.Element {
                   </div>
                   {taskSource === 'linear' && linearStatus.connected ? (
                     <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 text-xs">
+                        {LINEAR_SUB_VIEWS.map((view) => (
+                          <button
+                            key={view}
+                            type="button"
+                            onClick={() => setLinearSubView(view)}
+                            className={cn(
+                              'rounded-md border px-2.5 py-1 text-xs capitalize transition',
+                              linearSubView === view
+                                ? 'border-foreground/40 bg-foreground/90 text-background'
+                                : 'border-border/50 bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                            )}
+                          >
+                            {view}
+                          </button>
+                        ))}
+                      </div>
                       <LinearScopeSelector
                         workspaces={linearWorkspaces}
                         selectedWorkspaceId={selectedLinearWorkspaceId}
@@ -5224,35 +5248,37 @@ export default function TaskPage(): React.JSX.Element {
                         onAddTeamAccess={() => setLinearConnectOpen(true)}
                         onOpen={handleLinearScopeOpen}
                       />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon-sm"
-                            onClick={() => {
-                              if (!selectedLinearTeamForExternalLink?.url) {
-                                return
+                      {linearSubView === 'issues' ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-sm"
+                              onClick={() => {
+                                if (!selectedLinearTeamForExternalLink?.url) {
+                                  return
+                                }
+                                void window.api.shell.openUrl(selectedLinearTeamForExternalLink.url)
+                              }}
+                              disabled={!selectedLinearTeamForExternalLink}
+                              aria-label={
+                                selectedLinearTeamForExternalLink
+                                  ? `Open ${selectedLinearTeamForExternalLink.name} in Linear`
+                                  : 'Select one Linear team to open in Linear'
                               }
-                              void window.api.shell.openUrl(selectedLinearTeamForExternalLink.url)
-                            }}
-                            disabled={!selectedLinearTeamForExternalLink}
-                            aria-label={
-                              selectedLinearTeamForExternalLink
-                                ? `Open ${selectedLinearTeamForExternalLink.name} in Linear`
-                                : 'Select one Linear team to open in Linear'
-                            }
-                            className="h-8 w-8 rounded-md border-border/50 bg-muted/50 text-foreground shadow-sm transition hover:bg-muted/50"
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" sideOffset={6}>
-                          {selectedLinearTeamForExternalLink
-                            ? `Open ${selectedLinearTeamForExternalLink.name} in Linear`
-                            : 'Select one team to open in Linear'}
-                        </TooltipContent>
-                      </Tooltip>
+                              className="h-8 w-8 rounded-md border-border/50 bg-muted/50 text-foreground shadow-sm transition hover:bg-muted/50"
+                            >
+                              <ExternalLink className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" sideOffset={6}>
+                            {selectedLinearTeamForExternalLink
+                              ? `Open ${selectedLinearTeamForExternalLink.name} in Linear`
+                              : 'Select one team to open in Linear'}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -5548,7 +5574,9 @@ export default function TaskPage(): React.JSX.Element {
                       )
                     })()}
                   </div>
-                ) : taskSource === 'linear' && linearStatus.connected ? (
+                ) : taskSource === 'linear' &&
+                  linearStatus.connected &&
+                  linearSubView === 'issues' ? (
                   <div className="min-w-0 rounded-md rounded-b-none border border-border/50 bg-muted/50 p-3 shadow-sm">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                       <div
@@ -6583,7 +6611,7 @@ export default function TaskPage(): React.JSX.Element {
                 </div>
               </div>
             </div>
-          ) : taskSource === 'linear' && selectedLinearIssue ? (
+          ) : taskSource === 'linear' && linearSubView === 'issues' && selectedLinearIssue ? (
             <LinearIssueWorkspace
               issue={selectedLinearIssue}
               variant="page"
@@ -6612,6 +6640,13 @@ export default function TaskPage(): React.JSX.Element {
                 Add Linear access
               </Button>
             </div>
+          ) : linearSubView === 'labels' ? (
+            <LinearLabelsWorkspace
+              key={selectedLinearWorkspaceId ?? 'linear-labels'}
+              settings={settings}
+              workspaceId={selectedLinearWorkspaceId}
+              teams={linearTeamOptions}
+            />
           ) : selectedLinearProject && linearProjectTab === 'overview' ? (
             <div className="flex min-h-0 max-h-full flex-col overflow-hidden rounded-md rounded-t-none border border-t-0 border-border/50 bg-background shadow-sm">
               <LinearProjectOverview

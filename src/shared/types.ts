@@ -1452,6 +1452,44 @@ export type LinearLabel = {
   color: string
 }
 
+export type LinearIssueLabel = {
+  id: string
+  workspaceId?: string
+  workspaceName?: string
+  name: string
+  color: string
+  description?: string | null
+  teamId?: string
+  teamName?: string
+  parentId?: string
+  parentName?: string
+  isGroup: boolean
+  retiredAt: string | null
+  isRetired: boolean
+}
+
+export type LinearIssueLabelCreateInput = {
+  name: string
+  color?: string
+  description?: string | null
+  teamId?: string | null
+  parentId?: string | null
+  isGroup?: boolean
+}
+
+export type LinearIssueLabelUpdateInput = {
+  name?: string
+  color?: string
+  description?: string | null
+  parentId?: string | null
+  isGroup?: boolean
+}
+
+export type LinearIssueLabelMutationResult =
+  | { ok: true; label: LinearIssueLabel; warning?: string }
+  | { ok: true; label: null; warning: string }
+  | { ok: false; error: string }
+
 export type LinearMember = {
   id: string
   displayName: string
@@ -1462,6 +1500,7 @@ export type LinearTeam = {
   id: string
   workspaceId?: string
   workspaceName?: string
+  organizationUrlKey?: string
   name: string
   key: string
   url?: string
