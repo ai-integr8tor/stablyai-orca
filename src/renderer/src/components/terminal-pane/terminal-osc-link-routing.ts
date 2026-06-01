@@ -1,5 +1,6 @@
 import { resolveTerminalFileLinkText } from '@/lib/terminal-links'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
+import { ORCA_URL_SCHEME } from '../../../../shared/orca-deep-link'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
 import { isTerminalLinkActivation } from './terminal-link-handlers'
 import { resolveTerminalFileUrlTarget } from './terminal-file-url-target'
@@ -66,6 +67,14 @@ export function handleOscLink(
     parsed = new URL(rawText)
   } catch {
     openDetectedPathLink()
+    return
+  }
+
+  if (parsed.protocol === `${ORCA_URL_SCHEME}:`) {
+    // Why: orca:// deep-links focus an Orca tab in-process. The click was
+    // already intercepted here, so forward to the main router (which reuses the
+    // same focusTerminal action as `terminal focus`) instead of an OS round-trip.
+    window.api.ui.openOrcaDeepLink(parsed.toString())
     return
   }
 

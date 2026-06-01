@@ -73,6 +73,8 @@ import {
 import { startEventLoopStallProbe } from './startup/event-loop-stall-probe'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup/startup-diagnostics'
 import { ensureWindowsUserDataAclGrant } from './startup/windows-user-data-acl'
+import { createOrcaDeepLinkRouter, registerOrcaUrlScheme } from './startup/orca-deep-link-router'
+import { extractOrcaDeepLinkFromArgv } from '../shared/orca-deep-link'
 import { RateLimitService } from './rate-limits/service'
 import { getInitialClaudeRateLimitTarget } from './rate-limits/claude-rate-limit-target'
 import { getInitialCodexRateLimitTarget } from './rate-limits/codex-rate-limit-target'
@@ -435,6 +437,47 @@ if (startupDiagnosticsEnabled) {
     bypassed: bypassSingleInstanceLock,
     skippedForDev: is.dev && !isServeMode
   })
+}
+
+// Why: `orca://focus/<handle>` deep-links focus a terminal tab by reusing the
+// canonical `runtime.focusTerminal` action behind `terminal focus` and the
+// notification-click path. A single router serves every entry point — macOS
+// `open-url`, Windows/Linux argv (initial + second-instance), and in-terminal
+// OSC 8 clicks forwarded from the renderer. No notifications are involved.
+const orcaDeepLinkRouter = createOrcaDeepLinkRouter({
+  isReady: () => Boolean(runtime && mainWindow),
+  focusWindow: () => focusExistingWindow(),
+  focusTerminalByHandle: (handle) => runtime!.focusTerminal(handle),
+  onError: (error, url) => {
+    console.warn(`[deep-link] Failed to focus terminal for ${url}:`, error)
+  }
+})
+registerOrcaUrlScheme(app)
+// macOS delivers deep-links via open-url (running or cold launch).
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  orcaDeepLinkRouter.route(url)
+})
+// Windows/Linux deliver a deep-link to the already-running primary instance as
+// a process argument on the second-instance event.
+app.on('second-instance', (_event, argv) => {
+  const url = extractOrcaDeepLinkFromArgv(argv)
+  if (url) {
+    orcaDeepLinkRouter.route(url)
+  }
+})
+// In-terminal OSC 8 clicks are intercepted in the renderer and forwarded here
+// so they share the one router and never need an OS round-trip.
+ipcMain.on('ui:openOrcaDeepLink', (_event, url: unknown) => {
+  if (typeof url === 'string') {
+    orcaDeepLinkRouter.route(url)
+  }
+})
+// Cold launch: a deep-link present in the initial argv (Windows/Linux) is held
+// until the window/runtime are ready, then replayed after openMainWindow().
+const initialDeepLinkUrl = extractOrcaDeepLinkFromArgv(process.argv)
+if (initialDeepLinkUrl) {
+  orcaDeepLinkRouter.route(initialDeepLinkUrl)
 }
 if (!hasSingleInstanceLock) {
   // Why: if Electron returns a false negative here, packaged macOS launches
@@ -1601,6 +1644,10 @@ app.whenReady().then(async () => {
       console.error('[runtime] Failed to start local RPC transport:', error)
     })
   ])
+
+  // Why: the window and runtime now exist, so replay any orca:// deep-link that
+  // arrived during a cold launch before the focus action could be honored.
+  orcaDeepLinkRouter.flushPending()
 
   // Why: the macOS notification permission dialog must fire after the window
   // is visible and focused. If it fires before the window exists, the system

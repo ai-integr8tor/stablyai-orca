@@ -44,6 +44,15 @@ const winSpeechNativeResource = {
 module.exports = {
   appId: 'com.stablyai.orca',
   productName: 'Orca',
+  // Why: registers the `orca://` URL scheme with the OS — electron-builder
+  // injects CFBundleURLTypes into the macOS Info.plist and the equivalent
+  // scheme on Windows — so `orca://focus/<handle>` deep-links route to the app.
+  protocols: [
+    {
+      name: 'Orca Deep Link',
+      schemes: ['orca']
+    }
+  ],
   directories: {
     buildResources: 'resources/build'
   },
