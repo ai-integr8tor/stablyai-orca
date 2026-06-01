@@ -148,6 +148,7 @@ type UseTerminalPaneLifecycleDeps = {
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
   syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void
+  syncPanePtyLayoutBindingByLeafId: (leafId: string, ptyId: string | null) => void
   setTabPaneExpanded: (tabId: string, expanded: boolean) => void
   setTabCanExpandPane: (tabId: string, canExpand: boolean) => void
   setExpandedPane: (paneId: number | null) => void
@@ -237,11 +238,11 @@ export function shouldDetachPaneTransportOnUnmount(args: {
   ptyId: string | null
   worktreeTabs: readonly TerminalTab[] | undefined
 }): boolean {
-  if (!args.ptyId) {
-    return false
-  }
   if (args.tabStillExists) {
     return true
+  }
+  if (!args.ptyId) {
+    return false
   }
   return Boolean(
     args.worktreeTabs?.some((tab) => tab.id !== args.tabId && tab.ptyId === args.ptyId)
@@ -292,6 +293,7 @@ export function useTerminalPaneLifecycle({
   dispatchNotification,
   setCacheTimerStartedAt,
   syncPanePtyLayoutBinding,
+  syncPanePtyLayoutBindingByLeafId,
   setTabPaneExpanded,
   setTabCanExpandPane,
   setExpandedPane,
@@ -469,6 +471,7 @@ export function useTerminalPaneLifecycle({
       dispatchNotification,
       setCacheTimerStartedAt,
       syncPanePtyLayoutBinding,
+      syncPanePtyLayoutBindingByLeafId,
       restoredPtyIdByLeafId: initialLayoutRef.current.ptyIdsByLeafId ?? {}
     }
 
@@ -1198,13 +1201,10 @@ export function useTerminalPaneLifecycle({
         ) {
           // Why: moving a terminal tab between groups currently rehomes the
           // React subtree, which unmounts this TerminalPane even though the tab
-          // itself is still alive. Web session mirroring can also replace a
-          // temporary local tab with a host surface that owns the same PTY.
-          // Detaching preserves the running PTY so the remounted pane can
-          // reattach without restarting the user's shell.
-          // Transports that have not attached yet still have no PTY ID; those
-          // must be destroyed so any in-flight spawn resolves into a killed PTY
-          // instead of reviving a stale binding after unmount.
+          // itself is still alive. Agent terminal popovers use the same remount
+          // shape while an initial daemon spawn can still be in flight. Detach
+          // rather than destroy so the next mount can attach to the same PTY
+          // instead of tombstoning the session as "explicitly killed".
           transport.detach?.()
         } else {
           transport.destroy?.()

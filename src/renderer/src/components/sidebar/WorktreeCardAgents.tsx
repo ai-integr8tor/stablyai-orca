@@ -1,4 +1,7 @@
+/* eslint-disable max-lines -- Why: full/compact inline agent rendering and the
+terminal-popover bridge stay together until the sidebar agent surface is split. */
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
@@ -18,6 +21,7 @@ import {
 } from './worktree-card-compact-agents'
 import { DEFAULT_AGENT_ACTIVITY_DISPLAY_MODE } from '../../../../shared/constants'
 import { revealElementInScrollContainer } from './worktree-sidebar-reveal'
+import type { TerminalPaneLayoutNode } from '../../../../shared/types'
 
 export const SUPPRESS_WORKTREE_LIST_SCROLL_ADJUSTMENT_EVENT =
   'orca-suppress-worktree-list-scroll-adjustment'
@@ -34,6 +38,26 @@ function revealCompactAgentCard(agentListRoot: HTMLElement | null): void {
   }
   revealElementInScrollContainer(sidebarElement, worktreeOptionElement, 'auto')
 }
+
+function layoutContainsLeaf(
+  node: TerminalPaneLayoutNode | null | undefined,
+  leafId: string
+): boolean {
+  if (!node) {
+    return false
+  }
+  if (node.type === 'leaf') {
+    return node.leafId === leafId
+  }
+  return layoutContainsLeaf(node.first, leafId) || layoutContainsLeaf(node.second, leafId)
+}
+
+// Why: the terminal popover is experimental and default-off. Keep its Radix /
+// portal dependencies off the normal inline-agent render path until enabled.
+const LazyAgentTerminalPopover = React.lazy(async () => {
+  const module = await import('./AgentTerminalPopover')
+  return { default: module.AgentTerminalPopover }
+})
 
 type Props = {
   worktreeId: string
@@ -70,6 +94,12 @@ type BodyProps = {
   agents: DashboardAgentRowData[]
   className?: string
 }
+
+type AgentRowPopoverRenderer = (args: {
+  children: React.ReactNode
+  agentName: string
+  statusLabel: string
+}) => React.ReactNode
 
 type AgentLineageModel = {
   rootAgents: DashboardAgentRowData[]
@@ -152,6 +182,15 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
   const sendPromptToSidebarAgentTarget = useAppStore((s) => s.sendPromptToSidebarAgentTarget)
   const focusedAgentPaneKey = useFocusedAgentPaneKey(worktreeId)
   const compactAgentListRootRef = useRef<HTMLDivElement | null>(null)
+  const agentTerminalPopoverEnabled = useAppStore(
+    (s) => s.settings?.experimentalAgentTerminalPopover === true
+  )
+  const liveTerminalTabIdSet = useMemo(
+    () => new Set((tabsByWorktree[worktreeId] ?? []).map((tab) => tab.id)),
+    [tabsByWorktree, worktreeId]
+  )
+  const [activePopoverSlotId, setActivePopoverSlotId] = useState<string | null>(null)
+  const popoverRequestCounterRef = useRef(0)
 
   // Why: subscribe to the ack map reference (Object.is equality) and derive
   // per-agent unvisited flags locally. Keeps the inline list's bold/mute
@@ -270,19 +309,23 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
     [agents]
   )
   const hasLineage = childrenByParentPaneKey.size > 0
+  // Why: send-target selection needs each agent row to expose eligibility and
+  // a Send affordance. The compact summary hides individual rows by default.
+  const shouldUseCompactDisplay =
+    agentActivityDisplayMode === 'compact' && !isAgentSendTargetModeActive
   const [expandedLineageParents, setExpandedLineageParents] = useState<ReadonlySet<string>>(
     () => new Set()
   )
   const [compactRootListExpanded, setCompactRootListExpanded] = useState(false)
 
   useLayoutEffect(() => {
-    if (compactRootListExpanded && agentActivityDisplayMode === 'compact') {
+    if (compactRootListExpanded && shouldUseCompactDisplay) {
       dispatchSuppressScrollAdjustment()
       // Why: keep any needed reveal scroll in the expansion commit; a delayed
       // store reveal paints the tall card once, then scrolls it on the next turn.
       revealCompactAgentCard(compactAgentListRootRef.current)
     }
-  }, [agentActivityDisplayMode, compactRootListExpanded])
+  }, [compactRootListExpanded, shouldUseCompactDisplay])
   const toggleLineageParent = useCallback((paneKey: string) => {
     dispatchSuppressScrollAdjustment()
     setExpandedLineageParents((current) => {
@@ -299,6 +342,64 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
   const stopBubble = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
   }, [])
+
+  const claimPopoverSlot = useCallback((slotId: string): string => {
+    const requestToken = String(++popoverRequestCounterRef.current)
+    // Why: AgentTerminalPopover immediately derives visibility from the
+    // parent-owned active slot. Commit the ownership transfer before the child
+    // flips its local open state, or dense row-to-row hover can close the new
+    // popover against stale parent props.
+    flushSync(() => {
+      setActivePopoverSlotId(slotId)
+    })
+    return requestToken
+  }, [])
+
+  const getTerminalPopoverSlotId = useCallback(
+    (agent: DashboardAgentRowData): string | null => {
+      const parsedPaneKey = parsePaneKey(agent.paneKey)
+      return agentTerminalPopoverEnabled &&
+        !isAgentSendTargetModeActive &&
+        liveTerminalTabIdSet.has(agent.tab.id) &&
+        parsedPaneKey?.tabId === agent.tab.id &&
+        layoutContainsLeaf(terminalLayoutsByTabId[agent.tab.id]?.root, parsedPaneKey.leafId)
+        ? `agent-popover:${worktreeId}:${agent.tab.id}:${agent.paneKey}`
+        : null
+    },
+    [
+      agentTerminalPopoverEnabled,
+      isAgentSendTargetModeActive,
+      liveTerminalTabIdSet,
+      terminalLayoutsByTabId,
+      worktreeId
+    ]
+  )
+
+  const renderTerminalPopoverForAgent = useCallback(
+    (agent: DashboardAgentRowData): AgentRowPopoverRenderer | undefined => {
+      const terminalPopoverSlotId = getTerminalPopoverSlotId(agent)
+      if (!terminalPopoverSlotId) {
+        return undefined
+      }
+      return ({ children, agentName, statusLabel }) => (
+        <React.Suspense fallback={children}>
+          <LazyAgentTerminalPopover
+            worktreeId={worktreeId}
+            tabId={agent.tab.id}
+            paneKey={agent.paneKey}
+            agentName={agentName}
+            statusLabel={statusLabel}
+            slotId={terminalPopoverSlotId}
+            activeSlotId={activePopoverSlotId}
+            claimSlot={claimPopoverSlot}
+          >
+            {children}
+          </LazyAgentTerminalPopover>
+        </React.Suspense>
+      )
+    },
+    [activePopoverSlotId, claimPopoverSlot, getTerminalPopoverSlotId, worktreeId]
+  )
 
   // Why: when any root row has a disclosure chevron, leaf siblings reserve a
   // matching leading spacer so the state-dot column stays aligned across the
@@ -329,6 +430,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
       : undefined
     const descendantAncestorPaneKeys = new Set(ancestorPaneKeys)
     descendantAncestorPaneKeys.add(agent.paneKey)
+    const renderRowPopover = renderTerminalPopoverForAgent(agent)
     return (
       <React.Fragment key={agent.paneKey}>
         <DashboardAgentRow
@@ -365,6 +467,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           sendTargetStatus={sendTarget?.status}
           sendTargetDisabledReason={sendTarget?.disabledReason}
           onSendTargetClick={isAgentSendTargetModeActive ? handleSendTargetClick : undefined}
+          renderRowPopover={renderRowPopover}
           // Why: the disclosure variant uses chevron + indentation to show
           // hierarchy. The legacy L-connector / vertical-trunk decorations
           // are pinned to a fixed left offset that doesn't match the
@@ -405,6 +508,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           }
           reserveDisclosureGutter={anyRootHasChildren && !hasChildAgents}
           isFocusedPane={agent.paneKey === focusedAgentPaneKey}
+          renderRowPopover={renderTerminalPopoverForAgent(agent)}
         />
         {hasChildAgents ? (
           <CompactAgentExpansion expanded={expanded}>
@@ -417,11 +521,11 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
     )
   }
 
-  if (agentActivityDisplayMode === 'compact') {
+  if (shouldUseCompactDisplay) {
     const summaryAgents = hasLineage ? rootAgents : agents
     // Why: compact worktree cards keep multiple active agents to a single
     // predictable status line, even when there are only two agents.
-    const shouldUseSummaryRow = summaryAgents.length > 1
+    const shouldUseSummaryRow = summaryAgents.length > 1 && !agentTerminalPopoverEnabled
     const subjectLabel = hasLineage
       ? `${rootAgents.length} ${rootAgents.length === 1 ? 'parent' : 'parents'}`
       : `${agents.length} agents`

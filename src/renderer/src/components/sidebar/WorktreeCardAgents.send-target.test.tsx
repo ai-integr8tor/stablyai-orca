@@ -70,6 +70,7 @@ vi.mock('@/store', () => ({
     selector({
       agentActivityDisplayMode: 'full',
       acknowledgedAgentsByPaneKey: {},
+      settings: { experimentalAgentTerminalPopover: false },
       dropAgentStatus: vi.fn(),
       dismissRetainedAgent: vi.fn(),
       acknowledgeAgents: vi.fn(),
@@ -96,20 +97,32 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
     agent,
     sendTargetStatus,
     sendTargetDisabledReason,
-    onSendTargetClick
+    onSendTargetClick,
+    renderRowPopover
   }: {
     agent: { paneKey: string }
     sendTargetStatus?: 'eligible' | 'disabled' | 'sending'
     sendTargetDisabledReason?: string
     onSendTargetClick?: (paneKey: string) => void
-  }) => (
-    <div
-      data-agent-send-target={sendTargetStatus}
-      data-disabled-reason={sendTargetDisabledReason}
-      data-has-send-handler={typeof onSendTargetClick === 'function' ? 'true' : 'false'}
-      data-pane-key={agent.paneKey}
-    />
-  )
+    renderRowPopover?: (args: {
+      children: ReactNode
+      agentName: string
+      statusLabel: string
+    }) => ReactNode
+  }) => {
+    const row = (
+      <div
+        data-agent-send-target={sendTargetStatus}
+        data-disabled-reason={sendTargetDisabledReason}
+        data-has-send-handler={typeof onSendTargetClick === 'function' ? 'true' : 'false'}
+        data-pane-key={agent.paneKey}
+        data-popover={renderRowPopover ? 'true' : 'false'}
+      />
+    )
+    return renderRowPopover
+      ? renderRowPopover({ children: row, agentName: agent.paneKey, statusLabel: 'Working' })
+      : row
+  }
 }))
 
 vi.mock('./focused-agent-row-highlight', () => ({
@@ -142,6 +155,36 @@ describe('WorktreeCardAgents send targets', () => {
     expect(markup).toContain(`data-pane-key="${READY_PANE_KEY}"`)
     expect(markup).toContain('data-agent-send-target="disabled"')
     expect(markup).toContain('data-disabled-reason="Agent is working"')
+    expect(markup).toContain(`data-pane-key="${WORKING_PANE_KEY}"`)
+    expect(markup).toContain('data-has-send-handler="true"')
+  })
+
+  it('does not wire terminal popovers while the send-target dropdown is choosing a row', async () => {
+    mockStoreState = {
+      ...mockStoreState,
+      settings: { experimentalAgentTerminalPopover: true }
+    }
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-agent-send-target="eligible"')
+    expect(markup).toContain(`data-pane-key="${READY_PANE_KEY}" data-popover="false"`)
+    expect(markup).toContain(`data-pane-key="${WORKING_PANE_KEY}" data-popover="false"`)
+  })
+
+  it('shows selectable agent rows while target selection is active in compact mode', async () => {
+    mockStoreState = {
+      ...mockStoreState,
+      agentActivityDisplayMode: 'compact'
+    }
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-agent-send-target="eligible"')
+    expect(markup).toContain(`data-pane-key="${READY_PANE_KEY}"`)
+    expect(markup).toContain('data-agent-send-target="disabled"')
     expect(markup).toContain(`data-pane-key="${WORKING_PANE_KEY}"`)
     expect(markup).toContain('data-has-send-handler="true"')
   })

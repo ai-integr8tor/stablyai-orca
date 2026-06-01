@@ -834,9 +834,9 @@ describe('browserManager', () => {
 
     browserManager.attachGuestPolicies(guest as never)
 
-    const destroyedHandler = guestOnMock.mock.calls.find(
-      ([event]) => event === 'destroyed'
-    )?.[1] as (() => void) | undefined
+    const destroyedHandler = guestOnMock.mock.calls.find(([event]) => event === 'destroyed')?.[1] as
+      | (() => void)
+      | undefined
     expect(destroyedHandler).toBeTypeOf('function')
 
     destroyedHandler?.()

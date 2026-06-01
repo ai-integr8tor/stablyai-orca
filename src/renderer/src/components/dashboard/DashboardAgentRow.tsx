@@ -1,4 +1,5 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines -- Why: the row keeps tightly-coupled visual states
+and SSR coverage in one component until the agent-row layout is split. */
 import React, { useState, useCallback } from 'react'
 import { X, Wrench, ChevronDown, Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -126,6 +127,19 @@ type Props = {
   sendTargetStatus?: 'eligible' | 'disabled' | 'sending'
   sendTargetDisabledReason?: string
   onSendTargetClick?: (paneKey: string) => void
+  // Why: inline sidebar rows replace the passive tooltip with a terminal popover.
+  renderStateDotPopover?: (args: {
+    children: React.ReactNode
+    agentName: string
+    statusLabel: string
+  }) => React.ReactNode
+  // Why: the experimental terminal popover should use the full row as its
+  // hover anchor; dot-only anchors are too small for live terminal handoff.
+  renderRowPopover?: (args: {
+    children: React.ReactNode
+    agentName: string
+    statusLabel: string
+  }) => React.ReactNode
 }
 
 const DashboardAgentRow = React.memo(function DashboardAgentRow({
@@ -145,7 +159,9 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
   hideLineageConnectors = false,
   sendTargetStatus,
   sendTargetDisabledReason,
-  onSendTargetClick
+  onSendTargetClick,
+  renderStateDotPopover,
+  renderRowPopover
 }: Props) {
   const hasChildDisclosure =
     typeof childAgentCount === 'number' &&
@@ -276,7 +292,7 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
 
   const titleParts = sendTargetDisabledReason ? [sendTargetDisabledReason, ...tsParts] : tsParts
 
-  return (
+  const row = (
     // Why: NOT role="button" / tabIndex={0}. The row contains real <button>
     // children (dismiss X, expand chevron) and tooltip triggers that forward
     // button semantics to their children — nesting them inside an outer
@@ -339,26 +355,36 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
           onToggleChildAgents={onToggleChildAgents}
           reserveDisclosureGutter={reserveDisclosureGutter}
         />
-        {/* Why: state indicator lives in the leading gutter so the user's
-            eye can sweep one column and know which rows are working,
-            waiting, or done at a glance — the list-view convention (Linear,
-            GitHub issues, JetBrains TODO). Replaces the earlier left accent
-            bar + right-side dot combo, which double-encoded state. Size md
-            gives the glyph enough presence for the leading slot without
-            overpowering the prompt text. */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="inline-flex shrink-0 items-center justify-center"
-              aria-label={dotTooltipLabel}
-            >
-              <AgentStateDot state={dotState} size={stateDotSize} />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4}>
-            {dotTooltipLabel}
-          </TooltipContent>
-        </Tooltip>
+        {/* Why: state lives in one leading column so users can scan working,
+            waiting, or done rows without double-encoded status chrome. */}
+        {renderStateDotPopover ? (
+          renderStateDotPopover({
+            children: <AgentStateDot state={dotState} size={stateDotSize} />,
+            agentName: displayLabel,
+            statusLabel: dotTooltipLabel
+          })
+        ) : renderRowPopover ? (
+          <span
+            className="inline-flex shrink-0 items-center justify-center"
+            aria-label={dotTooltipLabel}
+          >
+            <AgentStateDot state={dotState} size={stateDotSize} />
+          </span>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="inline-flex shrink-0 items-center justify-center"
+                aria-label={dotTooltipLabel}
+              >
+                <AgentStateDot state={dotState} size={stateDotSize} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={4}>
+              {dotTooltipLabel}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {/* Why: identity (Claude/Codex/Gemini/…) sits inline with the prompt
             so the reader gets "state → who → what they said" left-to-right
             on the top row. The sub-rows (tool step, assistant response) are
@@ -642,6 +668,14 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
       )}
     </div>
   )
+
+  return renderRowPopover
+    ? renderRowPopover({
+        children: row,
+        agentName: displayLabel,
+        statusLabel: dotTooltipLabel
+      })
+    : row
 })
 
 export default DashboardAgentRow

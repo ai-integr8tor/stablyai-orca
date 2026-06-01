@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- Why: compact summary, row rendering, and the
+terminal-popover bridge stay together until the compact agent surface is split. */
 import React, { useCallback, useRef } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { AgentStateDot, agentStateLabel, type AgentDotState } from '@/components/AgentStateDot'
@@ -290,6 +292,13 @@ type CompactAgentRowProps = {
   reserveDisclosureGutter?: boolean
   isFocusedPane?: boolean
   hideIdentityIcon?: boolean
+  // Why: the experimental terminal popover uses the visible compact row as
+  // its hover anchor when compact mode replaces DashboardAgentRow.
+  renderRowPopover?: (args: {
+    children: React.ReactNode
+    agentName: string
+    statusLabel: string
+  }) => React.ReactNode
 }
 
 export const CompactAgentRow = React.memo(function CompactAgentRow({
@@ -301,7 +310,8 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
   onToggleChildAgents,
   reserveDisclosureGutter = false,
   isFocusedPane = false,
-  hideIdentityIcon = false
+  hideIdentityIcon = false,
+  renderRowPopover
 }: CompactAgentRowProps) {
   const hasChildDisclosure =
     typeof childAgentCount === 'number' &&
@@ -315,6 +325,8 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
     ? formatAgentTypeLabel(agent.agentType)
     : getCompactAgentSecondary(agent)
   const shortTime = getCompactAgentTime(agent, now)
+  const statusLabel =
+    agent.entry.interrupted === true ? 'Interrupted by user' : agentStateLabel(dotState)
 
   const handleActivate = useCallback(
     (e: React.MouseEvent) => {
@@ -363,7 +375,9 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
         </span>
       )}
       <span className="min-w-0 flex-1 truncate">
-        <span className="text-foreground/85">{primary}</span>
+        <span className="text-foreground/85" title={primary}>
+          {primary}
+        </span>
         {secondary && <span className="text-muted-foreground/75"> - {secondary}</span>}
       </span>
       {hasChildDisclosure && !childAgentsExpanded && (
@@ -379,7 +393,7 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
     </>
   )
 
-  return (
+  const row = (
     <div
       draggable={false}
       className={cn(
@@ -393,6 +407,7 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
       onPointerDown={(e) => e.stopPropagation()}
       onDragStart={(e) => e.stopPropagation()}
       data-focused-agent-pane={isFocusedPane ? 'true' : undefined}
+      data-agent-terminal-popover-row={renderRowPopover ? '' : undefined}
       role={agent.lineage ? 'treeitem' : undefined}
       aria-level={agent.lineage ? agent.lineage.depth + 1 : undefined}
       aria-expanded={hasChildDisclosure ? childAgentsExpanded : undefined}
@@ -411,4 +426,12 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
       )}
     </div>
   )
+
+  return renderRowPopover
+    ? renderRowPopover({
+        children: row,
+        agentName: primary,
+        statusLabel
+      })
+    : row
 })
