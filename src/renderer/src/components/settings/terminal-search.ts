@@ -58,6 +58,22 @@ export const TERMINAL_RENDERING_SEARCH_ENTRIES: SettingsSearchEntry[] = [
       'linux',
       'vscode'
     ]
+  },
+  {
+    title: 'Limit hidden terminal views',
+    description:
+      'Limit inactive terminal views to reduce resource usage. Terminal sessions keep running.',
+    keywords: [
+      'terminal',
+      'hidden views',
+      'limit',
+      'lru',
+      'memory',
+      'xterm',
+      'renderer',
+      'unlimited',
+      'no limit'
+    ]
   }
 ]
 

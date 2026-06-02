@@ -9,6 +9,7 @@ import { clampNumber } from '@/lib/terminal-theme'
 import {
   SettingsRow,
   SettingsSegmentedControl,
+  SettingsSwitch,
   SettingsSubsectionHeader,
   SettingsSwitchRow
 } from './SettingsFormControls'
@@ -31,6 +32,7 @@ import {
   TERMINAL_WINDOWS_POWERSHELL_IMPLEMENTATION_SEARCH_ENTRY,
   TERMINAL_WINDOWS_SHELL_SEARCH_ENTRY
 } from './terminal-windows-search'
+import { useState } from 'react'
 import { useDetectedOptionAsAlt } from '@/lib/keyboard-layout/use-effective-mac-option-as-alt'
 import { ManageSessionsSection } from './ManageSessionsSection'
 import { OSC52_CLIPBOARD_SETTING_ID } from '../terminal-pane/osc52-clipboard-setting-anchor'
@@ -54,6 +56,8 @@ type TerminalPaneProps = {
   /** Whether Git for Windows bash.exe is installed on this machine. */
   gitBashAvailable?: boolean
 }
+
+const DEFAULT_LIMITED_TERMINAL_VIEW_COUNT = 16
 
 export function TerminalPane({
   settings,
@@ -92,6 +96,35 @@ export function TerminalPane({
   const powerShellImplementation = settings.terminalWindowsPowerShellImplementation ?? 'auto'
   const showWindowsPowerShellImplementation = isWindows && windowsShell === 'powershell.exe'
   const showGitBashOption = gitBashAvailable || windowsShell === WINDOWS_GIT_BASH_SHELL
+  const maxLiveTerminalPanes = Math.floor(clampNumber(settings.maxLiveTerminalPanes ?? 0, 0, 500))
+  const limitHiddenTerminalViews = maxLiveTerminalPanes > 0
+  const [maxLiveTerminalPanesDraft, setMaxLiveTerminalPanesDraft] = useState(
+    Number.isFinite(maxLiveTerminalPanes) ? String(maxLiveTerminalPanes) : ''
+  )
+  const [prevMaxLiveTerminalPanes, setPrevMaxLiveTerminalPanes] = useState(maxLiveTerminalPanes)
+
+  if (maxLiveTerminalPanes !== prevMaxLiveTerminalPanes) {
+    setPrevMaxLiveTerminalPanes(maxLiveTerminalPanes)
+    setMaxLiveTerminalPanesDraft(
+      Number.isFinite(maxLiveTerminalPanes) ? String(maxLiveTerminalPanes) : ''
+    )
+  }
+
+  const commitMaxLiveTerminalPanes = (): void => {
+    const trimmed = maxLiveTerminalPanesDraft.trim()
+    if (trimmed === '') {
+      setMaxLiveTerminalPanesDraft(String(maxLiveTerminalPanes))
+      return
+    }
+    const value = Number(trimmed)
+    if (!Number.isFinite(value)) {
+      setMaxLiveTerminalPanesDraft(String(maxLiveTerminalPanes))
+      return
+    }
+    const next = Math.max(1, Math.floor(clampNumber(value, 1, 500)))
+    updateSettings({ maxLiveTerminalPanes: next })
+    setMaxLiveTerminalPanesDraft(String(next))
+  }
 
   const visibleSections = [
     isWindows && matchesSettingsSearch(searchQuery, TERMINAL_WINDOWS_SHELL_SEARCH_ENTRY) ? (
@@ -228,6 +261,63 @@ export function TerminalPane({
                     { value: 'off', label: 'Off' }
                   ]}
                 />
+              }
+            />
+          </SearchableSetting>
+
+          <SearchableSetting
+            title="Limit hidden terminal views"
+            description="Limit inactive terminal views to reduce resource usage. Terminal sessions keep running."
+            keywords={[
+              'terminal',
+              'hidden views',
+              'limit',
+              'lru',
+              'memory',
+              'xterm',
+              'renderer',
+              'unlimited',
+              'no limit'
+            ]}
+          >
+            <SettingsRow
+              label="Limit hidden terminal views"
+              description="Limit inactive terminal views to reduce resource usage. Terminal sessions keep running."
+              alignTop
+              control={
+                <div className="flex min-w-44 flex-col items-end gap-2">
+                  <SettingsSwitch
+                    checked={limitHiddenTerminalViews}
+                    ariaLabel="Limit hidden terminal views"
+                    onChange={() => {
+                      updateSettings({
+                        maxLiveTerminalPanes: limitHiddenTerminalViews
+                          ? 0
+                          : DEFAULT_LIMITED_TERMINAL_VIEW_COUNT
+                      })
+                    }}
+                  />
+                  {limitHiddenTerminalViews ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={500}
+                        step={1}
+                        value={maxLiveTerminalPanesDraft}
+                        onChange={(e) => setMaxLiveTerminalPanesDraft(e.target.value)}
+                        onBlur={commitMaxLiveTerminalPanes}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            commitMaxLiveTerminalPanes()
+                          }
+                        }}
+                        className="number-input-clean w-24 tabular-nums"
+                      />
+                      <span className="text-xs text-muted-foreground">views</span>
+                    </div>
+                  ) : null}
+                </div>
               }
             />
           </SearchableSetting>
