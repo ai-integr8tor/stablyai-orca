@@ -1968,15 +1968,19 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // reconnectPersistedTerminals() after all eager PTY spawns complete.
       // This prevents TerminalPane from mounting and spawning duplicate PTYs
       // before the reconnect phase has set ptyId on each tab.
-      // Why: fall back to deriving the list from tabsByWorktree ptyIds when
-      // activeWorktreeIdsOnShutdown is absent (upgrade from older build).
-      // The raw tabs still carry ptyId values before clearTransientTerminalState
-      // nulls them, so we can infer which worktrees had active terminals.
+      const remoteSessionIds = session.remoteSessionIdsByTabId ?? {}
+      const legacyActiveTabs = session.activeWorktreeId
+        ? (session.tabsByWorktree[session.activeWorktreeId] ?? [])
+        : []
+      // Why: old sessions lack activeWorktreeIdsOnShutdown, and preserved
+      // tab.ptyId is ambiguous because sleep keeps it as a wake hint. Only
+      // reconnect the restored active workspace in that legacy case.
       const shutdownIds =
         session.activeWorktreeIdsOnShutdown ??
-        Object.entries(session.tabsByWorktree)
-          .filter(([, tabs]) => tabs.some((t) => t.ptyId))
-          .map(([wId]) => wId)
+        (session.activeWorktreeId &&
+        legacyActiveTabs.some((tab) => tab.ptyId || remoteSessionIds[tab.id])
+          ? [session.activeWorktreeId]
+          : [])
       const pendingReconnectWorktreeIds = shutdownIds.filter((id) => validWorktreeIds.has(id))
 
       // Why: capture which specific tabs had live PTYs per worktree from the
@@ -1986,7 +1990,6 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // Also include tabs whose relay session IDs were preserved in
       // remoteSessionIdsByTabId — those tabs were disconnected before shutdown
       // (ptyId was null) but the relay still has their PTY alive.
-      const remoteSessionIds = session.remoteSessionIdsByTabId ?? {}
       const pendingReconnectTabByWorktree: Record<string, string[]> = {}
       for (const worktreeId of pendingReconnectWorktreeIds) {
         const rawTabs = session.tabsByWorktree[worktreeId] ?? []
