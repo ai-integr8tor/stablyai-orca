@@ -5,7 +5,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
-import { Trash2 } from 'lucide-react'
+import { Box, Monitor, Trash2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { BaseRefPicker } from './BaseRefPicker'
 import { RepositoryHooksSection } from './RepositoryHooksSection'
@@ -51,6 +51,7 @@ export function RepositoryPane({
   removeProject
 }: RepositoryPaneProps): React.JSX.Element {
   const isFolder = isFolderRepo(repo)
+  const supportsLocalDockerIsolation = !isFolder && !repo.connectionId
   const searchQuery = useAppStore((state) => state.settingsSearchQuery)
   const settings = useAppStore((state) => state.settings)
   const symlinksEnabled = settings?.experimentalWorktreeSymlinks
@@ -122,6 +123,7 @@ export function RepositoryPane({
       'Display Name',
       'Project Icon',
       'Default Worktree Base',
+      'Default Isolation',
       'Worktree Location',
       'Remove Project'
     ].includes(entry.title)
@@ -265,6 +267,52 @@ export function RepositoryPane({
               />
             </SearchableSetting>
 
+            {supportsLocalDockerIsolation ? (
+              <SearchableSetting
+                title="Default Isolation"
+                description="Choose whether new worktrees start on the host or in Docker."
+                keywords={[repo.displayName, 'isolation', 'docker', 'container', 'host']}
+                className="space-y-3"
+                forceVisible={forceFullPaneForRepoMatch}
+              >
+                <div className="space-y-1">
+                  <Label className="text-sm font-semibold">
+                    Default isolation for new worktrees
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Existing worktrees keep their own isolation setting.
+                  </p>
+                </div>
+                <div className="inline-flex rounded-md border border-border bg-muted/40 p-0.5">
+                  <button
+                    type="button"
+                    aria-pressed={(repo.defaultIsolation ?? 'host') === 'host'}
+                    onClick={() => updateRepo(repo.id, { defaultIsolation: 'host' })}
+                    className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs transition-colors ${
+                      (repo.defaultIsolation ?? 'host') === 'host'
+                        ? 'bg-background text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Monitor className="size-3.5" />
+                    Host
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={repo.defaultIsolation === 'docker'}
+                    onClick={() => updateRepo(repo.id, { defaultIsolation: 'docker' })}
+                    className={`inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs transition-colors ${
+                      repo.defaultIsolation === 'docker'
+                        ? 'bg-background text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Box className="size-3.5" />
+                    Docker
+                  </button>
+                </div>
+              </SearchableSetting>
+            ) : null}
             <SearchableSetting
               title="Worktree Location"
               description="Project-specific directory for new worktrees."

@@ -13,6 +13,7 @@ import type {
   WorktreeStartupLaunch,
   Worktree,
   WorktreeBaseStatusEvent,
+  WorktreeIsolation,
   WorktreeLineage,
   WorktreeRemoteBranchConflictEvent,
   WorktreeMeta
@@ -131,6 +132,7 @@ export type WorktreeSlice = {
   updateWorktreesMeta: (
     updatesByWorktreeId: ReadonlyMap<string, Partial<WorktreeMeta>>
   ) => Promise<void>
+  setIsolation: (worktreeId: string, isolation: WorktreeIsolation) => Promise<void>
   /**
    * Pin/unpin worktrees, then reveal the first changed one. The reveal is the
    * point: pinning moves the row to the Pinned section (unpinning moves it

@@ -42,6 +42,7 @@ type RepoUpdate = Partial<
     | 'projectGroupId'
     | 'projectGroupOrder'
     | 'sourceControlAi'
+    | 'defaultIsolation'
   >
 >
 

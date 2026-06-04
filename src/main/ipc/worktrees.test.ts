@@ -566,6 +566,37 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
+  it('applies the repo default isolation to new local worktrees', async () => {
+    store.getRepo.mockReturnValue({
+      id: 'repo-1',
+      path: '/workspace/repo',
+      displayName: 'repo',
+      badgeColor: '#000',
+      addedAt: 0,
+      defaultIsolation: 'docker'
+    })
+    store.setWorktreeMeta.mockImplementation((_worktreeId, meta) => meta)
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/isolate-me',
+        head: 'abc123',
+        branch: 'isolate-me',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'isolate-me'
+    })
+
+    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+      'repo-1::/workspace/isolate-me',
+      expect.objectContaining({ isolation: 'docker' })
+    )
+  })
+
   it('uses a repo-specific worktree base path when creating local worktrees', async () => {
     store.getRepo.mockReturnValue({
       id: 'repo-1',
@@ -1521,6 +1552,7 @@ describe('registerWorktreeHandlers', () => {
       badgeColor: '#000',
       addedAt: 0,
       connectionId: 'conn-1',
+      defaultIsolation: 'docker' as const,
       worktreeBaseRef: 'origin/main'
     }
     const provider = {
@@ -1837,6 +1869,7 @@ describe('registerWorktreeHandlers', () => {
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
       'repo-ssh::/remote/sparse-dashboard',
       expect.objectContaining({
+        isolation: 'host',
         sparseDirectories: ['apps/mobile', 'packages/shared'],
         sparseBaseRef: 'origin/main',
         sparsePresetId: 'preset-1'

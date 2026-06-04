@@ -235,7 +235,7 @@ describe('WorktreeCard quick actions', () => {
       />
     )
 
-    expect(markup).not.toContain('data-worktree-card-meta-row=""')
+    expect(markup).not.toContain('text-[11px] text-muted-foreground truncate leading-none')
     expect(markup).toContain('tabindex="0"')
   })
 
@@ -298,7 +298,7 @@ describe('WorktreeCard quick actions', () => {
 
     expect(markup).toContain('aria-label="Primary worktree"')
     expect(markup).not.toContain('>primary<')
-    expect(markup).not.toContain('data-worktree-card-meta-row=""')
+    expect(markup).not.toContain('text-[11px] text-muted-foreground truncate leading-none')
   })
 
   it('hides delete by default for an inactive workspace', () => {

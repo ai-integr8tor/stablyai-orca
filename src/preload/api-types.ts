@@ -27,6 +27,9 @@ import type {
   CustomPet,
   DetectedWorktreeListResult,
   DirEntry,
+  DockerBuildProgress,
+  DockerCachedImage,
+  DockerEngineStatus,
   ForceDeleteWorktreeBranchResult,
   FsChangedPayload,
   GhosttyImportPreview,
@@ -709,6 +712,7 @@ export type PreloadApi = {
           | 'projectGroupId'
           | 'projectGroupOrder'
           | 'sourceControlAi'
+          | 'defaultIsolation'
         >
       >
     }) => Promise<Repo>
@@ -832,6 +836,17 @@ export type PreloadApi = {
     onRemoteBranchConflict: (
       callback: (data: WorktreeRemoteBranchConflictEvent) => void
     ) => () => void
+  }
+  docker: {
+    engineStatus: () => Promise<DockerEngineStatus>
+    buildImage: (args: { repoId: string; worktreeId: string }) => Promise<unknown>
+    setWorktreeIsolation: (args: {
+      worktreeId: string
+      isolation: 'host' | 'docker'
+    }) => Promise<unknown>
+    listCachedImages: () => Promise<DockerCachedImage[]>
+    pruneImage: (imageId: string) => Promise<void>
+    onBuildProgress: (callback: (data: DockerBuildProgress) => void) => () => void
   }
   workspaceCleanup: {
     scan: (args?: WorkspaceCleanupScanArgs) => Promise<WorkspaceCleanupScanResult>

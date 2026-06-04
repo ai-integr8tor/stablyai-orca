@@ -21,6 +21,7 @@ import CacheTimer, { usePromptCacheCountdownStartedAt } from './CacheTimer'
 import WorktreeContextMenu from './WorktreeContextMenu'
 import { SshDisconnectedDialog } from './SshDisconnectedDialog'
 import WorktreeCardAgents from './WorktreeCardAgents'
+import IsolateToggleButton from './IsolateToggleButton'
 import { WorktreeCardStatusSlot } from './WorktreeCardStatusSlot'
 import { cn } from '@/lib/utils'
 import { activateWorktreeFromSidebar } from '@/lib/sidebar-worktree-activation'
@@ -1024,6 +1025,8 @@ const WorktreeCard = React.memo(function WorktreeCard({
                   {CONFLICT_OPERATION_LABELS[conflictOperation]}
                 </Badge>
               )}
+
+              {!isFolder ? <IsolateToggleButton worktreeId={worktree.id} /> : null}
 
               {cacheStartedAt != null && (
                 <CacheTimer startedAt={cacheStartedAt} ttlMs={cacheTtlMs} />

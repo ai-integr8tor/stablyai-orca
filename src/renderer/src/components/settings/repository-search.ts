@@ -34,6 +34,15 @@ export function getRepositoryPaneSearchEntries(repo: Repo): SettingsSearchEntry[
             description: 'Default base branch or ref when creating worktrees.',
             keywords: [repo.displayName, 'base ref', 'branch']
           },
+          ...(!repo.connectionId
+            ? [
+                {
+                  title: 'Default Isolation',
+                  description: 'Choose whether new worktrees start on the host or in Docker.',
+                  keywords: [repo.displayName, 'isolation', 'docker', 'container', 'host']
+                }
+              ]
+            : []),
           {
             title: 'Worktree Location',
             description: 'Project-specific directory for new worktrees.',
