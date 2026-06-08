@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: this file keeps git worktree create/remove behavior together so local cleanup and creation invariants stay in one place. */
-import { stat } from 'fs/promises'
+import { cp, stat } from 'fs/promises'
 import { join, posix, win32 } from 'path'
 import {
   branchHasNoUnmergedChangesOnAnyTarget,
@@ -359,6 +359,39 @@ async function refreshLocalBaseRefForWorktreeCreate(
 }
 
 /**
+ * git-crypt keeps its unlocked keys under `<git dir>/git-crypt/`. A linked
+ * worktree gets its own git dir (`.git/worktrees/<name>/`) created without
+ * keys, so the smudge filter fails during `git worktree add`'s checkout and
+ * creation never completes. Returns the repo's git-crypt dir when present.
+ */
+async function getGitCryptKeysDir(repoPath: string): Promise<string | null> {
+  // Why: filesystem probe instead of `git rev-parse --git-common-dir` — the
+  // main repo's git dir is `<repoPath>/.git` (or the repo itself when bare),
+  // and skipping the subprocess keeps creation fast on non-git-crypt repos.
+  for (const gitDir of [join(repoPath, '.git'), repoPath]) {
+    try {
+      const candidate = join(gitDir, 'git-crypt')
+      if ((await stat(candidate)).isDirectory()) {
+        return candidate
+      }
+    } catch {
+      // Why: missing path — keep probing the bare-repo layout.
+    }
+  }
+  return null
+}
+
+async function copyGitCryptKeysToWorktree(
+  gitCryptDir: string,
+  worktreePath: string
+): Promise<void> {
+  const worktreeGitDir = await resolveGitDir(worktreePath)
+  // Why: copies every key (multi-key repos use --key-name filters); force=false
+  // keeps anything already present in the worktree's git dir authoritative.
+  await cp(gitCryptDir, join(worktreeGitDir, 'git-crypt'), { recursive: true, force: false })
+}
+
+/**
  * Create a new worktree.
  * @param repoPath - Path to the main repo (or bare repo)
  * @param worktreePath - Absolute path where the worktree will be created
@@ -379,9 +412,13 @@ export async function addWorktree(
   options: { checkoutExistingBranch?: boolean } = {}
 ): Promise<AddWorktreeResult> {
   let localBaseRefRefresh: LocalBaseRefRefreshResult | undefined
+  // Why: on git-crypt repos checkout must wait until the keys are copied into
+  // the new worktree's git dir — otherwise the smudge filter aborts the add.
+  const gitCryptDir = await getGitCryptKeysDir(repoPath)
+  const deferCheckoutForGitCrypt = gitCryptDir !== null && !noCheckout
   const args = ['worktree', 'add']
   let effectiveBase: string | undefined
-  if (noCheckout) {
+  if (noCheckout || deferCheckoutForGitCrypt) {
     args.push('--no-checkout')
   }
   if (options.checkoutExistingBranch) {
@@ -413,6 +450,27 @@ export async function addWorktree(
     }
   }
   await gitExecFileAsync(args, { cwd: repoPath })
+
+  if (gitCryptDir) {
+    await copyGitCryptKeysToWorktree(gitCryptDir, worktreePath)
+  }
+  if (deferCheckoutForGitCrypt) {
+    try {
+      await gitExecFileAsync(['checkout', branch], { cwd: worktreePath })
+    } catch (error) {
+      // Why: mirror addSparseWorktree's rollback — a fileless worktree is
+      // half-created state the user would otherwise clean up manually.
+      try {
+        await removeWorktree(repoPath, worktreePath, true, {
+          deleteBranch: !options.checkoutExistingBranch,
+          forceBranchDelete: !options.checkoutExistingBranch
+        })
+      } catch {
+        // Why: surface the original checkout failure, not the cleanup one.
+      }
+      throw error
+    }
+  }
 
   if (options.checkoutExistingBranch) {
     return localBaseRefRefresh ? { localBaseRefRefresh } : {}
