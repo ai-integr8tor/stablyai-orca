@@ -3,7 +3,8 @@ import { handleOscLink } from './terminal-osc-link-routing'
 
 const openHttpLink = vi.fn()
 vi.mock('@/lib/http-link-routing', () => ({
-  openHttpLink: (...args: unknown[]) => openHttpLink(...args)
+  openHttpLink: (...args: unknown[]) => openHttpLink(...args),
+  registerHttpLinkStoreAccessor: vi.fn()
 }))
 
 const openOrcaDeepLink = vi.fn()
