@@ -2560,7 +2560,9 @@ function SourceControlInner(): React.JSX.Element {
         branchCommitsAhead:
           branchSummary?.status === 'ready' ? (branchSummary.commitsAhead ?? 0) : undefined,
         hasCurrentBranch: Boolean(branchName),
-        rebaseBaseRef: effectiveBaseRef
+        rebaseBaseRef: effectiveBaseRef,
+        canGenerateCommitMessage: resolvedCommitMessageAi?.ok === true,
+        isGeneratingCommitMessage: isGenerating
       }),
     [
       commitMessage,
@@ -2575,9 +2577,11 @@ function SourceControlInner(): React.JSX.Element {
       inFlightRemoteOpKind,
       hostedReviewCreation,
       isCreatingPr,
+      isGenerating,
       isHostedReviewStateLoading,
       hostedReview?.state,
       prGenerating,
+      resolvedCommitMessageAi?.ok,
       branchSummary?.commitsAhead,
       branchSummary?.status,
       branchName,
@@ -2597,6 +2601,9 @@ function SourceControlInner(): React.JSX.Element {
         return
       }
       switch (kind) {
+        case 'ai_commit':
+          handleGenerateCommitMessageClick()
+          return
         case 'commit':
           void handleCommit()
           return
@@ -2634,6 +2641,7 @@ function SourceControlInner(): React.JSX.Element {
       handleCreatePullRequest,
       handleAbortMerge,
       handleAbortRebase,
+      handleGenerateCommitMessageClick,
       isCreatingPr,
       prGenerating,
       runCompoundCommitAction,

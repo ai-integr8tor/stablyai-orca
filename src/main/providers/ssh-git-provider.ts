@@ -169,6 +169,7 @@ export class SshGitProvider implements IGitProvider {
         args: plan.args,
         cwd,
         stdin: plan.stdinPayload,
+        promptFile: plan.promptFilePayload ?? null,
         timeoutMs,
         operation
       },
@@ -240,6 +241,7 @@ export class SshGitProvider implements IGitProvider {
       args: string[]
       cwd: string
       stdin: string | null
+      promptFile?: string | null
       timeoutMs: number
       env?: Record<string, string>
       operation?: string
