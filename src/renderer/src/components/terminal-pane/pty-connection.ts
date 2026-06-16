@@ -1330,8 +1330,19 @@ export function connectPanePty(
   })
   const observeTerminalGitHubPRLink = createTerminalGitHubPRLinkDetector()
 
+  const reportRendererPtyVisibility = (ptyId: string | null | undefined): void => {
+    if (!ptyId || isRemoteRuntimePtyId(ptyId)) {
+      return
+    }
+    window.api.pty.setVisibleRendererPty?.(
+      ptyId,
+      shouldWritePtyOutputForeground(deps.isVisibleRef.current)
+    )
+  }
+
   const onPtySpawn = (ptyId: string): void => {
     setPanePtyFitBinding(ptyId)
+    reportRendererPtyVisibility(ptyId)
     deps.syncPanePtyLayoutBinding(pane.id, ptyId)
     deps.updateTabPtyId(deps.tabId, ptyId)
     // Why: Command Code has no prompt-start hook. Seed the visible working row
@@ -1691,6 +1702,7 @@ export function connectPanePty(
     ? createRemoteRuntimePtyTransport(runtimeEnvironmentId, transportOptions)
     : createIpcPtyTransport(transportOptions)
   deps.paneTransportsRef.current.set(pane.id, transport)
+  reportRendererPtyVisibility(transport.getPtyId())
   const conptyDeviceAttributesDisposable = isNativeWindowsConpty
     ? installConptyDeviceAttributesHandler({
         parser: pane.terminal.parser,
@@ -1778,6 +1790,11 @@ export function connectPanePty(
 
   const shouldSuppressDesktopPtyResize = (): boolean => {
     const currentPtyId = transport.getPtyId()
+    if (!shouldWritePtyOutputForeground(deps.isVisibleRef.current)) {
+      // Why: hidden layout measurements can collapse to stale/narrow widths;
+      // the main/headless parser must keep the last visible PTY geometry.
+      return true
+    }
     return Boolean(
       currentPtyId && (getFitOverrideForPty(currentPtyId) || isPtyLocked(currentPtyId))
     )
@@ -2054,6 +2071,7 @@ export function connectPanePty(
         callbacks: {
           onData: dataCallback,
           onReplayData: replayDataCallback,
+          onRendererOutputSkipped: handleMainSkippedRendererOutput,
           onError: reportError
         }
       })
@@ -2182,6 +2200,7 @@ export function connectPanePty(
     const shouldSnapshotHiddenCodexOutput = shouldKeepHiddenStartupRendererQueriesLive(paneStartup)
     let hiddenStartupRendererQueryPending = ''
     let hiddenRendererStateDirty = false
+    let hiddenRendererBlankedForRestore = false
 
     function canUseMainBufferSnapshot(ptyId: string | null): ptyId is string {
       return Boolean(ptyId) && !isRemoteRuntimePtyId(ptyId)
@@ -2411,11 +2430,7 @@ export function connectPanePty(
     }
 
     function shouldSkipHiddenRendererOutput(foreground: boolean, data: string): boolean {
-      if (
-        foreground ||
-        !shouldSnapshotHiddenCodexOutput ||
-        !canUseHiddenOutputSnapshot(transport.getPtyId())
-      ) {
+      if (foreground || !canUseHiddenOutputSnapshot(transport.getPtyId())) {
         return false
       }
       // Why: CPR/DECRQM replies depend on ordered terminal state. Keep the rare
@@ -2527,12 +2542,22 @@ export function connectPanePty(
     function skipHiddenRendererOutput(data: string): void {
       writeHiddenStartupRendererQueries(data)
       respondToSkippedMode2031Subscribe(data)
+      blankStaleRendererForHiddenRestore()
       markHiddenOutputRestoreNeeded()
       hiddenRendererStateDirty = true
       if (hiddenOutputRestoreInFlight) {
         hiddenOutputRestoreFreshSnapshotNeeded = true
       }
       recordHiddenRendererSkip(data.length)
+    }
+
+    function handleMainSkippedRendererOutput(): void {
+      blankStaleRendererForHiddenRestore()
+      markHiddenOutputRestoreNeeded()
+      hiddenRendererStateDirty = true
+      if (hiddenOutputRestoreInFlight) {
+        hiddenOutputRestoreFreshSnapshotNeeded = true
+      }
     }
 
     function queueLiveChunkDuringRestore(data: string, meta?: PtyDataMeta): void {
@@ -2673,6 +2698,7 @@ export function connectPanePty(
       clearPendingLiveChunksDuringRestore()
       hiddenStartupRendererQueryPending = ''
       hiddenRendererStateDirty = false
+      hiddenRendererBlankedForRestore = false
       hiddenOutputRestoreNeeded = false
       hiddenOutputRestorePtyId = null
       hiddenOutputRestoreGeneration += 1
@@ -2704,6 +2730,17 @@ export function connectPanePty(
         foreground: true,
         beforeWrite: beforeTerminalOutputWrite
       })
+    }
+
+    function blankStaleRendererForHiddenRestore(): void {
+      if (hiddenRendererBlankedForRestore || !canUseHiddenOutputSnapshot(transport.getPtyId())) {
+        return
+      }
+      // Why: once hidden bytes are skipped, the renderer xterm is stale. Clear
+      // it once so refocus shows a blank restore window instead of old output.
+      discardTerminalOutput(pane.terminal)
+      writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+      hiddenRendererBlankedForRestore = true
     }
 
     function captureScrollStateForSnapshotReplay(): ScrollState | null {
@@ -2756,6 +2793,7 @@ export function connectPanePty(
       writeReplayData(snapshot.data)
       writeReplayData(POST_REPLAY_LIVE_SNAPSHOT_RESET)
       hiddenRendererStateDirty = false
+      hiddenRendererBlankedForRestore = false
       recordTerminalOutput(pane.terminal)
       const currentPtyId = transport.getPtyId()
       if (currentPtyId && !getFitOverrideForPty(currentPtyId)) {
@@ -3039,6 +3077,7 @@ export function connectPanePty(
       setPanePtyFitBinding(ptyId)
       deps.syncPanePtyLayoutBinding(pane.id, ptyId)
       deps.updateTabPtyId(deps.tabId, ptyId)
+      reportRendererPtyVisibility(ptyId)
       agentCompletionCoordinator.startProcessTracking()
 
       // Why: mobile terminal streaming needs the exact screen state from
@@ -3298,6 +3337,7 @@ export function connectPanePty(
               callbacks: {
                 onData: dataCallback,
                 onReplayData: replayDataCallback,
+                onRendererOutputSkipped: handleMainSkippedRendererOutput,
                 onError: (message) => {
                   if (isSshSessionExpiredError(message)) {
                     expiredReattachError = true
@@ -3466,6 +3506,7 @@ export function connectPanePty(
         callbacks: {
           onData: dataCallback,
           onReplayData: replayDataCallback,
+          onRendererOutputSkipped: handleMainSkippedRendererOutput,
           onError: (message) => {
             if (isSshSessionExpiredError(message)) {
               expiredReattachError = true
@@ -3554,9 +3595,11 @@ export function connectPanePty(
           callbacks: {
             onData: dataCallback,
             onReplayData: replayDataCallback,
+            onRendererOutputSkipped: handleMainSkippedRendererOutput,
             onError: reportError
           }
         })
+        reportRendererPtyVisibility(attachPtyId)
         deps.syncPanePtyLayoutBinding(pane.id, attachPtyId)
         deps.updateTabPtyId(deps.tabId, attachPtyId)
         agentCompletionCoordinator.startProcessTracking()
@@ -3609,9 +3652,11 @@ export function connectPanePty(
               callbacks: {
                 onData: dataCallback,
                 onReplayData: replayDataCallback,
+                onRendererOutputSkipped: handleMainSkippedRendererOutput,
                 onError: reportError
               }
             })
+            reportRendererPtyVisibility(spawnedPtyId)
             // Why: attach sets the transport's PTY id; starting process
             // tracking before this point no-ops because getPtyId() is empty.
             agentCompletionCoordinator.startProcessTracking()
@@ -3662,6 +3707,12 @@ export function connectPanePty(
       unregisterDocumentVisibilityRecovery?.()
       unregisterDocumentVisibilityRecovery = null
       clearPanePtyFitBinding()
+      {
+        const ptyId = transport.getPtyId()
+        if (ptyId && !isRemoteRuntimePtyId(ptyId)) {
+          window.api.pty.setVisibleRendererPty?.(ptyId, false)
+        }
+      }
       discardTerminalOutput(pane.terminal)
       unregisterE2ePtyDataInjection()
       if (agentTaskCompleteSettingsUnsubscribe !== null) {

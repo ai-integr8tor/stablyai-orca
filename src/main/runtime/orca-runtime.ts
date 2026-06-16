@@ -28,9 +28,9 @@ import {
 } from '../git/repo-clone-path'
 import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-message'
 import { createHash, randomUUID } from 'crypto'
-import { homedir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { isAbsolute, join, resolve } from 'path'
-import { mkdir, readFile, readdir, rm, stat } from 'fs/promises'
+import { appendFile, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'fs/promises'
 import { OrchestrationDb } from './orchestration/db'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
@@ -603,6 +603,11 @@ import {
   resolveNestedRepoSelection
 } from '../project-groups/nested-repo-import'
 
+const HIDDEN_HEADLESS_DRAIN_BUDGET_MS = 2
+const HIDDEN_HEADLESS_DRAIN_CONTINUE_MS = 50
+const HIDDEN_HEADLESS_DRAIN_CHUNK_CHARS = 16 * 1024
+const HIDDEN_HEADLESS_MEMORY_CHARS_PER_PTY = 8 * 1024 * 1024
+
 function sanitizeNestedRepoRuntimeImportError(context: string, error: unknown): string {
   console.warn(`[project-groups] ${context}`, error)
   return 'Repository could not be imported'
@@ -870,6 +875,14 @@ type RuntimeHeadlessTerminal = {
   // the seq actually painted into this emulator, not the latest PTY seq.
   outputSequence: number
   writeChain: Promise<void>
+  deferredChunks: { data: string; outputSequence: number }[]
+  deferredChars: number
+  deferredSpoolPath?: string
+  deferredSpoolStartSequence?: number
+  deferredSpoolChars: number
+  deferredSpoolWriteChain: Promise<void>
+  deferredSpoolRestoreInFlight?: Promise<void>
+  restoringFromSpool: boolean
 }
 
 type HeadlessSeedMetadata = {
@@ -1697,6 +1710,9 @@ export class OrcaRuntimeService {
   private ptysById = new Map<string, RuntimePtyWorktreeRecord>()
   private titleObservationSequence = 0
   private headlessTerminals = new Map<string, RuntimeHeadlessTerminal>()
+  private hiddenHeadlessPtys = new Set<string>()
+  private deferredHeadlessDrainTimer: ReturnType<typeof setTimeout> | null = null
+  private deferredHeadlessDrainRunning = false
   private ptyOutputSequenceById = new Map<string, number>()
   // Why: OSC 9999 status can span PTY chunks. Keeping parser state in the
   // runtime lets hidden/model-owned terminals observe agent state without a
@@ -4000,6 +4016,41 @@ export class OrcaRuntimeService {
     return addListenerToMap(this.dataListeners, ptyId, listener)
   }
 
+  setPtyHeadlessTerminalVisible(ptyId: string, visible: boolean): void {
+    if (visible) {
+      this.hiddenHeadlessPtys.delete(ptyId)
+      void this.flushDeferredHeadlessTerminal(ptyId)
+      return
+    }
+    this.hiddenHeadlessPtys.add(ptyId)
+  }
+
+  getHeadlessTerminalBacklogDebugSnapshot(): {
+    hiddenPtyCount: number
+    deferredPtyCount: number
+    deferredChars: number
+    maxDeferredCharsByPty: number
+  } {
+    let deferredPtyCount = 0
+    let deferredChars = 0
+    let maxDeferredCharsByPty = 0
+    for (const state of this.headlessTerminals.values()) {
+      const stateDeferredChars = (state.deferredChars ?? 0) + (state.deferredSpoolChars ?? 0)
+      if (stateDeferredChars <= 0) {
+        continue
+      }
+      deferredPtyCount++
+      deferredChars += stateDeferredChars
+      maxDeferredCharsByPty = Math.max(maxDeferredCharsByPty, stateDeferredChars)
+    }
+    return {
+      hiddenPtyCount: this.hiddenHeadlessPtys.size,
+      deferredPtyCount,
+      deferredChars,
+      maxDeferredCharsByPty
+    }
+  }
+
   subscribeToFitOverrideChanges(
     ptyId: string,
     listener: (event: { mode: 'mobile-fit' | 'desktop-fit'; cols: number; rows: number }) => void
@@ -4074,6 +4125,16 @@ export class OrcaRuntimeService {
     return this.ptyController?.getSize?.(ptyId) ?? null
   }
 
+  private getHeadlessTerminalInitialSize(ptyId: string): { cols: number; rows: number } {
+    const ptySize = this.getTerminalSize(ptyId)
+    if (this.getDriver(ptyId).kind === 'mobile' || this.terminalFitOverrides.has(ptyId)) {
+      return ptySize ?? { cols: 80, rows: 24 }
+    }
+    // Why: visible desktop geometry can arrive before the main-owned mirror is
+    // created; hidden restores should not fall back to stale spawn dimensions.
+    return this.lastRendererSizes.get(ptyId) ?? ptySize ?? { cols: 80, rows: 24 }
+  }
+
   // Why: daemon-backed PTYs that the runtime adopted after an Orca relaunch
   // start with a fresh headless emulator that has zero scrollback, even though
   // the daemon's on-disk checkpoint and the desktop xterm both contain the
@@ -4097,11 +4158,16 @@ export class OrcaRuntimeService {
       // every byte. The seed is only valid when the emulator is fresh.
       return
     }
-    const dims = size ?? this.getTerminalSize(ptyId) ?? { cols: 80, rows: 24 }
+    const dims = size ?? this.getHeadlessTerminalInitialSize(ptyId)
     const state: RuntimeHeadlessTerminal = {
       emulator: new HeadlessEmulator({ cols: dims.cols, rows: dims.rows }),
       outputSequence: 0,
-      writeChain: Promise.resolve()
+      writeChain: Promise.resolve(),
+      deferredChunks: [],
+      deferredChars: 0,
+      deferredSpoolChars: 0,
+      deferredSpoolWriteChain: Promise.resolve(),
+      restoringFromSpool: false
     }
     this.headlessTerminals.set(ptyId, state)
     state.writeChain = state.writeChain
@@ -4143,11 +4209,16 @@ export class OrcaRuntimeService {
     }
 
     this.headlessHydrationState.set(ptyId, 'pending')
-    const dims = this.getTerminalSize(ptyId) ?? { cols: 80, rows: 24 }
+    const dims = this.getHeadlessTerminalInitialSize(ptyId)
     const state: RuntimeHeadlessTerminal = {
       emulator: new HeadlessEmulator({ cols: dims.cols, rows: dims.rows }),
       outputSequence: 0,
-      writeChain: Promise.resolve()
+      writeChain: Promise.resolve(),
+      deferredChunks: [],
+      deferredChars: 0,
+      deferredSpoolChars: 0,
+      deferredSpoolWriteChain: Promise.resolve(),
+      restoringFromSpool: false
     }
     this.headlessTerminals.set(ptyId, state)
 
@@ -4172,8 +4243,8 @@ export class OrcaRuntimeService {
           state.emulator.resize(rendered.cols, rendered.rows)
         }
         await state.emulator.write(rendered.data)
-        const ptyDims = this.getTerminalSize(ptyId)
-        if (ptyDims && (ptyDims.cols !== rendered.cols || ptyDims.rows !== rendered.rows)) {
+        const ptyDims = this.getHeadlessTerminalInitialSize(ptyId)
+        if (ptyDims.cols !== rendered.cols || ptyDims.rows !== rendered.rows) {
           state.emulator.resize(ptyDims.cols, ptyDims.rows)
         }
         if (rendered.lastTitle) {
@@ -4221,6 +4292,18 @@ export class OrcaRuntimeService {
 
   private trackHeadlessTerminalData(ptyId: string, data: string, outputSequence: number): void {
     const state = this.getOrCreateHeadlessTerminal(ptyId)
+    if (this.hiddenHeadlessPtys.has(ptyId) || this.hasDeferredHeadlessTerminalDataForState(state)) {
+      this.deferHeadlessTerminalData(state, data, outputSequence)
+      return
+    }
+    this.enqueueHeadlessTerminalWrite(state, data, outputSequence)
+  }
+
+  private enqueueHeadlessTerminalWrite(
+    state: RuntimeHeadlessTerminal,
+    data: string,
+    outputSequence: number
+  ): Promise<void> {
     state.writeChain = state.writeChain
       .then(async () => {
         await state.emulator.write(data)
@@ -4230,6 +4313,218 @@ export class OrcaRuntimeService {
         // Best-effort state tracking; live streaming must continue even if
         // xterm rejects a malformed or raced write during shutdown.
       })
+    return state.writeChain
+  }
+
+  private deferHeadlessTerminalData(
+    state: RuntimeHeadlessTerminal,
+    data: string,
+    outputSequence: number
+  ): void {
+    // Why: hidden local terminals can stream megabytes from agents. Keep raw
+    // bytes ordered for later snapshots, but avoid parsing every byte inline.
+    for (let offset = 0; offset < data.length; offset += HIDDEN_HEADLESS_DRAIN_CHUNK_CHARS) {
+      const chunk = data.slice(offset, offset + HIDDEN_HEADLESS_DRAIN_CHUNK_CHARS)
+      const chunkSequence = outputSequence - (data.length - offset - chunk.length)
+      this.enqueueDeferredHeadlessChunk(state, chunk, chunkSequence)
+    }
+    this.scheduleDeferredHeadlessDrain(HIDDEN_HEADLESS_DRAIN_CONTINUE_MS)
+  }
+
+  private enqueueDeferredHeadlessChunk(
+    state: RuntimeHeadlessTerminal,
+    data: string,
+    outputSequence: number
+  ): void {
+    if (
+      !state.deferredSpoolPath &&
+      state.deferredChars + data.length <= HIDDEN_HEADLESS_MEMORY_CHARS_PER_PTY
+    ) {
+      state.deferredChunks.push({ data, outputSequence })
+      state.deferredChars += data.length
+      return
+    }
+    const path = this.getDeferredHeadlessSpoolPath(state, outputSequence - data.length)
+    state.deferredSpoolChars += data.length
+    state.deferredSpoolWriteChain = state.deferredSpoolWriteChain
+      .then(async () => {
+        if (state.deferredSpoolStartSequence === outputSequence - data.length) {
+          // Why: hidden terminal output may contain command output or secrets.
+          // Create the spill file owner-only before appending raw PTY bytes.
+          await writeFile(path, '', { flag: 'wx', mode: 0o600 })
+        }
+        await appendFile(path, data, 'utf8')
+      })
+      .catch(() => {
+        // Why: hidden restore must stay non-lossy even if temp-file spooling
+        // fails. Fall back to memory rather than dropping terminal bytes.
+        state.deferredSpoolChars = Math.max(0, state.deferredSpoolChars - data.length)
+        state.deferredChunks.push({ data, outputSequence })
+        state.deferredChars += data.length
+      })
+  }
+
+  private getDeferredHeadlessSpoolPath(
+    state: RuntimeHeadlessTerminal,
+    startSequence: number
+  ): string {
+    if (state.deferredSpoolPath) {
+      return state.deferredSpoolPath
+    }
+    const path = join(tmpdir(), `orca-hidden-headless-${randomUUID()}.log`)
+    state.deferredSpoolPath = path
+    state.deferredSpoolStartSequence = startSequence
+    state.deferredSpoolWriteChain = Promise.resolve()
+    return path
+  }
+
+  private scheduleDeferredHeadlessDrain(delayMs: number): void {
+    if (this.deferredHeadlessDrainTimer || this.deferredHeadlessDrainRunning) {
+      return
+    }
+    if (!this.hasDeferredHeadlessTerminalData()) {
+      return
+    }
+    this.deferredHeadlessDrainTimer = setTimeout(() => {
+      this.deferredHeadlessDrainTimer = null
+      void this.drainDeferredHeadlessTerminalsWithinBudget()
+    }, delayMs)
+  }
+
+  private hasDeferredHeadlessTerminalData(): boolean {
+    for (const state of this.headlessTerminals.values()) {
+      if (this.hasDeferredHeadlessTerminalDataForState(state)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private hasDeferredHeadlessTerminalDataForState(state: RuntimeHeadlessTerminal): boolean {
+    return (
+      (state.deferredChunks?.length ?? 0) > 0 ||
+      (state.deferredSpoolChars ?? 0) > 0 ||
+      state.restoringFromSpool
+    )
+  }
+
+  private async drainDeferredHeadlessTerminalsWithinBudget(): Promise<void> {
+    if (this.deferredHeadlessDrainRunning) {
+      return
+    }
+    this.deferredHeadlessDrainRunning = true
+    const startedAt = Date.now()
+    try {
+      for (const [ptyId, state] of this.headlessTerminals) {
+        if (
+          !this.hiddenHeadlessPtys.has(ptyId) ||
+          !this.hasDeferredHeadlessTerminalDataForState(state)
+        ) {
+          continue
+        }
+        await this.drainOneDeferredHeadlessChunk(state)
+        if (Date.now() - startedAt >= HIDDEN_HEADLESS_DRAIN_BUDGET_MS) {
+          break
+        }
+      }
+    } finally {
+      this.deferredHeadlessDrainRunning = false
+    }
+    this.scheduleDeferredHeadlessDrain(HIDDEN_HEADLESS_DRAIN_CONTINUE_MS)
+  }
+
+  private async flushDeferredHeadlessTerminal(ptyId: string): Promise<void> {
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return
+    }
+    while (this.hasDeferredHeadlessTerminalDataForState(state)) {
+      await this.drainOneDeferredHeadlessChunk(state)
+    }
+  }
+
+  private async drainOneDeferredHeadlessChunk(state: RuntimeHeadlessTerminal): Promise<void> {
+    if (state.deferredSpoolRestoreInFlight) {
+      await state.deferredSpoolRestoreInFlight
+    }
+    if ((state.deferredChunks?.length ?? 0) === 0 && (state.deferredSpoolChars ?? 0) > 0) {
+      await this.restoreDeferredHeadlessSpoolToMemory(state)
+    }
+    const chunk = state.deferredChunks?.shift()
+    if (!chunk) {
+      return
+    }
+    state.deferredChars = Math.max(0, state.deferredChars - chunk.data.length)
+    await this.enqueueHeadlessTerminalWrite(state, chunk.data, chunk.outputSequence)
+  }
+
+  private async restoreDeferredHeadlessSpoolToMemory(
+    state: RuntimeHeadlessTerminal
+  ): Promise<void> {
+    if (state.deferredSpoolRestoreInFlight) {
+      await state.deferredSpoolRestoreInFlight
+      return
+    }
+    const path = state.deferredSpoolPath
+    const startSequence = state.deferredSpoolStartSequence
+    const writeChain = state.deferredSpoolWriteChain ?? Promise.resolve()
+    if (!path || typeof startSequence !== 'number') {
+      state.deferredSpoolPath = undefined
+      state.deferredSpoolStartSequence = undefined
+      state.deferredSpoolChars = 0
+      state.deferredSpoolWriteChain = Promise.resolve()
+      return
+    }
+    state.restoringFromSpool = true
+    state.deferredSpoolPath = undefined
+    state.deferredSpoolStartSequence = undefined
+    state.deferredSpoolChars = 0
+    state.deferredSpoolWriteChain = Promise.resolve()
+    state.deferredSpoolRestoreInFlight = (async () => {
+      await writeChain
+      let data = ''
+      try {
+        data = await readFile(path, 'utf8')
+      } finally {
+        await unlink(path).catch(() => undefined)
+      }
+      const restoredChunks: { data: string; outputSequence: number }[] = []
+      for (let offset = 0; offset < data.length; offset += HIDDEN_HEADLESS_DRAIN_CHUNK_CHARS) {
+        const chunk = data.slice(offset, offset + HIDDEN_HEADLESS_DRAIN_CHUNK_CHARS)
+        restoredChunks.push({
+          data: chunk,
+          outputSequence: startSequence + offset + chunk.length
+        })
+      }
+      // Why: visible PTY data can arrive while old hidden spill bytes are
+      // being read back. Prepend restored bytes to preserve PTY order.
+      state.deferredChunks = [...restoredChunks, ...state.deferredChunks]
+      state.deferredChars += data.length
+    })().finally(() => {
+      state.restoringFromSpool = false
+      state.deferredSpoolRestoreInFlight = undefined
+    })
+    await state.deferredSpoolRestoreInFlight
+  }
+
+  private async clearDeferredHeadlessSpool(state: RuntimeHeadlessTerminal): Promise<void> {
+    const path = state.deferredSpoolPath
+    const writeChain = state.deferredSpoolWriteChain ?? Promise.resolve()
+    const restoreInFlight = state.deferredSpoolRestoreInFlight
+    state.deferredSpoolPath = undefined
+    state.deferredSpoolStartSequence = undefined
+    state.deferredSpoolChars = 0
+    state.deferredSpoolWriteChain = Promise.resolve()
+    state.deferredSpoolRestoreInFlight = undefined
+    state.restoringFromSpool = false
+    await restoreInFlight?.catch(() => undefined)
+    state.deferredChunks = []
+    state.deferredChars = 0
+    if (!path) {
+      return
+    }
+    await writeChain.catch(() => undefined)
+    await unlink(path).catch(() => undefined)
   }
 
   private getOrCreateHeadlessTerminal(ptyId: string): RuntimeHeadlessTerminal {
@@ -4237,18 +4532,33 @@ export class OrcaRuntimeService {
     if (existing) {
       return existing
     }
-    const size = this.getTerminalSize(ptyId) ?? { cols: 80, rows: 24 }
+    const size = this.getHeadlessTerminalInitialSize(ptyId)
     const state: RuntimeHeadlessTerminal = {
       emulator: new HeadlessEmulator({ cols: size.cols, rows: size.rows }),
       outputSequence: 0,
-      writeChain: Promise.resolve()
+      writeChain: Promise.resolve(),
+      deferredChunks: [],
+      deferredChars: 0,
+      deferredSpoolChars: 0,
+      deferredSpoolWriteChain: Promise.resolve(),
+      restoringFromSpool: false
     }
     this.headlessTerminals.set(ptyId, state)
     return state
   }
 
   private resizeHeadlessTerminal(ptyId: string, cols: number, rows: number): void {
-    this.headlessTerminals.get(ptyId)?.emulator.resize(cols, rows)
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return
+    }
+    if (this.hasDeferredHeadlessTerminalDataForState(state)) {
+      void this.flushDeferredHeadlessTerminal(ptyId).then(() => {
+        state.emulator.resize(cols, rows)
+      })
+      return
+    }
+    state.emulator.resize(cols, rows)
   }
 
   private async clearHeadlessTerminalBuffer(ptyId: string): Promise<void> {
@@ -4256,6 +4566,9 @@ export class OrcaRuntimeService {
     if (!state) {
       return
     }
+    state.deferredChunks = []
+    state.deferredChars = 0
+    await this.clearDeferredHeadlessSpool(state)
     // Why: headless writes are queued to preserve xterm parser order. Clear
     // must join that same chain or an earlier PTY chunk can finish after the
     // clear request and repopulate mobile scrollback.
@@ -4373,7 +4686,13 @@ export class OrcaRuntimeService {
     if (!state) {
       return null
     }
-    await state.writeChain
+    if (this.hasDeferredHeadlessTerminalDataForState(state)) {
+      await this.flushDeferredHeadlessTerminal(ptyId)
+      await state.writeChain
+    } else {
+      const writeChain = state.writeChain
+      await writeChain
+    }
     // Why: when an alternate-screen TUI (Claude Code, vim, etc.) is currently
     // active, the visible content is the alt-screen snapshot — replaying any
     // normal-buffer scrollback before it can duplicate shell prompts and
@@ -4400,11 +4719,13 @@ export class OrcaRuntimeService {
 
   private disposeHeadlessTerminal(ptyId: string): void {
     this.headlessHydrationState.delete(ptyId)
+    this.hiddenHeadlessPtys.delete(ptyId)
     const state = this.headlessTerminals.get(ptyId)
     if (!state) {
       return
     }
     this.headlessTerminals.delete(ptyId)
+    void this.clearDeferredHeadlessSpool(state)
     state.writeChain.finally(() => state.emulator.dispose()).catch(() => state.emulator.dispose())
   }
 
@@ -5406,7 +5727,6 @@ export class OrcaRuntimeService {
     if (!resized) {
       return false
     }
-    this.resizeHeadlessTerminal(ptyId, cols, rows)
     this.onExternalPtyResize(ptyId, cols, rows)
     return true
   }
@@ -6259,6 +6579,9 @@ export class OrcaRuntimeService {
     if (activeOverride && activeOverride.cols === cols && activeOverride.rows === rows) {
       return
     }
+    // Why: hidden renderer restores replay the main-owned headless buffer; it
+    // must track the same geometry as the resized desktop PTY.
+    this.resizeHeadlessTerminal(ptyId, cols, rows)
     this.refreshRendererGeometry(ptyId, cols, rows)
   }
 
@@ -6445,8 +6768,10 @@ export class OrcaRuntimeService {
           : targetWorktreeId
             ? []
             : [...worktreesById.values()]
-    const refreshedPtyLiveness =
-      await this.refreshPtyWorktreeRecordsFromController(resolvedWorktrees, targetWorktreeId)
+    const refreshedPtyLiveness = await this.refreshPtyWorktreeRecordsFromController(
+      resolvedWorktrees,
+      targetWorktreeId
+    )
     if (opts.requireFreshPtyLiveness && !refreshedPtyLiveness) {
       throw new Error('terminal_liveness_unavailable')
     }
