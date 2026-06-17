@@ -1,6 +1,7 @@
 /* oxlint-disable max-lines */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalHost } from './terminal-host'
+import { POST_READY_FLUSH_DELAY_MS } from './post-ready-flush-gate'
 import type { SubprocessHandle } from './session'
 
 function createMockSubprocess(): SubprocessHandle {
@@ -158,7 +159,7 @@ describe('TerminalHost', () => {
       expect(lastSubprocess.write).not.toHaveBeenCalled()
 
       lastSubprocess._onDataCb?.('\r\nuser@host $ ')
-      await new Promise((r) => setTimeout(r, 40))
+      await new Promise((r) => setTimeout(r, POST_READY_FLUSH_DELAY_MS + 10))
       expect(lastSubprocess.write).toHaveBeenCalledWith('echo hello\n')
     })
   })

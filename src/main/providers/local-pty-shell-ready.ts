@@ -31,6 +31,8 @@ import {
 let didEnsureShellReadyWrappers = false
 
 const STARTUP_COMMAND_READY_MAX_WAIT_MS = 1500
+export const POST_READY_STARTUP_WRITE_DELAY_MS = 100
+export const POST_READY_STARTUP_WRITE_FALLBACK_MS = 150
 const SHELL_READY_MARKER = '\x1b]777;orca-shell-ready'
 const SHELL_READY_MARKER_ESCAPED = '\\033]777;orca-shell-ready\\007'
 
@@ -540,7 +542,7 @@ export function writeStartupCommandWhenShellReady(
     // data is the shell drawing its prompt, which means the shell is about to
     // (or has already) switched to raw mode. A brief follow-up delay covers the
     // gap between the last prompt write() and the tcsetattr() that enables raw
-    // mode. The 50ms fallback timeout handles the case where the prompt data
+    // mode. The fallback timeout handles the case where the prompt data
     // arrived in the same chunk as the ready marker (no subsequent onData).
     postReadyDataDisposable = proc.onData(() => {
       postReadyDataDisposable?.dispose()
@@ -548,14 +550,14 @@ export function writeStartupCommandWhenShellReady(
       if (postReadyTimer !== null) {
         clearTimeout(postReadyTimer)
       }
-      postReadyTimer = setTimeout(flush, 30)
+      postReadyTimer = setTimeout(flush, POST_READY_STARTUP_WRITE_DELAY_MS)
     })
     postReadyTimer = setTimeout(() => {
       postReadyDataDisposable?.dispose()
       postReadyDataDisposable = null
       postReadyTimer = null
       flush()
-    }, 50)
+    }, POST_READY_STARTUP_WRITE_FALLBACK_MS)
   })
   onExit(cleanup)
 }

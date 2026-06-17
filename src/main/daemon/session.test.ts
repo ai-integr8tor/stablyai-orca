@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Session } from './session'
+import { POST_READY_FLUSH_DELAY_MS } from './post-ready-flush-gate'
 import type { SessionState, ShellReadyState } from './types'
 
 // Stub the subprocess — Session talks to it via an interface, not child_process directly.
@@ -199,7 +200,7 @@ describe('Session', () => {
       expect(subprocess.written).toEqual([])
 
       subprocess.simulateData('\r\nuser@host $ ')
-      vi.advanceTimersByTime(30)
+      vi.advanceTimersByTime(POST_READY_FLUSH_DELAY_MS)
       expect(subprocess.written).toEqual(['first\n', 'second\n'])
     })
 

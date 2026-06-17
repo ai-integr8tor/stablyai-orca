@@ -6,6 +6,7 @@ import {
 } from './post-ready-flush-gate'
 
 describe('PostReadyFlushGate', () => {
+  const EARLY_ECHO_RACE_WINDOW_MS = 50
   let onFlush: ReturnType<typeof vi.fn<() => void>>
   let gate: PostReadyFlushGate
 
@@ -31,6 +32,17 @@ describe('PostReadyFlushGate', () => {
     expect(onFlush).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(POST_READY_FLUSH_DELAY_MS)
+    expect(onFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps input queued through the early prompt echo race window', () => {
+    gate.arm()
+    gate.notifyData()
+
+    vi.advanceTimersByTime(EARLY_ECHO_RACE_WINDOW_MS)
+    expect(onFlush).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(POST_READY_FLUSH_DELAY_MS - EARLY_ECHO_RACE_WINDOW_MS)
     expect(onFlush).toHaveBeenCalledTimes(1)
   })
 

@@ -8,7 +8,10 @@ import { join, dirname } from 'path'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import type * as pty from 'node-pty'
 import type * as LocalPtyShellReadyModule from './local-pty-shell-ready'
-import { writeStartupCommandWhenShellReady } from './local-pty-shell-ready'
+import {
+  POST_READY_STARTUP_WRITE_FALLBACK_MS,
+  writeStartupCommandWhenShellReady
+} from './local-pty-shell-ready'
 
 const { getUserDataPathMock } = vi.hoisted(() => ({
   getUserDataPathMock: vi.fn<() => string>()
@@ -93,9 +96,8 @@ describe('writeStartupCommandWhenShellReady', () => {
     writeStartupCommandWhenShellReady(ready, proc, 'claude', () => {})
 
     await ready
-    // flush path waits for a post-ready data chunk (prompt draw) then 30ms,
-    // or falls back after 50ms if no data arrives.
-    vi.advanceTimersByTime(50)
+    // No prompt data arrived after the marker, so the fallback path flushes.
+    vi.advanceTimersByTime(POST_READY_STARTUP_WRITE_FALLBACK_MS)
     await Promise.resolve()
 
     expect(proc._writes).toEqual(['claude\n'])
@@ -108,7 +110,7 @@ describe('writeStartupCommandWhenShellReady', () => {
     writeStartupCommandWhenShellReady(ready, proc, 'claude', () => {})
 
     await ready
-    vi.advanceTimersByTime(50)
+    vi.advanceTimersByTime(POST_READY_STARTUP_WRITE_FALLBACK_MS)
     await Promise.resolve()
 
     expect(proc._writes).toEqual(['claude\r'])
@@ -121,7 +123,7 @@ describe('writeStartupCommandWhenShellReady', () => {
     writeStartupCommandWhenShellReady(ready, proc, 'claude\n', () => {})
 
     await ready
-    vi.advanceTimersByTime(50)
+    vi.advanceTimersByTime(POST_READY_STARTUP_WRITE_FALLBACK_MS)
     await Promise.resolve()
 
     expect(proc._writes).toEqual(['claude\n'])

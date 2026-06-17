@@ -18,8 +18,8 @@
  * which solves the same race on the non-daemon path.
  */
 
-export const POST_READY_FLUSH_DELAY_MS = 30
-export const POST_READY_FLUSH_FALLBACK_MS = 50
+export const POST_READY_FLUSH_DELAY_MS = 100
+export const POST_READY_FLUSH_FALLBACK_MS = 150
 
 export class PostReadyFlushGate {
   private awaitingPromptDraw = false
