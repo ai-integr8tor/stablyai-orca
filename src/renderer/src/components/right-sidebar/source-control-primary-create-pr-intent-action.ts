@@ -192,6 +192,7 @@ export function resolveDisabledCreatePrHeaderAction(
           'This branch is not ready for a {{value0}} yet.',
           { value0: copy.reviewLabel }
         )
+        break
     }
   }
 
