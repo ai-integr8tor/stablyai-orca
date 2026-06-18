@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -58,6 +58,39 @@ describe('installFinderServices', () => {
     expect(result).toEqual({ installed: 0, skipped: false })
   })
 
+  it('replaces stale workflow bundles instead of merging extra files', async () => {
+    const sourceRoot = await writeService('New Orca Terminal Here', 'current workflow')
+    const homePath = join(root, 'home')
+    const targetRoot = join(homePath, 'Library', 'Services', 'New Orca Terminal Here.workflow')
+    await mkdir(join(targetRoot, 'Contents'), { recursive: true })
+    await writeFile(join(targetRoot, 'Contents', 'document.wflow'), 'old workflow')
+    await writeFile(join(targetRoot, 'Contents', 'stale-file'), 'stale')
+
+    const result = await installFinderServices({ platform: 'darwin', sourceRoot, homePath })
+
+    expect(result).toEqual({ installed: 1, skipped: false })
+    await expect(readFile(join(targetRoot, 'Contents', 'document.wflow'), 'utf8')).resolves.toBe(
+      'current workflow'
+    )
+    await expect(stat(join(targetRoot, 'Contents', 'stale-file'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
+
+  it('reinstalls corrupt target workflow bundles', async () => {
+    const sourceRoot = await writeService('New Orca Terminal Here', 'current workflow')
+    const homePath = join(root, 'home')
+    const targetRoot = join(homePath, 'Library', 'Services', 'New Orca Terminal Here.workflow')
+    await mkdir(join(targetRoot, 'Contents'), { recursive: true })
+
+    const result = await installFinderServices({ platform: 'darwin', sourceRoot, homePath })
+
+    expect(result).toEqual({ installed: 1, skipped: false })
+    await expect(readFile(join(targetRoot, 'Contents', 'document.wflow'), 'utf8')).resolves.toBe(
+      'current workflow'
+    )
+  })
+
   it('skips non-macOS platforms without touching the user Services folder', async () => {
     const sourceRoot = await writeService('New Orca Terminal Here', 'terminal workflow')
     const homePath = join(root, 'home')
@@ -69,7 +102,9 @@ describe('installFinderServices', () => {
     })
 
     expect(result).toEqual({ installed: 0, skipped: true })
-    await expect(readFile(join(homePath, 'Library', 'Services'))).rejects.toThrow()
+    await expect(stat(join(homePath, 'Library', 'Services'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   it('fails loudly on macOS when the bundled Finder workflows are missing', async () => {

@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, stat } from 'fs/promises'
+import { cp, mkdir, readdir, readFile, rm, stat } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -38,9 +38,11 @@ export async function installFinderServices({
   for (const serviceName of sourceServices) {
     const sourcePath = join(sourceRoot, serviceName)
     const targetPath = join(targetRoot, serviceName)
-    if (await directoriesHaveSameFiles(sourcePath, targetPath)) {
+    const needsInstall = await directoriesHaveSameFiles(sourcePath, targetPath).catch(() => false)
+    if (needsInstall) {
       continue
     }
+    await rm(targetPath, { recursive: true, force: true })
     await cp(sourcePath, targetPath, { recursive: true, force: true })
     installed += 1
   }
@@ -78,24 +80,20 @@ async function directoriesHaveSameFiles(leftRoot: string, rightRoot: string): Pr
 }
 
 async function listRelativeFiles(root: string, prefix = ''): Promise<string[]> {
-  try {
-    const entries = await readdir(join(root, prefix), { withFileTypes: true })
-    const files: string[] = []
-    for (const entry of entries) {
-      const relativePath = prefix ? join(prefix, entry.name) : entry.name
-      if (entry.isDirectory()) {
-        files.push(...(await listRelativeFiles(root, relativePath)))
-      } else if (entry.isFile()) {
+  const entries = await readdir(join(root, prefix), { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries) {
+    const relativePath = prefix ? join(prefix, entry.name) : entry.name
+    if (entry.isDirectory()) {
+      files.push(...(await listRelativeFiles(root, relativePath)))
+    } else if (entry.isFile()) {
+      files.push(relativePath)
+    } else {
+      const entryStat = await stat(join(root, relativePath)).catch(() => null)
+      if (entryStat?.isFile()) {
         files.push(relativePath)
-      } else {
-        const entryStat = await stat(join(root, relativePath)).catch(() => null)
-        if (entryStat?.isFile()) {
-          files.push(relativePath)
-        }
       }
     }
-    return files.sort()
-  } catch {
-    return []
   }
+  return files.sort()
 }

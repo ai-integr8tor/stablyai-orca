@@ -73,7 +73,7 @@ describe('electron-builder config', () => {
     const finderServiceResources = electronBuilderConfig.mac.extraResources.filter((resource) =>
       resource.to?.includes('Finder Services')
     )
-    const finderServices = electronBuilderConfig.mac.extendInfo.NSServices ?? []
+    const finderServices = electronBuilderConfig.mac.extendInfo?.NSServices ?? []
 
     expect([...finderServiceResources, ...finderServices]).not.toHaveLength(0)
     if (finderServices.length > 0) {
