@@ -42,7 +42,7 @@ import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-messag
 import { createHash, randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { isAbsolute, join, resolve } from 'path'
-import { mkdir, readFile, readdir, rm, stat } from 'fs/promises'
+import { mkdir, readFile, readdir, realpath, rm, stat } from 'fs/promises'
 import { OrchestrationDb } from './orchestration/db'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
@@ -195,7 +195,8 @@ import { applyAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-
 import {
   isWindowsAbsolutePathLike,
   isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
+  normalizeRuntimePathForComparison,
+  resolveRuntimePath
 } from '../../shared/cross-platform-path'
 import { isWslUncPath } from '../../shared/wsl-paths'
 import {
@@ -1112,12 +1113,14 @@ type RuntimeNotifier = {
     startup?: WorktreeStartupLaunch,
     defaultTabs?: CreateWorktreeResult['defaultTabs']
   ): void
+  activateFolderWorkspace?(folderWorkspaceId: string): void
   createTerminal(
     worktreeId: string,
     opts: {
       command?: string
       env?: Record<string, string>
       title?: string
+      cwd?: string
       presentation?: RuntimeTerminalPresentation
     }
   ): void
@@ -9277,6 +9280,163 @@ export class OrcaRuntimeService {
     return this.store?.getFolderWorkspaces?.() ?? []
   }
 
+  async openFinderTerminalAtPath(input: {
+    path: string
+    title?: string
+  }): Promise<{ terminal: RuntimeTerminalCreate & { path: string } }> {
+    const folderPath = await this.resolveLocalFinderFolderPath(input.path)
+    const worktree = await this.resolveWorktreeForContainedPath(folderPath)
+    if (worktree) {
+      this.assertFinderWorktreeIsLocal(worktree)
+      const terminal = await this.createTerminal(`id:${worktree.id}`, {
+        cwd: folderPath,
+        activate: true,
+        ...(input.title ? { title: input.title } : {})
+      })
+      return { terminal: { ...terminal, path: folderPath } }
+    }
+    const workspace = await this.resolveOrCreateFinderFolderWorkspace(folderPath)
+    const terminal = await this.createTerminal(folderWorkspaceKey(workspace.id), {
+      cwd: folderPath,
+      activate: true,
+      ...(input.title ? { title: input.title } : {})
+    })
+    return { terminal: { ...terminal, path: folderPath } }
+  }
+
+  async openFinderWorkspaceAtPath(input: {
+    path: string
+    name?: string
+    terminal?: boolean
+  }): Promise<{
+    workspace:
+      | { type: 'worktree'; id: string; path: string; name?: string | null }
+      | { type: 'folder'; id: string; path: string; name?: string | null }
+    terminal?: RuntimeTerminalCreate & { path?: string }
+  }> {
+    const folderPath = await this.resolveLocalFinderFolderPath(input.path)
+    const worktree = await this.resolveWorktreeForContainedPath(folderPath)
+    if (worktree) {
+      this.assertFinderWorktreeIsLocal(worktree)
+      this.notifier?.activateWorktree(worktree.repoId, worktree.id)
+      const terminal =
+        input.terminal === true
+          ? await this.createTerminal(`id:${worktree.id}`, {
+              cwd: folderPath,
+              activate: true,
+              ...(input.name ? { title: input.name } : {})
+            })
+          : undefined
+      return {
+        workspace: {
+          type: 'worktree',
+          id: worktree.id,
+          path: worktree.path,
+          name: worktree.displayName
+        },
+        ...(terminal ? { terminal } : {})
+      }
+    }
+
+    const workspace = await this.resolveOrCreateFinderFolderWorkspace(folderPath, input.name)
+    this.notifier?.activateFolderWorkspace?.(workspace.id)
+    const terminal =
+      input.terminal === true
+        ? await this.createTerminal(folderWorkspaceKey(workspace.id), {
+            cwd: folderPath,
+            activate: true,
+            ...(input.name ? { title: input.name } : {})
+          })
+        : undefined
+    return {
+      workspace: {
+        type: 'folder',
+        id: folderWorkspaceKey(workspace.id),
+        path: workspace.folderPath,
+        name: workspace.name
+      },
+      ...(terminal ? { terminal } : {})
+    }
+  }
+
+  private async resolveLocalFinderFolderPath(pathValue: string): Promise<string> {
+    if (!isAbsolute(pathValue)) {
+      throw new Error('finder_path_must_be_absolute')
+    }
+    return await this.resolveComparableDirectoryPath(pathValue, 'finder_path_must_be_directory')
+  }
+
+  private assertFinderWorktreeIsLocal(worktree: ResolvedWorktree): void {
+    const repo = this.store?.getRepo(worktree.repoId)
+    if (repo?.connectionId) {
+      throw new Error('finder_remote_workspace_unsupported')
+    }
+  }
+
+  private async resolveComparablePath(pathValue: string): Promise<string> {
+    try {
+      return await realpath(pathValue)
+    } catch {
+      return resolve(pathValue)
+    }
+  }
+
+  private async resolveComparableDirectoryPath(
+    pathValue: string,
+    invalidErrorCode: string
+  ): Promise<string> {
+    let entry
+    try {
+      entry = await stat(pathValue)
+    } catch {
+      throw new Error(invalidErrorCode)
+    }
+    if (!entry.isDirectory()) {
+      throw new Error(invalidErrorCode)
+    }
+    try {
+      return await realpath(pathValue)
+    } catch {
+      throw new Error(invalidErrorCode)
+    }
+  }
+
+  private async resolveOrCreateFinderFolderWorkspace(
+    folderPath: string,
+    name?: string
+  ): Promise<FolderWorkspace> {
+    const store = this.requireStore()
+    const existingCandidates = await Promise.all(
+      (store.getFolderWorkspaces?.() ?? []).map(async (workspace) => ({
+        workspace,
+        comparablePath: await this.resolveComparablePath(workspace.folderPath)
+      }))
+    )
+    const existing = existingCandidates
+      .filter(({ comparablePath }) => isPathInsideOrEqual(comparablePath, folderPath))
+      .sort((left, right) => right.comparablePath.length - left.comparablePath.length)[0]?.workspace
+    if (existing) {
+      if (this.resolveFolderWorkspaceConnectionId(existing)) {
+        throw new Error('finder_remote_workspace_unsupported')
+      }
+      return existing
+    }
+
+    const workspaceName = name?.trim() || getRepoName(folderPath)
+    const group = await this.createProjectGroup({
+      name: workspaceName,
+      parentPath: folderPath,
+      connectionId: null,
+      createdFrom: 'manual'
+    })
+    return this.createFolderWorkspace({
+      projectGroupId: group.id,
+      name: workspaceName,
+      folderPath,
+      connectionId: null
+    })
+  }
+
   async createProjectGroup(input: {
     name: string
     parentPath?: string | null
@@ -15034,6 +15194,7 @@ export class OrcaRuntimeService {
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       telemetry?: WorktreeStartupLaunch['telemetry']
       title?: string
+      cwd?: string
       focus?: boolean
       rendererBacked?: boolean
       activate?: boolean
@@ -15059,7 +15220,8 @@ export class OrcaRuntimeService {
       opts.rendererBacked === true ? this.getAvailableAuthoritativeWindow() : null
     const shouldCreateInBackground =
       worktreeSelector !== undefined &&
-      ((!requiresRendererFocus && opts.rendererBacked !== true) ||
+      (opts.cwd !== undefined ||
+        (!requiresRendererFocus && opts.rendererBacked !== true) ||
         // Why: `orca serve` exposes the local runtime without a renderer
         // window. Renderer-backed Codex terminals are preferred for the app,
         // but headless CLI users still need a usable terminal handle.
@@ -15070,6 +15232,7 @@ export class OrcaRuntimeService {
         throw new Error('runtime_unavailable')
       }
       const workspace = await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
+      const cwd = await this.resolveTerminalSpawnCwd(workspace, opts.cwd)
       const preAllocatedHandle = this.createPreAllocatedTerminalHandle()
       // Why: mint tabId in main before spawn so paneKey is known at PTY env
       // build time. Hook-based agent status (Claude/Codex/Cursor/Gemini) keys
@@ -15157,7 +15320,7 @@ export class OrcaRuntimeService {
       const result = await this.ptyController.spawn({
         cols: 120,
         rows: 40,
-        cwd: workspace.path,
+        cwd,
         command: sequencedStartupCommand ? opts.command : (agentTeamsPlan?.command ?? opts.command),
         commandDelivery: 'provider',
         startupCommandDelivery: opts.startupCommandDelivery,
@@ -16467,6 +16630,24 @@ export class OrcaRuntimeService {
       repo,
       folderWorkspace: null
     }
+  }
+
+  private async resolveTerminalSpawnCwd(
+    workspace: TerminalWorkspaceLaunchScope,
+    cwd?: string
+  ): Promise<string> {
+    if (!cwd) {
+      return workspace.path
+    }
+    const resolvedCwd = resolveRuntimePath(workspace.path, cwd)
+    const [comparableWorkspacePath, comparableCwd] = await Promise.all([
+      this.resolveComparablePath(workspace.path),
+      this.resolveComparableDirectoryPath(resolvedCwd, 'terminal_cwd_outside_workspace')
+    ])
+    if (!isPathInsideOrEqual(comparableWorkspacePath, comparableCwd)) {
+      throw new Error('terminal_cwd_outside_workspace')
+    }
+    return comparableCwd
   }
 
   private buildTerminalWorkspaceEnv(
@@ -19591,17 +19772,18 @@ export class OrcaRuntimeService {
   }
 
   private async resolveWorktreeForContainedPath(cwd: string): Promise<ResolvedWorktree | null> {
-    const currentPath = resolve(cwd)
-    let best: ResolvedWorktree | null = null
+    const currentPath = await this.resolveComparablePath(cwd)
+    let best: { worktree: ResolvedWorktree; comparablePath: string } | null = null
     for (const candidate of await this.listResolvedWorktrees()) {
-      if (!isPathInsideOrEqual(candidate.path, currentPath)) {
+      const comparablePath = await this.resolveComparablePath(candidate.path)
+      if (!isPathInsideOrEqual(comparablePath, currentPath)) {
         continue
       }
-      if (!best || candidate.path.length > best.path.length) {
-        best = candidate
+      if (!best || comparablePath.length > best.comparablePath.length) {
+        best = { worktree: candidate, comparablePath }
       }
     }
-    return best
+    return best?.worktree ?? null
   }
 
   linearListIssues(

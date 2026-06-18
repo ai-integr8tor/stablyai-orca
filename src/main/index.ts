@@ -82,6 +82,7 @@ import { getInitialCodexRateLimitTarget } from './rate-limits/codex-rate-limit-t
 import { attachMainWindowServices } from './window/attach-main-window-services'
 import { createMainWindow, loadMainWindow } from './window/createMainWindow'
 import { createSystemTray, destroySystemTray } from './tray/system-tray'
+import { installFinderServices } from './finder-services-installer'
 import { focusExistingMainWindow } from './window/focus-existing-window'
 import { CodexAccountService } from './codex-accounts/service'
 import { CodexRuntimeHomeService } from './codex-accounts/runtime-home-service'
@@ -1339,6 +1340,15 @@ app.whenReady().then(async () => {
     await applyElectronProxySettings(store.getSettings())
   } catch {
     console.warn('[proxy] Failed to apply network proxy settings')
+  }
+  if (!isServeMode && app.isPackaged) {
+    void installFinderServices({
+      sourceRoot: join(process.resourcesPath, 'Finder Services')
+    }).catch((error) => {
+      // Why: Finder Services are convenience launchers. A registration/copy
+      // failure must not block the terminal app from starting.
+      console.warn('[finder-services] Failed to install Finder Services:', error)
+    })
   }
   // Why: browser sessions are used by desktop webviews and runtime profile
   // commands, so initialize them at app startup instead of a renderer IPC path.

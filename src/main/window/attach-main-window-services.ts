@@ -248,6 +248,8 @@ function registerRuntimeWindowLifecycle(
         ...(defaultTabs ? { defaultTabs } : {})
       })
     },
+    activateFolderWorkspace: (folderWorkspaceId) =>
+      send('ui:activateFolderWorkspace', { folderWorkspaceId }),
     createTerminal: (worktreeId, opts) =>
       send('ui:createTerminal', {
         worktreeId,
