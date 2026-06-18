@@ -8,6 +8,7 @@ import { assertRuntimeStatusCompatible } from './runtime-protocol-compat'
 export type RuntimeClientTarget = { kind: 'local' } | { kind: 'environment'; environmentId: string }
 
 const RUNTIME_COMPATIBILITY_CACHE_MAX = 32
+const RUNTIME_COMPATIBILITY_CHECK_TIMEOUT_MS = 15_000
 const compatibleRuntimeEnvironments = new Map<string, Promise<void>>()
 
 export class RuntimeRpcCallError extends Error {
@@ -50,7 +51,7 @@ export async function callRuntimeRpc<TResult>(
   options: { timeoutMs?: number; suppressFeatureInteraction?: boolean } = {}
 ): Promise<TResult> {
   if (target.kind === 'environment' && method !== 'status.get') {
-    await ensureRuntimeEnvironmentCompatible(target.environmentId, options.timeoutMs)
+    await ensureRuntimeEnvironmentCompatible(target.environmentId)
   }
   const nextParams = addFeatureInteractionSource(params, options)
   const response =
@@ -75,10 +76,7 @@ function addFeatureInteractionSource(
   return withBrowserPaneUiRuntimeRpcSource(params)
 }
 
-async function ensureRuntimeEnvironmentCompatible(
-  environmentId: string,
-  timeoutMs?: number
-): Promise<void> {
+async function ensureRuntimeEnvironmentCompatible(environmentId: string): Promise<void> {
   const cached = compatibleRuntimeEnvironments.get(environmentId)
   if (cached) {
     compatibleRuntimeEnvironments.delete(environmentId)
@@ -90,7 +88,9 @@ async function ensureRuntimeEnvironmentCompatible(
     const response = await window.api.runtimeEnvironments.call({
       selector: environmentId,
       method: 'status.get',
-      timeoutMs
+      // Why: compatibility is a cheap status probe; long operation timeouts
+      // belong to the actual RPC, not the preflight.
+      timeoutMs: RUNTIME_COMPATIBILITY_CHECK_TIMEOUT_MS
     })
     const status = unwrapRuntimeRpcResult<RuntimeStatus>(
       response as RuntimeRpcResponse<RuntimeStatus>

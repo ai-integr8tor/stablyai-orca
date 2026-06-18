@@ -573,6 +573,7 @@ import {
   writeIssueCommand
 } from '../hooks'
 import { DEFAULT_REPO_BADGE_COLOR, getDefaultVoiceSettings } from '../../shared/constants'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../shared/git-remote-operation-timeout'
 import { listRepoWorktrees } from '../repo-worktrees'
 import { createWorktreeLinkedPaths, removeWorktreeLinkedPaths } from '../ipc/worktree-symlinks'
 import { deleteWorktreeHistoryDir } from '../terminal-history'
@@ -2426,6 +2427,9 @@ export class OrcaRuntimeService {
       // must not treat browser panes as supported just because runtime RPC is up.
       capabilities,
       hostPlatform: process.platform,
+      gitRemoteOperationOuterTimeoutMs: resolveGitRemoteOperationOuterTimeoutMs(
+        process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+      ),
       protocolVersion: RUNTIME_PROTOCOL_VERSION,
       minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
     }

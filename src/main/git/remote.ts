@@ -2,11 +2,33 @@ import { normalizeGitErrorMessage } from '../../shared/git-remote-error'
 import { resolveEffectiveGitUpstream } from '../../shared/git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from '../../shared/git-remote-branch-name'
 import { resolveGitRemoteRebaseSource } from '../../shared/git-rebase-source'
+import {
+  DEFAULT_GIT_REMOTE_OPERATION_TIMEOUT_MS,
+  resolveGitRemoteOperationTimeoutMs
+} from '../../shared/git-remote-operation-timeout'
 import type { GitPushTarget } from '../../shared/types'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
 import { validateGitPushTarget } from './push-target-validation'
 import { gitExecFileAsync } from './runner'
+
+export { DEFAULT_GIT_REMOTE_OPERATION_TIMEOUT_MS }
+
+function getGitRemoteOperationTimeoutMs(): number {
+  return resolveGitRemoteOperationTimeoutMs(process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS)
+}
+
+function gitRemoteOperationOptions(
+  worktreePath: string,
+  options: GitRuntimeOptions = {}
+): ReturnType<typeof gitOptionsForWorktree> & { timeout: number } {
+  return {
+    ...gitOptionsForWorktree(worktreePath, options),
+    // Why: local IPC has no renderer RPC timeout; bound remote subprocesses so
+    // auth/helper/remote stalls cannot leave Source Control loading forever.
+    timeout: getGitRemoteOperationTimeoutMs()
+  }
+}
 
 async function getConfiguredPushTarget(
   worktreePath: string,
@@ -201,7 +223,7 @@ export async function gitPush(
       '--set-upstream',
       ...(target ? [target.remote, target.refspec] : ['origin', 'HEAD'])
     ]
-    await gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options))
+    await gitExecFileAsync(args, gitRemoteOperationOptions(worktreePath, options))
   } catch (error) {
     throw new Error(normalizeGitErrorMessage(error, 'push'))
   }
@@ -218,7 +240,7 @@ async function gitPullWithArgs(
       const target = await validateGitPushTarget(worktreePath, pushTarget, options)
       await gitExecFileAsync(
         ['pull', ...pullArgs, target.remoteName, target.branchName],
-        gitOptionsForWorktree(worktreePath, options)
+        gitRemoteOperationOptions(worktreePath, options)
       )
       return
     }
@@ -230,12 +252,12 @@ async function gitPullWithArgs(
       // target origin/<branch>. Pull the same effective branch the UI reports.
       await gitExecFileAsync(
         ['pull', ...pullArgs, upstream.remoteName, upstream.branchName],
-        gitOptionsForWorktree(worktreePath, options)
+        gitRemoteOperationOptions(worktreePath, options)
       )
       return
     }
 
-    await gitExecFileAsync(['pull', ...pullArgs], gitOptionsForWorktree(worktreePath, options))
+    await gitExecFileAsync(['pull', ...pullArgs], gitRemoteOperationOptions(worktreePath, options))
   } catch (error) {
     throw new Error(normalizeGitErrorMessage(error, 'pull'))
   }
@@ -272,7 +294,7 @@ export async function gitPullRebaseFromBase(
     )
     await gitExecFileAsync(
       ['pull', '--rebase', source.remoteName, source.branchName],
-      gitOptionsForWorktree(worktreePath, options)
+      gitRemoteOperationOptions(worktreePath, options)
     )
   } catch (error) {
     throw new Error(normalizeGitErrorMessage(error, 'pull'))
@@ -289,11 +311,11 @@ export async function gitFetch(
       const target = await validateGitPushTarget(worktreePath, pushTarget, options)
       await gitExecFileAsync(
         ['fetch', '--prune', target.remoteName],
-        gitOptionsForWorktree(worktreePath, options)
+        gitRemoteOperationOptions(worktreePath, options)
       )
       return
     }
-    await gitExecFileAsync(['fetch', '--prune'], gitOptionsForWorktree(worktreePath, options))
+    await gitExecFileAsync(['fetch', '--prune'], gitRemoteOperationOptions(worktreePath, options))
   } catch (error) {
     throw new Error(normalizeGitErrorMessage(error, 'fetch'))
   }

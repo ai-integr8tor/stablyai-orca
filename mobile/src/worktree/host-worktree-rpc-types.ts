@@ -4,6 +4,7 @@ import type { RepoIcon } from '../../../src/shared/repo-icon'
 export type DesktopStatus = {
   protocolVersion?: number
   minCompatibleMobileVersion?: number
+  gitRemoteOperationOuterTimeoutMs?: number
 }
 
 export type RepoSummary = {

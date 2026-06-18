@@ -54,6 +54,7 @@ import {
   MAX_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MIN_SSH_RELAY_GRACE_PERIOD_SECONDS
 } from '../../shared/ssh-types'
+import { resolveGitRemoteOperationTimeoutMs } from '../../shared/git-remote-operation-timeout'
 
 export type RelayDeployResult = {
   transport: MultiplexerTransport
@@ -75,6 +76,30 @@ const RELAY_DEPLOY_TIMEOUT_MS = 300_000
 // npm install on a cold Windows cache plus antivirus scanning can exceed the
 // default 30s exec timeout.
 const NATIVE_DEPS_INSTALL_TIMEOUT_MS = 240_000
+const GIT_REMOTE_OPERATION_TIMEOUT_ENV = 'ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS'
+
+function getLocalGitRemoteOperationTimeoutEnvValue(): string | null {
+  const raw = process.env[GIT_REMOTE_OPERATION_TIMEOUT_ENV]
+  if (!raw || !Number.isFinite(Number(raw)) || Number(raw) <= 0) {
+    return null
+  }
+  return String(resolveGitRemoteOperationTimeoutMs(raw))
+}
+
+function posixGitRemoteOperationTimeoutPrefix(): string {
+  const value = getLocalGitRemoteOperationTimeoutEnvValue()
+  return value ? `${GIT_REMOTE_OPERATION_TIMEOUT_ENV}=${shellEscape(value)} ` : ''
+}
+
+function windowsPowerShellGitRemoteOperationTimeoutPrefix(): string {
+  const value = getLocalGitRemoteOperationTimeoutEnvValue()
+  return value ? `$env:${GIT_REMOTE_OPERATION_TIMEOUT_ENV} = ${powerShellLiteral(value)}; ` : ''
+}
+
+function windowsCmdGitRemoteOperationTimeoutPrefix(): string {
+  const value = getLocalGitRemoteOperationTimeoutEnvValue()
+  return value ? `set ${GIT_REMOTE_OPERATION_TIMEOUT_ENV}=${value}&& ` : ''
+}
 
 function execHostCommand(
   conn: SshConnection,
@@ -619,7 +644,7 @@ async function launchRelay(
       console.log('[ssh-relay] Existing relay socket found, attempting reconnect...')
       try {
         const channel = await conn.exec(
-          `cd ${escapedDir} && ${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`
+          `cd ${escapedDir} && ${posixGitRemoteOperationTimeoutPrefix()}${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`
         )
         const transport = await waitForSentinel(channel)
         console.log('[ssh-relay] Reconnected to existing relay via socket')
@@ -649,7 +674,7 @@ async function launchRelay(
   // Fire-and-forget via conn.exec: we don't need the output — the socket
   // poll below detects readiness.
   const logFile = `${remoteDir}/relay.log`
-  const launchCmd = `cd ${escapedDir} && nohup ${escapedNode} relay.js --detached --grace-time ${graceTime} --sock-path ${shellEscape(sockFile)} > ${shellEscape(logFile)} 2>&1 </dev/null &`
+  const launchCmd = `cd ${escapedDir} && ${posixGitRemoteOperationTimeoutPrefix()}nohup ${escapedNode} relay.js --detached --grace-time ${graceTime} --sock-path ${shellEscape(sockFile)} > ${shellEscape(logFile)} 2>&1 </dev/null &`
   const launchChannel = await conn.exec(launchCmd)
   launchChannel.on('data', () => {})
   launchChannel.on('error', () => {})
@@ -710,7 +735,7 @@ async function launchRelay(
   // stdin/stdout to the relay's Unix socket — same path used for reconnect
   // after app restart.
   const channel = await conn.exec(
-    `cd ${escapedDir} && ${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`
+    `cd ${escapedDir} && ${posixGitRemoteOperationTimeoutPrefix()}${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`
   )
   return { transport: await waitForSentinel(channel), nodePath, sockPath: sockFile }
 }
@@ -917,7 +942,7 @@ function windowsRelayConnectCommand(
     hostPlatform,
     nodePath,
     remoteDir,
-    `& ${powerShellLiteral(nodePath)} relay.js --connect --sock-path ${powerShellLiteral(sockPath)}`
+    `${windowsPowerShellGitRemoteOperationTimeoutPrefix()}& ${powerShellLiteral(nodePath)} relay.js --connect --sock-path ${powerShellLiteral(sockPath)}`
   )
 }
 
@@ -936,7 +961,7 @@ function windowsRelayLaunchCommand(
   // closes. WMI re-parents the detached relay so the named pipe stays alive.
   const quoted = (value: string): string => `"${value.replace(/"/g, '\\"')}"`
   const relayCommandLine = [
-    quoted(nodePath),
+    `${windowsCmdGitRemoteOperationTimeoutPrefix()}${quoted(nodePath)}`,
     quoted(relayScript),
     '--detached',
     '--grace-time',

@@ -90,6 +90,7 @@ import {
   assertClipboardImageByteLengthWithinLimit,
   assertClipboardImageDimensionsWithinLimit
 } from '../../../shared/clipboard-image'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../../shared/git-remote-operation-timeout'
 import { sanitizeWebRuntimeWorkspaceSession } from './web-workspace-session'
 import {
   normalizeFeatureInteractions,
@@ -115,10 +116,17 @@ export const MAX_CLIPBOARD_IMAGE_PIXELS = CLIPBOARD_IMAGE_MAX_PIXELS
 export const CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS = 512 * 1024
 export const CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS = 256 * 1024
 const CLIPBOARD_IMAGE_SAVE_TIMEOUT_MS = 30_000
+const WEB_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS =
+  resolveGitRemoteOperationOuterTimeoutMs(undefined)
 
 let activeEnvironment: StoredWebRuntimeEnvironment | null = readStoredWebRuntimeEnvironment()
 let activeClient: WebRuntimeClient | null = null
 let activeClientEnvironmentId: string | null = null
+let cachedGitRemoteOperationTimeout: {
+  environmentId: string
+  runtimeId: string | null
+  timeoutMs: number
+} | null = null
 let cachedWorktrees: { loadedAt: number; worktrees: Worktree[] } | null = null
 let cachedDetectedWorktrees: { loadedAt: number; worktrees: Worktree[] } | null = null
 const runtimeCallQueuePool = new RuntimeRpcCallQueuePool()
@@ -452,6 +460,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
           dockBadgeLabel: null
         }),
       getFeatureWallAssetBaseUrl: () => Promise.resolve('/'),
+      getGitRemoteOperationOuterTimeoutMs: () => getWebGitRemoteOperationTimeoutMs(),
       relaunch: () => Promise.resolve(window.location.reload()),
       restart: () => Promise.resolve(window.location.reload()),
       reload: () => Promise.resolve(window.location.reload()),
@@ -1442,50 +1451,76 @@ function createGitApi(): NonNullable<Partial<PreloadApi>['git']> {
     },
     fetch: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.fetch', {
-        worktree: toRuntimeWorktreeSelector(worktree.id),
-        pushTarget
-      })
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
+      await callRuntimeResult(
+        'git.fetch',
+        {
+          worktree: toRuntimeWorktreeSelector(worktree.id),
+          pushTarget
+        },
+        timeoutMs
+      )
     },
     syncFork: async ({ worktreePath, expectedUpstream }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
       return callRuntimeResult(
         'git.forkSync',
         {
           worktree: toRuntimeWorktreeSelector(worktree.id),
           expectedUpstream
         },
-        60_000
+        timeoutMs
       )
     },
     push: async ({ worktreePath, publish, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.push', {
-        worktree: toRuntimeWorktreeSelector(worktree.id),
-        publish,
-        pushTarget
-      })
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
+      await callRuntimeResult(
+        'git.push',
+        {
+          worktree: toRuntimeWorktreeSelector(worktree.id),
+          publish,
+          pushTarget
+        },
+        timeoutMs
+      )
     },
     pull: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.pull', {
-        worktree: toRuntimeWorktreeSelector(worktree.id),
-        pushTarget
-      })
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
+      await callRuntimeResult(
+        'git.pull',
+        {
+          worktree: toRuntimeWorktreeSelector(worktree.id),
+          pushTarget
+        },
+        timeoutMs
+      )
     },
     fastForward: async ({ worktreePath, pushTarget }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.fastForward', {
-        worktree: toRuntimeWorktreeSelector(worktree.id),
-        pushTarget
-      })
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
+      await callRuntimeResult(
+        'git.fastForward',
+        {
+          worktree: toRuntimeWorktreeSelector(worktree.id),
+          pushTarget
+        },
+        timeoutMs
+      )
     },
     rebaseFromBase: async ({ worktreePath, baseRef }) => {
       const worktree = await resolveRuntimeWorktreeByPath(worktreePath)
-      await callRuntimeResult('git.rebaseFromBase', {
-        worktree: toRuntimeWorktreeSelector(worktree.id),
-        baseRef
-      })
+      const timeoutMs = await getWebGitRemoteOperationTimeoutMs()
+      await callRuntimeResult(
+        'git.rebaseFromBase',
+        {
+          worktree: toRuntimeWorktreeSelector(worktree.id),
+          baseRef
+        },
+        timeoutMs
+      )
     },
     branchDiff: async ({ worktreePath, filePath, compare, oldPath }) => {
       const file = await resolveRuntimeFilePath(filePath, worktreePath)
@@ -2574,10 +2609,50 @@ async function getRemoteRuntimeStatus(): Promise<RuntimeStatus> {
   return callRuntimeResult<RuntimeStatus>('status.get', undefined, 15_000)
 }
 
+function readGitRemoteOperationTimeoutFromStatus(status: RuntimeStatus): number {
+  const value = status.gitRemoteOperationOuterTimeoutMs
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : WEB_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS
+}
+
+async function getWebGitRemoteOperationTimeoutMs(): Promise<number> {
+  activeEnvironment = activeEnvironment ?? readStoredWebRuntimeEnvironment()
+  const environment = activeEnvironment
+  if (!environment) {
+    return WEB_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS
+  }
+  if (
+    cachedGitRemoteOperationTimeout?.environmentId === environment.id &&
+    cachedGitRemoteOperationTimeout.runtimeId === environment.runtimeId
+  ) {
+    return cachedGitRemoteOperationTimeout.timeoutMs
+  }
+  try {
+    const timeoutMs = readGitRemoteOperationTimeoutFromStatus(await getRemoteRuntimeStatus())
+    const latestEnvironment = activeEnvironment ?? environment
+    cachedGitRemoteOperationTimeout = {
+      environmentId: latestEnvironment.id,
+      runtimeId: latestEnvironment.runtimeId ?? null,
+      timeoutMs
+    }
+    return timeoutMs
+  } catch {
+    return WEB_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS
+  }
+}
+
 function getClientForEnvironment(environment: StoredWebRuntimeEnvironment): WebRuntimeClient {
   if (!activeClient || activeClientEnvironmentId !== environment.id) {
     activeClient?.close()
-    activeClient = new WebRuntimeClient(getPreferredWebPairingOffer(environment))
+    const client = new WebRuntimeClient(getPreferredWebPairingOffer(environment), {
+      onConnectionInterrupted: () => {
+        if (activeClient === client) {
+          cachedGitRemoteOperationTimeout = null
+        }
+      }
+    })
+    activeClient = client
     activeClientEnvironmentId = environment.id
   }
   return activeClient
@@ -2587,6 +2662,7 @@ function closeActiveRuntimeClients(): void {
   activeClient?.close()
   activeClient = null
   activeClientEnvironmentId = null
+  cachedGitRemoteOperationTimeout = null
   invalidateRuntimeWorktreeCaches()
 }
 
@@ -2627,6 +2703,12 @@ function updateEnvironmentFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   const runtimeId = response.ok ? response._meta.runtimeId : (response._meta?.runtimeId ?? null)
+  if (cachedGitRemoteOperationTimeout?.environmentId === environment.id) {
+    const previousRuntimeId = environment.runtimeId ?? null
+    if (previousRuntimeId !== runtimeId) {
+      cachedGitRemoteOperationTimeout = null
+    }
+  }
   activeEnvironment = updateStoredEnvironmentRuntimeId(environment, runtimeId)
 }
 

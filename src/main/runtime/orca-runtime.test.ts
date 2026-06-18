@@ -58,6 +58,7 @@ import {
 } from '../providers/ssh-filesystem-dispatch'
 import { registerSshGitProvider, unregisterSshGitProvider } from '../providers/ssh-git-dispatch'
 import { DEFAULT_REPO_BADGE_COLOR, getDefaultWorkspaceSession } from '../../shared/constants'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../shared/git-remote-operation-timeout'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree-id'
@@ -1216,10 +1217,29 @@ describe('OrcaRuntimeService', () => {
     expect(status.capabilities).toContain('mobile.tasks.v1')
     expect(status.capabilities).toContain('project-host-setup.v1')
     expect(status.capabilities).not.toContain('browser.screencast.v1')
+    expect(status.gitRemoteOperationOuterTimeoutMs).toBe(
+      resolveGitRemoteOperationOuterTimeoutMs(undefined)
+    )
     expect(typeof status.protocolVersion).toBe('number')
     expect(typeof status.minCompatibleMobileVersion).toBe('number')
     expect(status.protocolVersion).toBeGreaterThanOrEqual(1)
     expect(status.minCompatibleMobileVersion).toBeGreaterThanOrEqual(0)
+  })
+
+  it('reports env-resolved git remote operation timeout on status', () => {
+    const previousTimeout = process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'
+    try {
+      const runtime = createRuntime()
+
+      expect(runtime.getStatus().gitRemoteOperationOuterTimeoutMs).toBe(185_000)
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+      } else {
+        process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = previousTimeout
+      }
+    }
   })
 
   it('advertises browser screencast only when a renderer window is available', () => {

@@ -577,6 +577,58 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(sendRemoteRuntimeConnectionRequestMock).not.toHaveBeenCalled()
   })
 
+  it('keeps shared-control capability probes on the control-plane timeout', async () => {
+    registerRuntimeEnvironmentHandlers()
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: {
+        runtimeId: 'runtime-remote',
+        capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+      },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    sendRemoteRuntimeSharedControlRequestMock.mockResolvedValue({
+      id: 'fetch',
+      ok: true,
+      result: { success: true },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const call = handler<
+      { selector: string; method: string; params?: unknown; timeoutMs?: number },
+      { ok: true; result: unknown }
+    >('runtimeEnvironments:call')
+    await expect(
+      call(null, {
+        selector: 'desk',
+        method: 'git.fetch',
+        params: { worktree: 'id:wt-1' },
+        timeoutMs: 185_000
+      })
+    ).resolves.toMatchObject({ ok: true })
+
+    expect(sendRemoteRuntimeRequestMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      'status.get',
+      undefined,
+      15_000
+    )
+    expect(sendRemoteRuntimeSharedControlRequestMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      'git.fetch',
+      { worktree: 'id:wt-1' },
+      185_000
+    )
+  })
+
   it('rechecks shared-control support when the saved runtime identity changes', async () => {
     registerRuntimeEnvironmentHandlers()
     let statusCalls = 0

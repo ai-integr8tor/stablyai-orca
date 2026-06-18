@@ -468,8 +468,7 @@ describe('createDetectedAgentsSlice remote detection', () => {
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
       selector: 'env-1',
       method: 'status.get',
-      params: undefined,
-      timeoutMs: undefined
+      timeoutMs: 15000
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(2, {
       selector: 'env-1',

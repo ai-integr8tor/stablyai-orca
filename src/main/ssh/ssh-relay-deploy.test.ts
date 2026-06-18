@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/mock/app' }
@@ -113,8 +113,18 @@ function makeMockConnection(): SshConnection {
 }
 
 describe('deployAndLaunchRelay', () => {
+  const originalRemoteOperationTimeout = process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    if (originalRemoteOperationTimeout === undefined) {
+      delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    } else {
+      process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = originalRemoteOperationTimeout
+    }
   })
 
   it('calls exec to detect remote platform', async () => {
@@ -178,6 +188,30 @@ describe('deployAndLaunchRelay', () => {
       .find((cmd) => cmd.includes('--detached'))
 
     expect(launchCommand).toContain(`--grace-time ${DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS}`)
+  })
+
+  it('propagates the git remote operation timeout env to POSIX relay launch commands', async () => {
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'
+    const conn = makeMockConnection()
+    const mockExecCommand = vi.mocked(execCommand)
+    mockExecCommand.mockResolvedValueOnce('Linux x86_64')
+    mockExecCommand.mockResolvedValueOnce('/home/user')
+    mockExecCommand.mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
+    mockExecCommand.mockResolvedValueOnce('DEAD')
+    mockExecCommand.mockResolvedValueOnce('READY')
+
+    await deployAndLaunchRelay(conn)
+
+    const execCommands = vi.mocked(conn.exec).mock.calls.map(([cmd]) => cmd as string)
+    const launchCommand = execCommands.find((cmd) => cmd.includes('--detached')) ?? ''
+    const connectCommand =
+      execCommands.find((cmd) => cmd.includes('--connect') && !cmd.includes('--detached')) ?? ''
+    expect(launchCommand).toContain(
+      "ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS='180000' nohup '/usr/bin/node'"
+    )
+    expect(connectCommand).toContain(
+      "ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS='180000' '/usr/bin/node' relay.js --connect"
+    )
   })
 
   it('allows an unlimited SSH disconnect grace window', async () => {
@@ -337,6 +371,36 @@ describe('deployAndLaunchRelay', () => {
     expect(launchScript).not.toContain('\\\\.\\pipe\\agent-hooks')
     const waitScript = decodedScripts.find((script) => script.includes('deadline=Date.now()')) ?? ''
     expect(waitScript).toContain('setTimeout(attempt,intervalMs)')
+  })
+
+  it('propagates the git remote operation timeout env to Windows relay commands', async () => {
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'
+    const conn = makeMockConnection()
+    const mockExecCommand = vi.mocked(execCommand)
+    vi.mocked(resolveRemoteNodePath).mockResolvedValue('C:/Program Files/nodejs/node.exe')
+    mockExecCommand
+      .mockRejectedValueOnce(new Error('uname not found'))
+      .mockResolvedValueOnce('Windows X64')
+      .mockResolvedValueOnce('C:\\Users\\me user')
+      .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('WAITING')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('READY')
+      .mockResolvedValueOnce('')
+
+    await deployAndLaunchRelay(conn, undefined, 300, 'target-a')
+
+    const connectScript = decodePowerShellCommand(vi.mocked(conn.exec).mock.calls[0]?.[0] as string)
+    expect(connectScript).toContain("$env:ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'; &")
+
+    const launchScript =
+      mockExecCommand.mock.calls
+        .map(([, command]) => decodePowerShellCommand(command))
+        .find((script) => script?.includes('Invoke-CimMethod')) ?? ''
+    expect(launchScript).toContain(
+      'set ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS=180000&& "C:/Program Files/nodejs/node.exe"'
+    )
   })
 
   it('relaunches Windows remotes on a fallback pipe when reconnecting the occupied pipe fails', async () => {

@@ -1849,6 +1849,300 @@ describe('web git preload API', () => {
       { method: 'git.remoteCommitUrl', params: { worktree: 'id:wt-1', sha: TEST_COMMIT_OID } }
     ])
   })
+
+  it('uses remote-operation timeouts for paired web source-control calls', async () => {
+    const runtimeCalls: { method: string; params: unknown; timeoutMs?: number }[] = []
+    const worktree = {
+      id: 'wt-1',
+      repoId: 'repo-1',
+      path: '/workspace/repo',
+      head: 'abc123',
+      branch: 'refs/heads/main',
+      isBare: false,
+      isMainWorktree: true,
+      displayName: 'repo',
+      comment: '',
+      linkedIssue: null,
+      linkedPR: null,
+      linkedLinearIssue: null,
+      linkedGitLabMR: null,
+      linkedGitLabIssue: null,
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 0,
+      lastActivityAt: 0,
+      workspaceStatus: 'todo'
+    }
+    vi.doMock('./web-runtime-client', () => ({
+      WebRuntimeClient: class {
+        call(
+          method: string,
+          params?: unknown,
+          options?: { timeoutMs?: number }
+        ): Promise<RuntimeRpcResponse<unknown>> {
+          runtimeCalls.push({ method, params, timeoutMs: options?.timeoutMs })
+          if (method === 'repo.list') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repos: [{ id: 'repo-1' }] },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          if (method === 'worktree.detectedList') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repoId: 'repo-1', authoritative: true, worktrees: [worktree] },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          if (method === 'status.get') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { gitRemoteOperationOuterTimeoutMs: 185_000 },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          return Promise.resolve({
+            id: `call-${runtimeCalls.length}`,
+            ok: true,
+            result: method === 'git.forkSync' ? { status: 'up-to-date' } : { success: true },
+            _meta: { runtimeId: 'runtime-1' }
+          })
+        }
+
+        close(): void {}
+      }
+    }))
+
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    await globals.window.api.git.fetch({ worktreePath: '/workspace/repo' })
+    await globals.window.api.git.push({ worktreePath: '/workspace/repo', publish: true })
+    await globals.window.api.git.pull({ worktreePath: '/workspace/repo' })
+    await globals.window.api.git.fastForward({ worktreePath: '/workspace/repo' })
+    await globals.window.api.git.rebaseFromBase({
+      worktreePath: '/workspace/repo',
+      baseRef: 'origin/main'
+    })
+    await globals.window.api.git.syncFork({
+      worktreePath: '/workspace/repo',
+      expectedUpstream: { owner: 'stablyai', repo: 'orca' }
+    })
+
+    expect(runtimeCalls.filter((call) => call.method === 'status.get')).toHaveLength(1)
+    const timeoutMs = 185_000
+    const sourceControlCalls = runtimeCalls.filter((call) => call.method.startsWith('git.'))
+    expect(sourceControlCalls).toEqual([
+      { method: 'git.fetch', params: { worktree: 'id:wt-1', pushTarget: undefined }, timeoutMs },
+      {
+        method: 'git.push',
+        params: { worktree: 'id:wt-1', publish: true, pushTarget: undefined },
+        timeoutMs
+      },
+      { method: 'git.pull', params: { worktree: 'id:wt-1', pushTarget: undefined }, timeoutMs },
+      {
+        method: 'git.fastForward',
+        params: { worktree: 'id:wt-1', pushTarget: undefined },
+        timeoutMs
+      },
+      {
+        method: 'git.rebaseFromBase',
+        params: { worktree: 'id:wt-1', baseRef: 'origin/main' },
+        timeoutMs
+      },
+      {
+        method: 'git.forkSync',
+        params: {
+          worktree: 'id:wt-1',
+          expectedUpstream: { owner: 'stablyai', repo: 'orca' }
+        },
+        timeoutMs
+      }
+    ])
+  })
+
+  it('refreshes paired source-control timeout after runtime id changes', async () => {
+    const runtimeCalls: { method: string; params: unknown; timeoutMs?: number }[] = []
+    let runtimeId = 'runtime-1'
+    let gitRemoteOperationOuterTimeoutMs = 185_000
+    const worktree = {
+      id: 'wt-1',
+      repoId: 'repo-1',
+      path: '/workspace/repo',
+      head: 'abc123',
+      branch: 'refs/heads/main',
+      isBare: false,
+      isMainWorktree: true,
+      displayName: 'repo',
+      comment: '',
+      linkedIssue: null,
+      linkedPR: null,
+      linkedLinearIssue: null,
+      linkedGitLabMR: null,
+      linkedGitLabIssue: null,
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 0,
+      lastActivityAt: 0,
+      workspaceStatus: 'todo'
+    }
+    vi.doMock('./web-runtime-client', () => ({
+      WebRuntimeClient: class {
+        call(
+          method: string,
+          params?: unknown,
+          options?: { timeoutMs?: number }
+        ): Promise<RuntimeRpcResponse<unknown>> {
+          runtimeCalls.push({ method, params, timeoutMs: options?.timeoutMs })
+          if (method === 'repo.list') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repos: [{ id: 'repo-1' }] },
+              _meta: { runtimeId }
+            })
+          }
+          if (method === 'worktree.detectedList') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repoId: 'repo-1', authoritative: true, worktrees: [worktree] },
+              _meta: { runtimeId }
+            })
+          }
+          if (method === 'status.get') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { gitRemoteOperationOuterTimeoutMs },
+              _meta: { runtimeId }
+            })
+          }
+          return Promise.resolve({
+            id: `call-${runtimeCalls.length}`,
+            ok: true,
+            result: { success: true },
+            _meta: { runtimeId }
+          })
+        }
+
+        close(): void {}
+      }
+    }))
+
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    await globals.window.api.git.fetch({ worktreePath: '/workspace/repo' })
+
+    runtimeId = 'runtime-2'
+    gitRemoteOperationOuterTimeoutMs = 245_000
+    await globals.window.api.git.status({ worktreePath: '/workspace/repo' })
+    await globals.window.api.git.fetch({ worktreePath: '/workspace/repo' })
+
+    expect(runtimeCalls.filter((call) => call.method === 'status.get')).toHaveLength(2)
+    const fetchCalls = runtimeCalls.filter((call) => call.method === 'git.fetch')
+    expect(fetchCalls.map((call) => call.timeoutMs)).toEqual([185_000, 245_000])
+  })
+
+  it('refreshes paired source-control timeout after internal reconnects', async () => {
+    const runtimeCalls: { method: string; params: unknown; timeoutMs?: number }[] = []
+    let onConnectionInterrupted: (() => void) | undefined
+    let gitRemoteOperationOuterTimeoutMs = 185_000
+    const worktree = {
+      id: 'wt-1',
+      repoId: 'repo-1',
+      path: '/workspace/repo',
+      head: 'abc123',
+      branch: 'refs/heads/main',
+      isBare: false,
+      isMainWorktree: true,
+      displayName: 'repo',
+      comment: '',
+      linkedIssue: null,
+      linkedPR: null,
+      linkedLinearIssue: null,
+      linkedGitLabMR: null,
+      linkedGitLabIssue: null,
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 0,
+      lastActivityAt: 0,
+      workspaceStatus: 'todo'
+    }
+    vi.doMock('./web-runtime-client', () => ({
+      WebRuntimeClient: class {
+        constructor(_offer: unknown, options?: { onConnectionInterrupted?: () => void }) {
+          onConnectionInterrupted = options?.onConnectionInterrupted
+        }
+
+        call(
+          method: string,
+          params?: unknown,
+          options?: { timeoutMs?: number }
+        ): Promise<RuntimeRpcResponse<unknown>> {
+          runtimeCalls.push({ method, params, timeoutMs: options?.timeoutMs })
+          if (method === 'repo.list') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repos: [{ id: 'repo-1' }] },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          if (method === 'worktree.detectedList') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { repoId: 'repo-1', authoritative: true, worktrees: [worktree] },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          if (method === 'status.get') {
+            return Promise.resolve({
+              id: `call-${runtimeCalls.length}`,
+              ok: true,
+              result: { gitRemoteOperationOuterTimeoutMs },
+              _meta: { runtimeId: 'runtime-1' }
+            })
+          }
+          return Promise.resolve({
+            id: `call-${runtimeCalls.length}`,
+            ok: true,
+            result: { success: true },
+            _meta: { runtimeId: 'runtime-1' }
+          })
+        }
+
+        close(): void {}
+      }
+    }))
+
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    await globals.window.api.git.fetch({ worktreePath: '/workspace/repo' })
+    gitRemoteOperationOuterTimeoutMs = 245_000
+    onConnectionInterrupted?.()
+    await globals.window.api.git.fetch({ worktreePath: '/workspace/repo' })
+
+    expect(runtimeCalls.filter((call) => call.method === 'status.get')).toHaveLength(2)
+    const fetchCalls = runtimeCalls.filter((call) => call.method === 'git.fetch')
+    expect(fetchCalls.map((call) => call.timeoutMs)).toEqual([185_000, 245_000])
+  })
 })
 
 describe('web GitHub preload API', () => {

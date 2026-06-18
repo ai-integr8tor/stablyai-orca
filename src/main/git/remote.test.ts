@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { gitExecFileAsyncMock } = vi.hoisted(() => ({
   gitExecFileAsyncMock: vi.fn()
@@ -8,11 +8,33 @@ vi.mock('./runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock
 }))
 
-import { gitFastForward, gitFetch, gitPull, gitPullRebaseFromBase, gitPush } from './remote'
+import {
+  DEFAULT_GIT_REMOTE_OPERATION_TIMEOUT_MS,
+  gitFastForward,
+  gitFetch,
+  gitPull,
+  gitPullRebaseFromBase,
+  gitPush
+} from './remote'
+
+const REMOTE_OPERATION_OPTIONS = {
+  cwd: '/repo',
+  timeout: DEFAULT_GIT_REMOTE_OPERATION_TIMEOUT_MS
+}
+const ORIGINAL_REMOTE_OPERATION_TIMEOUT_MS = process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
 
 describe('git remote operations', () => {
   beforeEach(() => {
+    delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
     gitExecFileAsyncMock.mockReset()
+  })
+
+  afterEach(() => {
+    if (ORIGINAL_REMOTE_OPERATION_TIMEOUT_MS === undefined) {
+      delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+      return
+    }
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = ORIGINAL_REMOTE_OPERATION_TIMEOUT_MS
   })
 
   it('pushes to origin when no upstream is configured', async () => {
@@ -23,7 +45,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--set-upstream', 'origin', 'HEAD'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -55,7 +77,7 @@ describe('git remote operations', () => {
     )
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--set-upstream', 'pr-prateek-orca', 'HEAD:prateek/fix-sidebar-agents-toggle'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -86,11 +108,11 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).not.toHaveBeenCalledWith(
       ['push', '--set-upstream', 'fork', 'HEAD:main'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--set-upstream', 'origin', 'HEAD'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -118,7 +140,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--set-upstream', 'fork', 'HEAD:main'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -157,7 +179,7 @@ describe('git remote operations', () => {
         'https://github.com/pynickle/orca.git',
         'HEAD:imp/chinese-translation'
       ],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -194,7 +216,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--set-upstream', 'pr-pynickle-orca', 'HEAD:imp/chinese-translation'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -210,11 +232,14 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['push', '--set-upstream', 'origin', 'HEAD:contributor/fix-sidebar'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'contributor/fix-sidebar'], { cwd: '/repo' }],
-      [['push', '--set-upstream', 'origin', 'HEAD:contributor/fix-sidebar'], { cwd: '/repo' }]
+      [
+        ['push', '--set-upstream', 'origin', 'HEAD:contributor/fix-sidebar'],
+        REMOTE_OPERATION_OPTIONS
+      ]
     ])
   })
 
@@ -229,7 +254,20 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['push', '--force-with-lease', '--set-upstream', 'origin', 'HEAD:feature'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
+    )
+  })
+
+  it('bounds push subprocesses with a remote operation timeout', async () => {
+    gitExecFileAsyncMock
+      .mockRejectedValueOnce(new Error('no branch'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    await gitPush('/repo', false)
+
+    expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
+      ['push', '--set-upstream', 'origin', 'HEAD'],
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -330,7 +368,7 @@ describe('git remote operations', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
       [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
-      [['pull'], { cwd: '/repo' }]
+      [['pull'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -347,7 +385,7 @@ describe('git remote operations', () => {
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
       [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
       [['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/feature'], { cwd: '/repo' }],
-      [['pull', 'origin', 'feature'], { cwd: '/repo' }]
+      [['pull', 'origin', 'feature'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -363,7 +401,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo' }],
-      [['pull', 'fork', 'feature/fix'], { cwd: '/repo' }]
+      [['pull', 'fork', 'feature/fix'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -378,7 +416,7 @@ describe('git remote operations', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: '/repo' }],
       [['rev-parse', '--abbrev-ref', 'HEAD@{u}'], { cwd: '/repo' }],
-      [['pull', '--ff-only'], { cwd: '/repo' }]
+      [['pull', '--ff-only'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -394,7 +432,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo' }],
-      [['pull', '--ff-only', 'fork', 'feature/fix'], { cwd: '/repo' }]
+      [['pull', '--ff-only', 'fork', 'feature/fix'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -409,7 +447,7 @@ describe('git remote operations', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['remote'], { cwd: '/repo' }],
       [['check-ref-format', '--branch', 'main'], { cwd: '/repo' }],
-      [['pull', '--rebase', 'upstream', 'main'], { cwd: '/repo' }]
+      [['pull', '--rebase', 'upstream', 'main'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -423,7 +461,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenLastCalledWith(
       ['pull', '--rebase', 'fork/team', 'feature/base'],
-      { cwd: '/repo' }
+      REMOTE_OPERATION_OPTIONS
     )
   })
 
@@ -481,7 +519,34 @@ describe('git remote operations', () => {
 
     await gitFetch('/repo')
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['fetch', '--prune'], { cwd: '/repo' })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      ['fetch', '--prune'],
+      REMOTE_OPERATION_OPTIONS
+    )
+  })
+
+  it('uses ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS for fetch when set', async () => {
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '5000'
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' })
+
+    await gitFetch('/repo')
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['fetch', '--prune'], {
+      cwd: '/repo',
+      timeout: 5000
+    })
+  })
+
+  it('falls back to the default fetch timeout when ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS is invalid', async () => {
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = 'invalid'
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' })
+
+    await gitFetch('/repo')
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      ['fetch', '--prune'],
+      REMOTE_OPERATION_OPTIONS
+    )
   })
 
   it('passes the selected WSL distro through fetch validation and execution', async () => {
@@ -500,7 +565,10 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo', wslDistro: 'Ubuntu' }],
-      [['fetch', '--prune', 'fork'], { cwd: '/repo', wslDistro: 'Ubuntu' }]
+      [
+        ['fetch', '--prune', 'fork'],
+        { cwd: '/repo', wslDistro: 'Ubuntu', timeout: DEFAULT_GIT_REMOTE_OPERATION_TIMEOUT_MS }
+      ]
     ])
   })
 
@@ -516,7 +584,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo' }],
-      [['fetch', '--prune', 'fork'], { cwd: '/repo' }]
+      [['fetch', '--prune', 'fork'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 
@@ -532,7 +600,7 @@ describe('git remote operations', () => {
 
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [['check-ref-format', '--branch', 'feature/fix'], { cwd: '/repo' }],
-      [['fetch', '--prune', 'foo/bar'], { cwd: '/repo' }]
+      [['fetch', '--prune', 'foo/bar'], REMOTE_OPERATION_OPTIONS]
     ])
   })
 

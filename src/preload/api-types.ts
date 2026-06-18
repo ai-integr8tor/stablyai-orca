@@ -719,6 +719,8 @@ export type AppApi = {
   /** Returns a URL base for feature-wall assets. In dev this is Vite /@fs;
    *  in packaged builds this is file:// resources. Renderer appends filenames. */
   getFeatureWallAssetBaseUrl: () => Promise<string>
+  /** Returns the source-control remote RPC timeout resolved in main. */
+  getGitRemoteOperationOuterTimeoutMs: () => Promise<number>
   /** Relaunches the app via Electron's app.relaunch() + app.exit(0). Used
    *  by settings panes that need a full restart to apply changes (e.g. the
    *  terminal-window blur setting in TerminalWindowSection). */
