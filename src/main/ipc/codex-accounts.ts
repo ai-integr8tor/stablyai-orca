@@ -10,6 +10,9 @@ export function registerCodexAccountHandlers(codexAccounts: CodexAccountService)
   ipcMain.handle('codexAccounts:reauthenticate', (_event, args: { accountId: string }) =>
     codexAccounts.reauthenticateAccount(args.accountId)
   )
+  ipcMain.handle('codexAccounts:cancelReauthentication', (_event, args: { accountId: string }) =>
+    codexAccounts.cancelReauthentication(args.accountId)
+  )
   ipcMain.handle('codexAccounts:remove', (_event, args: { accountId: string }) =>
     codexAccounts.removeAccount(args.accountId)
   )

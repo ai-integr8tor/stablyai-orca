@@ -68,6 +68,11 @@ export class CodexAccountService {
   // refresh), then write settings. Without serialization, overlapping calls
   // (e.g. double-click "Add Account") can cause lost updates.
   private mutationQueue: Promise<unknown> = Promise.resolve()
+  private activeReauthentication: {
+    accountId: string
+    token: symbol
+    cancel: () => boolean
+  } | null = null
 
   constructor(
     private readonly store: Store,
@@ -94,6 +99,13 @@ export class CodexAccountService {
 
   async reauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
     return this.serializeMutation(() => this.doReauthenticateAccount(accountId))
+  }
+
+  cancelReauthentication(accountId: string): boolean {
+    if (this.activeReauthentication?.accountId !== accountId) {
+      return false
+    }
+    return this.activeReauthentication.cancel()
   }
 
   async removeAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
@@ -173,7 +185,7 @@ export class CodexAccountService {
     const managedHomePath = this.ensureManagedHomeForReauthentication(account)
 
     this.safeSyncCanonicalConfigIntoManagedHome(managedHomePath)
-    await this.runCodexLogin(managedHomePath)
+    await this.runCodexLogin(managedHomePath, accountId)
     const identity = this.readIdentityFromHome(managedHomePath)
     if (!identity.email) {
       throw new Error('Codex login completed, but Orca could not resolve the account email.')
@@ -779,7 +791,10 @@ export class CodexAccountService {
     }
   }
 
-  private async runCodexLogin(managedHomePath: string): Promise<void> {
+  private async runCodexLogin(
+    managedHomePath: string,
+    reauthenticationAccountId?: string
+  ): Promise<void> {
     const wslInfo = parseWslUncPath(managedHomePath)
     if (wslInfo) {
       this.assertWslCodexCliAvailable(wslInfo)
@@ -828,6 +843,9 @@ export class CodexAccountService {
       })
 
       let settled = false
+      const reauthenticationToken = reauthenticationAccountId
+        ? Symbol(reauthenticationAccountId)
+        : null
       let output = ''
       const appendOutput = (chunk: Buffer): void => {
         output = `${output}${chunk.toString()}`
@@ -846,6 +864,9 @@ export class CodexAccountService {
         child.stderr.off('data', appendOutput)
         child.off('error', onError)
         child.off('close', onClose)
+        if (reauthenticationToken && this.activeReauthentication?.token === reauthenticationToken) {
+          this.activeReauthentication = null
+        }
       }
 
       const settle = (callback: () => void): void => {
@@ -855,6 +876,24 @@ export class CodexAccountService {
         settled = true
         cleanupListeners()
         callback()
+      }
+      const cancelLogin = (): boolean => {
+        if (settled) {
+          return false
+        }
+        child.kill()
+        settle(() => {
+          rejectPromise(new Error('Codex sign-in was cancelled.'))
+        })
+        return true
+      }
+
+      if (reauthenticationAccountId && reauthenticationToken) {
+        this.activeReauthentication = {
+          accountId: reauthenticationAccountId,
+          token: reauthenticationToken,
+          cancel: cancelLogin
+        }
       }
 
       const timeoutError = new Error('Codex sign-in took too long to finish. Please try again.')

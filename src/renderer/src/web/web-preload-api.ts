@@ -2290,6 +2290,7 @@ function createAccountsApi(): never {
     list: () => Promise.resolve(empty),
     add: () => Promise.resolve(empty),
     reauthenticate: () => Promise.resolve(empty),
+    cancelReauthentication: () => Promise.resolve(false),
     remove: () => Promise.resolve(empty),
     select: () => Promise.resolve(empty)
   } as never
