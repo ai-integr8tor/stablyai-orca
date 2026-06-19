@@ -92,7 +92,7 @@ describe('buildMobileAgentThreads', () => {
       repo: 'new-repo',
       branch: 'main',
       title: 'newest prompt',
-      subtitle: 'new-repo · new-repo',
+      subtitle: 'new-repo',
       sortTimestamp: 100
     })
   })

@@ -74,7 +74,8 @@ export function buildMobileAgentThreads(
       const agent = node.row
       const dotState = agentDotState(agent, now)
       const title = agentDisplayLabel(agent, now)
-      const subtitle = `${worktreeName} · ${worktree.repo}`
+      const subtitle =
+        worktreeName === worktree.repo ? worktree.repo : `${worktreeName} · ${worktree.repo}`
       const toolSummary = makeToolSummary(agent)
       threads.push({
         worktreeId: worktree.worktreeId,

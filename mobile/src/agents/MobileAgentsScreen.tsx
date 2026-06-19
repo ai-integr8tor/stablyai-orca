@@ -33,6 +33,11 @@ import {
   type MobileAgentThread,
   type MobileAgentVisibilityFilter
 } from './mobile-agent-list'
+import {
+  getMobileAgentsCenterState,
+  MOBILE_AGENTS_POLL_INTERVAL_MS,
+  MOBILE_AGENTS_WORKTREE_PS_LIMIT
+} from './mobile-agents-screen-state'
 import { MobileAgentThreadRow } from './MobileAgentThreadRow'
 import { styles } from './mobile-agents-screen-styles'
 
@@ -114,7 +119,9 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
     const requestClient = client
     const requestHostId = hostId
     try {
-      const response = await requestClient.sendRequest('worktree.ps', { limit: 10000 })
+      const response = await requestClient.sendRequest('worktree.ps', {
+        limit: MOBILE_AGENTS_WORKTREE_PS_LIMIT
+      })
       if (clientRef.current !== requestClient || hostId !== requestHostId) {
         return
       }
@@ -142,7 +149,7 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
         return undefined
       }
       void fetchAgents()
-      const timer = setInterval(() => void fetchAgents(), 3000)
+      const timer = setInterval(() => void fetchAgents(), MOBILE_AGENTS_POLL_INTERVAL_MS)
       return () => clearInterval(timer)
     }, [connState, fetchAgents])
   )
@@ -182,7 +189,16 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
 
   const showConnecting = connState !== 'connected' && !isErrorVerdict(verdict)
   const hasActiveFilter = query.trim().length > 0 || visibility === 'attention'
-
+  const centerState = getMobileAgentsCenterState({
+    loaded,
+    connectionState: connState,
+    isErrorVerdict: isErrorVerdict(verdict),
+    showConnecting,
+    visibleGroupCount: groups.length,
+    hasActiveFilter,
+    error,
+    verdictLabel: verdict.label
+  })
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -190,6 +206,7 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
           style={styles.backButton}
           onPress={() => router.back()}
           accessibilityRole="button"
+          accessibilityLabel="Back to previous screen"
         >
           <ChevronLeft size={20} color={colors.textPrimary} />
         </Pressable>
@@ -216,6 +233,7 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
           style={styles.searchInput}
           autoCapitalize="none"
           autoCorrect={false}
+          accessibilityLabel="Filter agents"
         />
         <ScrollView
           horizontal
@@ -228,6 +246,8 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
               style={[styles.chip, groupBy === option.value && styles.chipActive]}
               onPress={() => setGroupBy(option.value)}
               accessibilityRole="button"
+              accessibilityLabel={`Group agents by ${option.label}`}
+              accessibilityState={{ selected: groupBy === option.value }}
             >
               <Text style={[styles.chipText, groupBy === option.value && styles.chipTextActive]}>
                 {option.label}
@@ -240,6 +260,8 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
               setVisibility((current) => (current === 'attention' ? 'all' : 'attention'))
             }
             accessibilityRole="button"
+            accessibilityLabel="Show agents needing attention"
+            accessibilityState={{ selected: visibility === 'attention' }}
           >
             <Text style={[styles.chipText, visibility === 'attention' && styles.chipTextActive]}>
               Needs attention
@@ -248,7 +270,9 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
         </ScrollView>
       </View>
 
-      {error && loaded ? <Text style={styles.inlineError}>{error}</Text> : null}
+      {error && loaded && groups.length > 0 ? (
+        <Text style={styles.inlineError}>{error}</Text>
+      ) : null}
 
       <ScrollView
         style={styles.body}
@@ -262,28 +286,17 @@ export function MobileAgentsScreen({ hostId }: MobileAgentsScreenProps): React.J
           />
         }
       >
-        {!loaded && connState === 'connected' ? (
+        {centerState ? (
           <View style={styles.centerState}>
-            <ActivityIndicator color={colors.textSecondary} />
-            <Text style={styles.centerText}>Loading agents...</Text>
-          </View>
-        ) : !loaded && isErrorVerdict(verdict) ? (
-          <View style={styles.centerState}>
-            <Text style={styles.centerText}>{error ?? verdict.label}</Text>
-            <Pressable style={styles.reconnectButton} onPress={() => void forceReconnect(hostId)}>
-              <Text style={styles.reconnectText}>Reconnect</Text>
-            </Pressable>
-          </View>
-        ) : !loaded && showConnecting ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator color={colors.textSecondary} />
-            <Text style={styles.centerText}>Connecting to host...</Text>
-          </View>
-        ) : groups.length === 0 ? (
-          <View style={styles.centerState}>
-            <Text style={styles.centerText}>
-              {hasActiveFilter ? 'No agents match these filters.' : 'No agent activity yet.'}
-            </Text>
+            {centerState.kind === 'loading' || centerState.kind === 'connecting' ? (
+              <ActivityIndicator color={colors.textSecondary} />
+            ) : null}
+            <Text style={styles.centerText}>{centerState.message}</Text>
+            {centerState.kind === 'error' && centerState.showReconnect ? (
+              <Pressable style={styles.reconnectButton} onPress={() => void forceReconnect(hostId)}>
+                <Text style={styles.reconnectText}>Reconnect</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           groups.map((group) => (
