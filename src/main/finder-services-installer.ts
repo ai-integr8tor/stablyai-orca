@@ -38,8 +38,8 @@ export async function installFinderServices({
   for (const serviceName of sourceServices) {
     const sourcePath = join(sourceRoot, serviceName)
     const targetPath = join(targetRoot, serviceName)
-    const needsInstall = await directoriesHaveSameFiles(sourcePath, targetPath).catch(() => false)
-    if (needsInstall) {
+    const alreadyCurrent = await directoriesHaveSameFiles(sourcePath, targetPath).catch(() => false)
+    if (alreadyCurrent) {
       continue
     }
     await rm(targetPath, { recursive: true, force: true })
