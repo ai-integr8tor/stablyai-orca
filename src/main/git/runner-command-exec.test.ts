@@ -317,6 +317,31 @@ describe('runner execFile timeout handling', () => {
     })
   })
 
+  it('escalates POSIX timed-out command children to SIGKILL when they ignore SIGTERM', async () => {
+    await withPlatform('linux', async () => {
+      const processKill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+      const child = createMockChildProcess(1234)
+      spawnMock.mockReturnValue(child)
+
+      try {
+        const promise = gitExecFileAsync(['fetch', '--prune'], {
+          cwd: '/repo',
+          timeout: 1000
+        })
+        const rejection = expect(promise).rejects.toThrow('git timed out.')
+
+        await vi.advanceTimersByTimeAsync(1000)
+        await rejection
+        expect(processKill).toHaveBeenCalledWith(-1234, 'SIGTERM')
+
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(processKill).toHaveBeenCalledWith(-1234, 'SIGKILL')
+      } finally {
+        processKill.mockRestore()
+      }
+    })
+  })
+
   it('runs gh non-interactively while preserving explicit env', async () => {
     await withPlatform('win32', async () => {
       const child = createMockChildProcess(1234)
