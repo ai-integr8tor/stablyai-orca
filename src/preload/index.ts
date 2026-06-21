@@ -411,6 +411,8 @@ const api = {
     getIdentity: (): Promise<AppIdentity> => ipcRenderer.invoke('app:getIdentity'),
     getFeatureWallAssetBaseUrl: (): Promise<string> =>
       ipcRenderer.invoke('app:getFeatureWallAssetBaseUrl'),
+    getGitRemoteOperationOuterTimeoutMs: (): Promise<number> =>
+      ipcRenderer.invoke('app:getGitRemoteOperationOuterTimeoutMs'),
     relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
     restart: async (): Promise<void> => {
       await prepareRendererForAppRestart({

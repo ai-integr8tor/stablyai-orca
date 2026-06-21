@@ -29,6 +29,7 @@ import { refreshLocalBaseRefForWorktreeCreateOp } from './git-handler-local-base
 import { checkIgnoredPathsOp, detectConflictOperation, getStatusOp } from './git-handler-status-ops'
 import { resolveRelayPushTarget } from './git-handler-push-target'
 import { isNoUpstreamError, normalizeGitErrorMessage } from '../shared/git-remote-error'
+import { resolveGitRemoteOperationTimeoutMs } from '../shared/git-remote-operation-timeout'
 import { upstreamOnlyCommitsArePatchEquivalent } from '../shared/git-upstream-status'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
@@ -46,10 +47,13 @@ import {
 } from '../shared/git-discard-path-safety'
 import { getGitCloneFailureMessage } from '../shared/git-clone-failure-message'
 import { syncForkDefaultBranch, validateGitForkSyncExpectedUpstream } from '../shared/git-fork-sync'
+import { runRelayGitSubprocess } from './git-subprocess-capture'
 
 const execFileAsync = promisify(execFile)
 const MAX_GIT_BUFFER = 10 * 1024 * 1024
 const BULK_CHUNK_SIZE = 100
+
+type RelayRemoteGitOperation = 'fetch' | 'push' | 'pull'
 
 export class GitHandler {
   private dispatcher: RelayDispatcher
@@ -81,16 +85,18 @@ export class GitHandler {
     this.dispatcher.onRequest('git.branchCompare', (p) => this.branchCompare(p))
     this.dispatcher.onRequest('git.commitCompare', (p) => this.commitCompare(p))
     this.dispatcher.onRequest('git.upstreamStatus', (p) => this.upstreamStatus(p))
-    this.dispatcher.onRequest('git.fetch', (p) => this.fetch(p))
+    this.dispatcher.onRequest('git.fetch', (p, context) => this.fetch(p, context))
     this.dispatcher.onRequest('git.forkSync', (p, context) => this.forkSync(p, context))
-    this.dispatcher.onRequest('git.fetchRemoteTrackingRef', (p) => this.fetchRemoteTrackingRef(p))
-    this.dispatcher.onRequest('git.fetchGitLabMergeRequestHead', (p) =>
-      this.fetchGitLabMergeRequestHead(p)
+    this.dispatcher.onRequest('git.fetchRemoteTrackingRef', (p, context) =>
+      this.fetchRemoteTrackingRef(p, context)
     )
-    this.dispatcher.onRequest('git.push', (p) => this.push(p))
-    this.dispatcher.onRequest('git.pull', (p) => this.pull(p))
-    this.dispatcher.onRequest('git.fastForward', (p) => this.fastForward(p))
-    this.dispatcher.onRequest('git.rebaseFromBase', (p) => this.rebaseFromBase(p))
+    this.dispatcher.onRequest('git.fetchGitLabMergeRequestHead', (p, context) =>
+      this.fetchGitLabMergeRequestHead(p, context)
+    )
+    this.dispatcher.onRequest('git.push', (p, context) => this.push(p, context))
+    this.dispatcher.onRequest('git.pull', (p, context) => this.pull(p, context))
+    this.dispatcher.onRequest('git.fastForward', (p, context) => this.fastForward(p, context))
+    this.dispatcher.onRequest('git.rebaseFromBase', (p, context) => this.rebaseFromBase(p, context))
     this.dispatcher.onRequest('git.branchDiff', (p) => this.branchDiff(p))
     this.dispatcher.onRequest('git.commitDiff', (p) => this.commitDiff(p))
     this.dispatcher.onRequest('git.listWorktrees', (p) => this.listWorktrees(p))
@@ -113,6 +119,7 @@ export class GitHandler {
       maxBuffer?: number
       disableOptionalLocks?: boolean
       signal?: AbortSignal
+      timeout?: number
       nonInteractive?: boolean
     }
   ): Promise<{ stdout: string; stderr: string }> {
@@ -126,12 +133,66 @@ export class GitHandler {
       env.SSH_ASKPASS = ''
       env.GIT_SSH_COMMAND ??= 'ssh -o BatchMode=yes'
     }
-    return execFileAsync('git', args, {
+    return runRelayGitSubprocess(args, {
       cwd: expandTilde(cwd),
       env,
-      encoding: 'utf-8',
       maxBuffer: opts?.maxBuffer ?? MAX_GIT_BUFFER,
+      timeout: opts?.timeout,
       signal: opts?.signal
+    })
+  }
+
+  private getRemoteOperationTimeoutMs(params?: Record<string, unknown>): number {
+    return params?.remoteOperationTimeoutMs === undefined
+      ? resolveGitRemoteOperationTimeoutMs(process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS)
+      : resolveGitRemoteOperationTimeoutMs(params.remoteOperationTimeoutMs)
+  }
+
+  private async withRemoteGitOperation<T>(
+    operation: RelayRemoteGitOperation,
+    context: RequestContext | undefined,
+    timeoutMs: number,
+    run: (signal: AbortSignal) => Promise<T>
+  ): Promise<T> {
+    const controller = new AbortController()
+    const abortFromContext = () => controller.abort()
+    let timedOut = false
+
+    if (context?.signal?.aborted) {
+      controller.abort()
+    } else {
+      context?.signal?.addEventListener('abort', abortFromContext, { once: true })
+    }
+
+    const timeout = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
+    timeout.unref?.()
+
+    try {
+      return await run(controller.signal)
+    } catch (error) {
+      const normalizedError = timedOut ? new Error('git timed out.') : error
+      throw new Error(normalizeGitErrorMessage(normalizedError, operation))
+    } finally {
+      clearTimeout(timeout)
+      context?.signal?.removeEventListener('abort', abortFromContext)
+    }
+  }
+
+  private remoteGit(
+    args: string[],
+    worktreePath: string,
+    signal: AbortSignal,
+    timeoutMs: number
+  ): Promise<{ stdout: string; stderr: string }> {
+    return this.git(args, worktreePath, {
+      nonInteractive: true,
+      signal,
+      // Why: direct relay clients do not have renderer IPC bounds. Pair the
+      // signal with execFile's own timeout so stalled git children are killed.
+      timeout: timeoutMs
     })
   }
 
@@ -482,23 +543,29 @@ export class GitHandler {
     }
   }
 
-  private async fetch(params: Record<string, unknown>) {
+  private async fetch(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
-    try {
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('fetch', context, timeoutMs, async (signal) => {
       if (params.pushTarget !== undefined) {
         assertGitPushTargetShape(params.pushTarget)
         const pushTarget = params.pushTarget as GitPushTarget
-        await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-        await this.git(['fetch', '--prune', pushTarget.remoteName], worktreePath)
+        await this.remoteGit(
+          ['check-ref-format', '--branch', pushTarget.branchName],
+          worktreePath,
+          signal,
+          timeoutMs
+        )
+        await this.remoteGit(
+          ['fetch', '--prune', pushTarget.remoteName],
+          worktreePath,
+          signal,
+          timeoutMs
+        )
         return
       }
-      await this.git(['fetch', '--prune'], worktreePath)
-    } catch (error) {
-      // Why: mirror the local gitFetch normalization so SSH users see the same
-      // actionable messages instead of raw git stderr (which varies across
-      // versions/locales and may embed credentials).
-      throw new Error(normalizeGitErrorMessage(error, 'fetch'))
-    }
+      await this.remoteGit(['fetch', '--prune'], worktreePath, signal, timeoutMs)
+    })
   }
 
   private async forkSync(params: Record<string, unknown>, context?: RequestContext) {
@@ -506,32 +573,21 @@ export class GitHandler {
     const expectedUpstream = validateGitForkSyncExpectedUpstream(params.expectedUpstream, {
       required: true
     })
-    const controller = new AbortController()
-    const abortFromContext = () => controller.abort()
-    if (context?.signal?.aborted) {
-      controller.abort()
-    } else {
-      context?.signal?.addEventListener('abort', abortFromContext, { once: true })
-    }
-    const timeout = setTimeout(() => controller.abort(), 60_000)
-    try {
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('push', context, timeoutMs, async (signal) => {
       return await syncForkDefaultBranch(
         (args) =>
           this.git(args, worktreePath, {
             nonInteractive: true,
-            signal: controller.signal
+            signal,
+            timeout: timeoutMs
           }),
         { expectedUpstream }
       )
-    } catch (error) {
-      throw new Error(normalizeGitErrorMessage(error, 'push'))
-    } finally {
-      clearTimeout(timeout)
-      context?.signal?.removeEventListener('abort', abortFromContext)
-    }
+    })
   }
 
-  private async fetchRemoteTrackingRef(params: Record<string, unknown>) {
+  private async fetchRemoteTrackingRef(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     const remote = params.remote
     const branch = params.branch
@@ -546,8 +602,9 @@ export class GitHandler {
       throw new Error('Remote-tracking ref does not match the requested remote and branch.')
     }
 
-    try {
-      const { stdout } = await this.git(['remote'], worktreePath)
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('fetch', context, timeoutMs, async (signal) => {
+      const { stdout } = await this.remoteGit(['remote'], worktreePath, signal, timeoutMs)
       const remotes = stdout
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -555,18 +612,29 @@ export class GitHandler {
       if (!remotes.includes(remote)) {
         throw new Error(`Remote "${remote}" is not configured.`)
       }
-      await this.git(['check-ref-format', `refs/heads/${branch}`], worktreePath)
-      await this.git(['check-ref-format', ref], worktreePath)
-      await this.git(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`], worktreePath)
-    } catch (error) {
+      await this.remoteGit(
+        ['check-ref-format', `refs/heads/${branch}`],
+        worktreePath,
+        signal,
+        timeoutMs
+      )
+      await this.remoteGit(['check-ref-format', ref], worktreePath, signal, timeoutMs)
       // Why: create-worktree needs a write-capable fetch, but generic git.exec
       // intentionally rejects fetch. This narrow RPC keeps the relay allowlist
       // tight while preserving the same safe error normalization as git.fetch.
-      throw new Error(normalizeGitErrorMessage(error, 'fetch'))
-    }
+      await this.remoteGit(
+        ['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`],
+        worktreePath,
+        signal,
+        timeoutMs
+      )
+    })
   }
 
-  private async fetchGitLabMergeRequestHead(params: Record<string, unknown>) {
+  private async fetchGitLabMergeRequestHead(
+    params: Record<string, unknown>,
+    context?: RequestContext
+  ) {
     const worktreePath = params.worktreePath as string
     const remote = params.remote
     const mrIid = params.mrIid
@@ -581,8 +649,9 @@ export class GitHandler {
       throw new Error('GitLab merge request fetch remote must not start with "-".')
     }
 
-    try {
-      const { stdout } = await this.git(['remote'], worktreePath)
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('fetch', context, timeoutMs, async (signal) => {
+      const { stdout } = await this.remoteGit(['remote'], worktreePath, signal, timeoutMs)
       const remotes = stdout
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -592,23 +661,24 @@ export class GitHandler {
       }
       // Why: GitLab MR heads are not refs/heads/*, so the remote-tracking
       // fetch RPC cannot represent fork MRs. Keep this write path MR-only.
-      await this.git(
+      await this.remoteGit(
         ['fetch', '--no-tags', remote, `refs/merge-requests/${mergeRequestIid}/head`],
-        worktreePath
+        worktreePath,
+        signal,
+        timeoutMs
       )
-    } catch (error) {
-      throw new Error(normalizeGitErrorMessage(error, 'fetch'))
-    }
+    })
   }
 
-  private async push(params: Record<string, unknown>) {
+  private async push(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     // Why: mirror src/main/git/remote.ts. Push to a configured upstream when
     // present so SSH worktrees with non-origin targets do not get repointed.
     void params.publish
-    try {
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('push', context, timeoutMs, async (signal) => {
       const target = await resolveRelayPushTarget(
-        this.git.bind(this),
+        (args) => this.remoteGit(args, worktreePath, signal, timeoutMs),
         worktreePath,
         params.pushTarget
       )
@@ -618,67 +688,79 @@ export class GitHandler {
         '--set-upstream',
         ...(target ? [target.remote, target.refspec] : ['origin', 'HEAD'])
       ]
-      await this.git(args, worktreePath)
-    } catch (error) {
-      // Why: mirror the local gitPush normalization so SSH users see the same
-      // "non-fast-forward / pull first" guidance instead of raw git stderr.
-      throw new Error(normalizeGitErrorMessage(error, 'push'))
-    }
+      await this.remoteGit(args, worktreePath, signal, timeoutMs)
+    })
   }
 
-  private async pullWithArgs(params: Record<string, unknown>, pullArgs: string[]) {
+  private async pullWithArgs(
+    params: Record<string, unknown>,
+    pullArgs: string[],
+    context?: RequestContext
+  ) {
     const worktreePath = params.worktreePath as string
-    try {
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('pull', context, timeoutMs, async (signal) => {
       if (params.pushTarget !== undefined) {
         assertGitPushTargetShape(params.pushTarget)
         const pushTarget = params.pushTarget as GitPushTarget
-        await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-        await this.git(
+        await this.remoteGit(
+          ['check-ref-format', '--branch', pushTarget.branchName],
+          worktreePath,
+          signal,
+          timeoutMs
+        )
+        await this.remoteGit(
           ['pull', ...pullArgs, pushTarget.remoteName, pushTarget.branchName],
-          worktreePath
+          worktreePath,
+          signal,
+          timeoutMs
         )
         return
       }
-      const upstream = await resolveEffectiveGitUpstream((args) => this.git(args, worktreePath))
+      const upstream = await resolveEffectiveGitUpstream((args) =>
+        this.remoteGit(args, worktreePath, signal, timeoutMs)
+      )
       if (upstream && !upstream.isConfiguredUpstream) {
         // Why: legacy Orca branches may still track origin/main while pushes
         // target origin/<branch>. Pull the same effective branch the UI reports.
-        await this.git(
+        await this.remoteGit(
           ['pull', ...pullArgs, upstream.remoteName, upstream.branchName],
-          worktreePath
+          worktreePath,
+          signal,
+          timeoutMs
         )
         return
       }
-      await this.git(['pull', ...pullArgs], worktreePath)
-    } catch (error) {
-      // Why: mirror the local gitPull normalization so SSH users see the same
-      // actionable messages instead of raw git stderr.
-      throw new Error(normalizeGitErrorMessage(error, 'pull'))
-    }
+      await this.remoteGit(['pull', ...pullArgs], worktreePath, signal, timeoutMs)
+    })
   }
 
-  private async pull(params: Record<string, unknown>) {
+  private async pull(params: Record<string, unknown>, context?: RequestContext) {
     // Why: plain `git pull` honors the user's configured merge/rebase/ff policy.
     // If no policy exists, Git's policy error is normalized with setup guidance.
-    await this.pullWithArgs(params, [])
+    await this.pullWithArgs(params, [], context)
   }
 
-  private async fastForward(params: Record<string, unknown>) {
-    await this.pullWithArgs(params, ['--ff-only'])
+  private async fastForward(params: Record<string, unknown>, context?: RequestContext) {
+    await this.pullWithArgs(params, ['--ff-only'], context)
   }
 
-  private async rebaseFromBase(params: Record<string, unknown>) {
+  private async rebaseFromBase(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     const baseRef = params.baseRef as string
-    try {
+    const timeoutMs = this.getRemoteOperationTimeoutMs(params)
+    return this.withRemoteGitOperation('pull', context, timeoutMs, async (signal) => {
       const source = await resolveGitRemoteRebaseSource(
-        ((args) => this.git(args, worktreePath)) as GitCommandRunner,
+        ((args) => this.remoteGit(args, worktreePath, signal, timeoutMs)) as GitCommandRunner,
         baseRef
       )
-      await this.git(['pull', '--rebase', source.remoteName, source.branchName], worktreePath)
-    } catch (error) {
-      throw new Error(normalizeGitErrorMessage(error, 'pull'))
-    }
+      await this.remoteGit(
+        ['pull', '--rebase', source.remoteName, source.branchName],
+        worktreePath,
+        signal,
+        timeoutMs
+      )
+    })
   }
 
   private async branchDiff(params: Record<string, unknown>) {

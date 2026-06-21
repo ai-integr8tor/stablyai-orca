@@ -136,6 +136,45 @@ describe('runtime RPC client routing', () => {
     ])
   })
 
+  it('keeps remote compatibility preflight on the short status timeout', async () => {
+    runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) => {
+      const result =
+        method === 'status.get'
+          ? {
+              runtimeId: 'remote-runtime',
+              graphStatus: 'ready',
+              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+              minCompatibleRuntimeClientVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+            }
+          : { success: true }
+      return Promise.resolve({
+        id: method,
+        ok: true,
+        result,
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+    })
+
+    await callRuntimeRpc(
+      { kind: 'environment', environmentId: 'env-git' },
+      'git.fetch',
+      { worktree: 'id:wt-1' },
+      { timeoutMs: 185_000 }
+    )
+
+    expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
+      selector: 'env-git',
+      method: 'status.get',
+      timeoutMs: 15_000
+    })
+    expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(2, {
+      selector: 'env-git',
+      method: 'git.fetch',
+      params: { worktree: 'id:wt-1' },
+      timeoutMs: 185_000
+    })
+  })
+
   it('checks advertised runtime capabilities after protocol compatibility', async () => {
     runtimeEnvironmentCall.mockResolvedValue({
       id: 'status',

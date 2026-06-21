@@ -1,6 +1,17 @@
 /* eslint-disable max-lines -- Why: this suite covers the SSH git provider's one-RPC-per-method contract; splitting it would duplicate the shared mux fixture. */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { SshGitProvider } from './ssh-git-provider'
+import {
+  resolveGitRemoteOperationOuterTimeoutMs,
+  resolveGitRemoteOperationTimeoutMs
+} from '../../shared/git-remote-operation-timeout'
+
+const GIT_REMOTE_OPERATION_REQUEST_TIMEOUT = {
+  remoteOperationTimeoutMs: resolveGitRemoteOperationTimeoutMs(undefined)
+}
+const GIT_REMOTE_OPERATION_RPC_OPTIONS = {
+  timeoutMs: resolveGitRemoteOperationOuterTimeoutMs(undefined)
+}
 
 type MockMultiplexer = {
   request: ReturnType<typeof vi.fn>
@@ -669,32 +680,47 @@ describe('SshGitProvider', () => {
       remoteName: 'pr-fork-orca',
       branchName: 'contributor/fix'
     })
-    expect(mux.request).toHaveBeenCalledWith('git.push', {
-      worktreePath: '/home/user/repo',
-      publish: true,
-      pushTarget: {
-        remoteName: 'pr-fork-orca',
-        branchName: 'contributor/fix'
-      }
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.push',
+      {
+        worktreePath: '/home/user/repo',
+        publish: true,
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        pushTarget: {
+          remoteName: 'pr-fork-orca',
+          branchName: 'contributor/fix'
+        }
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('pushBranch forwards force-with-lease mode', async () => {
     await provider.pushBranch('/home/user/repo', false, undefined, { forceWithLease: true })
 
-    expect(mux.request).toHaveBeenCalledWith('git.push', {
-      worktreePath: '/home/user/repo',
-      publish: false,
-      pushTarget: undefined,
-      forceWithLease: true
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.push',
+      {
+        worktreePath: '/home/user/repo',
+        publish: false,
+        pushTarget: undefined,
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        forceWithLease: true
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('pullBranch sends git.pull request', async () => {
     await provider.pullBranch('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.pull', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.pull',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('pullBranch forwards an explicit push target', async () => {
@@ -702,17 +728,27 @@ describe('SshGitProvider', () => {
 
     await provider.pullBranch('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.pull', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.pull',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        pushTarget
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('fastForwardBranch sends git.fastForward request', async () => {
     await provider.fastForwardBranch('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.fastForward', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fastForward',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('fastForwardBranch forwards an explicit push target', async () => {
@@ -720,26 +756,41 @@ describe('SshGitProvider', () => {
 
     await provider.fastForwardBranch('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fastForward', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fastForward',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        pushTarget
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('rebaseFromBase sends git.rebaseFromBase request', async () => {
     await provider.rebaseFromBase('/home/user/repo', 'upstream/main')
 
-    expect(mux.request).toHaveBeenCalledWith('git.rebaseFromBase', {
-      worktreePath: '/home/user/repo',
-      baseRef: 'upstream/main'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.rebaseFromBase',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        baseRef: 'upstream/main'
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('fetchRemote sends git.fetch request', async () => {
     await provider.fetchRemote('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.fetch', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetch',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('fetchRemote forwards an explicit push target', async () => {
@@ -747,10 +798,15 @@ describe('SshGitProvider', () => {
 
     await provider.fetchRemote('/home/user/repo', pushTarget)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetch', {
-      worktreePath: '/home/user/repo',
-      pushTarget
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetch',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        pushTarget
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('syncForkDefaultBranch sends git.forkSync request', async () => {
@@ -767,10 +823,15 @@ describe('SshGitProvider', () => {
     const expectedUpstream = { owner: 'stablyai', repo: 'orca' }
     const result = await provider.syncForkDefaultBranch('/home/user/repo', expectedUpstream)
 
-    expect(mux.request).toHaveBeenCalledWith('git.forkSync', {
-      worktreePath: '/home/user/repo',
-      expectedUpstream
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.forkSync',
+      {
+        worktreePath: '/home/user/repo',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        expectedUpstream
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
     expect(result).toEqual(syncResult)
   })
 
@@ -782,22 +843,52 @@ describe('SshGitProvider', () => {
       'refs/remotes/origin/main'
     )
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetchRemoteTrackingRef', {
-      worktreePath: '/home/user/repo',
-      remote: 'origin',
-      branch: 'main',
-      ref: 'refs/remotes/origin/main'
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetchRemoteTrackingRef',
+      {
+        worktreePath: '/home/user/repo',
+        remote: 'origin',
+        branch: 'main',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        ref: 'refs/remotes/origin/main'
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
   })
 
   it('fetchGitLabMergeRequestHead sends git.fetchGitLabMergeRequestHead request', async () => {
     await provider.fetchGitLabMergeRequestHead('/home/user/repo', 'origin', 42)
 
-    expect(mux.request).toHaveBeenCalledWith('git.fetchGitLabMergeRequestHead', {
-      worktreePath: '/home/user/repo',
-      remote: 'origin',
-      mrIid: 42
-    })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.fetchGitLabMergeRequestHead',
+      {
+        worktreePath: '/home/user/repo',
+        remote: 'origin',
+        ...GIT_REMOTE_OPERATION_REQUEST_TIMEOUT,
+        mrIid: 42
+      },
+      GIT_REMOTE_OPERATION_RPC_OPTIONS
+    )
+  })
+
+  it('uses the remote-operation env override for SSH source-control RPC timeouts', async () => {
+    const previousTimeout = process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'
+    try {
+      await provider.fetchRemote('/home/user/repo')
+
+      expect(mux.request).toHaveBeenCalledWith(
+        'git.fetch',
+        { worktreePath: '/home/user/repo', remoteOperationTimeoutMs: 180_000 },
+        { timeoutMs: 185_000 }
+      )
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+      } else {
+        process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = previousTimeout
+      }
+    }
   })
 
   it('getBranchDiff sends git.branchDiff request', async () => {

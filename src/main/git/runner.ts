@@ -293,22 +293,45 @@ function createAbortError(): Error {
 
 function killSpawnedCommandTree(child: ChildProcess): void {
   const pid = child.pid
-  if (!pid || process.platform !== 'win32') {
+  if (!pid) {
     child.kill()
     return
   }
+
+  if (process.platform === 'win32') {
+    try {
+      // Why: Windows package-manager CLIs are often .cmd shims. Killing only
+      // cmd.exe leaves the underlying node/npm/pnpm child running.
+      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
+        stdio: 'ignore',
+        windowsHide: true
+      })
+      killer.on('error', () => child.kill())
+      killer.unref()
+    } catch {
+      child.kill()
+    }
+    return
+  }
+
   try {
-    // Why: Windows package-manager CLIs are often .cmd shims. Killing only
-    // cmd.exe leaves the underlying node/npm/pnpm child running.
-    const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
-      stdio: 'ignore',
-      windowsHide: true
-    })
-    killer.on('error', () => child.kill())
-    killer.unref()
+    // Why: POSIX git fetch/push can leave ssh, hooks, or remote helpers behind
+    // unless the detached process group is signaled as a unit.
+    process.kill(-pid, 'SIGTERM')
   } catch {
     child.kill()
+    return
   }
+
+  const forceKillTimer = setTimeout(() => {
+    try {
+      process.kill(-pid, 'SIGKILL')
+    } catch {
+      /* process group already exited */
+    }
+  }, 2000)
+  child.once('close', () => clearTimeout(forceKillTimer))
+  forceKillTimer.unref?.()
 }
 
 type ExecFileCaptureOptions = Omit<ExecFileOptions, 'timeout'> & {
@@ -336,6 +359,9 @@ function execFileCapture(
   args: string[],
   options: ExecFileCaptureOptions
 ): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  if (process.platform !== 'win32') {
+    return spawnCaptureForExecFile(command, args, options)
+  }
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(createAbortError())
@@ -417,6 +443,120 @@ function execFileCapture(
   })
 }
 
+function spawnCaptureForExecFile(
+  command: string,
+  args: string[],
+  options: ExecFileCaptureOptions
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(createAbortError())
+      return
+    }
+
+    let settled = false
+    let stdoutBytes = 0
+    let stderrBytes = 0
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      detached: true,
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    let timer: NodeJS.Timeout | null = null
+
+    const buildOutput = (chunks: Buffer[]): string | Buffer => {
+      const buffer = Buffer.concat(chunks)
+      if (options.encoding === 'buffer') {
+        return buffer
+      }
+      return buffer.toString((options.encoding ?? 'utf-8') as BufferEncoding)
+    }
+    const cleanup = (): void => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      options.signal?.removeEventListener('abort', onAbort)
+      child.stdout?.off('data', onStdoutData)
+      child.stderr?.off('data', onStderrData)
+      child.off('error', onError)
+      child.off('close', onClose)
+    }
+    const finish = (error: Error | null): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      const stdout = buildOutput(stdoutChunks)
+      const stderr = buildOutput(stderrChunks)
+      cleanup()
+      if (error) {
+        const enriched = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer }
+        enriched.stdout ??= stdout
+        enriched.stderr ??= stderr
+        reject(enriched)
+        return
+      }
+      resolve({ stdout, stderr })
+    }
+    const failWithOutputLimit = (stream: 'stdout' | 'stderr'): void => {
+      killSpawnedCommandTree(child)
+      finish(new Error(`${command} ${stream} exceeded maxBuffer.`))
+    }
+    function onAbort(): void {
+      killSpawnedCommandTree(child)
+      finish(createAbortError())
+    }
+    function onStdoutData(chunk: Buffer): void {
+      stdoutBytes += chunk.byteLength
+      if (stdoutBytes > (options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER)) {
+        failWithOutputLimit('stdout')
+        return
+      }
+      stdoutChunks.push(chunk)
+    }
+    function onStderrData(chunk: Buffer): void {
+      stderrBytes += chunk.byteLength
+      if (stderrBytes > (options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER)) {
+        failWithOutputLimit('stderr')
+        return
+      }
+      stderrChunks.push(chunk)
+    }
+    function onError(error: Error): void {
+      finish(error)
+    }
+    function onClose(code: number | null, signal: NodeJS.Signals | null): void {
+      if (code === 0 && !signal) {
+        finish(null)
+        return
+      }
+      const stderr = buildOutput(stderrChunks)
+      const detail = Buffer.isBuffer(stderr) ? stderr.toString('utf-8') : stderr.trim()
+      finish(
+        new Error(detail ? `Command failed: ${command}\n${detail}` : `Command failed: ${command}`)
+      )
+    }
+
+    child.stdout?.on('data', onStdoutData)
+    child.stderr?.on('data', onStderrData)
+    child.on('error', onError)
+    child.on('close', onClose)
+    options.signal?.addEventListener('abort', onAbort, { once: true })
+
+    if (options.timeout && options.timeout > 0) {
+      timer = setTimeout(() => {
+        killSpawnedCommandTree(child)
+        finish(new Error(`${command} timed out.`))
+      }, options.timeout)
+    }
+  })
+}
+
 async function spawnCommandCapture(
   command: string,
   args: string[],
@@ -435,6 +575,7 @@ async function spawnCommandCapture(
     let stderrBytes = 0
     const child = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
+      detached: process.platform !== 'win32',
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true

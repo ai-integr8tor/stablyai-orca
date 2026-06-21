@@ -18,6 +18,7 @@ const NORMALIZED_SUBMODULE_PUSH_FAILURE_PATTERN =
   /(?:^|:\s)((?:Submodule '[^'\n]+'|A submodule) (?:has remote changes\. Pull inside the submodule, then try again\.|could not be pushed\. Resolve the submodule push error, then try again\.))(?:$|\s)/i
 const DIVERGENT_PULL_RECONCILIATION_PATTERN =
   /Need to specify how to reconcile divergent branches|divergent branches and need to specify how to reconcile them/i
+const REMOTE_OPERATION_TIMEOUT_PATTERN = /\btimed out\b/i
 
 export function stripCredentialsFromMessage(message: string): string {
   return message.replace(USERPASS_URL_PATTERN, '$1').replace(HTTPS_TOKEN_URL_PATTERN, '$1')
@@ -81,6 +82,19 @@ function* iterateLinesFromEnd(value: string): Generator<string> {
 
 export type GitRemoteOperation = 'push' | 'pull' | 'fetch' | 'upstream'
 
+function formatRemoteOperationLabel(operation: GitRemoteOperation): string {
+  switch (operation) {
+    case 'push':
+      return 'Push'
+    case 'pull':
+      return 'Pull'
+    case 'fetch':
+      return 'Fetch'
+    case 'upstream':
+      return 'Upstream refresh'
+  }
+}
+
 export function normalizeGitErrorMessage(error: unknown, operation?: GitRemoteOperation): string {
   if (!(error instanceof Error)) {
     return 'Git remote operation failed.'
@@ -91,6 +105,10 @@ export function normalizeGitErrorMessage(error: unknown, operation?: GitRemoteOp
   // already-redacted text. The fast-path branches below return fixed
   // literals today, but this hardens against accidental leakage later.
   const raw = stripCredentialsFromMessage(error.message)
+
+  if (operation && REMOTE_OPERATION_TIMEOUT_PATTERN.test(raw)) {
+    return `${formatRemoteOperationLabel(operation)} timed out. Check your remote connection or credentials, then try again.`
+  }
 
   const submodulePushFailureDetail = formatSubmodulePushFailureDetail(raw)
   if ((operation === 'push' || operation === undefined) && submodulePushFailureDetail) {

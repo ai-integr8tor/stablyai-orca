@@ -14,13 +14,18 @@ import {
   getRuntimeGitIgnoredPaths,
   getRuntimeGitStatus,
   pushRuntimeGit,
-  rebaseRuntimeGitFromBase
+  rebaseRuntimeGitFromBase,
+  syncRuntimeGitForkDefaultBranch
 } from './runtime-git-client'
 import {
+  createCompatibleRuntimeStatusResponse,
   createCompatibleRuntimeStatusResponseIfNeeded,
   type RuntimeEnvironmentCallRequest
 } from './runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from './runtime-rpc-client'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../../shared/git-remote-operation-timeout'
+
+const RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS = resolveGitRemoteOperationOuterTimeoutMs(undefined)
 
 const gitStatus = vi.fn()
 const gitCheckIgnored = vi.fn()
@@ -39,6 +44,7 @@ const gitCancelGenerateCommitMessage = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
 const runtimeEnvironmentTransportCall = vi.fn()
 const runtimeCall = vi.fn()
+const getGitRemoteOperationOuterTimeoutMs = vi.fn()
 
 beforeEach(() => {
   clearRuntimeCompatibilityCacheForTests()
@@ -59,11 +65,16 @@ beforeEach(() => {
   runtimeEnvironmentCall.mockReset()
   runtimeEnvironmentTransportCall.mockReset()
   runtimeCall.mockReset()
+  getGitRemoteOperationOuterTimeoutMs.mockReset()
+  getGitRemoteOperationOuterTimeoutMs.mockResolvedValue(RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS)
   runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
     return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
   })
   vi.stubGlobal('window', {
     api: {
+      app: {
+        getGitRemoteOperationOuterTimeoutMs
+      },
       git: {
         status: gitStatus,
         checkIgnored: gitCheckIgnored,
@@ -352,7 +363,7 @@ describe('runtime git client', () => {
         publish: true,
         pushTarget: { remoteName: 'origin', branchName: 'feature' }
       },
-      timeoutMs: 30_000
+      timeoutMs: RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(7, {
       selector: 'env-1',
@@ -361,7 +372,7 @@ describe('runtime git client', () => {
         worktree: 'id:wt-1',
         pushTarget: { remoteName: 'fork', branchName: 'feature' }
       },
-      timeoutMs: 30_000
+      timeoutMs: RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(8, {
       selector: 'env-1',
@@ -370,13 +381,95 @@ describe('runtime git client', () => {
         worktree: 'id:wt-1',
         pushTarget: { remoteName: 'fork', branchName: 'feature' }
       },
-      timeoutMs: 30_000
+      timeoutMs: RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(9, {
       selector: 'env-1',
       method: 'git.rebaseFromBase',
       params: { worktree: 'id:wt-1', baseRef: 'origin/main' },
-      timeoutMs: 30_000
+      timeoutMs: RUNTIME_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    })
+  })
+
+  it('uses the active runtime environment source-control timeout', async () => {
+    runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+      if (args.method === 'status.get') {
+        const response = createCompatibleRuntimeStatusResponse()
+        if (!response.ok) {
+          return response
+        }
+        return {
+          ...response,
+          result: { ...response.result, gitRemoteOperationOuterTimeoutMs: 185_000 }
+        }
+      }
+      return runtimeEnvironmentCall(args)
+    })
+    runtimeEnvironmentCall.mockResolvedValue({
+      id: 'rpc-1',
+      ok: true,
+      result: { success: true },
+      _meta: { runtimeId: 'remote-runtime' }
+    })
+
+    await fetchRuntimeGit({
+      settings: { activeRuntimeEnvironmentId: 'env-1' },
+      worktreeId: 'wt-1',
+      worktreePath: '/repo'
+    })
+
+    expect(getGitRemoteOperationOuterTimeoutMs).not.toHaveBeenCalled()
+    expect(runtimeEnvironmentTransportCall).toHaveBeenNthCalledWith(1, {
+      selector: 'env-1',
+      method: 'status.get',
+      timeoutMs: 15_000
+    })
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
+      selector: 'env-1',
+      method: 'git.fetch',
+      params: { worktree: 'id:wt-1' },
+      timeoutMs: 185_000
+    })
+  })
+
+  it('uses the active runtime environment fork-sync timeout', async () => {
+    runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+      if (args.method === 'status.get') {
+        const response = createCompatibleRuntimeStatusResponse()
+        if (!response.ok) {
+          return response
+        }
+        return {
+          ...response,
+          result: { ...response.result, gitRemoteOperationOuterTimeoutMs: 185_000 }
+        }
+      }
+      return runtimeEnvironmentCall(args)
+    })
+    runtimeEnvironmentCall.mockResolvedValue({
+      id: 'rpc-1',
+      ok: true,
+      result: { status: 'up-to-date' },
+      _meta: { runtimeId: 'remote-runtime' }
+    })
+
+    await syncRuntimeGitForkDefaultBranch(
+      {
+        settings: { activeRuntimeEnvironmentId: 'env-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/repo'
+      },
+      { owner: 'stablyai', repo: 'orca' }
+    )
+
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
+      selector: 'env-1',
+      method: 'git.forkSync',
+      params: {
+        worktree: 'id:wt-1',
+        expectedUpstream: { owner: 'stablyai', repo: 'orca' }
+      },
+      timeoutMs: 185_000
     })
   })
 

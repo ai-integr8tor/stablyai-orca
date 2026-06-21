@@ -47,6 +47,7 @@ import { registerAppHandlers } from './app'
 
 describe('registerAppHandlers', () => {
   const originalPlatform = process.platform
+  const originalRemoteOperationTimeout = process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -62,6 +63,11 @@ describe('registerAppHandlers', () => {
   afterEach(() => {
     vi.useRealTimers()
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    if (originalRemoteOperationTimeout === undefined) {
+      delete process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    } else {
+      process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = originalRemoteOperationTimeout
+    }
   })
 
   it('marks relaunch as expected shutdown before exiting', async () => {
@@ -155,6 +161,15 @@ describe('registerAppHandlers', () => {
     expect(appRelaunchMock).toHaveBeenCalledTimes(1)
     expect(appQuitMock).toHaveBeenCalledTimes(1)
     expect(appExitMock).not.toHaveBeenCalled()
+  })
+
+  it('resolves the git remote operation outer timeout from main-process env', () => {
+    process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS = '180000'
+    registerAppHandlers({} as never)
+
+    const handler = handlers.get('app:getGitRemoteOperationOuterTimeoutMs')
+
+    expect(handler?.(null)).toBe(185_000)
   })
 
   it('falls back when the macOS keyboard layout probe never reports completion', async () => {

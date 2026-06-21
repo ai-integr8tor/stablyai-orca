@@ -42,6 +42,10 @@ type RuntimeSubscription = {
   callbacks: SubscriptionCallbacks
 }
 
+type WebRuntimeClientOptions = {
+  onConnectionInterrupted?: () => void
+}
+
 export type WebRuntimeSubscriptionHandle = {
   unsubscribe: () => void
   sendBinary: (bytes: Uint8Array<ArrayBufferLike>) => void
@@ -70,7 +74,10 @@ export class WebRuntimeClient {
   private readonly waiters: { resolve: () => void; reject: (error: Error) => void }[] = []
   private readonly serverPublicKey: Uint8Array
 
-  constructor(private readonly pairing: WebPairingOffer) {
+  constructor(
+    private readonly pairing: WebPairingOffer,
+    private readonly options: WebRuntimeClientOptions = {}
+  ) {
     this.serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
     this.openConnection()
   }
@@ -532,6 +539,11 @@ export class WebRuntimeClient {
     if (this.intentionallyClosed || this.state === 'auth-failed') {
       this.setState(this.state === 'auth-failed' ? 'auth-failed' : 'disconnected')
       return
+    }
+    try {
+      this.options.onConnectionInterrupted?.()
+    } catch (error) {
+      console.warn('onConnectionInterrupted callback failed:', error)
     }
     this.setState('disconnected')
     this.scheduleReconnect()

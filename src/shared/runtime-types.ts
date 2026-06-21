@@ -57,6 +57,8 @@ export type RuntimeStatus = {
   capabilities?: RuntimeCapability[]
   remoteControl?: RemoteRuntimeSharedConnectionDiagnostics | null
   hostPlatform?: NodeJS.Platform
+  // Optional for compatibility with runtimes older than this status field.
+  gitRemoteOperationOuterTimeoutMs?: number
   // COMPAT(runtimeStatusMobileAliases): added 2026-05-15 for mobile builds
   // that still read these names; new desktop/CLI code uses the fields above.
   protocolVersion?: number

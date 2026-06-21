@@ -53,6 +53,21 @@ describe('normalizeGitErrorMessage', () => {
     )
     expect(usedLineSplit).toBe(false)
   })
+
+  it('maps subprocess timeout failures to operation-specific guidance', () => {
+    expect(normalizeGitErrorMessage(new Error('wsl.exe timed out.'), 'push')).toBe(
+      'Push timed out. Check your remote connection or credentials, then try again.'
+    )
+    expect(normalizeGitErrorMessage(new Error('wsl.exe timed out.'), 'pull')).toBe(
+      'Pull timed out. Check your remote connection or credentials, then try again.'
+    )
+    expect(normalizeGitErrorMessage(new Error('wsl.exe timed out.'), 'fetch')).toBe(
+      'Fetch timed out. Check your remote connection or credentials, then try again.'
+    )
+    expect(normalizeGitErrorMessage(new Error('wsl.exe timed out.'), 'upstream')).toBe(
+      'Upstream refresh timed out. Check your remote connection or credentials, then try again.'
+    )
+  })
 })
 
 describe('formatSubmodulePushFailureDetail', () => {

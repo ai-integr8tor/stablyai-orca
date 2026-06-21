@@ -215,4 +215,38 @@ describe('syncForkDefaultBranch', () => {
       branchName: 'main'
     })
   })
+
+  it('rethrows timed-out fetches instead of reporting missing fork branches', async () => {
+    const { runGit } = createRunner({})
+    vi.mocked(runGit).mockImplementation(async (args: string[]) => {
+      if (args[0] === 'fetch') {
+        throw new Error('git timed out.')
+      }
+      return {
+        stdout:
+          args[0] === 'remote'
+            ? 'origin\nupstream\n'
+            : args[0] === 'ls-remote'
+              ? 'ref: refs/heads/main\tHEAD\n0123456789012345678901234567890123456789\tHEAD\n'
+              : ''
+      }
+    })
+
+    await expect(syncForkDefaultBranch(runGit)).rejects.toThrow('git timed out.')
+  })
+
+  it('rethrows aborts from branch probes instead of reporting blocked state', async () => {
+    const { runGit } = createRunner({})
+    const abortError = Object.assign(new Error('The operation was aborted.'), {
+      name: 'AbortError'
+    })
+    vi.mocked(runGit).mockImplementation(async (args: string[]) => {
+      if (args[0] === 'ls-remote') {
+        throw abortError
+      }
+      return { stdout: args[0] === 'remote' ? 'origin\nupstream\n' : '' }
+    })
+
+    await expect(syncForkDefaultBranch(runGit)).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })

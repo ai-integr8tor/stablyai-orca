@@ -22,8 +22,40 @@ import type { ResolvedSourceControlAiGenerationParams } from '../../../shared/so
 import { getCommitMessageModelDiscoveryHostKeyForScope } from '../../../shared/commit-message-host-key'
 import type { GitHistoryOptions, GitHistoryResult } from '../../../shared/git-history'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id'
-import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../../shared/git-remote-operation-timeout'
+import {
+  callRuntimeRpc,
+  getActiveRuntimeTarget,
+  getRuntimeEnvironmentStatus,
+  type RuntimeClientTarget
+} from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
+
+const RUNTIME_GIT_REMOTE_OPERATION_STATUS_TIMEOUT_MS = 15_000
+const RUNTIME_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS =
+  resolveGitRemoteOperationOuterTimeoutMs(undefined)
+
+function readRuntimeGitRemoteOperationTimeoutMs(status: {
+  gitRemoteOperationOuterTimeoutMs?: unknown
+}): number {
+  const value = status.gitRemoteOperationOuterTimeoutMs
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : RUNTIME_GIT_REMOTE_OPERATION_FALLBACK_TIMEOUT_MS
+}
+
+async function getRuntimeGitRemoteOperationTimeoutMs(target: RuntimeClientTarget): Promise<number> {
+  // Why: let the runtime/relay-side git timeout return normalized operation
+  // guidance before the renderer's generic RPC timeout can win the race.
+  if (target.kind === 'local') {
+    return window.api.app.getGitRemoteOperationOuterTimeoutMs()
+  }
+  const status = await getRuntimeEnvironmentStatus(
+    target.environmentId,
+    RUNTIME_GIT_REMOTE_OPERATION_STATUS_TIMEOUT_MS
+  )
+  return readRuntimeGitRemoteOperationTimeoutMs(status)
+}
 
 export type RuntimeGenerateCommitMessageResult =
   | { success: true; message: string; agentLabel?: string }
@@ -340,7 +372,7 @@ export async function fetchRuntimeGit(
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       ...(pushTarget ? { pushTarget } : {})
     },
-    { timeoutMs: 30_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 
@@ -363,7 +395,7 @@ export async function syncRuntimeGitForkDefaultBranch(
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       expectedUpstream
     },
-    { timeoutMs: 60_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 
@@ -387,7 +419,7 @@ export async function pullRuntimeGit(
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       ...(pushTarget ? { pushTarget } : {})
     },
-    { timeoutMs: 30_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 
@@ -411,7 +443,7 @@ export async function fastForwardRuntimeGit(
       worktree: toRuntimeWorktreeSelector(context.worktreeId),
       ...(pushTarget ? { pushTarget } : {})
     },
-    { timeoutMs: 30_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 
@@ -432,7 +464,7 @@ export async function rebaseRuntimeGitFromBase(
     target,
     'git.rebaseFromBase',
     { worktree: toRuntimeWorktreeSelector(context.worktreeId), baseRef },
-    { timeoutMs: 30_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 
@@ -460,7 +492,7 @@ export async function pushRuntimeGit(
       ...(args.pushTarget !== undefined ? { pushTarget: args.pushTarget } : {}),
       ...(args.forceWithLease !== undefined ? { forceWithLease: args.forceWithLease } : {})
     },
-    { timeoutMs: 30_000 }
+    { timeoutMs: await getRuntimeGitRemoteOperationTimeoutMs(target) }
   )
 }
 

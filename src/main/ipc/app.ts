@@ -20,6 +20,7 @@ import {
   resolveFloatingTerminalCwd
 } from './floating-workspace-directory'
 import { isMarkdownDocumentName, markdownDocumentFromFilePath } from './markdown-documents'
+import { resolveGitRemoteOperationOuterTimeoutMs } from '../../shared/git-remote-operation-timeout'
 
 const KEYBOARD_INPUT_SOURCE_TIMEOUT_MS = 500
 
@@ -162,6 +163,10 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
       dockBadgeLabel: identity.dockBadgeLabel
     }
   })
+
+  ipcMain.handle('app:getGitRemoteOperationOuterTimeoutMs', (): number =>
+    resolveGitRemoteOperationOuterTimeoutMs(process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS)
+  )
 
   ipcMain.handle('wsl:isAvailable', (): boolean => isWslAvailable())
   ipcMain.handle('wsl:listDistros', (): string[] => listWslDistros())

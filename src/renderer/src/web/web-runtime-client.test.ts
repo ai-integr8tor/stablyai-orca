@@ -204,6 +204,66 @@ describe('WebRuntimeClient', () => {
     }
   })
 
+  it('notifies when the active socket is interrupted before reconnecting', () => {
+    const onConnectionInterrupted = vi.fn()
+    const client = new WebRuntimeClient(
+      {
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      },
+      { onConnectionInterrupted }
+    )
+    const socket = fakeSockets[0]!
+
+    socket.onclose?.()
+
+    expect(onConnectionInterrupted).toHaveBeenCalledTimes(1)
+    client.close()
+  })
+
+  it('reconnects when the interruption callback throws', async () => {
+    vi.useFakeTimers()
+    const timerWindow = window as unknown as {
+      setTimeout: typeof setTimeout
+      clearTimeout: typeof clearTimeout
+    }
+    timerWindow.setTimeout = setTimeout
+    timerWindow.clearTimeout = clearTimeout
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onConnectionInterrupted = vi.fn(() => {
+      throw new Error('callback failed')
+    })
+    const client = new WebRuntimeClient(
+      {
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      },
+      { onConnectionInterrupted }
+    )
+
+    try {
+      const socket = fakeSockets[0]!
+
+      socket.onclose?.()
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(onConnectionInterrupted).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledWith(
+        'onConnectionInterrupted callback failed:',
+        expect.any(Error)
+      )
+      expect(fakeSockets).toHaveLength(2)
+    } finally {
+      warn.mockRestore()
+      client.close()
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps file watches on the owning WebSocket instead of opening child clients', async () => {
     const client = new WebRuntimeClient({
       v: 2,

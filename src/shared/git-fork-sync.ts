@@ -164,8 +164,26 @@ async function remoteMatchesExpectedUpstream(
   try {
     const { stdout } = await runGit(['remote', 'get-url', remote])
     return parseGitHubRemotePath(stdout) === `${owner}/${repo}`
-  } catch {
+  } catch (error) {
+    rethrowInterruptedForkSync(error)
     return false
+  }
+}
+
+function isInterruptedForkSyncError(error: unknown): boolean {
+  // Why: expected missing-branch probes are safe to downgrade to blocked
+  // results, but timeout/cancel failures must reach the caller's normalizer.
+  const name =
+    error !== null && typeof error === 'object' ? (error as { name?: unknown }).name : undefined
+  if (name === 'AbortError') {
+    return true
+  }
+  return error instanceof Error && /\btimed out\b/i.test(error.message)
+}
+
+function rethrowInterruptedForkSync(error: unknown): void {
+  if (isInterruptedForkSyncError(error)) {
+    throw error
   }
 }
 
@@ -183,7 +201,8 @@ async function fetchRemoteBranch(
       `+refs/heads/${branchName}:refs/remotes/${remote}/${branchName}`
     ])
     return true
-  } catch {
+  } catch (error) {
+    rethrowInterruptedForkSync(error)
     return false
   }
 }
@@ -191,7 +210,8 @@ async function fetchRemoteBranch(
 async function resolveCommit(runGit: GitForkSyncRunner, ref: string): Promise<string | null> {
   try {
     return (await runGit(['rev-parse', '--verify', `${ref}^{commit}`])).stdout.trim() || null
-  } catch {
+  } catch (error) {
+    rethrowInterruptedForkSync(error)
     return null
   }
 }
@@ -206,7 +226,8 @@ async function resolveRemoteDefaultBranch(
     if (branchName) {
       return branchName
     }
-  } catch {
+  } catch (error) {
+    rethrowInterruptedForkSync(error)
     // Fall through to common branch names so offline/stale remote metadata can
     // still support the conservative fast-forward check when refs exist.
   }
@@ -215,7 +236,8 @@ async function resolveRemoteDefaultBranch(
     try {
       await runGit(['rev-parse', '--verify', `refs/remotes/${remote}/${branchName}^{commit}`])
       return branchName
-    } catch {
+    } catch (error) {
+      rethrowInterruptedForkSync(error)
       // Try the next common default branch.
     }
   }
@@ -230,7 +252,8 @@ async function isAncestor(
   try {
     await runGit(['merge-base', '--is-ancestor', ancestorOid, descendantOid])
     return true
-  } catch {
+  } catch (error) {
+    rethrowInterruptedForkSync(error)
     return false
   }
 }

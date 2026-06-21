@@ -28,6 +28,28 @@ import {
   describeMaxBufferOverflowError,
   isMaxBufferOverflowError
 } from '../git/max-buffer-overflow'
+import {
+  resolveGitRemoteOperationOuterTimeoutMs,
+  resolveGitRemoteOperationTimeoutMs
+} from '../../shared/git-remote-operation-timeout'
+
+function gitRemoteOperationRpcOptions(): { timeoutMs: number } {
+  return {
+    timeoutMs: resolveGitRemoteOperationOuterTimeoutMs(
+      process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS
+    )
+  }
+}
+
+function gitRemoteOperationTimeoutMs(): number {
+  return resolveGitRemoteOperationTimeoutMs(process.env.ORCA_GIT_REMOTE_OPERATION_TIMEOUT_MS)
+}
+
+function withGitRemoteOperationTimeout<T extends Record<string, unknown>>(
+  params: T
+): T & { remoteOperationTimeoutMs: number } {
+  return { ...params, remoteOperationTimeoutMs: gitRemoteOperationTimeoutMs() }
+}
 
 type NonInteractiveExecQueueEntry = {
   started: boolean
@@ -406,41 +428,65 @@ export class SshGitProvider implements IGitProvider {
     pushTarget?: GitPushTarget,
     options: { forceWithLease?: boolean } = {}
   ): Promise<void> {
-    await this.mux.request('git.push', {
-      worktreePath,
-      publish,
-      pushTarget,
-      ...(options.forceWithLease === true ? { forceWithLease: true } : {})
-    })
+    await this.mux.request(
+      'git.push',
+      withGitRemoteOperationTimeout({
+        worktreePath,
+        publish,
+        pushTarget,
+        ...(options.forceWithLease === true ? { forceWithLease: true } : {})
+      }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async pullBranch(worktreePath: string, pushTarget?: GitPushTarget): Promise<void> {
-    await this.mux.request('git.pull', { worktreePath, ...(pushTarget ? { pushTarget } : {}) })
+    await this.mux.request(
+      'git.pull',
+      withGitRemoteOperationTimeout({ worktreePath, ...(pushTarget ? { pushTarget } : {}) }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async fastForwardBranch(worktreePath: string, pushTarget?: GitPushTarget): Promise<void> {
-    await this.mux.request('git.fastForward', {
-      worktreePath,
-      ...(pushTarget ? { pushTarget } : {})
-    })
+    await this.mux.request(
+      'git.fastForward',
+      withGitRemoteOperationTimeout({
+        worktreePath,
+        ...(pushTarget ? { pushTarget } : {})
+      }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async rebaseFromBase(worktreePath: string, baseRef: string): Promise<void> {
-    await this.mux.request('git.rebaseFromBase', { worktreePath, baseRef })
+    await this.mux.request(
+      'git.rebaseFromBase',
+      withGitRemoteOperationTimeout({ worktreePath, baseRef }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async fetchRemote(worktreePath: string, pushTarget?: GitPushTarget): Promise<void> {
-    await this.mux.request('git.fetch', { worktreePath, ...(pushTarget ? { pushTarget } : {}) })
+    await this.mux.request(
+      'git.fetch',
+      withGitRemoteOperationTimeout({ worktreePath, ...(pushTarget ? { pushTarget } : {}) }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async syncForkDefaultBranch(
     worktreePath: string,
     expectedUpstream: GitForkSyncExpectedUpstream
   ): Promise<GitForkSyncResult> {
-    return (await this.mux.request('git.forkSync', {
-      worktreePath,
-      ...(expectedUpstream ? { expectedUpstream } : {})
-    })) as GitForkSyncResult
+    return (await this.mux.request(
+      'git.forkSync',
+      withGitRemoteOperationTimeout({
+        worktreePath,
+        ...(expectedUpstream ? { expectedUpstream } : {})
+      }),
+      gitRemoteOperationRpcOptions()
+    )) as GitForkSyncResult
   }
 
   async fetchRemoteTrackingRef(
@@ -449,12 +495,16 @@ export class SshGitProvider implements IGitProvider {
     branch: string,
     ref: string
   ): Promise<void> {
-    await this.mux.request('git.fetchRemoteTrackingRef', {
-      worktreePath,
-      remote,
-      branch,
-      ref
-    })
+    await this.mux.request(
+      'git.fetchRemoteTrackingRef',
+      withGitRemoteOperationTimeout({
+        worktreePath,
+        remote,
+        branch,
+        ref
+      }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async fetchGitLabMergeRequestHead(
@@ -462,11 +512,15 @@ export class SshGitProvider implements IGitProvider {
     remote: string,
     mrIid: number
   ): Promise<void> {
-    await this.mux.request('git.fetchGitLabMergeRequestHead', {
-      worktreePath,
-      remote,
-      mrIid
-    })
+    await this.mux.request(
+      'git.fetchGitLabMergeRequestHead',
+      withGitRemoteOperationTimeout({
+        worktreePath,
+        remote,
+        mrIid
+      }),
+      gitRemoteOperationRpcOptions()
+    )
   }
 
   async getBranchDiff(

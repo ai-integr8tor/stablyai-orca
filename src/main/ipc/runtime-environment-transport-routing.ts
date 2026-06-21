@@ -91,7 +91,7 @@ export async function callRuntimeEnvironment(
     }
     if (
       method !== 'status.get' &&
-      (await supportsSharedControl(userDataPath, currentEnvironment, pairing, effectiveTimeoutMs))
+      (await supportsSharedControl(userDataPath, currentEnvironment, pairing))
     ) {
       const response = await sendRemoteRuntimeSharedControlRequest(
         currentEnvironment.id,
@@ -158,7 +158,7 @@ export async function subscribeRuntimeEnvironment(
   if (
     shouldUseSharedControlSubscription(method) &&
     !shouldKeepDedicatedSubscriptionSocket(method) &&
-    (await supportsSharedControl(userDataPath, environment, pairing, effectiveTimeoutMs))
+    (await supportsSharedControl(userDataPath, environment, pairing))
   ) {
     return await subscribeRemoteRuntimeSharedControlRequest(
       environment.id,
@@ -210,8 +210,7 @@ function shouldUseSharedControlSubscription(method: string): boolean {
 async function supportsSharedControl(
   userDataPath: string,
   environment: KnownRuntimeEnvironment,
-  pairing: ReturnType<typeof getPreferredPairingOffer>,
-  timeoutMs: number
+  pairing: ReturnType<typeof getPreferredPairingOffer>
 ): Promise<boolean> {
   const cacheKey = getSharedControlSupportCacheKey(environment, pairing)
   const cached = sharedControlSupport.get(environment.id)
@@ -224,7 +223,9 @@ async function supportsSharedControl(
       pairing,
       'status.get',
       undefined,
-      timeoutMs
+      // Why: this is a control-plane capability probe; caller/data-plane
+      // timeouts such as long git fetch windows must not delay routing.
+      DEFAULT_REMOTE_RUNTIME_TIMEOUT_MS
     )
     if (response.ok === true) {
       markEnvironmentUsed(userDataPath, environment.id, { runtimeId: response._meta.runtimeId })

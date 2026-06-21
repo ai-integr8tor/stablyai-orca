@@ -7,7 +7,7 @@ import { GitHandler } from './git-handler'
 import { RelayContext } from './context'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'fs'
+import { chmodSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { execFileSync } from 'child_process'
 import { MAX_RENDERED_DIFF_COMBINED_CHARACTERS } from '../shared/large-diff-render-limit'
@@ -61,6 +61,12 @@ describe('GitHandler', () => {
 
   function normalizeGitFileText(content: string): string {
     return content.replace(/\r\n/g, '\n')
+  }
+
+  // Why: GIT_SSH_COMMAND is interpreted by `sh`; Git-for-Windows accepts C:/...
+  // paths there, while POSIX paths are unchanged.
+  function toGitShellPath(filePath: string): string {
+    return filePath.replace(/\\/g, '/')
   }
 
   it('registers all expected handlers', () => {
@@ -1022,6 +1028,95 @@ describe('GitHandler', () => {
         await expect(fs.access(path.join(tmpDir, '.git', 'FETCH_HEAD'))).resolves.toBeUndefined()
       } finally {
         await fs.rm(bareDir, { recursive: true, force: true })
+      }
+    })
+
+    it('times out stalled push subprocesses with normalized guidance', async () => {
+      const bareDir = mkdtempSync(path.join(tmpdir(), 'relay-git-stalled-push-bare-'))
+      try {
+        execFileSync('git', ['init', '--bare'], { cwd: bareDir, stdio: 'pipe' })
+        const hookPath = path.join(bareDir, 'hooks', 'pre-receive')
+        writeFileSync(hookPath, '#!/bin/sh\nsleep 30\n')
+        chmodSync(hookPath, 0o755)
+
+        gitInit(tmpDir)
+        writeFileSync(path.join(tmpDir, 'base.txt'), 'base')
+        gitCommit(tmpDir, 'initial')
+        execFileSync('git', ['remote', 'add', 'origin', bareDir], {
+          cwd: tmpDir,
+          stdio: 'pipe'
+        })
+
+        const startedAt = Date.now()
+        await expect(
+          dispatcher.callRequest('git.push', {
+            worktreePath: tmpDir,
+            remoteOperationTimeoutMs: 1000
+          })
+        ).rejects.toThrow(
+          'Push timed out. Check your remote connection or credentials, then try again.'
+        )
+        // Why: keep this above timeout + process teardown variance to avoid CI flake.
+        expect(Date.now() - startedAt).toBeLessThan(7000)
+      } finally {
+        // Why: allow the aborted git child process a short window to exit before cleanup.
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        await fs.rm(bareDir, { recursive: true, force: true })
+      }
+    })
+
+    it('times out dedicated SSH fetch RPC subprocesses with normalized guidance', async () => {
+      const previousSshCommand = process.env.GIT_SSH_COMMAND
+      const sshScript = path.join(tmpDir, 'stall-ssh.sh')
+      writeFileSync(sshScript, '#!/bin/sh\nsleep 30\n')
+      chmodSync(sshScript, 0o755)
+
+      process.env.GIT_SSH_COMMAND = `sh "${toGitShellPath(sshScript)}"`
+      try {
+        gitInit(tmpDir)
+        execFileSync('git', ['remote', 'add', 'origin', 'ssh://example.invalid/stalled.git'], {
+          cwd: tmpDir,
+          stdio: 'pipe'
+        })
+
+        const requests = [
+          {
+            method: 'git.fetchRemoteTrackingRef',
+            params: {
+              worktreePath: tmpDir,
+              remote: 'origin',
+              branch: 'main',
+              remoteOperationTimeoutMs: 1000,
+              ref: 'refs/remotes/origin/main'
+            }
+          },
+          {
+            method: 'git.fetchGitLabMergeRequestHead',
+            params: {
+              worktreePath: tmpDir,
+              remote: 'origin',
+              remoteOperationTimeoutMs: 1000,
+              mrIid: 42
+            }
+          }
+        ]
+
+        for (const request of requests) {
+          const startedAt = Date.now()
+          await expect(dispatcher.callRequest(request.method, request.params)).rejects.toThrow(
+            'Fetch timed out. Check your remote connection or credentials, then try again.'
+          )
+          // Why: keep this above timeout + process teardown variance to avoid CI flake.
+          expect(Date.now() - startedAt).toBeLessThan(7000)
+        }
+      } finally {
+        // Why: allow the aborted git child process a short window to exit before cleanup.
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (previousSshCommand === undefined) {
+          delete process.env.GIT_SSH_COMMAND
+        } else {
+          process.env.GIT_SSH_COMMAND = previousSshCommand
+        }
       }
     })
 

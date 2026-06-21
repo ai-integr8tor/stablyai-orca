@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  TERMINAL_HTTP_URL_MAX_LENGTH,
-  TERMINAL_HTTP_URL_REGEX_SOURCE,
-  findUrlAtColumn
+  extractTerminalHttpLinks,
+  findUrlAtColumn,
+  TERMINAL_HTTP_URL_MAX_LENGTH
 } from './terminal-webview-url-tap'
 import { XTERM_HTML } from './terminal-webview-html'
 
@@ -35,7 +35,7 @@ describe('findUrlAtColumn', () => {
   it('excludes trailing punctuation from the matched URL', () => {
     const line = 'visit https://example.com.'
 
-    expect(findUrlAtColumn(line, line.indexOf('example'))).toBe('https://example.com')
+    expect(findUrlAtColumn(line, line.indexOf('example'))).toBe('https://example.com/')
     expect(findUrlAtColumn(line, line.length - 1)).toBeNull()
   })
 
@@ -46,20 +46,30 @@ describe('findUrlAtColumn', () => {
     expect(findUrlAtColumn(line, line.indexOf('etc'))).toBeNull()
   })
 
-  it('matches desktop URL boundary and length guards', () => {
-    expect(findUrlAtColumn('prefixhttps://example.com/path', 'prefix'.length)).toBeNull()
-    expect(findUrlAtColumn('prefix https://example.com/path', 'prefix '.length)).toBe(
-      'https://example.com/path'
-    )
+  it('requires a word boundary before the http scheme', () => {
+    expect(extractTerminalHttpLinks('prefixhttps://example.com/path')).toEqual([])
+    expect(extractTerminalHttpLinks('prefix https://example.com/path')).toEqual([
+      {
+        url: 'https://example.com/path',
+        startIndex: 'prefix '.length,
+        endIndex: 'prefix https://example.com/path'.length
+      }
+    ])
+  })
 
+  it('rejects overlong pasted URL candidates before URL parsing', () => {
     const overlongUrl = `https://example.com/${'a'.repeat(TERMINAL_HTTP_URL_MAX_LENGTH)}`
-    expect(findUrlAtColumn(overlongUrl, 0)).toBeNull()
+
+    expect(extractTerminalHttpLinks(overlongUrl)).toEqual([])
   })
 
   it('injects URL and OSC tap handling into the WebView document', () => {
+    expect(XTERM_HTML).toContain('function extractTerminalHttpLinks(')
     expect(XTERM_HTML).toContain('function findUrlAtColumn(')
     expect(XTERM_HTML).toContain('function urlAtViewportPoint(')
-    expect(XTERM_HTML).toContain(JSON.stringify(TERMINAL_HTTP_URL_REGEX_SOURCE))
+    expect(XTERM_HTML).toContain(
+      `var TERMINAL_HTTP_URL_MAX_LENGTH = ${TERMINAL_HTTP_URL_MAX_LENGTH};`
+    )
     expect(XTERM_HTML).toContain('function oscLinkAtViewportPoint(')
     expect(XTERM_HTML).toContain('function notifyTerminalSurfaceTap(')
     expect(XTERM_HTML).toContain("notify({ type: 'open-url', url: tappedUrl });")
