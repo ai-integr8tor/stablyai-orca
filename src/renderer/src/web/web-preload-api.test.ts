@@ -2625,7 +2625,8 @@ describe('web GitHub preload API', () => {
           repo: 'id:repo-1',
           branch: 'feature',
           linkedPRNumber: null,
-          fallbackPRNumber: 9
+          fallbackPRNumber: 9,
+          acceptMergedFallbackPR: true
         }
       }
     ])

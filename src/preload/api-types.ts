@@ -434,9 +434,6 @@ export type BrowserApi = {
   onOpenLinkInOrcaTab: (
     callback: (event: { browserPageId: string; url: string }) => void
   ) => () => void
-  acceptDownload: (args: {
-    downloadId: string
-  }) => Promise<{ ok: true } | { ok: false; reason: string }>
   cancelDownload: (args: { downloadId: string }) => Promise<boolean>
   setGrabMode: (args: BrowserSetGrabModeArgs) => Promise<BrowserSetGrabModeResult>
   awaitGrabSelection: (args: BrowserAwaitGrabSelectionArgs) => Promise<BrowserGrabResult>
@@ -1149,6 +1146,7 @@ export type PreloadApi = {
       branch: string
       linkedPRNumber?: number | null
       fallbackPRNumber?: number | null
+      acceptMergedFallbackPR?: boolean
     }) => Promise<PRInfo | null>
     refreshPRNow: (args: { candidate: GitHubPRRefreshCandidate }) => Promise<PRRefreshOutcome>
     enqueuePRRefresh: (args: {

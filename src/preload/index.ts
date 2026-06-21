@@ -945,6 +945,7 @@ const api = {
       branch: string
       linkedPRNumber?: number | null
       fallbackPRNumber?: number | null
+      acceptMergedFallbackPR?: boolean
     }): Promise<unknown> => ipcRenderer.invoke('gh:prForBranch', args),
 
     refreshPRNow: (args: { candidate: GitHubPRRefreshCandidate }): Promise<unknown> =>
@@ -1987,6 +1988,8 @@ const api = {
         filename: string
         totalBytes: number | null
         mimeType: string | null
+        savePath: string
+        status: 'downloading'
       }) => void
     ): (() => void) => {
       const listener = (
@@ -1998,6 +2001,8 @@ const api = {
           filename: string
           totalBytes: number | null
           mimeType: string | null
+          savePath: string
+          status: 'downloading'
         }
       ) => callback(data)
       ipcRenderer.on('browser:download-requested', listener)
@@ -2006,14 +2011,22 @@ const api = {
 
     onDownloadProgress: (
       callback: (event: {
+        browserPageId?: string
         downloadId: string
         receivedBytes: number
         totalBytes: number | null
+        state: 'progressing' | 'interrupted' | null
       }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { downloadId: string; receivedBytes: number; totalBytes: number | null }
+        data: {
+          browserPageId?: string
+          downloadId: string
+          receivedBytes: number
+          totalBytes: number | null
+          state: 'progressing' | 'interrupted' | null
+        }
       ) => callback(data)
       ipcRenderer.on('browser:download-progress', listener)
       return () => ipcRenderer.removeListener('browser:download-progress', listener)
@@ -2021,6 +2034,7 @@ const api = {
 
     onDownloadFinished: (
       callback: (event: {
+        browserPageId?: string
         downloadId: string
         status: 'completed' | 'canceled' | 'failed'
         savePath: string | null
@@ -2030,6 +2044,7 @@ const api = {
       const listener = (
         _event: Electron.IpcRendererEvent,
         data: {
+          browserPageId?: string
           downloadId: string
           status: 'completed' | 'canceled' | 'failed'
           savePath: string | null
@@ -2123,11 +2138,6 @@ const api = {
       ipcRenderer.on('browser:open-link-in-orca-tab', listener)
       return () => ipcRenderer.removeListener('browser:open-link-in-orca-tab', listener)
     },
-
-    acceptDownload: (args: {
-      downloadId: string
-    }): Promise<{ ok: true } | { ok: false; reason: string }> =>
-      ipcRenderer.invoke('browser:acceptDownload', args),
 
     cancelDownload: (args: { downloadId: string }): Promise<boolean> =>
       ipcRenderer.invoke('browser:cancelDownload', args),
