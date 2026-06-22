@@ -5,6 +5,9 @@ const EMOJI_PRESENTATION_PATTERN = /\p{Emoji_Presentation}/u
 const ESCAPE_CHARACTER = String.fromCharCode(0x1b)
 const REWRITE_CSI_SCAN_TAIL_MAX_CHARS = 64
 const SGR_SEQUENCE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[([0-9:;]*)m`, 'g')
+const CSI_REWRITE_SEQUENCE_PATTERN = new RegExp(
+  `${ESCAPE_CHARACTER}\\[[0-9;?]*(?:[HJfK])|\\r|\\x08`
+)
 
 function containsStandaloneCarriageReturn(data: string): boolean {
   let index = data.indexOf('\r')
@@ -75,12 +78,15 @@ function sgrParamCode(param: string | undefined): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-function sgrSequenceSetsBackground(params: string): boolean {
+function sgrSequenceSetsRendererRisk(params: string): boolean {
   const parts = params.split(';')
   for (let i = 0; i < parts.length; i += 1) {
     const value = sgrParamCode(parts[i])
     if (value === null) {
       continue
+    }
+    if (value === 7) {
+      return true
     }
     if (isInRange(value, 40, 47) || isInRange(value, 100, 107)) {
       return true
@@ -102,6 +108,20 @@ function sgrSequenceSetsBackground(params: string): boolean {
   return false
 }
 
+function containsRendererRiskSgr(data: string): boolean {
+  SGR_SEQUENCE_PATTERN.lastIndex = 0
+  for (
+    let match = SGR_SEQUENCE_PATTERN.exec(data);
+    match;
+    match = SGR_SEQUENCE_PATTERN.exec(data)
+  ) {
+    if (sgrSequenceSetsRendererRisk(match[1] ?? '')) {
+      return true
+    }
+  }
+  return false
+}
+
 function containsBackgroundSgr(data: string): boolean {
   SGR_SEQUENCE_PATTERN.lastIndex = 0
   for (
@@ -109,8 +129,25 @@ function containsBackgroundSgr(data: string): boolean {
     match;
     match = SGR_SEQUENCE_PATTERN.exec(data)
   ) {
-    if (sgrSequenceSetsBackground(match[1] ?? '')) {
-      return true
+    const parts = (match[1] ?? '').split(';')
+    for (let i = 0; i < parts.length; i += 1) {
+      const value = sgrParamCode(parts[i])
+      if (value === null) {
+        continue
+      }
+      if (isInRange(value, 40, 47) || isInRange(value, 100, 107) || value === 48) {
+        return true
+      }
+      if (value === 38 && !parts[i]?.includes(':')) {
+        const mode = sgrParamCode(parts[i + 1])
+        if (mode === 5) {
+          i += 2
+        } else if (mode === 2) {
+          i += 4
+        } else {
+          i += 1
+        }
+      }
     }
   }
   return false
@@ -232,6 +269,9 @@ export function nativeWindowsRewriteNeedsFollowupRenderRefresh(args: {
 
 export function terminalOutputPrefersRenderRefresh(data: string): boolean {
   if (containsBackgroundSgr(data)) {
+    return true
+  }
+  if (containsRendererRiskSgr(data) && CSI_REWRITE_SEQUENCE_PATTERN.test(data)) {
     return true
   }
 

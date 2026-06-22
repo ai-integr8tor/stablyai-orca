@@ -3,7 +3,10 @@ import {
   registerLivePaneManager,
   unregisterLivePaneManager
 } from '@/lib/pane-manager/pane-manager-registry'
-import { scheduleImagePasteWebglAtlasRecovery } from './terminal-webgl-paste-recovery'
+import {
+  scheduleImagePasteWebglAtlasRecovery,
+  scheduleTerminalWebglAtlasRecovery
+} from './terminal-webgl-paste-recovery'
 
 describe('terminal image paste WebGL recovery', () => {
   const registeredManagers: { resetWebglTextureAtlases(): void }[] = []
@@ -61,6 +64,33 @@ describe('terminal image paste WebGL recovery', () => {
     expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
     vi.advanceTimersByTime(0)
     expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces terminal repaint atlas recovery during output bursts', () => {
+    vi.useFakeTimers()
+    const rafCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        rafCallbacks.push(callback)
+        return rafCallbacks.length
+      })
+    )
+    const manager = registerManager()
+
+    scheduleTerminalWebglAtlasRecovery()
+    scheduleTerminalWebglAtlasRecovery()
+    scheduleTerminalWebglAtlasRecovery()
+
+    expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    rafCallbacks[0]?.(0)
+    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(rafCallbacks).toHaveLength(1)
+
+    vi.advanceTimersByTime(120)
+    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(380)
+    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(3)
   })
 
   it('ignores resets after the pane has unmounted', () => {

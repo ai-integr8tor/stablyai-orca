@@ -1,6 +1,7 @@
 import { resetAllTerminalWebglAtlases } from '@/lib/pane-manager/pane-manager-registry'
 
-const IMAGE_PASTE_ATLAS_RECOVERY_DELAYS_MS = [120, 500]
+const WEBGL_ATLAS_RECOVERY_DELAYS_MS = [120, 500]
+let terminalAtlasRecoveryScheduled = false
 
 function scheduleNextFrame(callback: () => void): void {
   if (typeof globalThis.requestAnimationFrame === 'function') {
@@ -21,12 +22,30 @@ function resetAtlases(): void {
   }
 }
 
+function scheduleWebglAtlasRecovery(): void {
+  scheduleNextFrame(() => resetAtlases())
+  for (const delayMs of WEBGL_ATLAS_RECOVERY_DELAYS_MS) {
+    globalThis.setTimeout(() => resetAtlases(), delayMs)
+  }
+}
+
+export function scheduleTerminalWebglAtlasRecovery(): void {
+  if (terminalAtlasRecoveryScheduled) {
+    return
+  }
+  terminalAtlasRecoveryScheduled = true
+  scheduleWebglAtlasRecovery()
+  globalThis.setTimeout(
+    () => {
+      terminalAtlasRecoveryScheduled = false
+    },
+    WEBGL_ATLAS_RECOVERY_DELAYS_MS.at(-1) ?? 0
+  )
+}
+
 export function scheduleImagePasteWebglAtlasRecovery(): void {
   // Why: Claude Code redraws its image chip immediately after bracketed paste,
   // and xterm WebGL atlas corruption can appear after that redraw without a
   // context-loss event. A few cheap resets cover the post-paste paint window.
-  scheduleNextFrame(() => resetAtlases())
-  for (const delayMs of IMAGE_PASTE_ATLAS_RECOVERY_DELAYS_MS) {
-    globalThis.setTimeout(() => resetAtlases(), delayMs)
-  }
+  scheduleWebglAtlasRecovery()
 }

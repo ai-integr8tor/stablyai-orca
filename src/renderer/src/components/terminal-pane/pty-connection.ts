@@ -138,6 +138,7 @@ import {
 } from '../../../../shared/agent-title-owner'
 import type { TuiAgent } from '../../../../shared/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-paste-recovery'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
@@ -2995,6 +2996,7 @@ export function connectPanePty(
       if (foregroundAnsiOutputPrefersRenderRefresh(data)) {
         // Why: Codex-style background SGR panels can paint cell fills while
         // glyphs lag behind; refresh only renderer-risk ANSI chunks, not all output.
+        scheduleTerminalWebglAtlasRecovery()
         return { refresh: true, inPlaceRewrite: rewriteOutputPrefersRenderRefresh }
       }
       if (rewriteOutputPrefersRenderRefresh) {

@@ -65,6 +65,13 @@ describe('terminalOutputPrefersRenderRefresh', () => {
     expect(terminalOutputPrefersRenderRefresh('\x1b[104m bright selected block \x1b[0m')).toBe(true)
   })
 
+  it('detects OMP-style inverse-video cursor rewrite frames', () => {
+    expect(terminalOutputPrefersRenderRefresh('\x1b[H\x1b[2K\x1b[7m Todos \x1b[27m')).toBe(true)
+    expect(terminalOutputPrefersRenderRefresh('\x1b[1;1H\x1b[K\x1b[7m Subagents \x1b[0m')).toBe(
+      true
+    )
+  })
+
   it('does not disable WebGL for ordinary terminal output or ANSI controls alone', () => {
     expect(terminalOutputPrefersRenderRefresh('abc 123 ✓')).toBe(false)
     expect(terminalOutputPrefersRenderRefresh('\x1b[32mplain green\x1b[0m')).toBe(false)
