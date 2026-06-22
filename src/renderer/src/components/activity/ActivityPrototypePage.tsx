@@ -53,6 +53,7 @@ import {
   setActivityTerminalPortals,
   type ActivityTerminalPortalTarget
 } from './activity-terminal-portal'
+import { shouldCloseActivityPageOnEscapeKey } from './activity-escape-close'
 import type { Repo, TerminalTab, Worktree } from '../../../../shared/types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
@@ -242,51 +243,6 @@ export function activityThreadResponseRenderPreview({
     trimmed,
     ACTIVITY_THREAD_RESPONSE_RENDER_PREVIEW_MAX_LENGTH
   ).trimEnd()}...`
-}
-
-type ActivityEscapeKeyEvent = Pick<React.KeyboardEvent<HTMLDivElement>, 'defaultPrevented' | 'key'>
-
-function isElementWithXtermHelperClass(activeElement: unknown): boolean {
-  return (
-    typeof activeElement === 'object' &&
-    activeElement !== null &&
-    'classList' in activeElement &&
-    typeof (activeElement as { classList?: { contains?: unknown } }).classList?.contains ===
-      'function' &&
-    (activeElement as { classList: { contains: (token: string) => boolean } }).classList.contains(
-      'xterm-helper-textarea'
-    )
-  )
-}
-
-function isElementInsideActivityTerminalPortal(activeElement: unknown): boolean {
-  return (
-    typeof activeElement === 'object' &&
-    activeElement !== null &&
-    'closest' in activeElement &&
-    typeof (activeElement as { closest?: unknown }).closest === 'function' &&
-    Boolean(
-      (
-        activeElement as {
-          closest: (selector: string) => Element | null
-        }
-      ).closest('[data-activity-terminal-slot-id]')
-    )
-  )
-}
-
-export function shouldCloseActivityPageOnEscapeKey(
-  { defaultPrevented, key }: ActivityEscapeKeyEvent,
-  activeElement: unknown
-): boolean {
-  if (key !== 'Escape' || defaultPrevented) {
-    return false
-  }
-
-  return (
-    !isElementWithXtermHelperClass(activeElement) &&
-    !isElementInsideActivityTerminalPortal(activeElement)
-  )
 }
 
 function getSelectedActivityTerminalPortalStatus(
