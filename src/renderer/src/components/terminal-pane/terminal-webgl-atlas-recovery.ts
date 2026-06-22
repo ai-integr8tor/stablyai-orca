@@ -1,5 +1,8 @@
 import { resetAllTerminalWebglAtlases } from '@/lib/pane-manager/pane-manager-registry'
 
+// Why: corruption appears within a frame of the redraw, but a stretched/partial
+// paint can persist a few hundred ms; reset on the next frame plus at 120/500ms
+// covers the window without a tight reset loop.
 const WEBGL_ATLAS_RECOVERY_DELAYS_MS = [120, 500]
 let terminalAtlasRecoveryScheduled = false
 
@@ -18,7 +21,7 @@ function resetAtlases(): void {
     // single-manager reset would garble the others.
     resetAllTerminalWebglAtlases()
   } catch {
-    /* ignore - terminal pane may have unmounted after paste */
+    /* ignore - terminal pane may have unmounted before the reset fires */
   }
 }
 
@@ -30,6 +33,9 @@ function scheduleWebglAtlasRecovery(): void {
 }
 
 export function scheduleTerminalWebglAtlasRecovery(): void {
+  // Why: renderer-risk output arrives in bursts (a HUD repaints many frames in a
+  // row); coalesce them into one recovery window so the burst can't queue a
+  // reset per chunk. Re-arms once the window's last reset has fired.
   if (terminalAtlasRecoveryScheduled) {
     return
   }

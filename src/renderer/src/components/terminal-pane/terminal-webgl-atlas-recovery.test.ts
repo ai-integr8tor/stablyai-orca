@@ -6,9 +6,9 @@ import {
 import {
   scheduleImagePasteWebglAtlasRecovery,
   scheduleTerminalWebglAtlasRecovery
-} from './terminal-webgl-paste-recovery'
+} from './terminal-webgl-atlas-recovery'
 
-describe('terminal image paste WebGL recovery', () => {
+describe('terminal WebGL atlas recovery', () => {
   const registeredManagers: { resetWebglTextureAtlases(): void }[] = []
 
   function registerManager(): { resetWebglTextureAtlases: Mock<() => void> } {
@@ -91,6 +91,29 @@ describe('terminal image paste WebGL recovery', () => {
     expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(2)
     vi.advanceTimersByTime(380)
     expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(3)
+  })
+
+  it('re-arms terminal recovery after the debounce window closes', () => {
+    vi.useFakeTimers()
+    const rafCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        rafCallbacks.push(callback)
+        return rafCallbacks.length
+      })
+    )
+    const manager = registerManager()
+
+    scheduleTerminalWebglAtlasRecovery()
+    rafCallbacks[0]?.(0)
+    vi.advanceTimersByTime(500)
+    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(3)
+
+    // A later burst is a fresh window, not swallowed by the prior debounce.
+    scheduleTerminalWebglAtlasRecovery()
+    rafCallbacks[1]?.(0)
+    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(4)
   })
 
   it('ignores resets after the pane has unmounted', () => {

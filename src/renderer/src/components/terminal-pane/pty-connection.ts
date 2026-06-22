@@ -138,7 +138,7 @@ import {
 } from '../../../../shared/agent-title-owner'
 import type { TuiAgent } from '../../../../shared/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
-import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-paste-recovery'
+import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'

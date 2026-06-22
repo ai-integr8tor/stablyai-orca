@@ -5,6 +5,10 @@ const EMOJI_PRESENTATION_PATTERN = /\p{Emoji_Presentation}/u
 const ESCAPE_CHARACTER = String.fromCharCode(0x1b)
 const REWRITE_CSI_SCAN_TAIL_MAX_CHARS = 64
 const SGR_SEQUENCE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[([0-9:;]*)m`, 'g')
+// Why: renderer-risk SGR alone is too broad (most TUIs emit color constantly).
+// Pair it with an in-place rewrite — cursor move (H/f), erase (J/K), CR, or
+// backspace — so only repaint-in-place frames (the HUD corruption shape), not
+// ordinary colored scrollback, schedule recovery.
 const CSI_REWRITE_SEQUENCE_PATTERN = new RegExp(
   `${ESCAPE_CHARACTER}\\[[0-9;?]*(?:[HJfK])|\\r|\\x08`
 )
@@ -86,6 +90,8 @@ function sgrSequenceSetsRendererRisk(params: string): boolean {
       continue
     }
     if (value === 7) {
+      // Why: inverse video (SGR 7) is how OMP's HUD paints its selected/cursor
+      // rows; it fills the cell background and is a prime atlas-corruption shape.
       return true
     }
     if (isInRange(value, 40, 47) || isInRange(value, 100, 107)) {
