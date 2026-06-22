@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 const terminalLabel = 'New Orca Terminal Here'
 const workspaceLabel = 'New Orca Workspace Here'
-const selectedFolder = `/Users/wolfie/Orca Projects/it's "quoted" 🐋`
+const selectedFolder = `/tmp/orca-finder/Sample Folder/it's "quoted" 🐋`
 const packagedCliPath = '/Applications/Orca.app/Contents/Resources/bin/orca'
 
 async function loadBuilder() {
