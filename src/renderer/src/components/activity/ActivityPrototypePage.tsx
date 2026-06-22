@@ -244,6 +244,51 @@ export function activityThreadResponseRenderPreview({
   ).trimEnd()}...`
 }
 
+type ActivityEscapeKeyEvent = Pick<React.KeyboardEvent<HTMLDivElement>, 'defaultPrevented' | 'key'>
+
+function isElementWithXtermHelperClass(activeElement: unknown): boolean {
+  return (
+    typeof activeElement === 'object' &&
+    activeElement !== null &&
+    'classList' in activeElement &&
+    typeof (activeElement as { classList?: { contains?: unknown } }).classList?.contains ===
+      'function' &&
+    (activeElement as { classList: { contains: (token: string) => boolean } }).classList.contains(
+      'xterm-helper-textarea'
+    )
+  )
+}
+
+function isElementInsideActivityTerminalPortal(activeElement: unknown): boolean {
+  return (
+    typeof activeElement === 'object' &&
+    activeElement !== null &&
+    'closest' in activeElement &&
+    typeof (activeElement as { closest?: unknown }).closest === 'function' &&
+    Boolean(
+      (
+        activeElement as {
+          closest: (selector: string) => Element | null
+        }
+      ).closest('[data-activity-terminal-slot-id]')
+    )
+  )
+}
+
+export function shouldCloseActivityPageOnEscapeKey(
+  { defaultPrevented, key }: ActivityEscapeKeyEvent,
+  activeElement: unknown
+): boolean {
+  if (key !== 'Escape' || defaultPrevented) {
+    return false
+  }
+
+  return (
+    !isElementWithXtermHelperClass(activeElement) &&
+    !isElementInsideActivityTerminalPortal(activeElement)
+  )
+}
+
 function getSelectedActivityTerminalPortalStatus(
   target: HTMLElement,
   paneKey: string
@@ -1642,13 +1687,26 @@ export default function ActivityPrototypePage(): React.JSX.Element {
     storeData.acknowledgeAgents(unreadKeys)
   }
 
+  const handleActivityPageKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!shouldCloseActivityPageOnEscapeKey(event, document.activeElement)) {
+      return
+    }
+
+    event.preventDefault()
+    useAppStore.getState().closeActivityPage()
+  }, [])
+
   // Why (page padding): drop top + horizontal padding so the page extends to
   // the window's left and right edges (matching how sidebars abut the chrome
   // elsewhere). The titlebar (ActivityTitlebarControls) already provides the
   // breathing-room band above; the right pane's title row supplies its own
   // top padding (pt-2) so the heading isn't pinned to the titlebar.
   return (
-    <div ref={setActivityPageRef} className="flex h-full min-h-0 flex-col bg-background pb-3">
+    <div
+      ref={setActivityPageRef}
+      className="flex h-full min-h-0 flex-col bg-background pb-3"
+      onKeyDown={handleActivityPageKeyDown}
+    >
       <main className="flex min-h-0 flex-1 overflow-hidden">
         <aside
           ref={threadListRef}
