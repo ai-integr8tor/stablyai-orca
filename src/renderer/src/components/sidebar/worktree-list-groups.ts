@@ -34,7 +34,15 @@ import type { AppState } from '../../store/types'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from '../../store/slices/github-cache-key'
 import { getRepoDisplayLabelsByPath } from '@/lib/repo-display-labels'
 import { translate } from '@/i18n/i18n'
-import { getExecutionHostLabel, getRepoExecutionHostId } from '../../../../shared/execution-host'
+import {
+  getExecutionHostLabel,
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  normalizeExecutionHostId,
+  parseExecutionHostId,
+  toSshExecutionHostId,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 
 export { branchName }
 
@@ -50,6 +58,8 @@ export type GroupHeaderRow = {
   repo?: Repo
   projectGroup?: ProjectGroup | { id: null; name: 'Ungrouped'; tabOrder: number }
   projectGroupDepth?: number
+  hostContextLabel?: string
+  hostContextDescription?: string
 }
 
 export type WorktreeRow = {
@@ -66,6 +76,7 @@ export type WorktreeRow = {
   lineageGroupKey?: string
   lineageCollapsed?: boolean
   hostContextLabel?: string
+  hostContextDescription?: string
 }
 
 export type ImportedWorktreesCardCandidate = {
@@ -95,6 +106,8 @@ export type FolderWorkspaceRow = {
   projectGroup: ProjectGroup
   depth: number
   groupDepth: number
+  hostContextLabel?: string
+  hostContextDescription?: string
 }
 
 /** Minimal shape buildRows needs for an in-flight create. Deliberately not the
@@ -451,6 +464,7 @@ function buildWorktreeRow(
     lineageChildCount: number
     lineageCollapsed: boolean
     hostContextLabel?: string
+    hostContextDescription?: string
   }
 ): WorktreeRow {
   return {
@@ -465,6 +479,9 @@ function buildWorktreeRow(
     isLastLineageChild: options.isLastLineageChild,
     lineageChildCount: options.lineageChildCount,
     ...(options.hostContextLabel ? { hostContextLabel: options.hostContextLabel } : {}),
+    ...(options.hostContextDescription
+      ? { hostContextDescription: options.hostContextDescription }
+      : {}),
     ...(options.lineageChildCount > 0 ? { lineageGroupKey: getLineageGroupKey(worktree.id) } : {}),
     ...(options.lineageChildCount > 0 ? { lineageCollapsed: options.lineageCollapsed } : {})
   }
@@ -482,9 +499,17 @@ function appendWorktreeRows(
     groupDepth: number
     sectionKey: string
     hostContextLabelByRepoId?: ReadonlyMap<string, string>
+    hostContextDescriptionByRepoId?: ReadonlyMap<string, string>
   }
 ): void {
-  const { nestLineage, collapsedGroups, groupDepth, sectionKey, hostContextLabelByRepoId } = options
+  const {
+    nestLineage,
+    collapsedGroups,
+    groupDepth,
+    sectionKey,
+    hostContextLabelByRepoId,
+    hostContextDescriptionByRepoId
+  } = options
   if (!nestLineage) {
     for (const worktree of worktrees) {
       result.push(
@@ -497,7 +522,8 @@ function appendWorktreeRows(
           isLastLineageChild: false,
           lineageChildCount: 0,
           lineageCollapsed: false,
-          hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId)
+          hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId),
+          hostContextDescription: hostContextDescriptionByRepoId?.get(worktree.repoId)
         })
       )
     }
@@ -542,7 +568,8 @@ function appendWorktreeRows(
         isLastLineageChild: isLastChild,
         lineageChildCount: children.length,
         lineageCollapsed,
-        hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId)
+        hostContextLabel: hostContextLabelByRepoId?.get(worktree.repoId),
+        hostContextDescription: hostContextDescriptionByRepoId?.get(worktree.repoId)
       })
     )
     if (lineageCollapsed) {
@@ -591,6 +618,124 @@ function getRepoHostLabel(
   return hostLabelById?.get(hostId) ?? getExecutionHostLabel(hostId)
 }
 
+function getRepoHostId(
+  repoId: string,
+  repoMap: Map<string, Repo>,
+  projectIndex: ProjectGroupingIndex | null
+): ExecutionHostId | null {
+  const setup = projectIndex?.setupByRepoId.get(repoId)
+  if (setup) {
+    return setup.hostId
+  }
+  const repo = repoMap.get(repoId)
+  return repo ? getRepoExecutionHostId(repo) : null
+}
+
+function getHostKindDescription(hostId: ExecutionHostId): string {
+  const parsed = parseExecutionHostId(hostId)
+  switch (parsed?.kind) {
+    case 'local':
+      return 'Local'
+    case 'ssh':
+      return 'SSH host'
+    case 'runtime':
+      return 'Runtime host'
+    default:
+      return 'Host'
+  }
+}
+
+function hasNonLocalHostContext(hostLabelById: ReadonlyMap<string, string> | undefined): boolean {
+  if (!hostLabelById) {
+    return false
+  }
+  for (const hostId of hostLabelById.keys()) {
+    if (hostId !== LOCAL_EXECUTION_HOST_ID) {
+      return true
+    }
+  }
+  return false
+}
+
+function getHostContext(
+  hostId: ExecutionHostId,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): { label: string; description: string } {
+  const label = hostLabelById?.get(hostId) ?? getExecutionHostLabel(hostId)
+  return {
+    label,
+    description: `${getHostKindDescription(hostId)}: ${label}`
+  }
+}
+
+function getProjectGroupHostId(projectGroup: ProjectGroup): ExecutionHostId {
+  const executionHostId = normalizeExecutionHostId(projectGroup.executionHostId)
+  if (executionHostId) {
+    return executionHostId
+  }
+  return projectGroup.connectionId
+    ? toSshExecutionHostId(projectGroup.connectionId)
+    : LOCAL_EXECUTION_HOST_ID
+}
+
+function getFolderWorkspaceHostId(
+  folderWorkspace: FolderWorkspace,
+  projectGroup: ProjectGroup
+): ExecutionHostId {
+  const explicitProjectGroupHostId = normalizeExecutionHostId(projectGroup.executionHostId)
+  if (explicitProjectGroupHostId) {
+    return explicitProjectGroupHostId
+  }
+  const projectGroupHostId = getProjectGroupHostId(projectGroup)
+  if (projectGroupHostId !== LOCAL_EXECUTION_HOST_ID || !folderWorkspace.connectionId) {
+    return projectGroupHostId
+  }
+  return toSshExecutionHostId(folderWorkspace.connectionId)
+}
+
+function getSingleHostContext(
+  hostId: ExecutionHostId,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): { label: string; description: string } | undefined {
+  if (hostId === LOCAL_EXECUTION_HOST_ID && !hasNonLocalHostContext(hostLabelById)) {
+    return undefined
+  }
+  return getHostContext(hostId, hostLabelById)
+}
+
+function getProjectHeaderHostContext(
+  group: WorktreeGroupEntry,
+  repoMap: Map<string, Repo>,
+  projectIndex: ProjectGroupingIndex | null,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): { label: string; description: string } | undefined {
+  const hostIds = new Set<ExecutionHostId>()
+  for (const repoId of group.repoIds) {
+    const hostId = getRepoHostId(repoId, repoMap, projectIndex)
+    if (hostId) {
+      hostIds.add(hostId)
+    }
+  }
+  if (hostIds.size === 0) {
+    return undefined
+  }
+  if (hostIds.size === 1) {
+    return getSingleHostContext([...hostIds][0]!, hostLabelById)
+  }
+  const labels = [...hostIds].map((hostId) => getHostContext(hostId, hostLabelById).label)
+  return {
+    label: 'Multiple hosts',
+    description: `Multiple hosts: ${labels.join(', ')}`
+  }
+}
+
+function getRowHostContext(
+  hostId: ExecutionHostId,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): { label: string; description: string } | undefined {
+  return getSingleHostContext(hostId, hostLabelById)
+}
+
 function getMixedHostContextLabels(
   group: WorktreeGroupEntry,
   repoMap: Map<string, Repo>,
@@ -608,6 +753,25 @@ function getMixedHostContextLabels(
     uniqueLabels.add(label)
   }
   return uniqueLabels.size > 1 ? labelsByRepoId : undefined
+}
+
+function getMixedHostContextDescriptions(
+  group: WorktreeGroupEntry,
+  repoMap: Map<string, Repo>,
+  projectIndex: ProjectGroupingIndex | null,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): Map<string, string> | undefined {
+  const descriptionsByRepoId = new Map<string, string>()
+  const uniqueHostIds = new Set<ExecutionHostId>()
+  for (const repoId of group.repoIds) {
+    const hostId = getRepoHostId(repoId, repoMap, projectIndex)
+    if (!hostId) {
+      continue
+    }
+    uniqueHostIds.add(hostId)
+    descriptionsByRepoId.set(repoId, getHostContext(hostId, hostLabelById).description)
+  }
+  return uniqueHostIds.size > 1 ? descriptionsByRepoId : undefined
 }
 
 function orderMainWorktreeFirst(worktrees: Worktree[]): Worktree[] {
@@ -960,16 +1124,30 @@ export function buildRows(
       const repo = group.repo
       const header =
         groupBy === 'repo'
-          ? {
-              type: 'header' as const,
-              key,
-              label: group.label,
-              count: group.items.length,
-              tone: PROJECT_GROUP_META.tone,
-              icon: PROJECT_GROUP_META.icon,
-              repo,
-              projectGroupDepth
-            }
+          ? (() => {
+              const hostContext = getProjectHeaderHostContext(
+                group,
+                repoMap,
+                projectIndex,
+                hostLabelById
+              )
+              return {
+                type: 'header' as const,
+                key,
+                label: group.label,
+                count: group.items.length,
+                tone: PROJECT_GROUP_META.tone,
+                icon: PROJECT_GROUP_META.icon,
+                repo,
+                projectGroupDepth,
+                ...(hostContext
+                  ? {
+                      hostContextLabel: hostContext.label,
+                      hostContextDescription: hostContext.description
+                    }
+                  : {})
+              }
+            })()
           : groupBy === 'workspace-status'
             ? (() => {
                 const workspaceStatus =
@@ -1031,12 +1209,17 @@ export function buildRows(
           groupBy === 'repo'
             ? getMixedHostContextLabels(group, repoMap, projectIndex, hostLabelById)
             : undefined
+        const hostContextDescriptionByRepoId =
+          groupBy === 'repo' && hostContextLabelByRepoId
+            ? getMixedHostContextDescriptions(group, repoMap, projectIndex, hostLabelById)
+            : undefined
         appendWorktreeRows(result, items, repoMap, lineageById, worktreeMap, {
           nestLineage,
           collapsedGroups,
           groupDepth: projectGroupDepth,
           sectionKey: key,
-          hostContextLabelByRepoId
+          hostContextLabelByRepoId,
+          hostContextDescriptionByRepoId
         })
       }
     }
@@ -1128,17 +1311,36 @@ export function buildRows(
       tone: PROJECT_GROUP_META.tone,
       icon: PROJECT_GROUP_META.icon,
       projectGroup,
-      projectGroupDepth: depth
+      projectGroupDepth: depth,
+      ...(() => {
+        const hostContext = getRowHostContext(getProjectGroupHostId(projectGroup), hostLabelById)
+        return hostContext
+          ? {
+              hostContextLabel: hostContext.label,
+              hostContextDescription: hostContext.description
+            }
+          : {}
+      })()
     })
     if (!collapsedGroups.has(key)) {
       for (const folderWorkspace of folderWorkspacesByProjectGroupId.get(projectGroup.id) ?? []) {
+        const hostContext = getRowHostContext(
+          getFolderWorkspaceHostId(folderWorkspace, projectGroup),
+          hostLabelById
+        )
         result.push({
           type: 'folder-workspace',
           key: `folder-workspace:${folderWorkspace.id}`,
           folderWorkspace,
           projectGroup,
           depth: 0,
-          groupDepth: depth + 1
+          groupDepth: depth + 1,
+          ...(hostContext
+            ? {
+                hostContextLabel: hostContext.label,
+                hostContextDescription: hostContext.description
+              }
+            : {})
         })
       }
       appendOrderedGroups(withRepoSectionDisplayLabels(repoEntries), depth + 1)
