@@ -1,5 +1,5 @@
-import { Copy, GitFork } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { Copy, GitFork, SquareTerminal } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -9,11 +9,17 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import AgentCombobox from '@/components/agent/AgentCombobox'
+import { getAgentCatalog } from '@/lib/agent-catalog'
+import { useAppStore } from '@/store'
 import {
   copyAgentSessionForkContext,
   startAgentSessionFork,
+  startAgentSessionForkInSameWorktree,
   type PreparedAgentSessionFork
 } from './terminal-agent-session-fork'
+import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
+import type { TuiAgent } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
 type TerminalAgentSessionForkDialogProps = {
@@ -22,48 +28,80 @@ type TerminalAgentSessionForkDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
+type PendingForkAction = 'copy' | 'same-worktree' | 'new-worktree'
+
 export function TerminalAgentSessionForkDialog({
   open,
   fork,
   onOpenChange
 }: TerminalAgentSessionForkDialogProps): React.JSX.Element {
-  const [busy, setBusy] = useState(false)
-  const busyRef = useRef(false)
+  const [pending, setPending] = useState<PendingForkAction | null>(null)
+  const pendingRef = useRef(false)
+  const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(fork?.agent ?? null)
+  const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const busy = pending !== null
 
-  const handleCopyContext = async (): Promise<void> => {
-    if (!fork || busyRef.current) {
+  // Why: reset the picker default to the source agent each time a new fork is
+  // prepared (so the dialog opens with "whatever the first terminal is using"),
+  // adjusting during render on identity change instead of via a derived effect.
+  const lastForkRef = useRef(fork)
+  if (lastForkRef.current !== fork) {
+    lastForkRef.current = fork
+    setSelectedAgent(fork?.agent ?? null)
+  }
+
+  const agents = useMemo(() => {
+    const catalog = getAgentCatalog()
+    const enabledIds = new Set(
+      filterEnabledTuiAgents(
+        catalog.map((agent) => agent.id),
+        disabledTuiAgents
+      )
+    )
+    const list = catalog.filter((agent) => enabledIds.has(agent.id))
+    // Why: keep the source agent selectable as the default even if it was later
+    // disabled in settings.
+    if (fork?.agent && !enabledIds.has(fork.agent)) {
+      const sourceEntry = catalog.find((agent) => agent.id === fork.agent)
+      if (sourceEntry) {
+        list.unshift(sourceEntry)
+      }
+    }
+    return list
+  }, [disabledTuiAgents, fork?.agent])
+
+  const runForkAction = async (
+    action: PendingForkAction,
+    run: (fork: PreparedAgentSessionFork) => Promise<boolean>
+  ): Promise<void> => {
+    if (!fork || pendingRef.current) {
       return
     }
-    busyRef.current = true
-    setBusy(true)
+    pendingRef.current = true
+    setPending(action)
     try {
-      if (await copyAgentSessionForkContext(fork)) {
+      if (await run(fork)) {
         onOpenChange(false)
       }
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      pendingRef.current = false
+      setPending(null)
     }
   }
 
-  const handleStartFork = async (): Promise<void> => {
-    if (!fork || busyRef.current) {
-      return
-    }
-    busyRef.current = true
-    setBusy(true)
-    try {
-      if (await startAgentSessionFork(fork)) {
-        onOpenChange(false)
-      }
-    } finally {
-      busyRef.current = false
-      setBusy(false)
-    }
-  }
+  const handleCopyContext = (): Promise<void> =>
+    runForkAction('copy', (f) => copyAgentSessionForkContext(f))
+
+  const handleForkInWorktree = (): Promise<void> =>
+    runForkAction('same-worktree', (f) =>
+      startAgentSessionForkInSameWorktree(f, { agent: selectedAgent })
+    )
+
+  const handleStartFork = (): Promise<void> =>
+    runForkAction('new-worktree', (f) => startAgentSessionFork(f, { agent: selectedAgent }))
 
   const handleOpenChange = (nextOpen: boolean): void => {
-    if (busyRef.current && !nextOpen) {
+    if (pendingRef.current && !nextOpen) {
       return
     }
     onOpenChange(nextOpen)
@@ -81,28 +119,35 @@ export function TerminalAgentSessionForkDialog({
           </DialogTitle>
           <DialogDescription>
             {translate(
-              'auto.components.terminal.pane.TerminalAgentSessionForkDialog.619b5a35d2',
-              'Create a top-level workspace fork and start a fresh agent tab with captured context.'
+              'auto.components.terminal.pane.TerminalAgentSessionForkDialog.0f91a549fe',
+              "Start a fresh agent with this session's context."
             )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3">
           <GitFork className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium">
-              {translate(
-                'auto.components.terminal.pane.TerminalAgentSessionForkDialog.620461df22',
-                'Top-level fork'
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {translate(
-                'auto.components.terminal.pane.TerminalAgentSessionForkDialog.0c8a8629b1',
-                'The fork appears as its own workspace, not as a nested child. The new agent receives a bounded transcript as an editable draft.'
-              )}
-            </p>
-          </div>
+          <p className="min-w-0 text-xs text-muted-foreground">
+            {translate(
+              'auto.components.terminal.pane.TerminalAgentSessionForkDialog.c730579670',
+              'The new agent receives a bounded transcript as an editable draft.'
+            )}
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">
+            {translate(
+              'auto.components.terminal.pane.TerminalAgentSessionForkDialog.3d187cd60d',
+              'Agent'
+            )}
+          </p>
+          <AgentCombobox
+            agents={agents}
+            value={selectedAgent}
+            onValueChange={setSelectedAgent}
+            triggerClassName="w-full"
+          />
         </div>
 
         <DialogFooter>
@@ -113,9 +158,21 @@ export function TerminalAgentSessionForkDialog({
               'Copy context'
             )}
           </Button>
+          <Button variant="outline" disabled={busy} onClick={() => void handleForkInWorktree()}>
+            <SquareTerminal className="size-4" />
+            {pending === 'same-worktree'
+              ? translate(
+                  'auto.components.terminal.pane.TerminalAgentSessionForkDialog.c040642db4',
+                  'Opening...'
+                )
+              : translate(
+                  'auto.components.terminal.pane.TerminalAgentSessionForkDialog.4256baaae3',
+                  'Fork in this worktree'
+                )}
+          </Button>
           <Button disabled={busy} onClick={() => void handleStartFork()}>
             <GitFork className="size-4" />
-            {busy
+            {pending === 'new-worktree'
               ? translate(
                   'auto.components.terminal.pane.TerminalAgentSessionForkDialog.2b10412cfc',
                   'Creating...'
