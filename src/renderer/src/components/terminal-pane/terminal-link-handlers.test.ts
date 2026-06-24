@@ -13,7 +13,10 @@ import {
   openFilePathLinkAtBufferPosition,
   openDetectedFilePath
 } from './terminal-link-handlers'
-import { TERMINAL_PATH_EXISTS_CACHE_MAX_ENTRIES } from './terminal-path-exists-cache'
+import {
+  TERMINAL_PATH_EXISTS_CACHE_MAX_ENTRIES,
+  type TerminalPathExistsCache
+} from './terminal-path-exists-cache'
 import { handleOscLink } from './terminal-osc-link-routing'
 import { installHttpLinkClickFallback } from './terminal-url-link-hit-testing'
 import { registerHttpLinkStoreAccessor } from '@/lib/http-link-routing'
@@ -24,6 +27,13 @@ import {
   type RuntimeEnvironmentCallRequest
 } from '@/runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
+
+// Why: the path-exists cache now stores { exists, checkedAt } entries with a
+// TTL on negatives; build fixtures with a fresh timestamp so cached results
+// (including "missing") are honored within the test.
+function makeExistsCache(pairs: [string, boolean][] = []): TerminalPathExistsCache {
+  return new Map(pairs.map(([key, exists]) => [key, { exists, checkedAt: Date.now() }]))
+}
 
 const openUrlMock = vi.fn()
 const openFileUriMock = vi.fn()
@@ -1047,7 +1057,7 @@ describe('createFilePathLinkProvider range bounds', () => {
 
   function createProviderSetup(
     rows: TestBufferLine[],
-    pathExistsCache = new Map<string, boolean>([
+    pathExistsCache = makeExistsCache([
       ['/repo', true],
       ['/repo/CLAUDE.md', true],
       ['/repo/package.json', true],
@@ -1242,7 +1252,7 @@ describe('createFilePathLinkProvider range bounds', () => {
     }
     const { provider, linkTooltip } = createProviderSetup(
       [makeBufferLine('/repo')],
-      new Map([['active\0/repo', false]])
+      makeExistsCache([['active\0/repo', false]])
     )
 
     const links = await new Promise<ILink[]>((resolve) => {
@@ -1261,7 +1271,7 @@ describe('createFilePathLinkProvider range bounds', () => {
     setPlatform('Macintosh')
     const { provider } = createProviderSetup(
       [makeBufferLine('/repo/unknown-dir/')],
-      new Map([['active\0/repo/unknown-dir', true]])
+      makeExistsCache([['active\0/repo/unknown-dir', true]])
     )
 
     const links = await new Promise<ILink[]>((resolve) => {
@@ -1322,9 +1332,9 @@ describe('createFilePathLinkProvider range bounds', () => {
   })
 
   it('bounds the terminal path-exists cache while preserving recent probes', async () => {
-    const pathExistsCache = new Map<string, boolean>()
+    const pathExistsCache = makeExistsCache()
     for (let index = 0; index < TERMINAL_PATH_EXISTS_CACHE_MAX_ENTRIES; index += 1) {
-      pathExistsCache.set(`active\0/repo/old-${index}.ts`, true)
+      pathExistsCache.set(`active\0/repo/old-${index}.ts`, { exists: true, checkedAt: Date.now() })
     }
     const pane = makePane([makeBufferLine('fresh.ts')])
     const managerRef = {
@@ -1351,12 +1361,12 @@ describe('createFilePathLinkProvider range bounds', () => {
     expect(links.map((link) => link.text)).toEqual(['fresh.ts'])
     expect(pathExistsCache.size).toBe(TERMINAL_PATH_EXISTS_CACHE_MAX_ENTRIES)
     expect(pathExistsCache.has('active\0/repo/old-0.ts')).toBe(false)
-    expect(pathExistsCache.get('active\0/repo/fresh.ts')).toBe(true)
+    expect(pathExistsCache.get('active\0/repo/fresh.ts')?.exists).toBe(true)
   })
 
   it('does not reuse SSH path-exists cache entries across connections', async () => {
     setPlatform('Macintosh')
-    const pathExistsCache = new Map<string, boolean>()
+    const pathExistsCache = makeExistsCache()
     const rows = [makeBufferLine('shared.ts')]
     const pane = makePane(rows)
     const managerRef = {
@@ -1450,7 +1460,7 @@ describe('createFilePathLinkProvider range bounds', () => {
         worktreeId: 'wt-1',
         worktreePath: '/tmp',
         runtimeEnvironmentId: null,
-        pathExistsCache: new Map([['active\0/tmp/other-worktree', false]])
+        pathExistsCache: makeExistsCache([['active\0/tmp/other-worktree', false]])
       }
     )
     await flushAsyncWork()
@@ -1625,7 +1635,7 @@ describe('createFilePathLinkProvider range bounds', () => {
         worktreeId: 'wt-1',
         worktreePath: '/repo',
         runtimeEnvironmentId: null,
-        pathExistsCache: new Map<string, boolean>([
+        pathExistsCache: makeExistsCache([
           ['active\0/repo/My Folder now', false],
           ['active\0/repo/My Folder', true]
         ])
@@ -1653,7 +1663,7 @@ describe('createFilePathLinkProvider range bounds', () => {
         worktreeId: 'wt-1',
         worktreePath: '/repo',
         runtimeEnvironmentId: null,
-        pathExistsCache: new Map([['active\0/repo/unknown-dir', true]])
+        pathExistsCache: makeExistsCache([['active\0/repo/unknown-dir', true]])
       }
     )
     await flushAsyncWork()
@@ -1678,7 +1688,7 @@ describe('createFilePathLinkProvider range bounds', () => {
       runtimeEnvironmentId: null,
       managerRef: { current: null },
       linkProviderDisposablesRef: { current: new Map<number, IDisposable>() },
-      pathExistsCache: new Map<string, boolean>()
+      pathExistsCache: makeExistsCache()
     })
     const mouseUp = getRegisteredMouseUpHandler(element)
     const preventDefault = vi.fn()
@@ -1720,7 +1730,7 @@ describe('createFilePathLinkProvider range bounds', () => {
       runtimeEnvironmentId: null,
       managerRef: { current: null },
       linkProviderDisposablesRef: { current: new Map<number, IDisposable>() },
-      pathExistsCache: new Map<string, boolean>()
+      pathExistsCache: makeExistsCache()
     })
     const mouseUp = getRegisteredMouseUpHandler(element)
     const preventDefault = vi.fn()

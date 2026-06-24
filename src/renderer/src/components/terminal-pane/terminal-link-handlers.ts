@@ -26,7 +26,8 @@ import {
 import {
   getTerminalPathExistsCacheKey,
   readTerminalPathExistsCache,
-  writeTerminalPathExistsCache
+  writeTerminalPathExistsCache,
+  type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import {
   getTerminalHtmlFileOpenHint,
@@ -50,7 +51,7 @@ export type LinkHandlerDeps = {
   getPaneLinkCwd?: (paneId: number) => string | null
   managerRef: React.RefObject<PaneManager | null>
   linkProviderDisposablesRef: React.RefObject<Map<number, IDisposable>>
-  pathExistsCache: Map<string, boolean>
+  pathExistsCache: TerminalPathExistsCache
   runtimeEnvironmentId?: string | null
   terminalHomePath?: string | null
   getRuntimeEnvironmentIdForPane?: (paneId: number) => string | null

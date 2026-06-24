@@ -30,6 +30,7 @@ import {
 } from './terminal-link-handlers'
 import { createTerminalHandleLinkProvider } from './terminal-handle-links'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
+import type { TerminalPathExistsCache } from './terminal-path-exists-cache'
 import { handleOscLink } from './terminal-osc-link-routing'
 import {
   installHttpLinkClickFallback,
@@ -664,7 +665,7 @@ export function useTerminalPaneLifecycle({
     // Why: existence probes can cross SSH/runtime boundaries. This cache is
     // lifecycle-scoped, so external mutations and the initial 'active' runtime
     // fallback can temporarily leave stale entries.
-    const pathExistsCache = new Map<string, boolean>()
+    const pathExistsCache: TerminalPathExistsCache = new Map()
     const linkDeps: LinkHandlerDeps = {
       worktreeId,
       worktreePath,
