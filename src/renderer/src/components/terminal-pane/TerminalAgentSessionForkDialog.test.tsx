@@ -44,14 +44,28 @@ vi.mock('@/components/ui/dialog', async () => {
   }
 })
 
-// Why: the picker pulls the agent catalog + store; stub it so the dialog renders
-// statically and the test stays focused on the footer-button wiring.
+// Why: the picker pulls the agent catalog, detection, and store; stub them so
+// the dialog renders statically and the test stays focused on the button wiring.
 vi.mock('@/components/agent/AgentCombobox', () => ({ default: () => null }))
 vi.mock('@/lib/agent-catalog', () => ({ getAgentCatalog: () => [], AgentIcon: () => null }))
 vi.mock('../../../../shared/tui-agent-selection', () => ({ filterEnabledTuiAgents: () => [] }))
+vi.mock('@/hooks/useDetectedAgents', () => ({
+  useDetectedAgents: () => ({
+    detectedIds: null,
+    isLoading: false,
+    isRefreshing: false,
+    refresh: vi.fn()
+  })
+}))
 vi.mock('@/store', () => ({
-  useAppStore: (selector: (state: { settings: { disabledTuiAgents: string[] } }) => unknown) =>
-    selector({ settings: { disabledTuiAgents: [] } })
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      settings: { disabledTuiAgents: [] },
+      repos: [],
+      getKnownWorktreeById: () => undefined,
+      openSettingsPage: () => {},
+      openSettingsTarget: () => {}
+    })
 }))
 
 vi.mock('./terminal-agent-session-fork', () => ({

@@ -1,5 +1,5 @@
 import { Copy, GitFork, SquareTerminal } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import AgentCombobox from '@/components/agent/AgentCombobox'
 import { getAgentCatalog } from '@/lib/agent-catalog'
+import { useDetectedAgents } from '@/hooks/useDetectedAgents'
 import { useAppStore } from '@/store'
 import {
   copyAgentSessionForkContext,
@@ -39,6 +40,18 @@ export function TerminalAgentSessionForkDialog({
   const pendingRef = useRef(false)
   const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(fork?.agent ?? null)
   const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
+  // Why: the picker must list agents installed on the host the fork runs on —
+  // local, or the SSH connection that owns the source worktree.
+  const forkConnectionId = useAppStore((s) => {
+    const worktree = fork ? s.getKnownWorktreeById(fork.worktreeId) : undefined
+    if (!worktree) {
+      return null
+    }
+    return s.repos?.find((repo) => repo.id === worktree.repoId)?.connectionId ?? null
+  })
+  const { detectedIds } = useDetectedAgents(fork ? forkConnectionId : undefined)
   const busy = pending !== null
 
   // Why: reset the picker default to the source agent each time a new fork is
@@ -58,17 +71,31 @@ export function TerminalAgentSessionForkDialog({
         disabledTuiAgents
       )
     )
-    const list = catalog.filter((agent) => enabledIds.has(agent.id))
-    // Why: keep the source agent selectable as the default even if it was later
-    // disabled in settings.
-    if (fork?.agent && !enabledIds.has(fork.agent)) {
+    // Why: show only enabled agents that are actually detected on the host —
+    // matching the Create-worktree picker. `null` = detection in flight, so fall
+    // back to all enabled until it resolves.
+    const detectedSet = detectedIds ? new Set(detectedIds) : null
+    const list = catalog.filter(
+      (agent) => enabledIds.has(agent.id) && (detectedSet === null || detectedSet.has(agent.id))
+    )
+    // Why: keep the source agent selectable as the default even if it is not in
+    // the detected/enabled set.
+    if (fork?.agent && !list.some((agent) => agent.id === fork.agent)) {
       const sourceEntry = catalog.find((agent) => agent.id === fork.agent)
       if (sourceEntry) {
         list.unshift(sourceEntry)
       }
     }
     return list
-  }, [disabledTuiAgents, fork?.agent])
+  }, [disabledTuiAgents, detectedIds, fork?.agent])
+
+  // Why: mirror the Create-worktree picker's "Manage agents" footer, navigating
+  // to Settings → Agents and dismissing the fork dialog.
+  const handleOpenManageAgents = useCallback(() => {
+    openSettingsTarget({ pane: 'agents', repoId: null })
+    openSettingsPage()
+    onOpenChange(false)
+  }, [openSettingsPage, openSettingsTarget, onOpenChange])
 
   const runForkAction = async (
     action: PendingForkAction,
@@ -146,6 +173,7 @@ export function TerminalAgentSessionForkDialog({
             agents={agents}
             value={selectedAgent}
             onValueChange={setSelectedAgent}
+            onOpenManageAgents={handleOpenManageAgents}
             triggerClassName="w-full"
           />
         </div>
