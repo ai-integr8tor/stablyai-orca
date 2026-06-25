@@ -150,7 +150,7 @@ import {
   getProjectHostSetupForRepo,
   getProjectHostSetupWorktreeMeta
 } from '../../shared/project-host-setup-projection'
-import { parsePtySessionId } from '../../shared/pty-session-id-format'
+import { parsePtySessionId, PTY_SESSION_ID_SEPARATOR } from '../../shared/pty-session-id-format'
 import { clampLinearIssueListLimit } from '../../shared/linear-issue-read-limits'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { DEFAULT_WORKSPACE_STATUS_ID } from '../../shared/workspace-statuses'
@@ -578,6 +578,7 @@ import {
 } from '../git/worktree'
 import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
 import { isENOENT } from '../ipc/filesystem-auth'
+import { isTrustedFloatingWorkspaceDescendant } from '../ipc/floating-workspace-directory'
 import {
   createSetupRunnerScript,
   getDefaultTabCommandTrustContent,
@@ -896,6 +897,8 @@ type RuntimePtyWorktreeRecord = {
   ptyId: string
   worktreeId: string
   connectionId: string | null
+  cwd: string | null
+  mobileTrustedFloatingCwd: boolean
   // Why: background CLI PTYs can outlive a failed renderer reveal. Preserve the
   // spawn-time tab/pane identity so later reveals can adopt under the env key.
   tabId: string | null
@@ -1015,6 +1018,7 @@ type RuntimePtyController = {
   kill(ptyId: string): boolean
   stopAndWait?(ptyId: string, opts?: { keepHistory?: boolean }): Promise<boolean>
   getForegroundProcess(ptyId: string): Promise<string | null>
+  getCwd?(ptyId: string): Promise<string>
   hasChildProcesses?(ptyId: string): Promise<boolean>
   clearBuffer?(ptyId: string): Promise<void>
   resize?(ptyId: string, cols: number, rows: number): boolean
@@ -2721,16 +2725,10 @@ export class OrcaRuntimeService {
   }
 
   async listMobileSessionTabs(worktreeSelector: string): Promise<RuntimeMobileSessionTabsResult> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    if (explicitWorktreeId) {
-      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(explicitWorktreeId)
-      await this.refreshMobileSessionPtyRecords()
-      return this.getMobileSessionTabsForWorktree(explicitWorktreeId)
-    }
-    const worktree = await this.resolveWorktreeSelector(worktreeSelector)
-    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id)
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
+    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
     await this.refreshMobileSessionPtyRecords()
-    return this.getMobileSessionTabsForWorktree(worktree.id)
+    return this.getMobileSessionTabsForWorktree(worktreeId)
   }
 
   async listAllMobileSessionTabs(): Promise<RuntimeMobileSessionTabsResult[]> {
@@ -3673,9 +3671,7 @@ export class OrcaRuntimeService {
     leafId?: string,
     opts: { notifyClients?: boolean } = {}
   ): Promise<RuntimeMobileSessionTabsResult> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
     await this.refreshMobileSessionPtyRecords()
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
@@ -3931,9 +3927,7 @@ export class OrcaRuntimeService {
   }
 
   async closeMobileSessionTab(worktreeSelector: string, tabId: string): Promise<{ closed: true }> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
     await this.refreshMobileSessionPtyRecords()
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
@@ -4126,9 +4120,7 @@ export class OrcaRuntimeService {
     worktreeSelector: string,
     move: RuntimeMobileSessionTabMove
   ): Promise<RuntimeMobileSessionTabMoveResult> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
     if (!snapshot) {
@@ -4182,9 +4174,7 @@ export class OrcaRuntimeService {
       titlesByLeafId?: Record<string, string>
     }
   ): Promise<{ updated: true }> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
     // Why: when a renderer is authoritative (desktop host reached via shared
     // control), it owns pane geometry and republishes it — a headless write here
     // would be overwritten and could fight the renderer. Persist only headlessly.
@@ -4210,9 +4200,7 @@ export class OrcaRuntimeService {
     worktreeSelector: string,
     args: { tabId: string; color?: string | null; isPinned?: boolean }
   ): Promise<{ updated: true }> {
-    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+    const worktreeId = await this.resolveMobileSessionWorktreeIdSelector(worktreeSelector)
     // Why: a renderer-authoritative host owns + republishes tab props, so a
     // headless write would be overwritten. Persist only when headless.
     if (this.getAvailableAuthoritativeWindow()) {
@@ -7810,6 +7798,11 @@ export class OrcaRuntimeService {
         if (!leaf.ptyId && livePtyWorktreeIds.has(leaf.worktreeId)) {
           continue
         }
+        if (leaf.worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+          if (!leaf.ptyId || !this.isMobileVisibleFloatingPty(this.ptysById.get(leaf.ptyId))) {
+            continue
+          }
+        }
         if (leaf.ptyId) {
           ptyIdsFromLeaves.add(leaf.ptyId)
         }
@@ -7828,6 +7821,12 @@ export class OrcaRuntimeService {
         continue
       }
       if (targetWorktreeId && pty.worktreeId !== targetWorktreeId) {
+        continue
+      }
+      if (
+        pty.worktreeId === FLOATING_TERMINAL_WORKTREE_ID &&
+        !this.isMobileVisibleFloatingPty(pty)
+      ) {
         continue
       }
       terminals.push(this.buildPtyTerminalSummary(pty, worktreesById))
@@ -8877,6 +8876,58 @@ export class OrcaRuntimeService {
       if (activeSummary) {
         activeSummary.isActive = true
       }
+    }
+
+    const visibleFloatingPtys = [...this.ptysById.values()].filter((pty) =>
+      this.isMobileVisibleFloatingPty(pty)
+    )
+    if (visibleFloatingPtys.length > 0) {
+      summaries.set(FLOATING_TERMINAL_WORKTREE_ID, {
+        workspaceKind: 'floating-workspace',
+        worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
+        repoId: FLOATING_TERMINAL_WORKTREE_ID,
+        repo: 'Floating Workspace',
+        path: '',
+        branch: '',
+        isArchived: false,
+        isMainWorktree: false,
+        hasHostSidebarActivity: true,
+        parentWorktreeId: null,
+        childWorktreeIds: [],
+        displayName: 'Floating Workspace',
+        workspaceStatus: DEFAULT_WORKSPACE_STATUS_ID,
+        sortOrder: Number.MIN_SAFE_INTEGER,
+        linkedIssue: null,
+        linkedPR: null,
+        linkedLinearIssue: null,
+        linkedGitLabMR: null,
+        linkedGitLabIssue: null,
+        comment: 'Trusted floating terminal sessions',
+        isPinned: true,
+        isActive: false,
+        unread: false,
+        liveTerminalCount: visibleFloatingPtys.length,
+        hasAttachedPty: true,
+        lastOutputAt: visibleFloatingPtys.reduce(
+          (latest, pty) => maxTimestamp(latest, pty.lastOutputAt),
+          null as number | null
+        ),
+        preview:
+          [...visibleFloatingPtys]
+            .sort((a, b) => (b.lastOutputAt ?? -1) - (a.lastOutputAt ?? -1))
+            .find((pty) => pty.preview.length > 0)?.preview ?? '',
+        status: (() => {
+          const merged = visibleFloatingPtys.reduce<RuntimeWorktreeStatus>((status, pty) => {
+            const title = getLatestPtyTitle(pty)
+            return mergeWorktreeStatus(
+              status,
+              getDetectedWorktreeStatus(title ? detectAgentStatusFromTitle(title) : null, true)
+            )
+          }, 'inactive')
+          return merged === 'inactive' ? 'active' : merged
+        })(),
+        agents: []
+      })
     }
 
     this.attachAgentRowsToSummaries(summaries)
@@ -15014,7 +15065,23 @@ export class OrcaRuntimeService {
         ...(opts.persistHostSessionBinding ? { persistHostSessionBinding: true } : {})
       })
       this.registerPreAllocatedHandleForPty(result.id, preAllocatedHandle)
-      this.registerPty(result.id, workspace.id, workspace.connectionId)
+      let mobileTrustedFloatingCwd = false
+      if (workspace.id === FLOATING_TERMINAL_WORKTREE_ID) {
+        try {
+          mobileTrustedFloatingCwd = await isTrustedFloatingWorkspaceDescendant(
+            this.requireStore(),
+            workspace.path
+          )
+        } catch {
+          mobileTrustedFloatingCwd = false
+        }
+      }
+      this.recordPtyWorktree(result.id, workspace.id, {
+        connected: true,
+        connectionId: workspace.connectionId,
+        cwd: workspace.path,
+        mobileTrustedFloatingCwd
+      })
       const pty = this.getOrCreatePtyWorktreeRecord(result.id)
       if (pty) {
         if (opts.title) {
@@ -16854,6 +16921,14 @@ export class OrcaRuntimeService {
     }
   }
 
+  private isMobileVisibleFloatingPty(pty: RuntimePtyWorktreeRecord | null | undefined): boolean {
+    return (
+      pty?.worktreeId === FLOATING_TERMINAL_WORKTREE_ID &&
+      pty.connected === true &&
+      pty.mobileTrustedFloatingCwd === true
+    )
+  }
+
   private listKnownResolvedWorktreesForExplicitTarget(
     targetWorktreeId: string,
     targetWorktree: ResolvedWorktree | null
@@ -17163,7 +17238,15 @@ export class OrcaRuntimeService {
     state: Partial<
       Pick<
         RuntimePtyWorktreeRecord,
-        'connected' | 'lastOutputAt' | 'preview' | 'tabId' | 'paneKey' | 'title' | 'connectionId'
+        | 'connected'
+        | 'lastOutputAt'
+        | 'preview'
+        | 'tabId'
+        | 'paneKey'
+        | 'title'
+        | 'connectionId'
+        | 'cwd'
+        | 'mobileTrustedFloatingCwd'
       >
     > = {}
   ): RuntimePtyWorktreeRecord {
@@ -17174,6 +17257,8 @@ export class OrcaRuntimeService {
         ptyId,
         worktreeId,
         connectionId: state.connectionId ?? parseAppSshPtyId(ptyId)?.connectionId ?? null,
+        cwd: state.cwd ?? null,
+        mobileTrustedFloatingCwd: state.mobileTrustedFloatingCwd ?? false,
         tabId: state.tabId ?? null,
         paneKey: state.paneKey ?? null,
         launchConfig: null,
@@ -17213,6 +17298,12 @@ export class OrcaRuntimeService {
     pty.worktreeId = worktreeId
     if (state.connectionId !== undefined) {
       pty.connectionId = state.connectionId
+    }
+    if (state.cwd !== undefined) {
+      pty.cwd = state.cwd
+    }
+    if (state.mobileTrustedFloatingCwd !== undefined) {
+      pty.mobileTrustedFloatingCwd = state.mobileTrustedFloatingCwd
     }
     if (state.tabId !== undefined) {
       pty.tabId = state.tabId
@@ -17283,15 +17374,45 @@ export class OrcaRuntimeService {
     const sessions = sessionsResult.value
     const livePtyIds = new Set(sessions.map((session) => session.id))
     for (const session of sessions) {
-      const worktreeId =
-        inferWorktreeIdFromPtyId(session.id) ??
-        findResolvedWorktreeIdForPath(resolvedWorktrees, session.cwd)
+      // Why: the floating sentinel's pty ids are `global-floating-terminal@@<n>`,
+      // which lack the `${repoId}::${path}` shape parsePtySessionId requires, so
+      // infer the sentinel explicitly before falling back to cwd-based matching.
+      const worktreeId = session.id.startsWith(
+        `${FLOATING_TERMINAL_WORKTREE_ID}${PTY_SESSION_ID_SEPARATOR}`
+      )
+        ? FLOATING_TERMINAL_WORKTREE_ID
+        : (inferWorktreeIdFromPtyId(session.id) ??
+          findResolvedWorktreeIdForPath(resolvedWorktrees, session.cwd))
       if (targetWorktreeId && worktreeId !== targetWorktreeId) {
         continue
       }
       if (worktreeId) {
+        let effectiveCwd = session.cwd
+        let mobileTrustedFloatingCwd = false
+        if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+          // Why: the local PTY provider reports an empty cwd in listProcesses
+          // (it avoids a per-pid lsof for every session). Floating trust needs
+          // the live cwd, so resolve it on demand for the sentinel only.
+          if (!effectiveCwd && this.ptyController?.getCwd) {
+            try {
+              effectiveCwd = await this.ptyController.getCwd(session.id)
+            } catch {
+              effectiveCwd = session.cwd
+            }
+          }
+          try {
+            mobileTrustedFloatingCwd = await isTrustedFloatingWorkspaceDescendant(
+              this.requireStore(),
+              effectiveCwd
+            )
+          } catch {
+            mobileTrustedFloatingCwd = false
+          }
+        }
         this.recordPtyWorktree(session.id, worktreeId, {
-          connected: true
+          connected: true,
+          cwd: effectiveCwd,
+          mobileTrustedFloatingCwd
         })
       }
     }
@@ -17670,6 +17791,17 @@ export class OrcaRuntimeService {
     return this.toMobileSessionTabsResult(snapshot)
   }
 
+  private async resolveMobileSessionWorktreeIdSelector(worktreeSelector: string): Promise<string> {
+    if (
+      worktreeSelector === FLOATING_TERMINAL_WORKTREE_ID ||
+      worktreeSelector === `id:${FLOATING_TERMINAL_WORKTREE_ID}`
+    ) {
+      return FLOATING_TERMINAL_WORKTREE_ID
+    }
+    const explicitWorktreeId = getExplicitWorktreeIdSelector(worktreeSelector)
+    return explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
+  }
+
   private async resolveMobileMarkdownWorktreeId(
     worktreeSelector: string,
     tabId: string
@@ -17763,8 +17895,14 @@ export class OrcaRuntimeService {
     snapshot: RuntimeMobileSessionTabsSnapshot
   ): RuntimeMobileSessionTabsResult {
     const tabs: RuntimeMobileSessionClientTab[] = []
+    const isFloatingSnapshot = snapshot.worktree === FLOATING_TERMINAL_WORKTREE_ID
     const liveBrowserTabsByPageId = this.getLiveBrowserTabsByPageId(snapshot.worktree)
     for (const tab of snapshot.tabs) {
+      if (isFloatingSnapshot && tab.type !== 'terminal') {
+        // Why: the floating sentinel is terminal-only for mobile; browser,
+        // markdown, and file floating tabs stay desktop-local.
+        continue
+      }
       if (tab.type === 'browser') {
         const liveTab = tab.browserPageId
           ? liveBrowserTabsByPageId.get(tab.browserPageId)
@@ -17799,6 +17937,12 @@ export class OrcaRuntimeService {
             allowWorktreeOnlyMatch: !snapshot.publicationEpoch.startsWith('headless')
           })
       const livePty = pty?.connected ? pty : null
+      if (isFloatingSnapshot) {
+        const candidatePty = liveLeafPtyId ? this.ptysById.get(liveLeafPtyId) : (livePty ?? pty)
+        if (!this.isMobileVisibleFloatingPty(candidatePty)) {
+          continue
+        }
+      }
       const legacyPaneId = /^pane:(\d+)$/.exec(tab.leafId)?.[1] ?? null
       const paneKey = isTerminalLeafId(tab.leafId)
         ? makePaneKey(tab.parentTabId, tab.leafId)

@@ -1,10 +1,15 @@
+// @vitest-environment jsdom
+import { act, createElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileGitBranchCompareResult } from '../source-control/mobile-branch-compare'
 import type { MobileGitStatusResult } from '../source-control/mobile-git-status'
 import {
   deriveMobilePrBranchContext,
   loadMobilePrBranchContext,
-  loadMobilePrRepoContext
+  loadMobilePrRepoContext,
+  useMobilePrBranchContext,
+  type MobilePrBranchContext
 } from './use-mobile-pr-branch-context'
 
 function status(overrides: Partial<MobileGitStatusResult>): MobileGitStatusResult {
@@ -130,5 +135,45 @@ describe('loadMobilePrBranchContext', () => {
       'github.repoSlug',
       expect.objectContaining({ repo: expect.any(String) })
     )
+  })
+})
+
+describe('useMobilePrBranchContext disabled', () => {
+  it('does no RPC and reports a loaded, non-GitHub context when disabled', async () => {
+    const sendRequest = vi.fn(async () => ({ ok: false, error: { message: 'unexpected' } }))
+    const client = { sendRequest } as never
+    let observed: MobilePrBranchContext | null = null
+
+    function Probe() {
+      observed = useMobilePrBranchContext({
+        client,
+        connState: 'connected',
+        worktreeId: 'global-floating-terminal',
+        disabled: true
+      })
+      return null
+    }
+
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(createElement(Probe))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(sendRequest).not.toHaveBeenCalled()
+    expect(observed).toEqual({
+      branch: null,
+      headSha: null,
+      isGithubRepo: false,
+      repoLoaded: true,
+      loaded: true
+    })
+
+    await act(async () => {
+      root.unmount()
+    })
   })
 })
