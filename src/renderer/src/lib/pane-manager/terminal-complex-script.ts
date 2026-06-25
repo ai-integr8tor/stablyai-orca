@@ -82,7 +82,14 @@ function sgrParamCode(param: string | undefined): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-function sgrSequenceSetsRendererRisk(params: string): boolean {
+type SgrRiskFlags = {
+  hasBackground: boolean
+  hasInverseVideo: boolean
+}
+
+// Why: a single SGR pass tracks both background fills and inverse video so the
+// hot foreground path walks each chunk's SGR matches once instead of twice.
+function collectSgrRiskFlags(params: string, flags: SgrRiskFlags): void {
   const parts = params.split(';')
   for (let i = 0; i < parts.length; i += 1) {
     const value = sgrParamCode(parts[i])
@@ -92,13 +99,9 @@ function sgrSequenceSetsRendererRisk(params: string): boolean {
     if (value === 7) {
       // Why: inverse video (SGR 7) is how OMP's HUD paints its selected/cursor
       // rows; it fills the cell background and is a prime atlas-corruption shape.
-      return true
-    }
-    if (isInRange(value, 40, 47) || isInRange(value, 100, 107)) {
-      return true
-    }
-    if (value === 48) {
-      return true
+      flags.hasInverseVideo = true
+    } else if (isInRange(value, 40, 47) || isInRange(value, 100, 107) || value === 48) {
+      flags.hasBackground = true
     }
     if (value === 38 && !parts[i]?.includes(':')) {
       const mode = sgrParamCode(parts[i + 1])
@@ -111,52 +114,22 @@ function sgrSequenceSetsRendererRisk(params: string): boolean {
       }
     }
   }
-  return false
 }
 
-function containsRendererRiskSgr(data: string): boolean {
+function scanSgrRiskFlags(data: string): SgrRiskFlags {
+  const flags: SgrRiskFlags = { hasBackground: false, hasInverseVideo: false }
   SGR_SEQUENCE_PATTERN.lastIndex = 0
   for (
     let match = SGR_SEQUENCE_PATTERN.exec(data);
     match;
     match = SGR_SEQUENCE_PATTERN.exec(data)
   ) {
-    if (sgrSequenceSetsRendererRisk(match[1] ?? '')) {
-      return true
+    collectSgrRiskFlags(match[1] ?? '', flags)
+    if (flags.hasBackground && flags.hasInverseVideo) {
+      break
     }
   }
-  return false
-}
-
-function containsBackgroundSgr(data: string): boolean {
-  SGR_SEQUENCE_PATTERN.lastIndex = 0
-  for (
-    let match = SGR_SEQUENCE_PATTERN.exec(data);
-    match;
-    match = SGR_SEQUENCE_PATTERN.exec(data)
-  ) {
-    const parts = (match[1] ?? '').split(';')
-    for (let i = 0; i < parts.length; i += 1) {
-      const value = sgrParamCode(parts[i])
-      if (value === null) {
-        continue
-      }
-      if (isInRange(value, 40, 47) || isInRange(value, 100, 107) || value === 48) {
-        return true
-      }
-      if (value === 38 && !parts[i]?.includes(':')) {
-        const mode = sgrParamCode(parts[i + 1])
-        if (mode === 5) {
-          i += 2
-        } else if (mode === 2) {
-          i += 4
-        } else {
-          i += 1
-        }
-      }
-    }
-  }
-  return false
+  return flags
 }
 
 function containsRewriteEraseSequence(data: string): boolean {
@@ -274,10 +247,11 @@ export function nativeWindowsRewriteNeedsFollowupRenderRefresh(args: {
 }
 
 export function terminalOutputPrefersRenderRefresh(data: string): boolean {
-  if (containsBackgroundSgr(data)) {
+  const sgrFlags = scanSgrRiskFlags(data)
+  if (sgrFlags.hasBackground) {
     return true
   }
-  if (containsRendererRiskSgr(data) && CSI_REWRITE_SEQUENCE_PATTERN.test(data)) {
+  if (sgrFlags.hasInverseVideo && CSI_REWRITE_SEQUENCE_PATTERN.test(data)) {
     return true
   }
 
