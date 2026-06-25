@@ -2747,6 +2747,11 @@ export function connectPanePty(
     let foregroundRefreshRiskScanTail = ''
 
     function trailingIncompleteCsiSequence(data: string): string {
+      // Why: a chunk can end on a lone ESC whose `[...` continuation arrives in
+      // the next chunk. Carry the dangling ESC so the split CSI start survives.
+      if (data.endsWith('\x1b')) {
+        return '\x1b'
+      }
       const escapeIndex = data.lastIndexOf('\x1b[')
       if (escapeIndex === -1) {
         return ''
