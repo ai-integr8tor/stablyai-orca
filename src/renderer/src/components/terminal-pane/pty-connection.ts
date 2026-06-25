@@ -2766,6 +2766,15 @@ export function connectPanePty(
       return tail.slice(-TERMINAL_RENDERER_RISK_SCAN_TAIL_CHARS)
     }
 
+    function chunkHasNonAscii(data: string): boolean {
+      for (let index = 0; index < data.length; index += 1) {
+        if (data.charCodeAt(index) > 0x7f) {
+          return true
+        }
+      }
+      return false
+    }
+
     function foregroundAnsiOutputPrefersRenderRefresh(data: string): boolean {
       if (!data) {
         return false
@@ -2773,8 +2782,11 @@ export function connectPanePty(
       const scanData = foregroundRefreshRiskScanTail
         ? `${foregroundRefreshRiskScanTail}${data}`
         : data
-      const prefersRefresh =
-        scanData.includes('\x1b[') && terminalOutputPrefersRenderRefresh(scanData)
+      // Why: complex/wide/RTL script redraws corrupt the atlas without any CSI
+      // sequence, so admit non-ASCII chunks too. Plain-ASCII output with no CSI
+      // still short-circuits here to keep the foreground hot path cheap.
+      const couldPreferRefresh = scanData.includes('\x1b[') || chunkHasNonAscii(scanData)
+      const prefersRefresh = couldPreferRefresh && terminalOutputPrefersRenderRefresh(scanData)
       foregroundRefreshRiskScanTail = trailingIncompleteCsiSequence(scanData)
       return prefersRefresh
     }
