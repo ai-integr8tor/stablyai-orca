@@ -1064,7 +1064,7 @@ export type PreloadApi = {
     listSessions: () => Promise<{ id: string; cwd: string; title: string }[]>
     getMainBufferSnapshot: (
       id: string,
-      opts?: { scrollbackRows?: number }
+      opts?: { scrollbackRows?: number; altScreenForcesZeroRows?: boolean }
     ) => Promise<{
       data: string
       cols: number

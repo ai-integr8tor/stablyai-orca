@@ -2215,7 +2215,10 @@ export function registerPtyHandlers(
     'pty:getMainBufferSnapshot',
     async (
       _event,
-      args: { id?: unknown; opts?: { scrollbackRows?: unknown } }
+      args: {
+        id?: unknown
+        opts?: { scrollbackRows?: unknown; altScreenForcesZeroRows?: unknown }
+      }
     ): Promise<{
       data: string
       cols: number
@@ -2229,8 +2232,15 @@ export function registerPtyHandlers(
         return null
       }
       const scrollbackRows = normalizeSnapshotScrollbackRows(args.opts?.scrollbackRows)
+      const altScreenForcesZeroRows =
+        typeof args.opts?.altScreenForcesZeroRows === 'boolean'
+          ? args.opts.altScreenForcesZeroRows
+          : undefined
       try {
-        return await runtime.serializeMainTerminalBuffer(args.id, { scrollbackRows })
+        return await runtime.serializeMainTerminalBuffer(args.id, {
+          scrollbackRows,
+          altScreenForcesZeroRows
+        })
       } catch {
         return null
       }
