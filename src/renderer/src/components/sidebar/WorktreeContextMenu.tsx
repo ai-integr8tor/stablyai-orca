@@ -11,7 +11,8 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  DropdownMenuShortcut
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -48,6 +49,7 @@ import { WorktreeParentPickerPopover } from './WorktreeParentPickerPopover'
 import { getEligibleWorktreeParents } from './worktree-parent-candidates'
 import { isEventTargetInsideCurrentTarget } from './worktree-card-dom-events'
 import { translate } from '@/i18n/i18n'
+import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
 import {
   folderWorkspaceKey,
   parseWorkspaceKey,
@@ -283,6 +285,11 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   } | null>(null)
   const parentPickerFallbackTimerRef = useRef<number | null>(null)
   const isDeleting = deleteState?.isDeleting ?? false
+  const renameShortcutLabel = useOptionalShortcutLabel('workspace.rename')
+  const deleteShortcutLabel = useOptionalShortcutLabel('workspace.delete')
+  const togglePinShortcutLabel = useOptionalShortcutLabel('workspace.togglePin')
+  const copyPathShortcutLabel = useOptionalShortcutLabel('workspace.copyPath')
+  const sleepShortcutLabel = useOptionalShortcutLabel('workspace.sleep')
   const repoMap = useRepoMap()
   const worktreeMap = useWorktreeMap()
   const allWorktrees = useAllWorktrees()
@@ -661,6 +668,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
             <DropdownMenuItem onSelect={handleRename} disabled={isDeleting}>
               <Pencil className="size-3.5" />
               {translate('auto.components.sidebar.WorktreeContextMenu.439fa94d53', 'Update')}
+              {renameShortcutLabel && (
+                <DropdownMenuShortcut>{renameShortcutLabel}</DropdownMenuShortcut>
+              )}
             </DropdownMenuItem>
           )}
           <DropdownMenuSub>
@@ -705,6 +715,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
               <DropdownMenuItem onSelect={handleCopyPath} disabled={isDeleting}>
                 <Copy className="size-3.5" />
                 {translate('auto.components.sidebar.WorktreeContextMenu.3350101edb', 'Copy Path')}
+                {copyPathShortcutLabel && (
+                  <DropdownMenuShortcut>{copyPathShortcutLabel}</DropdownMenuShortcut>
+                )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={handleTogglePin} disabled={isDeleting}>
@@ -712,6 +725,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
                 {worktree.isPinned
                   ? translate('auto.components.sidebar.WorktreeContextMenu.697d0f6e1b', 'Unpin')
                   : translate('auto.components.sidebar.WorktreeContextMenu.3baa7d6507', 'Pin')}
+                {togglePinShortcutLabel && (
+                  <DropdownMenuShortcut>{togglePinShortcutLabel}</DropdownMenuShortcut>
+                )}
               </DropdownMenuItem>
               {showReadToggle && (
                 <DropdownMenuItem onSelect={handleToggleRead} disabled={isDeleting}>
@@ -828,6 +844,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
               >
                 <Moon className="size-3.5" />
                 {sleepLabel}
+                {sleepShortcutLabel && (
+                  <DropdownMenuShortcut>{sleepShortcutLabel}</DropdownMenuShortcut>
+                )}
               </DropdownMenuItem>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={8} className="max-w-[200px] text-pretty">
@@ -879,6 +898,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
                         'Remove Project from Orca'
                       )
                     : translate('auto.components.sidebar.WorktreeContextMenu.f4475537d8', 'Delete')}
+            {deleteShortcutLabel && (
+              <DropdownMenuShortcut>{deleteShortcutLabel}</DropdownMenuShortcut>
+            )}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

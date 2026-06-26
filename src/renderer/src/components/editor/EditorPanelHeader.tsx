@@ -3,6 +3,8 @@ import { Columns2, Eye, FileText, ListTree, Rows2 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import type { OpenFile } from '@/store/slices/editor'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
+import { useShortcutKeyDetails } from '@/hooks/useShortcutLabel'
 import EditorViewToggle, {
   CSV_VIEW_MODE_METADATA,
   NOTEBOOK_VIEW_MODE_METADATA
@@ -89,6 +91,7 @@ export function EditorPanelHeader({
     () => diffComments.filter((comment) => comment.filePath === activeFile.relativePath),
     [activeFile.relativePath, diffComments]
   )
+  const previewShortcut = useShortcutKeyDetails('editor.markdownPreview')
 
   return (
     <div className="editor-header">
@@ -165,10 +168,18 @@ export function EditorPanelHeader({
                 <Eye size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={4}>
-              {translate(
-                'auto.components.editor.EditorPanelHeader.fb8331694e',
-                'Open Preview to the Side'
+            <TooltipContent side="bottom" sideOffset={4} className="flex items-center gap-2">
+              <span>
+                {translate(
+                  'auto.components.editor.EditorPanelHeader.fb8331694e',
+                  'Open Preview to the Side'
+                )}
+              </span>
+              {previewShortcut.keys.length > 0 && (
+                <ShortcutKeyCombo
+                  keys={previewShortcut.keys}
+                  doubleTap={previewShortcut.doubleTap}
+                />
               )}
             </TooltipContent>
           </Tooltip>

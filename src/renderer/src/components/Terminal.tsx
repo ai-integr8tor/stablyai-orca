@@ -1306,6 +1306,7 @@ function Terminal(): React.JSX.Element | null {
       // surface is active. Browser-tab creation has its own shortcut
       // (Cmd/Ctrl+Shift+B) so users have a predictable way to spawn a
       // terminal from anywhere in the central pane.
+
       if (!e.repeat && matchShortcut('tab.newTerminal')) {
         e.preventDefault()
         notifyTerminalCapture('tab.newTerminal')

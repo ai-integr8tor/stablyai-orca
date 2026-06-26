@@ -45,6 +45,9 @@ export type WindowShortcutAction =
   | { type: 'jumpToTabIndex'; index: number }
   | { type: 'worktreeHistoryNavigate'; direction: 'back' | 'forward' }
   | { type: 'dictationKeyDown' }
+  | { type: 'toggleCurrentWorkspacePin' }
+  | { type: 'copyCurrentWorkspacePath' }
+  | { type: 'sleepCurrentWorkspace' }
 
 type WindowShortcutResolveOptions = KeybindingMatchOptions
 
@@ -210,6 +213,18 @@ export function resolveWindowShortcutAction(
     return { type: 'openWorkspaceBoard' }
   }
 
+  if (actionMatches('workspace.togglePin', input, platform, keybindings, options)) {
+    return { type: 'toggleCurrentWorkspacePin' }
+  }
+
+  if (actionMatches('workspace.copyPath', input, platform, keybindings, options)) {
+    return { type: 'copyCurrentWorkspacePath' }
+  }
+
+  if (actionMatches('workspace.sleep', input, platform, keybindings, options)) {
+    return { type: 'sleepCurrentWorkspace' }
+  }
+
   if (actionMatches('voice.dictation', input, platform, keybindings, options)) {
     return { type: 'dictationKeyDown' }
   }
@@ -283,6 +298,12 @@ export function getWindowShortcutActionId(action: WindowShortcutAction): Keybind
       return 'workspace.delete'
     case 'openWorkspaceBoard':
       return 'workspace.openBoard'
+    case 'toggleCurrentWorkspacePin':
+      return 'workspace.togglePin'
+    case 'copyCurrentWorkspacePath':
+      return 'workspace.copyPath'
+    case 'sleepCurrentWorkspace':
+      return 'workspace.sleep'
     case 'openTasks':
       return 'view.tasks'
     case 'switchRecentTab':

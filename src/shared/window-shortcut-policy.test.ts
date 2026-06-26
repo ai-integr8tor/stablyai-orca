@@ -81,6 +81,31 @@ describe('resolveWindowShortcutAction', () => {
     ).toEqual({ type: 'jumpToTabIndex', index: 2 })
   })
 
+  it('resolves workspace utility shortcuts through the window allowlist', () => {
+    expect(
+      resolveWindowShortcutAction(
+        { code: 'KeyP', key: 'p', meta: true, control: false, alt: true, shift: false },
+        'darwin'
+      )
+    ).toEqual({ type: 'toggleCurrentWorkspacePin' })
+
+    expect(
+      resolveWindowShortcutAction(
+        { code: 'KeyY', key: 'y', meta: false, control: true, alt: false, shift: false },
+        'linux',
+        { 'workspace.copyPath': ['Mod+Y'] }
+      )
+    ).toEqual({ type: 'copyCurrentWorkspacePath' })
+
+    expect(
+      resolveWindowShortcutAction(
+        { code: 'KeyS', key: 's', meta: false, control: true, alt: false, shift: true },
+        'linux',
+        { 'workspace.sleep': ['Mod+Shift+S'] }
+      )
+    ).toEqual({ type: 'sleepCurrentWorkspace' })
+  })
+
   it('uses Alt+number for tab jumps on Windows/Linux without stealing workspace jumps', () => {
     expect(
       resolveWindowShortcutAction(
