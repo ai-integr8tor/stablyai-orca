@@ -1,0 +1,155 @@
+// @vitest-environment happy-dom
+
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_DICTATION_METER, type DictationMeterState } from './dictation-audio-meter'
+import { DictationIndicator } from './DictationIndicator'
+import { useAppStore } from '@/store'
+
+const speakingMeter: DictationMeterState = {
+  level: 0.72,
+  peak: 0.74,
+  isSpeaking: true,
+  isSilent: false,
+  isClipping: false,
+  lastUpdatedAt: 100
+}
+
+const clippingMeter: DictationMeterState = {
+  ...speakingMeter,
+  isClipping: true,
+  peak: 1
+}
+
+let root: Root | null = null
+let container: HTMLDivElement | null = null
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+function resetDictationState(): void {
+  useAppStore.setState({
+    dictationState: 'idle',
+    partialTranscript: '',
+    dictationMeter: DEFAULT_DICTATION_METER,
+    dictationNotice: null
+  })
+}
+
+async function mountIndicator(): Promise<HTMLDivElement> {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  await act(async () => {
+    root?.render(<DictationIndicator />)
+  })
+  return container
+}
+
+beforeEach(() => {
+  resetDictationState()
+})
+
+afterEach(async () => {
+  if (root) {
+    await act(async () => {
+      root?.unmount()
+    })
+  }
+  root = null
+  container?.remove()
+  container = null
+  vi.useRealTimers()
+  resetDictationState()
+})
+
+describe('DictationIndicator', () => {
+  it('is hidden when idle without a notice', () => {
+    expect(renderToStaticMarkup(<DictationIndicator />)).toBe('')
+  })
+
+  it('uses top-center placement outside the titlebar drag strip', async () => {
+    useAppStore.setState({ dictationState: 'listening' })
+
+    const mounted = await mountIndicator()
+
+    expect(mounted.innerHTML).toContain('top-12')
+    expect(mounted.innerHTML).toContain('-translate-x-1/2')
+    expect(mounted.innerHTML).not.toContain('top-4')
+  })
+
+  it('marks the root as no-drag for Electron titlebar safety', async () => {
+    useAppStore.setState({ dictationState: 'listening' })
+
+    expect((await mountIndicator()).innerHTML).toContain('-webkit-app-region: no-drag')
+  })
+
+  it('renders listening state for silent input', async () => {
+    useAppStore.setState({ dictationState: 'listening' })
+
+    expect((await mountIndicator()).textContent).toContain('Listening')
+  })
+
+  it('renders speaking state for active input', async () => {
+    useAppStore.setState({ dictationState: 'listening', dictationMeter: speakingMeter })
+
+    expect((await mountIndicator()).textContent).toContain('Speaking')
+  })
+
+  it('renders clipping state with destructive styling', async () => {
+    useAppStore.setState({ dictationState: 'listening', dictationMeter: clippingMeter })
+
+    const mounted = await mountIndicator()
+
+    expect(mounted.textContent).toContain('Too loud')
+    expect(mounted.innerHTML).toContain('border-destructive/35')
+    expect(mounted.innerHTML).toContain('text-destructive')
+  })
+
+  it('truncates long partial transcripts from the end', async () => {
+    useAppStore.setState({
+      dictationState: 'listening',
+      dictationMeter: speakingMeter,
+      partialTranscript: 'a'.repeat(81)
+    })
+
+    const text = (await mountIndicator()).textContent ?? ''
+
+    expect(text).toContain('…')
+    expect(text).not.toContain('a'.repeat(81))
+  })
+
+  it('renders processing state while stopping', async () => {
+    useAppStore.setState({ dictationState: 'stopping' })
+
+    expect((await mountIndicator()).textContent).toContain('Processing…')
+  })
+
+  it('renders an error notice without making dictation non-idle', async () => {
+    useAppStore.setState({
+      dictationState: 'idle',
+      dictationNotice: { kind: 'error', message: 'Speech error.', createdAt: 1 }
+    })
+
+    const mounted = await mountIndicator()
+
+    expect(mounted.textContent).toContain('Speech error.')
+    expect(mounted.innerHTML).toContain('text-destructive')
+    expect(useAppStore.getState().dictationState).toBe('idle')
+  })
+
+  it('clears notices after three seconds', async () => {
+    vi.useFakeTimers()
+    useAppStore.setState({
+      dictationNotice: { kind: 'info', message: 'No speech detected.', createdAt: 1 }
+    })
+    await mountIndicator()
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+
+    expect(useAppStore.getState().dictationNotice).toBeNull()
+  })
+})

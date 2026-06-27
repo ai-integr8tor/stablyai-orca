@@ -1,4 +1,11 @@
 import { useRef, useCallback } from 'react'
+import { useAppStore } from '@/store'
+import {
+  DICTATION_METER_PUBLISH_INTERVAL_MS,
+  analyzeDictationAudioChunk,
+  createDictationMeterAnalyzerState,
+  toPublicDictationMeterState
+} from '@/components/dictation/dictation-audio-meter'
 
 type BufferedAudioChunk = {
   samples: Float32Array
@@ -32,6 +39,8 @@ export function useAudioCapture() {
   const bufferedAudioSecondsRef = useRef(0)
   const capturedChunkCountRef = useRef(0)
   const sessionIdRef = useRef('desktop')
+  const meterAnalyzerRef = useRef(createDictationMeterAnalyzerState())
+  const lastMeterPublishAtRef = useRef(Number.NEGATIVE_INFINITY)
 
   const cleanupCaptureResources = useCallback(() => {
     processorRef.current?.disconnect()
@@ -53,6 +62,12 @@ export function useAudioCapture() {
     bufferedAudioRef.current = []
     bufferedAudioBytesRef.current = 0
     bufferedAudioSecondsRef.current = 0
+  }, [])
+
+  const resetMeter = useCallback(() => {
+    meterAnalyzerRef.current = createDictationMeterAnalyzerState()
+    lastMeterPublishAtRef.current = Number.NEGATIVE_INFINITY
+    useAppStore.getState().resetDictationMeter()
   }, [])
 
   const removeOldestBufferedAudioChunk = useCallback(() => {
@@ -95,6 +110,7 @@ export function useAudioCapture() {
       bufferAudioRef.current = options.bufferAudio ?? false
       resetBufferedAudio()
       capturedChunkCountRef.current = 0
+      resetMeter()
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -158,6 +174,18 @@ export function useAudioCapture() {
             return
           }
           const samples = new Float32Array(e.inputBuffer.getChannelData(0))
+          const now = performance.now()
+          meterAnalyzerRef.current = analyzeDictationAudioChunk(
+            samples,
+            now,
+            meterAnalyzerRef.current
+          )
+          if (now - lastMeterPublishAtRef.current >= DICTATION_METER_PUBLISH_INTERVAL_MS) {
+            lastMeterPublishAtRef.current = now
+            useAppStore
+              .getState()
+              .setDictationMeter(toPublicDictationMeterState(meterAnalyzerRef.current))
+          }
           capturedChunkCountRef.current += 1
           if (bufferAudioRef.current) {
             appendBufferedAudioChunk({
@@ -200,6 +228,7 @@ export function useAudioCapture() {
         if (startRequestRef.current === startRequest) {
           bufferAudioRef.current = false
           resetBufferedAudio()
+          resetMeter()
         }
         if (startRequestRef.current !== startRequest) {
           return
@@ -207,7 +236,7 @@ export function useAudioCapture() {
         throw err
       }
     },
-    [appendBufferedAudioChunk, cleanupCaptureResources, resetBufferedAudio]
+    [appendBufferedAudioChunk, cleanupCaptureResources, resetBufferedAudio, resetMeter]
   )
 
   const flushBufferedAudio = useCallback(async () => {
@@ -237,7 +266,8 @@ export function useAudioCapture() {
   const discardBufferedAudio = useCallback(() => {
     bufferAudioRef.current = false
     resetBufferedAudio()
-  }, [resetBufferedAudio])
+    resetMeter()
+  }, [resetBufferedAudio, resetMeter])
 
   const getCapturedChunkCount = useCallback(() => capturedChunkCountRef.current, [])
 
@@ -248,10 +278,14 @@ export function useAudioCapture() {
       bufferAudioRef.current = false
       if (!options.preserveBufferedAudio) {
         resetBufferedAudio()
+        resetMeter()
       }
       cleanupCaptureResources()
+      if (options.preserveBufferedAudio) {
+        resetMeter()
+      }
     },
-    [cleanupCaptureResources, resetBufferedAudio]
+    [cleanupCaptureResources, resetBufferedAudio, resetMeter]
   )
 
   return {

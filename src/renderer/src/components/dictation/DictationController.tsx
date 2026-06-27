@@ -19,6 +19,9 @@ export function DictationController() {
   const dictationState = useAppStore((s) => s.dictationState)
   const setDictationState = useAppStore((s) => s.setDictationState)
   const setPartialTranscript = useAppStore((s) => s.setPartialTranscript)
+  const resetDictationMeter = useAppStore((s) => s.resetDictationMeter)
+  const setDictationNotice = useAppStore((s) => s.setDictationNotice)
+  const clearDictationNotice = useAppStore((s) => s.clearDictationNotice)
   const recordFeatureInteraction = useAppStore((s) => s.recordFeatureInteraction)
   const settings = useAppStore((s) => s.settings)
   const keybindings = useAppStore((s) => s.keybindings)
@@ -70,6 +73,14 @@ export function DictationController() {
             'No speech detected.'
           )
         )
+        setDictationNotice({
+          kind: 'info',
+          message: translate(
+            'auto.components.dictation.DictationController.5d2c3e7ae3',
+            'No speech detected.'
+          ),
+          createdAt: Date.now()
+        })
       }
       insertionTargetRef.current = null
       finalTranscriptReceivedRef.current = false
@@ -83,7 +94,13 @@ export function DictationController() {
       setDictationState('idle')
       setPartialTranscript('')
     },
-    [setDictationState, setPartialTranscript, stopCapture, getCapturedChunkCount]
+    [
+      setDictationState,
+      setPartialTranscript,
+      stopCapture,
+      getCapturedChunkCount,
+      setDictationNotice
+    ]
   )
 
   const startDictation = useCallback(async () => {
@@ -123,6 +140,8 @@ export function DictationController() {
     erroredSessionIdsRef.current.clear()
     insertedFinalTranscriptRef.current = ''
     intentionalTargetCancellationRef.current = false
+    resetDictationMeter()
+    clearDictationNotice()
     dictationStateRef.current = 'starting'
     setDictationState('starting')
 
@@ -197,6 +216,14 @@ export function DictationController() {
       dictationStateRef.current = 'error'
       setDictationState('error')
       showDictationStartErrorToast(message)
+      setDictationNotice({
+        kind: 'error',
+        message: translate(
+          'auto.components.dictation.DictationController.4e9cc6f8a1',
+          'Dictation failed.'
+        ),
+        createdAt: Date.now()
+      })
       dictationStateRef.current = 'idle'
       setDictationState('idle')
     }
@@ -210,7 +237,10 @@ export function DictationController() {
     finishDictationSession,
     drainStoppedSession,
     setPartialTranscript,
-    recordFeatureInteraction
+    recordFeatureInteraction,
+    resetDictationMeter,
+    clearDictationNotice,
+    setDictationNotice
   ])
 
   const stopDictation = useCallback(async () => {
@@ -357,6 +387,14 @@ export function DictationController() {
           { value0: data.error }
         )
       )
+      setDictationNotice({
+        kind: 'error',
+        message: translate(
+          'auto.components.dictation.DictationController.46ced0a32b',
+          'Speech error.'
+        ),
+        createdAt: Date.now()
+      })
       dictationStateRef.current = 'stopping'
       setDictationState('stopping')
       stopCapture()
@@ -381,7 +419,13 @@ export function DictationController() {
       cleanupStopped()
       cleanupError()
     }
-  }, [setPartialTranscript, setDictationState, stopCapture, discardBufferedAudio])
+  }, [
+    setPartialTranscript,
+    setDictationState,
+    stopCapture,
+    discardBufferedAudio,
+    setDictationNotice
+  ])
 
   return <DictationIndicator />
 }
