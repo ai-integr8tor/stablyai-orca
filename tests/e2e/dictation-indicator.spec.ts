@@ -41,8 +41,22 @@ async function captureDictationArtifact(
   if (process.env.ORCA_DICTATION_SCREENSHOTS !== '1') {
     return
   }
-  const indicator = page.getByRole('status')
-  await indicator.screenshot({ path: testInfo.outputPath(`${name}.png`) })
+  // Electron's Playwright page has no fixed viewport, so page.viewportSize()
+  // returns null. Read the real window dimensions from the renderer instead.
+  const viewport = await page.evaluate(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight
+  }))
+  if (!viewport.width || !viewport.height) {
+    await page.getByRole('status').screenshot({ path: testInfo.outputPath(`${name}.png`) })
+    return
+  }
+  // Capture the full window so reviewers see where the indicator sits in Orca
+  // (bottom-center) with the surrounding chrome, not a crop hugging the pill.
+  await page.screenshot({
+    path: testInfo.outputPath(`${name}.png`),
+    clip: { x: 0, y: 0, width: viewport.width, height: viewport.height }
+  })
 }
 
 test.describe('Dictation indicator', () => {

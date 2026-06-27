@@ -68,47 +68,46 @@ export function DictationIndicator() {
       aria-live="polite"
       className={cn(
         'fixed bottom-12 left-1/2 z-50 -translate-x-1/2',
-        'max-w-[min(42rem,calc(100vw-2rem))]',
-        'rounded-full border border-border/70 bg-popover/95 px-3 py-2 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur',
+        'flex flex-col gap-1 px-3 py-2 text-sm',
+        'border border-border/70 bg-popover/95 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur',
         'transition-[width,transform,opacity] duration-200 ease-out motion-reduce:transition-none',
-        'flex items-center gap-2 text-sm',
+        transcript.length > 0
+          ? 'w-[min(26rem,calc(100vw-2rem))] rounded-2xl'
+          : 'max-w-[min(26rem,calc(100vw-2rem))] rounded-full',
         isDestructive && 'border-destructive/35 text-destructive'
       )}
     >
-      <Icon
-        className={cn(
-          'size-4 shrink-0',
-          isTransitioning && 'animate-spin motion-reduce:animate-none'
-        )}
-      />
-      <span className="font-medium">{label}</span>
-      <div className="flex h-6 items-center gap-0.5" aria-hidden="true">
-        {BAR_MULTIPLIERS.map((multiplier, index) => {
-          const barHeight = Math.min(
-            22,
-            Math.max(4, Math.round(4 + displayLevel * multiplier * 18))
-          )
-          return (
-            <span
-              key={index}
-              className={cn(
-                'w-1 rounded-full bg-current opacity-70 transition-[height,opacity] duration-75 motion-reduce:transition-none',
-                isIdleMeter && 'opacity-35'
-              )}
-              style={{ height: `${barHeight}px` }}
-            />
-          )
-        })}
+      <div className="flex items-center gap-2">
+        <Icon
+          className={cn(
+            'size-4 shrink-0',
+            isTransitioning && 'animate-spin motion-reduce:animate-none'
+          )}
+        />
+        <span className="font-medium">{label}</span>
+        <div className="ml-auto flex h-6 items-center gap-0.5" aria-hidden="true">
+          {BAR_MULTIPLIERS.map((multiplier, index) => {
+            const barHeight = Math.min(
+              22,
+              Math.max(4, Math.round(4 + displayLevel * multiplier * 18))
+            )
+            return (
+              <span
+                key={index}
+                className={cn(
+                  'w-1 rounded-full bg-current opacity-70 transition-[height,opacity] duration-75 motion-reduce:transition-none',
+                  isIdleMeter && 'opacity-35'
+                )}
+                style={{ height: `${barHeight}px` }}
+              />
+            )
+          })}
+        </div>
       </div>
       {transcript.length > 0 && (
-        <>
-          <span className="text-muted-foreground" aria-hidden="true">
-            ·
-          </span>
-          <span className="max-w-[28rem] truncate text-sm text-muted-foreground">
-            {truncateDictationTranscript(transcript)}
-          </span>
-        </>
+        <p className="truncate border-t border-border/40 pt-1 text-sm text-muted-foreground">
+          {truncateDictationTranscript(transcript)}
+        </p>
       )}
     </div>
   )

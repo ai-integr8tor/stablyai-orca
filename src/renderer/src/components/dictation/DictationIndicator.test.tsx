@@ -114,6 +114,22 @@ describe('DictationIndicator', () => {
     expect(text).not.toContain('a'.repeat(81))
   })
 
+  it('stacks the transcript on its own row with a bounded width', async () => {
+    useAppStore.setState({
+      dictationState: 'listening',
+      dictationMeter: speakingMeter,
+      partialTranscript: 'Can you inspect the repo and summarize the current branch?'
+    })
+
+    const html = (await mountIndicator()).innerHTML
+
+    // Transcript lives in a paragraph (second row), not inline in the control row.
+    expect(html).toContain('<p')
+    // Fixed, bounded width so it grows downward and truncates instead of sprawling right.
+    expect(html).toContain('w-[min(26rem,calc(100vw-2rem))]')
+    expect(html).toContain('truncate')
+  })
+
   it('renders processing state while stopping', async () => {
     useAppStore.setState({ dictationState: 'stopping' })
 
