@@ -432,7 +432,7 @@ export type EditorSlice = {
   activeFileIdByWorktree: Record<string, string | null> // worktreeId -> last active file
   activeTabTypeByWorktree: Record<string, WorkspaceVisibleTabType> // worktreeId -> last active tab type
   activeTabType: WorkspaceVisibleTabType
-  setActiveTabType: (type: WorkspaceVisibleTabType) => void
+  setActiveTabType: (type: WorkspaceVisibleTabType, worktreeId?: string) => void
   openFile: (
     file: Omit<OpenFile, 'id' | 'isDirty'>,
     options?: {
@@ -443,7 +443,7 @@ export type EditorSlice = {
       forceContentReload?: boolean
     }
   ) => void
-  openNewMarkdownInActiveWorkspace: (groupId: string) => Promise<void>
+  openNewMarkdownInActiveWorkspace: (groupId: string, worktreeId?: string) => Promise<void>
   // Why: dispatcher for markdown link activation. Lives on the slice because it
   // sequences openFile, setMarkdownViewMode, and setPendingEditorReveal around
   // an async Monaco remount — all reading/writing state in this slice. See
@@ -1481,13 +1481,14 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
   activeTabTypeByWorktree: {},
   activeTabType: 'terminal',
   recentlyClosedEditorTabsByWorktree: {},
-  setActiveTabType: (type) =>
+  setActiveTabType: (type, worktreeId) =>
     set((s) => {
-      const worktreeId = s.activeWorktreeId
+      const wId = worktreeId ?? s.activeWorktreeId
+      const isActiveWorktree = wId === s.activeWorktreeId
       return {
-        activeTabType: type,
-        activeTabTypeByWorktree: worktreeId
-          ? { ...s.activeTabTypeByWorktree, [worktreeId]: type }
+        activeTabType: isActiveWorktree ? type : s.activeTabType,
+        activeTabTypeByWorktree: wId
+          ? { ...s.activeTabTypeByWorktree, [wId]: type }
           : s.activeTabTypeByWorktree
       }
     }),
@@ -1764,13 +1765,13 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     )
   },
 
-  openNewMarkdownInActiveWorkspace: async (groupId) => {
+  openNewMarkdownInActiveWorkspace: async (groupId, worktreeId) => {
     const state = get()
-    const worktreeId = state.activeWorktreeId
-    if (!worktreeId) {
+    const targetWorktreeId = worktreeId ?? state.activeWorktreeId
+    if (!targetWorktreeId) {
       return
     }
-    const worktree = state.getKnownWorktreeById(worktreeId)
+    const worktree = state.getKnownWorktreeById(targetWorktreeId)
     if (!worktree) {
       return
     }
@@ -1779,7 +1780,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         state.repos.find((entry) => entry.id === worktree.repoId)?.connectionId ?? undefined
       const fileInfo = await createUntitledMarkdownFileWithTemplateSelection(
         worktree.path,
-        worktreeId,
+        targetWorktreeId,
         connectionId,
         get().settings
       )
@@ -2306,18 +2307,23 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
   },
 
   setActiveFile: (fileId) => {
+    let fileOwnerWorktreeId: string | null = null
     set((s) => {
       const file = s.openFiles.find((f) => f.id === fileId)
       const worktreeId = file?.worktreeId
+      if (worktreeId) {
+        fileOwnerWorktreeId = worktreeId
+      }
+      const isActiveWorktree = worktreeId === s.activeWorktreeId
       return {
-        activeFileId: fileId,
+        activeFileId: isActiveWorktree ? fileId : s.activeFileId,
         activeFileIdByWorktree: worktreeId
           ? { ...s.activeFileIdByWorktree, [worktreeId]: fileId }
           : s.activeFileIdByWorktree
       }
     })
     const state = get()
-    const worktreeId = state.activeWorktreeId
+    const worktreeId = fileOwnerWorktreeId ?? state.activeWorktreeId
     if (!worktreeId) {
       return
     }
