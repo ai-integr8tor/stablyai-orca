@@ -69,20 +69,14 @@ describe('DictationIndicator', () => {
     expect(renderToStaticMarkup(<DictationIndicator />)).toBe('')
   })
 
-  it('uses top-center placement outside the titlebar drag strip', async () => {
+  it('uses bottom-center placement', async () => {
     useAppStore.setState({ dictationState: 'listening' })
 
     const mounted = await mountIndicator()
 
-    expect(mounted.innerHTML).toContain('top-12')
+    expect(mounted.innerHTML).toContain('bottom-12')
     expect(mounted.innerHTML).toContain('-translate-x-1/2')
-    expect(mounted.innerHTML).not.toContain('top-4')
-  })
-
-  it('marks the root as no-drag for Electron titlebar safety', async () => {
-    useAppStore.setState({ dictationState: 'listening' })
-
-    expect((await mountIndicator()).innerHTML).toContain('-webkit-app-region: no-drag')
+    expect(mounted.innerHTML).not.toContain('top-12')
   })
 
   it('renders listening state for silent input', async () => {

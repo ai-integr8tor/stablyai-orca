@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from 'react'
+import { useEffect } from 'react'
 import { Loader2, Mic, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
@@ -66,18 +66,14 @@ export function DictationIndicator() {
     <div
       role="status"
       aria-live="polite"
-      ref={(element) => {
-        element?.style.setProperty('-webkit-app-region', 'no-drag')
-      }}
       className={cn(
-        'fixed top-12 left-1/2 z-50 -translate-x-1/2',
+        'fixed bottom-12 left-1/2 z-50 -translate-x-1/2',
         'max-w-[min(42rem,calc(100vw-2rem))]',
         'rounded-full border border-border/70 bg-popover/95 px-3 py-2 text-popover-foreground shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur',
         'transition-[width,transform,opacity] duration-200 ease-out motion-reduce:transition-none',
         'flex items-center gap-2 text-sm',
         isDestructive && 'border-destructive/35 text-destructive'
       )}
-      style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
     >
       <Icon
         className={cn(
