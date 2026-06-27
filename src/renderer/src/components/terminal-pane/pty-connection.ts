@@ -1967,6 +1967,8 @@ export function connectPanePty(
     ...(paneStartup?.launchAgent ? { launchAgent: paneStartup.launchAgent } : {}),
     ...(paneStartup?.telemetry ? { telemetry: paneStartup.telemetry } : {}),
     onPtyExit: onExit,
+    onPtyDataSubscriptionReady: (ptyId: string) =>
+      deps.onPtyDataSubscriptionReadyRef?.current?.(ptyId),
     onTitleChange,
     onPtySpawn,
     onBell,

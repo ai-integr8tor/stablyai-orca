@@ -282,6 +282,10 @@ import type {
   ReactErrorBoundaryReportArgs,
   ReactErrorBoundaryReportResult
 } from '../shared/crash-reporting'
+import type {
+  DetachedTerminalOpenSnapshot,
+  DetachedTerminalSnapshot
+} from '../shared/detached-terminal-window'
 
 export type { ShellOpenLocalPathResult } from '../shared/shell-open-types'
 
@@ -1092,6 +1096,22 @@ export type PreloadApi = {
     onAdvertisedUrlChanged: (
       callback: (event: WorkspacePortAdvertisedUrlChangedEvent) => void
     ) => () => void
+  }
+  detachedTerminal: {
+    openWindow: (args: {
+      worktreeId: string
+      tabId: string
+      snapshot: DetachedTerminalOpenSnapshot
+    }) => Promise<
+      { ok: true } | { ok: false; error: 'invalid_payload' | 'detached_terminal_tab_unavailable' }
+    >
+    getSnapshot: (args: { worktreeId: string; tabId: string }) => Promise<DetachedTerminalSnapshot>
+    closeWindow: (args: { worktreeId: string; tabId: string }) => Promise<{ ok: true }>
+    rendererPtyReady: (args: {
+      worktreeId: string
+      tabId: string
+      ptyId: string
+    }) => Promise<{ ok: true }>
   }
   pty: {
     spawn: (opts: {

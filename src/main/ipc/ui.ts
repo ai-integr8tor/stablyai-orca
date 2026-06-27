@@ -2,17 +2,18 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import type { Store } from '../persistence'
 import type { PersistedUIState } from '../../shared/types'
 import { isFeatureInteractionId } from '../../shared/feature-interactions'
-
-let trustedUIRendererWebContentsId: number | null = null
+import { trustedRendererRegistry } from '../window/trusted-renderer-registry'
+import { detachedWindowRegistry } from '../window/detached-window-registry'
 
 export function setTrustedUIRendererWebContentsId(webContentsId: number | null): void {
-  trustedUIRendererWebContentsId = webContentsId
+  if (webContentsId === null) {
+    return
+  }
+  trustedRendererRegistry.grant(webContentsId, 'ui')
 }
 
 export function clearTrustedUIRendererWebContentsId(webContentsId: number): void {
-  if (trustedUIRendererWebContentsId === webContentsId) {
-    trustedUIRendererWebContentsId = null
-  }
+  trustedRendererRegistry.revoke(webContentsId, 'ui')
 }
 
 export function registerUIHandlers(store: Store): void {
@@ -20,7 +21,7 @@ export function registerUIHandlers(store: Store): void {
   // RPC). Broadcast every change so the desktop re-hydrates when mobile (or
   // another window) updates it — bi-directional sync, mirroring settings:changed.
   store.onUIChanged((ui) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of detachedWindowRegistry.getAppWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send('ui:stateChanged', ui)
       }
@@ -62,20 +63,5 @@ function isTrustedUIRenderer(sender: WebContents): boolean {
   if (sender.isDestroyed() || sender.getType() !== 'window') {
     return false
   }
-  if (trustedUIRendererWebContentsId != null) {
-    return sender.id === trustedUIRendererWebContentsId
-  }
-
-  const senderUrl = sender.getURL()
-  if (process.env.ELECTRON_RENDERER_URL) {
-    try {
-      return new URL(senderUrl).origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
-    } catch {
-      return false
-    }
-  }
-
-  // Why: packaged fallback must be tied to the created main window id, not any
-  // file:// document that can obtain this IPC channel.
-  return false
+  return trustedRendererRegistry.has(sender.id, 'ui')
 }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 const {
   applyAppIconMock,
   applyElectronProxySettingsMock,
-  browserWindowGetAllWindowsMock,
+  getAppWindowsMock,
   handleMock,
   previewGhosttyImportMock,
   previewWarpThemeImportMock,
@@ -12,7 +12,7 @@ const {
 } = vi.hoisted(() => ({
   applyAppIconMock: vi.fn(),
   applyElectronProxySettingsMock: vi.fn(),
-  browserWindowGetAllWindowsMock: vi.fn(),
+  getAppWindowsMock: vi.fn(),
   handleMock: vi.fn(),
   previewGhosttyImportMock: vi.fn(),
   previewWarpThemeImportMock: vi.fn(),
@@ -21,7 +21,7 @@ const {
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: browserWindowGetAllWindowsMock },
+  BrowserWindow: {},
   ipcMain: { handle: handleMock },
   nativeTheme: { themeSource: 'system' }
 }))
@@ -50,6 +50,11 @@ vi.mock('../menu/register-app-menu', () => ({
   rebuildAppMenu: rebuildAppMenuMock
 }))
 
+vi.mock('../window/detached-window-registry', () => ({
+  detachedWindowRegistry: {
+    getAppWindows: getAppWindowsMock
+  }
+}))
 import { registerSettingsHandlers } from './settings'
 
 const settingsInvokeEvent = { sender: { id: 1 } }
@@ -77,7 +82,7 @@ describe('registerSettingsHandlers', () => {
     previewWarpThemeImportMock.mockClear()
     prepareLocalWorktreeRootsForReposMock.mockReset().mockResolvedValue(undefined)
     rebuildAppMenuMock.mockClear()
-    browserWindowGetAllWindowsMock.mockReset()
+    getAppWindowsMock.mockReset()
     store.getSettings.mockReset()
     store.updateSettings.mockReset()
     store.onSettingsChanged.mockClear()
@@ -148,11 +153,12 @@ describe('registerSettingsHandlers', () => {
     expect(previewWarpThemeImportMock).toHaveBeenCalledWith(store, null, sender)
   })
 
-  it('broadcasts store-level settings changes to open windows', () => {
+  it('broadcasts store-level settings changes to registered app windows only', () => {
     const send = vi.fn()
-    browserWindowGetAllWindowsMock.mockReturnValue([
+    const destroyedSend = vi.fn()
+    getAppWindowsMock.mockReturnValue([
       { isDestroyed: () => false, webContents: { send } },
-      { isDestroyed: () => true, webContents: { send: vi.fn() } }
+      { isDestroyed: () => true, webContents: { send: destroyedSend } }
     ])
     registerSettingsHandlers(store as never)
 
@@ -171,7 +177,7 @@ describe('registerSettingsHandlers', () => {
   it('does not rebroadcast renderer settings writes to the origin window', () => {
     const originSend = vi.fn()
     const otherSend = vi.fn()
-    browserWindowGetAllWindowsMock.mockReturnValue([
+    getAppWindowsMock.mockReturnValue([
       { isDestroyed: () => false, webContents: { id: 1, send: originSend } },
       { isDestroyed: () => false, webContents: { id: 2, send: otherSend } }
     ])
@@ -188,6 +194,7 @@ describe('registerSettingsHandlers', () => {
 
     expect(originSend).not.toHaveBeenCalled()
     expect(otherSend).toHaveBeenCalledWith('settings:changed', { defaultTuiAgent: 'codex' })
+    expect(getAppWindowsMock).toHaveBeenCalled()
   })
 
   it('updates the agent awake service when the keep-awake setting changes', () => {

@@ -15,6 +15,7 @@ const {
   notificationCtorMock,
   notificationIsSupportedMock,
   getAllWindowsMock,
+  getPrimaryAppWindowMock,
   shellOpenExternalMock
 } = vi.hoisted(() => {
   const removeHandlerMock = vi.fn()
@@ -35,6 +36,7 @@ const {
   })
   const notificationIsSupportedMock = vi.fn(() => true)
   const getAllWindowsMock = vi.fn(() => [])
+  const getPrimaryAppWindowMock = vi.fn(() => null)
   const shellOpenExternalMock = vi.fn()
   return {
     removeHandlerMock,
@@ -47,6 +49,7 @@ const {
     notificationCtorMock,
     notificationIsSupportedMock,
     getAllWindowsMock,
+    getPrimaryAppWindowMock,
     shellOpenExternalMock
   }
 })
@@ -67,6 +70,12 @@ vi.mock('electron', () => ({
   },
   shell: {
     openExternal: shellOpenExternalMock
+  }
+}))
+
+vi.mock('../window/detached-window-registry', () => ({
+  detachedWindowRegistry: {
+    getPrimaryAppWindow: getPrimaryAppWindowMock
   }
 }))
 
@@ -100,6 +109,13 @@ describe('registerNotificationHandlers', () => {
     notificationIsSupportedMock.mockReturnValue(true)
     getAllWindowsMock.mockReset()
     getAllWindowsMock.mockReturnValue([])
+    getPrimaryAppWindowMock.mockReset()
+    getPrimaryAppWindowMock.mockImplementation(
+      () =>
+        getAllWindowsMock().find(
+          (window: { isDestroyed: () => boolean }) => !window.isDestroyed()
+        ) ?? null
+    )
     shellOpenExternalMock.mockClear()
   })
 
@@ -261,12 +277,10 @@ describe('registerNotificationHandlers', () => {
   })
 
   it('suppresses active-worktree notifications while Orca is focused', () => {
-    getAllWindowsMock.mockReturnValue([
-      {
-        isDestroyed: () => false,
-        isFocused: () => true
-      } as never
-    ])
+    getPrimaryAppWindowMock.mockReturnValue({
+      isDestroyed: () => false,
+      isFocused: () => true
+    } as never)
 
     registerNotificationHandlers({
       getSettings: () => ({
@@ -285,6 +299,38 @@ describe('registerNotificationHandlers', () => {
       reason: 'suppressed-focus'
     })
     expect(notificationCtorMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the primary registered app window for focus suppression', () => {
+    const offscreenWindow = {
+      isDestroyed: () => false,
+      isFocused: () => true
+    }
+    const appWindow = {
+      isDestroyed: () => false,
+      isFocused: () => false
+    }
+    getAllWindowsMock.mockReturnValue([offscreenWindow] as never)
+    getPrimaryAppWindowMock.mockReturnValue(appWindow as never)
+
+    registerNotificationHandlers({
+      getSettings: () => ({
+        notifications: {
+          enabled: true,
+          agentTaskComplete: true,
+          terminalBell: true,
+          suppressWhenFocused: true
+        }
+      })
+    } as never)
+
+    expect(
+      getDispatchHandler()(
+        {},
+        { source: 'agent-task-complete', isActiveWorktree: true, title: 'Done' }
+      )
+    ).toEqual({ delivered: true })
+    expect(notificationCtorMock).toHaveBeenCalledTimes(1)
   })
 
   it('delivers a notification when the event is allowed', () => {

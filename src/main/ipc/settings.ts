@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { ipcMain, nativeTheme } from 'electron'
 import type { Store } from '../persistence'
 import type { GlobalSettings, PersistedState } from '../../shared/types'
 import { listSystemFontFamilies } from '../system-fonts'
@@ -20,6 +20,7 @@ import { normalizeTerminalCustomThemes } from '../../shared/terminal-custom-them
 import { normalizeDesktopTerminalScrollbackRows } from '../../shared/terminal-scrollback-policy'
 import { prepareLocalWorktreeRootsForRepos } from '../worktree-root-preparation'
 import { scheduleCurrentWorktreeBaseDirectoryWatcherSync } from './worktree-base-directory-watcher'
+import { detachedWindowRegistry } from '../window/detached-window-registry'
 
 // Why: the whitelist is the source-of-truth for which keys we emit on. Casting
 // to a Set once at module load lets the IPC handler's per-key membership
@@ -53,7 +54,7 @@ export function registerSettingsHandlers(
   agentAwakeService?: AgentAwakeService
 ): void {
   store.onSettingsChanged((updates, _settings, originWebContentsId) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of detachedWindowRegistry.getAppWindows()) {
       const isOrigin =
         originWebContentsId !== undefined && window.webContents.id === originWebContentsId
       if (!window.isDestroyed() && !isOrigin) {

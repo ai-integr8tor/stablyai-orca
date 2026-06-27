@@ -101,6 +101,7 @@ export type IpcPtyTransportOptions = {
   terminalColorQueryReplies?: TerminalOscColorQueryReplyColors
   telemetry?: EventProps<'agent_started'>
   onPtyExit?: (ptyId: string) => void
+  onPtyDataSubscriptionReady?: (ptyId: string) => void
   onTitleChange?: (title: string, rawTitle: string) => void
   onPtySpawn?: (ptyId: string) => void
   onBell?: () => void
