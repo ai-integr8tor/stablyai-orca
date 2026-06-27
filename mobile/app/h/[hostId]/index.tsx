@@ -88,6 +88,7 @@ import {
 import type { DesktopStatus, RepoSummary } from '../../../src/worktree/host-worktree-rpc-types'
 import type { WorkspaceStatusDefinition } from '../../../../src/shared/types'
 import { DEFAULT_MOBILE_WORKSPACE_STATUSES } from '../../../src/worktree/mobile-workspace-statuses'
+import { shouldShowHostSidebarAgentSummaries } from '../../../src/worktree/host-sidebar-agent-summaries'
 
 function isErrorVerdict(v: ConnectionVerdict): boolean {
   return v.kind === 'warning' || v.kind === 'unreachable' || v.kind === 'auth-failed'
@@ -126,6 +127,7 @@ export function HostScreen({
   // embedded as the sidebar the list already lives in a narrow pane, so the
   // cap is skipped (see the SectionList contentContainerStyle below).
   const { isWideLayout, contentMaxWidth } = useResponsiveLayout()
+  const showAgentSummaries = shouldShowHostSidebarAgentSummaries({ embedded, hostId, pathname })
   const [initialCache] = useState(() =>
     hostId ? (getCachedWorktrees(hostId) as Worktree[] | null) : null
   )
@@ -1251,6 +1253,7 @@ export function HostScreen({
               repoColor={uniqueRepoColors.get(item.repo) ?? repoColor(item.repo)}
               repoIcon={repoIconsByName.get(item.repo) ?? null}
               hideRepo={groupMode === 'repo'}
+              showAgents={showAgentSummaries}
               onPress={openWorktreeSession}
               onLongPress={item.workspaceKind === 'folder-workspace' ? undefined : setActionTarget}
               onToggleLineage={(row) =>
@@ -1473,4 +1476,3 @@ export default function HostWorktreeRoute() {
 function ListSeparator() {
   return <View style={styles.separator} />
 }
-
