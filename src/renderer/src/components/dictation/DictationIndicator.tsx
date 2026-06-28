@@ -105,7 +105,7 @@ export function DictationIndicator() {
         </div>
       </div>
       {transcript.length > 0 && (
-        <p className="truncate border-t border-border/40 pt-1 text-sm text-muted-foreground">
+        <p className="overflow-hidden whitespace-nowrap text-right border-t border-border/40 pt-1 text-sm text-muted-foreground">
           {truncateDictationTranscript(transcript)}
         </p>
       )}

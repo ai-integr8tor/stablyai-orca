@@ -114,20 +114,29 @@ describe('DictationIndicator', () => {
     expect(text).not.toContain('a'.repeat(81))
   })
 
-  it('stacks the transcript on its own row with a bounded width', async () => {
+  it('keeps the most recent words visible and clips the start on overflow', async () => {
     useAppStore.setState({
       dictationState: 'listening',
       dictationMeter: speakingMeter,
       partialTranscript: 'Can you inspect the repo and summarize the current branch?'
     })
 
-    const html = (await mountIndicator()).innerHTML
+    const mounted = await mountIndicator()
+    const html = mounted.innerHTML
+    const text = mounted.textContent ?? ''
 
     // Transcript lives in a paragraph (second row), not inline in the control row.
     expect(html).toContain('<p')
-    // Fixed, bounded width so it grows downward and truncates instead of sprawling right.
+    // Fixed, bounded width so it grows downward instead of sprawling right.
     expect(html).toContain('w-[min(26rem,calc(100vw-2rem))]')
-    expect(html).toContain('truncate')
+    // The newest words must always survive: clip the start (oldest words), not
+    // the end. Tailwind's `truncate` end-ellipsizes and would hide the tail.
+    expect(html).not.toContain('truncate')
+    expect(html).toContain('overflow-hidden')
+    expect(html).toContain('whitespace-nowrap')
+    expect(html).toContain('text-right')
+    // The final words of the utterance are present in the rendered text.
+    expect(text).toContain('summarize the current branch?')
   })
 
   it('renders processing state while stopping', async () => {
