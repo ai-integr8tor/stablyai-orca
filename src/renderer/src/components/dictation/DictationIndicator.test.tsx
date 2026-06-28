@@ -101,17 +101,21 @@ describe('DictationIndicator', () => {
     expect(mounted.innerHTML).toContain('text-destructive')
   })
 
-  it('truncates long partial transcripts from the end', async () => {
+  it('keeps the tail of long transcripts and drops the oldest prefix', async () => {
+    const oldestPrefix = 'OLDEST_PREFIX_THAT_SHOULD_BE_DROPPED '
+    const newestPhrase = 'and the newest words must remain visible'
     useAppStore.setState({
       dictationState: 'listening',
       dictationMeter: speakingMeter,
-      partialTranscript: 'a'.repeat(81)
+      partialTranscript: `${oldestPrefix}${'filler word '.repeat(8)}${newestPhrase}`
     })
 
     const text = (await mountIndicator()).textContent ?? ''
 
+    // Leading ellipsis marks the dropped prefix; the newest phrase survives.
     expect(text).toContain('…')
-    expect(text).not.toContain('a'.repeat(81))
+    expect(text).not.toContain(oldestPrefix)
+    expect(text).toContain(newestPhrase)
   })
 
   it('keeps the most recent words visible and clips the start on overflow', async () => {
