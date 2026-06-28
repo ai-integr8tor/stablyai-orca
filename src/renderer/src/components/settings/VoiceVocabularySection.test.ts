@@ -3,13 +3,13 @@ import { parseCustomVocabularyDraft } from './VoiceVocabularySection'
 
 describe('parseCustomVocabularyDraft', () => {
   it('trims whitespace, drops empty lines, and deduplicates case-insensitively', () => {
-    expect(parseCustomVocabularyDraft('  Orca\n\norca\nSynthGL\n  SynthGL  ')).toEqual([
+    expect(parseCustomVocabularyDraft('  Orca\n\norca\nWolfgang\n  Wolfgang  ')).toEqual([
       'Orca',
-      'SynthGL'
+      'Wolfgang'
     ])
   })
 
   it('matches IPC hotword limits before settings are saved', () => {
-    expect(parseCustomVocabularyDraft(`Orca\nSynthGL\rbad\n${'x'.repeat(121)}`)).toEqual(['Orca'])
+    expect(parseCustomVocabularyDraft(`Orca\nWolfgang\rbad\n${'x'.repeat(121)}`)).toEqual(['Orca'])
   })
 })

@@ -189,7 +189,7 @@ describe('registerSpeechHandlers', () => {
     await getHandler('speech:startDictation')(
       { sender: { id: 7 } },
       'model-1',
-      ['  Orca  ', '', 'orca', 'SynthGL\nbad', 'x'.repeat(121)],
+      ['  Orca  ', '', 'orca', 'Wolfgang\nbad', 'x'.repeat(121)],
       'session-1'
     )
 
@@ -208,7 +208,7 @@ describe('registerSpeechHandlers', () => {
 
   it('normalizes speech hotwords before writing sherpa config files', () => {
     expect(
-      normalizeSpeechHotwords(['  Orca  ', '', 'orca', 'SynthGL\nbad', 'x'.repeat(121)])
+      normalizeSpeechHotwords(['  Orca  ', '', 'orca', 'Wolfgang\nbad', 'x'.repeat(121)])
     ).toEqual(['Orca'])
   })
 })

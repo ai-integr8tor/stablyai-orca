@@ -54,7 +54,7 @@ export function VoiceVocabularySection({
         spellCheck={false}
         placeholder={translate(
           'auto.components.settings.VoicePane.customVocabulary.placeholder',
-          'Orca\nSynthGL\nWolfgang'
+          'Orca\nWolfgang'
         )}
         className="min-h-24 w-64 resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
       />
