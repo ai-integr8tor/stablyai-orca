@@ -162,7 +162,10 @@ export function DictationController() {
         return
       }
 
-      await window.api.speech.startDictation(modelId, undefined, sessionId)
+      const customVocabulary = settings?.voice?.customVocabulary
+      const hotwords =
+        customVocabulary && customVocabulary.length > 0 ? customVocabulary : undefined
+      await window.api.speech.startDictation(modelId, hotwords, sessionId)
       if (dictationRunRef.current !== runId) {
         discardBufferedAudio()
         insertionTargetRef.current = null

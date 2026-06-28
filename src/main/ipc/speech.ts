@@ -1,7 +1,4 @@
-import { ipcMain, BrowserWindow, systemPreferences, app } from 'electron'
-import { join } from 'path'
-import { writeFile, unlink } from 'fs/promises'
-import { createHash } from 'crypto'
+import { ipcMain, BrowserWindow, systemPreferences } from 'electron'
 import { SPEECH_MODEL_CATALOG } from '../speech/model-catalog'
 import { deleteLocalSpeechModel } from '../speech/speech-model-deletion'
 import { getSpeechModelManager, getSpeechSttService } from '../speech/speech-runtime-service'
@@ -11,6 +8,7 @@ import {
   saveOpenAiSpeechApiKey
 } from '../speech/openai-api-key-store'
 import type { Store } from '../persistence'
+import { removeSpeechHotwordsFile, writeSpeechHotwordsFile } from '../speech/hotwords-file'
 
 export function registerSpeechHandlers(store: Store): void {
   ipcMain.handle('speech:getCatalog', () => {
@@ -78,11 +76,6 @@ export function registerSpeechHandlers(store: Store): void {
     })
   })
 
-  const getHotwordsFilePath = (content: string): string => {
-    const digest = createHash('sha256').update(content).digest('hex').slice(0, 12)
-    return join(app.getPath('userData'), `speech-hotwords-${digest}.txt`)
-  }
-
   const getDesktopOwner = (senderId: number, sessionId: string): string =>
     `desktop:${senderId}:${sessionId}`
 
@@ -101,9 +94,7 @@ export function registerSpeechHandlers(store: Store): void {
         void getSpeechSttService(store)
           .stopDictation(owner)
           .finally(() => {
-            if (resolvedHotwordsPath) {
-              unlink(resolvedHotwordsPath).catch(() => {})
-            }
+            removeSpeechHotwordsFile(resolvedHotwordsPath)
           })
           .catch(() => {})
       }
@@ -131,18 +122,10 @@ export function registerSpeechHandlers(store: Store): void {
           }
         }
 
-        if (hotwords && hotwords.length > 0) {
-          const content = `${hotwords.map((w) => `${w} :2.0`).join('\n')}\n`
-          const hotwordsFilePath = getHotwordsFilePath(content)
-          await writeFile(hotwordsFilePath, content, 'utf-8')
-          resolvedHotwordsPath = hotwordsFilePath
-        }
+        resolvedHotwordsPath = await writeSpeechHotwordsFile(hotwords)
 
         if (windowClosed || window.isDestroyed()) {
-          cleanupSessionListener()
-          if (resolvedHotwordsPath) {
-            unlink(resolvedHotwordsPath).catch(() => {})
-          }
+          removeSpeechHotwordsFile(resolvedHotwordsPath)
           return
         }
 
@@ -178,14 +161,10 @@ export function registerSpeechHandlers(store: Store): void {
           resolvedHotwordsPath,
           owner
         )
-        if (resolvedHotwordsPath) {
-          unlink(resolvedHotwordsPath).catch(() => {})
-        }
+        removeSpeechHotwordsFile(resolvedHotwordsPath)
       } catch (err) {
         cleanupSessionListener()
-        if (resolvedHotwordsPath) {
-          unlink(resolvedHotwordsPath).catch(() => {})
-        }
+        removeSpeechHotwordsFile(resolvedHotwordsPath)
         throw err
       }
     }
