@@ -104,6 +104,16 @@ function isMacAppPasteInput(input: Electron.Input): boolean {
   )
 }
 
+function resolveAppCommandTabSwitchDirection(command: string): -1 | 1 | null {
+  if (command === 'browser-backward') {
+    return -1
+  }
+  if (command === 'browser-forward') {
+    return 1
+  }
+  return null
+}
+
 // Why: the titlebar is 36px (border-box, 1px border-bottom).  The visual
 // center of the CSS-centered content sits at ~18 CSS px from the top.
 // At zoom factor z that becomes 18·z window px.  Traffic lights are
@@ -310,6 +320,15 @@ export function createMainWindow(
   // Why: native paste fallback is privileged IPC; only the real top-level
   // renderer should be allowed to request Electron's native paste operation.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)
+
+  mainWindow.on('app-command', (event, command) => {
+    const direction = resolveAppCommandTabSwitchDirection(command)
+    if (direction === null) {
+      return
+    }
+    event.preventDefault()
+    mainWindow.webContents.send('ui:switchTabAcrossAllTypes', direction)
+  })
 
   if (process.platform === 'darwin') {
     // Why: persistent browser webviews use separate compositor layers, and on

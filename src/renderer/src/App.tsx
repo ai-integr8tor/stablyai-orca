@@ -91,6 +91,7 @@ import {
 } from './hooks/usePrimarySelectionPaste'
 import { useAppMenuPaste } from './hooks/useAppMenuPaste'
 import { useLargeTextControlPaste } from './hooks/useLargeTextControlPaste'
+import { useMouseTabNavigation } from './hooks/useMouseTabNavigation'
 import {
   canSkipRuntimeMobileSessionSyncKeyBuild,
   getRuntimeMobileSessionSyncKey,
@@ -627,6 +628,7 @@ function App(): React.JSX.Element {
   usePrimarySelectionPaste(primarySelectionMiddleClickPaste)
   useAppMenuPaste()
   useLargeTextControlPaste()
+  useMouseTabNavigation()
   const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
   const petVisible = useAppStore((s) => s.petVisible)
   const renderPetOverlay = shouldRenderPetOverlay({
