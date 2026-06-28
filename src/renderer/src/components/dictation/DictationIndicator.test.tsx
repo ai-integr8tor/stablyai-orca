@@ -118,11 +118,12 @@ describe('DictationIndicator', () => {
     expect(text).toContain(newestPhrase)
   })
 
-  it('keeps the most recent words visible and clips the start on overflow', async () => {
+  it('keeps the most recent words visible and shows a pinned ellipsis on overflow', async () => {
+    const newestPhrase = 'walk me through the most recent changes you pushed?'
     useAppStore.setState({
       dictationState: 'listening',
       dictationMeter: speakingMeter,
-      partialTranscript: 'Can you inspect the repo and summarize the current branch?'
+      partialTranscript: `Can you inspect the repository, summarize the current branch, and then ${newestPhrase}`
     })
 
     const mounted = await mountIndicator()
@@ -133,15 +134,31 @@ describe('DictationIndicator', () => {
     expect(html).toContain('<p')
     // Fixed, bounded width so it grows downward instead of sprawling right.
     expect(html).toContain('w-[min(26rem,calc(100vw-2rem))]')
-    // The newest words must always survive: justify the line to the end so the
+    // The newest words must always survive: justify the tail to the end so the
     // overflow spills off the start (oldest words). Tailwind's `truncate`
     // end-ellipsizes and would hide the tail.
     expect(html).not.toContain('truncate')
     expect(html).toContain('overflow-hidden')
     expect(html).toContain('justify-end')
     expect(html).toContain('whitespace-nowrap')
+    // The truncation marker renders as a visible standalone prefix span, not
+    // clipped away inside the overflow region.
+    expect(html).toContain('<span class="shrink-0">…</span>')
     // The final words of the utterance are present in the rendered text.
-    expect(text).toContain('summarize the current branch?')
+    expect(text).toContain(newestPhrase)
+  })
+
+  it('omits the ellipsis prefix for short transcripts that are not truncated', async () => {
+    useAppStore.setState({
+      dictationState: 'listening',
+      dictationMeter: speakingMeter,
+      partialTranscript: 'Short transcript'
+    })
+
+    const mounted = await mountIndicator()
+
+    expect(mounted.textContent).toContain('Short transcript')
+    expect(mounted.innerHTML).not.toContain('<span class="shrink-0">…</span>')
   })
 
   it('renders processing state while stopping', async () => {

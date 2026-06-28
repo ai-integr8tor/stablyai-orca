@@ -104,13 +104,21 @@ export function DictationIndicator() {
           })}
         </div>
       </div>
-      {transcript.length > 0 && (
-        <div className="flex justify-end overflow-hidden border-t border-border/40 pt-1">
-          <p className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
-            {truncateDictationTranscript(transcript)}
-          </p>
-        </div>
-      )}
+      {transcript.length > 0 &&
+        (() => {
+          const displayTranscript = truncateDictationTranscript(transcript)
+          const hasLeadingEllipsis = displayTranscript.startsWith('…')
+          return (
+            <div className="flex items-baseline overflow-hidden border-t border-border/40 pt-1 text-sm text-muted-foreground">
+              {hasLeadingEllipsis && <span className="shrink-0">…</span>}
+              <div className="flex flex-1 justify-end overflow-hidden">
+                <p className="shrink-0 whitespace-nowrap">
+                  {hasLeadingEllipsis ? displayTranscript.slice(1) : displayTranscript}
+                </p>
+              </div>
+            </div>
+          )
+        })()}
     </div>
   )
 }
