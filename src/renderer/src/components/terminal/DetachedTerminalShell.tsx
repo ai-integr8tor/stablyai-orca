@@ -89,16 +89,32 @@ export default function DetachedTerminalShell(): React.JSX.Element {
   }
 
   return (
-    <TerminalPane
-      tabId={state.snapshot.terminalTab.id}
-      worktreeId={state.snapshot.worktree.id}
-      cwd={state.snapshot.worktree.path}
-      isActive={true}
-      isVisible={true}
-      isWorktreeActive={true}
-      onPtyExit={handleDetachedPtyExit}
-      onCloseTab={handleDetachedCloseTab}
-      onPtyDataSubscriptionReady={handleDetachedPtyReady}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Why: detached windows hide native chrome, so they need a
+          renderer-owned drag strip while xterm stays no-drag. */}
+      <div
+        data-detached-titlebar-drag
+        className="titlebar shrink-0"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        <span className="titlebar-traffic-light-pad" />
+        <span className="truncate text-xs text-muted-foreground">
+          {state.snapshot.terminalTab.title || 'Terminal'}
+        </span>
+      </div>
+      <div className="min-h-0 flex-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <TerminalPane
+          tabId={state.snapshot.terminalTab.id}
+          worktreeId={state.snapshot.worktree.id}
+          cwd={state.snapshot.worktree.path}
+          isActive={true}
+          isVisible={true}
+          isWorktreeActive={true}
+          onPtyExit={handleDetachedPtyExit}
+          onCloseTab={handleDetachedCloseTab}
+          onPtyDataSubscriptionReady={handleDetachedPtyReady}
+        />
+      </div>
+    </div>
   )
 }

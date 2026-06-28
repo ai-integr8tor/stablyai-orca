@@ -147,6 +147,21 @@ describe('DetachedTerminalShell', () => {
     expect(typeof shellMocks.terminalPaneProps[0]?.onCloseTab).toBe('function')
   })
 
+  it('renders a draggable title bar strip so the detached window can be moved', async () => {
+    shellMocks.getSnapshot.mockResolvedValue(snapshot())
+    const container = await renderShell()
+    await act(async () => {})
+
+    const dragStrip = container.querySelector<HTMLElement>('[data-detached-titlebar-drag]')
+    expect(dragStrip).not.toBeNull()
+    expect(dragStrip?.classList.contains('titlebar')).toBe(true)
+    // Why: the terminal surface must live outside the drag strip so xterm keeps
+    // pointer selection/focus; assert it is a sibling, not a descendant.
+    expect(
+      dragStrip?.contains(container.querySelector('[data-testid="detached-terminal-pane"]'))
+    ).toBe(false)
+  })
+
   it('hydrates a split-pane snapshot and preserves every PTY from snapshot.ptyIds', async () => {
     shellMocks.getSnapshot.mockResolvedValue(
       snapshot({
