@@ -25,6 +25,25 @@ type StopAudioCaptureOptions = {
 const MAX_BUFFERED_AUDIO_SECONDS = 30
 const MAX_BUFFERED_AUDIO_BYTES = 8 * 1024 * 1024
 
+function isMissingSelectedDeviceError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')
+  )
+}
+
+function getAudioCaptureConstraints(inputDeviceId: string | undefined): MediaStreamConstraints {
+  return {
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(inputDeviceId ? { deviceId: { exact: inputDeviceId } } : {})
+    }
+  }
+}
+
 export function useAudioCapture() {
   const streamRef = useRef<MediaStream | null>(null)
   const contextRef = useRef<AudioContext | null>(null)
@@ -111,15 +130,19 @@ export function useAudioCapture() {
       resetBufferedAudio()
       capturedChunkCountRef.current = 0
       resetMeter()
+      const selectedInputDeviceId = useAppStore.getState().settings?.voice?.inputDeviceId?.trim()
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          getAudioCaptureConstraints(selectedInputDeviceId)
+        )
+      } catch (err) {
+        if (!selectedInputDeviceId || !isMissingSelectedDeviceError(err)) {
+          throw err
         }
-      })
+        stream = await navigator.mediaDevices.getUserMedia(getAudioCaptureConstraints(undefined))
+      }
       if (startRequestRef.current !== startRequest) {
         stream.getTracks().forEach((track) => track.stop())
         return

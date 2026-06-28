@@ -9,6 +9,7 @@ import { OpenAiTranscriptionKeyDialog } from './OpenAiTranscriptionKeyDialog'
 import { OpenAiTranscriptionSettingsRow } from './OpenAiTranscriptionSettingsRow'
 import { handleVoiceDictationToggle } from './voice-dictation-toggle'
 import { VoiceDictationSettingsSection } from './VoiceDictationSettingsSection'
+import { VoiceMicrophoneSection } from './VoiceMicrophoneSection'
 import { VoiceSpeechModelSection } from './VoiceSpeechModelSection'
 import { VoiceVocabularySection } from './VoiceVocabularySection'
 import { matchesSettingsSearch } from './settings-search'
@@ -205,6 +206,13 @@ export function VoicePane({ settings, updateSettings }: VoicePaneProps): React.J
         voiceSettings={voiceSettings}
         permissionPending={permissionPending}
         onToggleVoiceDictation={() => void toggleVoiceDictation()}
+        onUpdateVoiceSettings={updateVoiceSettings}
+      />
+
+      <Separator />
+
+      <VoiceMicrophoneSection
+        voiceSettings={voiceSettings}
         onUpdateVoiceSettings={updateVoiceSettings}
       />
 

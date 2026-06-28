@@ -146,6 +146,42 @@ describe('useAudioCapture', () => {
     expect(useAppStore.getState().dictationMeter.level).toBeGreaterThan(0)
   })
 
+  it('requests the selected microphone device when configured', async () => {
+    useAppStore.setState({
+      settings: { voice: { inputDeviceId: 'mic-2' } } as never
+    })
+    await renderProbe()
+    await startCapture({ sessionId: 'session-1' })
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: expect.objectContaining({
+        deviceId: { exact: 'mic-2' }
+      })
+    })
+  })
+
+  it('falls back to the system microphone when the selected device disappeared', async () => {
+    useAppStore.setState({
+      settings: { voice: { inputDeviceId: 'missing-mic' } } as never
+    })
+    ;(navigator.mediaDevices.getUserMedia as Mock)
+      .mockRejectedValueOnce(new DOMException('missing', 'OverconstrainedError'))
+      .mockResolvedValueOnce(mediaStream)
+    await renderProbe()
+    await startCapture({ sessionId: 'session-1' })
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenNthCalledWith(1, {
+      audio: expect.objectContaining({
+        deviceId: { exact: 'missing-mic' }
+      })
+    })
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenNthCalledWith(2, {
+      audio: expect.not.objectContaining({
+        deviceId: expect.anything()
+      })
+    })
+  })
+
   it('publishes meter state while preserving buffered speech audio feed samples', async () => {
     await renderProbe()
     await startCapture({ bufferAudio: true, sessionId: 'session-1' })

@@ -74,6 +74,29 @@ export const getVoicePaneSearchEntries = createLocalizedCatalog(() => [
     ]
   },
   {
+    title: translate('auto.components.settings.voice.pane.search.microphone.title', 'Microphone'),
+    description: translate(
+      'auto.components.settings.voice.pane.search.microphone.description',
+      'Choose the input device Orca uses for voice dictation.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.voice.pane.search.7640ed9848', 'voice'),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.089d31a45b',
+        'dictation'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.e360027a65',
+        'microphone'
+      ),
+      ...translateSearchKeyword('auto.components.settings.voice.pane.search.microphone.mic', 'mic'),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.microphone.input',
+        'input device'
+      )
+    ]
+  },
+  {
     title: translate(
       'auto.components.settings.voice.pane.search.customVocabulary.title',
       'Custom Vocabulary'
