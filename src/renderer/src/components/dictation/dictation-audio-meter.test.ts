@@ -50,12 +50,16 @@ describe('dictation audio meter', () => {
     expect(resetDictationMeterState()).toEqual(DEFAULT_DICTATION_METER)
   })
 
-  it('truncates long transcripts from the end', () => {
-    const text = 'a'.repeat(81)
+  it('keeps the tail and drops the oldest prefix of long transcripts', () => {
+    const oldestPrefix = 'OLDEST_PREFIX_DROPPED '
+    const newestPhrase = 'newest words stay visible'
+    const text = `${oldestPrefix}${'filler '.repeat(10)}${newestPhrase}`
 
     const truncated = truncateDictationTranscript(text)
 
     expect(truncated).toHaveLength(80)
     expect(truncated.startsWith('…')).toBe(true)
+    expect(truncated).not.toContain(oldestPrefix)
+    expect(truncated.endsWith(newestPhrase)).toBe(true)
   })
 })
