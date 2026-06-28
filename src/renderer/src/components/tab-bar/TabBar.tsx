@@ -3,7 +3,7 @@
  * to a file that was already ~398 code lines on main. The per-type render
  * branches share little beyond drag data, so consolidating them would cost
  * more clarity than the ~5 lines of bloat is worth. */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SortableContext } from '@dnd-kit/sortable'
 import {
   ChevronLeft,
@@ -994,21 +994,32 @@ function TabBarInner({
   )
 
   const togglePinShortcutLabel = useOptionalShortcutLabel('tab.togglePin')
+  // Why: split panes mount one TabBar per group; the global chord must follow
+  // the focused group instead of whichever listener mounted first.
+  const ownsTogglePinShortcut =
+    activeWorktreeId === worktreeId &&
+    (groupId === undefined || activeGroupIdForWorktree === resolvedGroupId)
 
-  const togglePinned = (item: TabItem): void => {
-    // pinTab/unpinTab mirror the change to the host for remote-server tabs.
-    if (item.isPinned) {
-      unpinTab(item.unifiedTabId)
-      return
-    }
-    if (item.type === 'editor' && onPinFile) {
-      onPinFile(item.data.id, item.unifiedTabId)
-      return
-    }
-    pinTab(item.unifiedTabId)
-  }
+  const togglePinned = useCallback(
+    (item: TabItem): void => {
+      // pinTab/unpinTab mirror the change to the host for remote-server tabs.
+      if (item.isPinned) {
+        unpinTab(item.unifiedTabId)
+        return
+      }
+      if (item.type === 'editor' && onPinFile) {
+        onPinFile(item.data.id, item.unifiedTabId)
+        return
+      }
+      pinTab(item.unifiedTabId)
+    },
+    [onPinFile, pinTab, unpinTab]
+  )
 
   useEffect(() => {
+    if (!ownsTogglePinShortcut) {
+      return
+    }
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.repeat || isEditableTarget(e.target)) {
         return
@@ -1038,7 +1049,7 @@ function TabBarInner({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
-  }, [activeItem, togglePinned])
+  }, [activeItem, ownsTogglePinShortcut, togglePinned])
 
   const { tabStripRef, tabStripOverflowState, scrollTabStrip } = useTabStripOverflowNavigation({
     activeVisibleTabId,

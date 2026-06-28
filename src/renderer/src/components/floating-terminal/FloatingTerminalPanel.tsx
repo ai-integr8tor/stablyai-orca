@@ -1114,7 +1114,11 @@ export function FloatingTerminalPanel({
         consume()
         if (activeTab.isPinned) {
           state.unpinTab(activeTab.id)
-        } else if (activeTab.contentType === 'editor') {
+        } else if (
+          activeTab.contentType !== 'terminal' &&
+          activeTab.contentType !== 'browser' &&
+          activeTab.contentType !== 'simulator'
+        ) {
           state.pinFile(activeTab.entityId, activeTab.id)
         } else {
           state.pinTab(activeTab.id)
