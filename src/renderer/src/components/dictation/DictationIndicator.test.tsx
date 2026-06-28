@@ -133,12 +133,13 @@ describe('DictationIndicator', () => {
     expect(html).toContain('<p')
     // Fixed, bounded width so it grows downward instead of sprawling right.
     expect(html).toContain('w-[min(26rem,calc(100vw-2rem))]')
-    // The newest words must always survive: clip the start (oldest words), not
-    // the end. Tailwind's `truncate` end-ellipsizes and would hide the tail.
+    // The newest words must always survive: justify the line to the end so the
+    // overflow spills off the start (oldest words). Tailwind's `truncate`
+    // end-ellipsizes and would hide the tail.
     expect(html).not.toContain('truncate')
     expect(html).toContain('overflow-hidden')
+    expect(html).toContain('justify-end')
     expect(html).toContain('whitespace-nowrap')
-    expect(html).toContain('text-right')
     // The final words of the utterance are present in the rendered text.
     expect(text).toContain('summarize the current branch?')
   })

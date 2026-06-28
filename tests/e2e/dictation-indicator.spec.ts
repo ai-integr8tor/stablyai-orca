@@ -86,10 +86,12 @@ test.describe('Dictation indicator', () => {
         isClipping: false,
         lastUpdatedAt: Date.now()
       })
-      state.setPartialTranscript('Can you inspect the repo and summarize the current branch?')
+      state.setPartialTranscript(
+        'Can you inspect the repository, summarize the current branch, and then walk me through the most recent changes you pushed?'
+      )
     })
     await expect(orcaPage.getByRole('status')).toContainText('Speaking')
-    await expect(orcaPage.getByRole('status')).toContainText('Can you inspect')
+    await expect(orcaPage.getByRole('status')).toContainText('most recent changes')
     await captureDictationArtifact(orcaPage, testInfo, 'dictation-speaking')
 
     await orcaPage.evaluate(() => {

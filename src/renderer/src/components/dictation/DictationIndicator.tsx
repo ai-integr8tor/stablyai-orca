@@ -105,9 +105,11 @@ export function DictationIndicator() {
         </div>
       </div>
       {transcript.length > 0 && (
-        <p className="overflow-hidden whitespace-nowrap text-right border-t border-border/40 pt-1 text-sm text-muted-foreground">
-          {truncateDictationTranscript(transcript)}
-        </p>
+        <div className="flex justify-end overflow-hidden border-t border-border/40 pt-1">
+          <p className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
+            {truncateDictationTranscript(transcript)}
+          </p>
+        </div>
       )}
     </div>
   )
