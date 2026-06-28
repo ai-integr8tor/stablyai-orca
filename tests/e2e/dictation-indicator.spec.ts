@@ -51,11 +51,21 @@ async function captureDictationArtifact(
     await page.getByRole('status').screenshot({ path: testInfo.outputPath(`${name}.png`) })
     return
   }
-  // Capture the full window so reviewers see where the indicator sits in Orca
-  // (bottom-center) with the surrounding chrome, not a crop hugging the pill.
+  // Capture a centered band anchored to the bottom of the window: keeps the
+  // indicator prominent with surrounding chrome around it, while excluding the
+  // unrelated bottom-left toast on the far edge.
+  const bandWidth = Math.min(viewport.width, 760)
+  const bandHeight = Math.min(viewport.height, 360)
+  const x = Math.max(0, Math.round((viewport.width - bandWidth) / 2))
+  const y = Math.max(0, viewport.height - bandHeight)
   await page.screenshot({
     path: testInfo.outputPath(`${name}.png`),
-    clip: { x: 0, y: 0, width: viewport.width, height: viewport.height }
+    clip: {
+      x,
+      y,
+      width: Math.min(bandWidth, viewport.width - x),
+      height: Math.min(bandHeight, viewport.height - y)
+    }
   })
 }
 
