@@ -6,12 +6,12 @@ import {
   createDictationMeterAnalyzerState,
   toPublicDictationMeterState
 } from '@/components/dictation/dictation-audio-meter'
-
-type BufferedAudioChunk = {
-  samples: Float32Array
-  sampleRate: number
-  sessionId: string
-}
+import {
+  getAudioCaptureConstraints,
+  isMissingSelectedDeviceError
+} from './audio-capture-constraints'
+import { useAudioRecoveryBuffer } from './use-audio-recovery-buffer'
+import { useAudioStartupBuffer } from './use-audio-startup-buffer'
 
 type StartAudioCaptureOptions = {
   bufferAudio?: boolean
@@ -22,28 +22,6 @@ type StopAudioCaptureOptions = {
   preserveBufferedAudio?: boolean
 }
 
-const MAX_BUFFERED_AUDIO_SECONDS = 30
-const MAX_BUFFERED_AUDIO_BYTES = 8 * 1024 * 1024
-
-function isMissingSelectedDeviceError(err: unknown): boolean {
-  return (
-    err instanceof DOMException &&
-    (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')
-  )
-}
-
-function getAudioCaptureConstraints(inputDeviceId: string | undefined): MediaStreamConstraints {
-  return {
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      ...(inputDeviceId ? { deviceId: { exact: inputDeviceId } } : {})
-    }
-  }
-}
-
 export function useAudioCapture() {
   const streamRef = useRef<MediaStream | null>(null)
   const contextRef = useRef<AudioContext | null>(null)
@@ -51,15 +29,12 @@ export function useAudioCapture() {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const isCapturingRef = useRef(false)
   const startRequestRef = useRef(0)
-  const bufferAudioRef = useRef(false)
-  const bufferedAudioGenerationRef = useRef(0)
-  const bufferedAudioRef = useRef<BufferedAudioChunk[]>([])
-  const bufferedAudioBytesRef = useRef(0)
-  const bufferedAudioSecondsRef = useRef(0)
   const capturedChunkCountRef = useRef(0)
   const sessionIdRef = useRef('desktop')
   const meterAnalyzerRef = useRef(createDictationMeterAnalyzerState())
   const lastMeterPublishAtRef = useRef(Number.NEGATIVE_INFINITY)
+  const recoveryAudio = useAudioRecoveryBuffer()
+  const startupAudio = useAudioStartupBuffer()
 
   const cleanupCaptureResources = useCallback(() => {
     processorRef.current?.disconnect()
@@ -76,46 +51,11 @@ export function useAudioCapture() {
     streamRef.current = null
   }, [])
 
-  const resetBufferedAudio = useCallback(() => {
-    bufferedAudioGenerationRef.current += 1
-    bufferedAudioRef.current = []
-    bufferedAudioBytesRef.current = 0
-    bufferedAudioSecondsRef.current = 0
-  }, [])
-
   const resetMeter = useCallback(() => {
     meterAnalyzerRef.current = createDictationMeterAnalyzerState()
     lastMeterPublishAtRef.current = Number.NEGATIVE_INFINITY
     useAppStore.getState().resetDictationMeter()
   }, [])
-
-  const removeOldestBufferedAudioChunk = useCallback(() => {
-    const chunk = bufferedAudioRef.current.shift()
-    if (!chunk) {
-      return
-    }
-    bufferedAudioBytesRef.current -= chunk.samples.byteLength
-    bufferedAudioSecondsRef.current -= chunk.samples.length / chunk.sampleRate
-  }, [])
-
-  const appendBufferedAudioChunk = useCallback(
-    (chunk: BufferedAudioChunk) => {
-      bufferedAudioRef.current.push(chunk)
-      bufferedAudioBytesRef.current += chunk.samples.byteLength
-      bufferedAudioSecondsRef.current += chunk.samples.length / chunk.sampleRate
-
-      // Why: worker/model startup can hang; keep only a bounded recent window
-      // so renderer memory cannot grow forever while buffering is enabled.
-      while (
-        bufferedAudioRef.current.length > 0 &&
-        (bufferedAudioBytesRef.current > MAX_BUFFERED_AUDIO_BYTES ||
-          bufferedAudioSecondsRef.current > MAX_BUFFERED_AUDIO_SECONDS)
-      ) {
-        removeOldestBufferedAudioChunk()
-      }
-    },
-    [removeOldestBufferedAudioChunk]
-  )
 
   const start = useCallback(
     async (options: StartAudioCaptureOptions = {}) => {
@@ -126,10 +66,11 @@ export function useAudioCapture() {
       startRequestRef.current = startRequest
       cleanupCaptureResources()
       sessionIdRef.current = options.sessionId ?? 'desktop'
-      bufferAudioRef.current = options.bufferAudio ?? false
-      resetBufferedAudio()
+      startupAudio.setEnabled(options.bufferAudio ?? false)
+      startupAudio.reset()
       capturedChunkCountRef.current = 0
       resetMeter()
+      recoveryAudio.clear()
       const selectedInputDeviceId = useAppStore.getState().settings?.voice?.inputDeviceId?.trim()
 
       let stream: MediaStream
@@ -210,12 +151,14 @@ export function useAudioCapture() {
               .setDictationMeter(toPublicDictationMeterState(meterAnalyzerRef.current))
           }
           capturedChunkCountRef.current += 1
-          if (bufferAudioRef.current) {
-            appendBufferedAudioChunk({
-              samples,
-              sampleRate: actualRate,
-              sessionId: sessionIdRef.current
-            })
+          const recoveryChunk = {
+            samples,
+            sampleRate: actualRate,
+            sessionId: sessionIdRef.current
+          }
+          recoveryAudio.append(recoveryChunk)
+          if (startupAudio.isEnabled()) {
+            startupAudio.append(recoveryChunk)
             return
           }
           void window.api.speech
@@ -249,8 +192,8 @@ export function useAudioCapture() {
           streamRef.current = null
         }
         if (startRequestRef.current === startRequest) {
-          bufferAudioRef.current = false
-          resetBufferedAudio()
+          startupAudio.setEnabled(false)
+          startupAudio.reset()
           resetMeter()
         }
         if (startRequestRef.current !== startRequest) {
@@ -259,38 +202,16 @@ export function useAudioCapture() {
         throw err
       }
     },
-    [appendBufferedAudioChunk, cleanupCaptureResources, resetBufferedAudio, resetMeter]
+    [cleanupCaptureResources, recoveryAudio, resetMeter, startupAudio]
   )
 
-  const flushBufferedAudio = useCallback(async () => {
-    const flushGeneration = bufferedAudioGenerationRef.current
-    try {
-      // Why: keep buffering enabled while draining so live audio appends behind
-      // startup audio instead of overtaking it through direct IPC sends.
-      while (
-        bufferedAudioGenerationRef.current === flushGeneration &&
-        bufferedAudioRef.current.length > 0
-      ) {
-        const chunk = bufferedAudioRef.current[0]
-        if (!chunk) {
-          break
-        }
-        removeOldestBufferedAudioChunk()
-        await window.api.speech.feedAudio(chunk.samples, chunk.sampleRate, chunk.sessionId)
-      }
-    } finally {
-      if (bufferedAudioGenerationRef.current === flushGeneration) {
-        bufferAudioRef.current = false
-        resetBufferedAudio()
-      }
-    }
-  }, [removeOldestBufferedAudioChunk, resetBufferedAudio])
+  const flushBufferedAudio = startupAudio.flush
 
   const discardBufferedAudio = useCallback(() => {
-    bufferAudioRef.current = false
-    resetBufferedAudio()
+    startupAudio.setEnabled(false)
+    startupAudio.reset()
     resetMeter()
-  }, [resetBufferedAudio, resetMeter])
+  }, [resetMeter, startupAudio])
 
   const getCapturedChunkCount = useCallback(() => capturedChunkCountRef.current, [])
 
@@ -298,9 +219,9 @@ export function useAudioCapture() {
     (options: StopAudioCaptureOptions = {}) => {
       startRequestRef.current += 1
       isCapturingRef.current = false
-      bufferAudioRef.current = false
+      startupAudio.setEnabled(false)
       if (!options.preserveBufferedAudio) {
-        resetBufferedAudio()
+        startupAudio.reset()
         resetMeter()
       }
       cleanupCaptureResources()
@@ -308,7 +229,7 @@ export function useAudioCapture() {
         resetMeter()
       }
     },
-    [cleanupCaptureResources, resetBufferedAudio, resetMeter]
+    [cleanupCaptureResources, resetMeter, startupAudio]
   )
 
   return {
@@ -317,6 +238,8 @@ export function useAudioCapture() {
     flushBufferedAudio,
     discardBufferedAudio,
     getCapturedChunkCount,
+    getRecoveryAudioChunks: recoveryAudio.getChunks,
+    clearRecoveryAudio: recoveryAudio.clear,
     isCapturingRef
   }
 }

@@ -3,17 +3,13 @@ import { useAppStore } from '@/store'
 import { useAudioCapture } from '@/hooks/use-audio-capture'
 import { toast } from 'sonner'
 import { DictationIndicator } from './DictationIndicator'
-import {
-  captureInsertionTarget,
-  insertText,
-  type DictationInsertionTarget
-} from './dictation-insertion-target'
-import { formatFinalTranscriptSegment } from './dictation-final-segments'
-import { recordStoppedSession, waitForStoppedSession } from './dictation-stopped-sessions'
+import { captureInsertionTarget, type DictationInsertionTarget } from './dictation-insertion-target'
+import { waitForStoppedSession } from './dictation-stopped-sessions'
 import { translate } from '@/i18n/i18n'
 import { showDictationStartErrorToast } from './dictation-start-error-toast'
 import { useHoldDictationGesture } from './use-hold-dictation-gesture'
 import { DICTATION_CONTROL_EVENT, type DictationControlAction } from './dictation-control-events'
+import { useDictationSpeechEvents } from './use-dictation-speech-events'
 
 export function DictationController() {
   const dictationState = useAppStore((s) => s.dictationState)
@@ -30,7 +26,9 @@ export function DictationController() {
     stop: stopCapture,
     flushBufferedAudio,
     discardBufferedAudio,
-    getCapturedChunkCount
+    getCapturedChunkCount,
+    getRecoveryAudioChunks,
+    clearRecoveryAudio
   } = useAudioCapture()
 
   const dictationStateRef = useRef(dictationState)
@@ -46,6 +44,7 @@ export function DictationController() {
   const erroredSessionIdsRef = useRef(new Set<string>())
   const intentionalTargetCancellationRef = useRef(false)
   const insertedFinalTranscriptRef = useRef('')
+  const partialTranscriptRef = useRef('')
 
   const drainStoppedSession = useCallback((sessionId: string) => {
     void waitForStoppedSession(sessionId, stoppedSessionIdsRef, stoppedResolversRef)
@@ -85,6 +84,8 @@ export function DictationController() {
       insertionTargetRef.current = null
       finalTranscriptReceivedRef.current = false
       insertedFinalTranscriptRef.current = ''
+      partialTranscriptRef.current = ''
+      clearRecoveryAudio()
       intentionalTargetCancellationRef.current = false
       stopRequestedDuringStartRef.current = false
       if (activeSessionIdRef.current === sessionId) {
@@ -99,6 +100,7 @@ export function DictationController() {
       setPartialTranscript,
       stopCapture,
       getCapturedChunkCount,
+      clearRecoveryAudio,
       setDictationNotice
     ]
   )
@@ -132,6 +134,7 @@ export function DictationController() {
 
     const runId = dictationRunRef.current + 1
     const sessionId = String(runId)
+    partialTranscriptRef.current = ''
     dictationRunRef.current = runId
     activeSessionIdRef.current = sessionId
     insertionTargetRef.current = captureInsertionTarget()
@@ -209,6 +212,8 @@ export function DictationController() {
       finalTranscriptReceivedRef.current = false
       erroredSessionIdsRef.current.clear()
       insertedFinalTranscriptRef.current = ''
+      partialTranscriptRef.current = ''
+      clearRecoveryAudio()
       activeSessionIdRef.current = null
       setPartialTranscript('')
       if (message.includes('dictation_canceled')) {
@@ -243,6 +248,7 @@ export function DictationController() {
     recordFeatureInteraction,
     resetDictationMeter,
     clearDictationNotice,
+    clearRecoveryAudio,
     setDictationNotice
   ])
 
@@ -339,96 +345,27 @@ export function DictationController() {
     stopDictation
   })
 
-  useEffect(() => {
-    const cleanupPartial = window.api.speech.onPartialTranscript((data) => {
-      if (data.sessionId !== activeSessionIdRef.current) {
-        return
-      }
-      setPartialTranscript(data.text)
-    })
-
-    const cleanupFinal = window.api.speech.onFinalTranscript((data) => {
-      if (data.sessionId !== activeSessionIdRef.current || !data.text) {
-        return
-      }
-      setPartialTranscript('')
-      finalTranscriptReceivedRef.current = true
-      const target = insertionTargetRef.current
-      if (target) {
-        const textToInsert = formatFinalTranscriptSegment(
-          data.text,
-          insertedFinalTranscriptRef.current
-        )
-        insertText(textToInsert, target)
-        insertedFinalTranscriptRef.current += textToInsert
-      } else if (!intentionalTargetCancellationRef.current) {
-        toast.message(
-          translate(
-            'auto.components.dictation.DictationController.7afff43472',
-            'Dictation finished, but no text field was focused.'
-          )
-        )
-      }
-    })
-
-    const cleanupStopped = window.api.speech.onStopped((data) => {
-      recordStoppedSession(data.sessionId, stoppedSessionIdsRef, stoppedResolversRef)
-    })
-
-    const cleanupError = window.api.speech.onError((data) => {
-      if (data.sessionId !== activeSessionIdRef.current) {
-        return
-      }
-      const sessionId = data.sessionId
-      erroredSessionIdsRef.current.add(sessionId)
-      dictationRunRef.current += 1
-      activeSessionIdRef.current = null
-      toast.error(
-        translate(
-          'auto.components.dictation.DictationController.de136f1199',
-          'Speech error: {{value0}}',
-          { value0: data.error }
-        )
-      )
-      setDictationNotice({
-        kind: 'error',
-        message: translate(
-          'auto.components.dictation.DictationController.46ced0a32b',
-          'Speech error.'
-        ),
-        createdAt: Date.now()
-      })
-      dictationStateRef.current = 'stopping'
-      setDictationState('stopping')
-      stopCapture()
-      discardBufferedAudio()
-      void (async () => {
-        await window.api.speech.stopDictation(sessionId).catch(() => undefined)
-        await waitForStoppedSession(sessionId, stoppedSessionIdsRef, stoppedResolversRef)
-        insertionTargetRef.current = null
-        intentionalTargetCancellationRef.current = false
-        stopRequestedDuringStartRef.current = false
-        finalTranscriptReceivedRef.current = false
-        insertedFinalTranscriptRef.current = ''
-        dictationStateRef.current = 'idle'
-        setDictationState('idle')
-        setPartialTranscript('')
-      })()
-    })
-
-    return () => {
-      cleanupPartial()
-      cleanupFinal()
-      cleanupStopped()
-      cleanupError()
-    }
-  }, [
+  useDictationSpeechEvents({
+    settings,
+    dictationRunRef,
+    activeSessionIdRef,
+    insertionTargetRef,
+    stoppedSessionIdsRef,
+    stoppedResolversRef,
+    stopRequestedDuringStartRef,
+    finalTranscriptReceivedRef,
+    erroredSessionIdsRef,
+    intentionalTargetCancellationRef,
+    insertedFinalTranscriptRef,
+    partialTranscriptRef,
+    dictationStateRef,
     setPartialTranscript,
     setDictationState,
     stopCapture,
-    discardBufferedAudio,
+    getRecoveryAudioChunks,
+    clearRecoveryAudio,
     setDictationNotice
-  ])
+  })
 
   return <DictationIndicator />
 }

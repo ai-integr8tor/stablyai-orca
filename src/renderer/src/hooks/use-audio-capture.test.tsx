@@ -14,6 +14,7 @@ type ReturnValue = {
   flushBufferedAudio: () => Promise<void>
   stop: (options?: { preserveBufferedAudio?: boolean }) => void
   discardBufferedAudio: () => void
+  getRecoveryAudioChunks: () => { samples: Float32Array; sampleRate: number; sessionId: string }[]
 }
 
 type ProcessAudioChunk = (samples: number[]) => void
@@ -201,5 +202,22 @@ describe('useAudioCapture', () => {
     expect(Array.from(feedAudio.mock.calls[0][0])).toEqual([0.25, -0.25])
     expect(feedAudio.mock.calls[0][1]).toBe(48_000)
     expect(feedAudio.mock.calls[0][2]).toBe('session-1')
+  })
+
+  it('keeps a recovery audio copy while direct-feeding the recognizer', async () => {
+    await renderProbe()
+    await startCapture({ sessionId: 'session-1' })
+
+    act(() => {
+      processAudioChunk?.([0.5, -0.5])
+    })
+
+    expect(controls?.getRecoveryAudioChunks()).toEqual([
+      {
+        samples: new Float32Array([0.5, -0.5]),
+        sampleRate: 48_000,
+        sessionId: 'session-1'
+      }
+    ])
   })
 })
