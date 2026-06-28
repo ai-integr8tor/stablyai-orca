@@ -25,6 +25,7 @@ import {
   type ActivityBarItem
 } from './activity-bar-buttons'
 import { getActiveChecksStatus } from './active-checks-status'
+import { usePluginActivityItems } from './use-plugin-activity-items'
 import { getVisibleRightSidebarActivityItems } from './right-sidebar-activity-visibility'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import {
@@ -84,6 +85,7 @@ function RightSidebarInner(): React.JSX.Element {
   const isFolderWorkspace = activeWorkspaceScope?.type === 'folder'
   const isFolder = isFolderWorkspace || (activeRepo ? isFolderRepo(activeRepo) : false)
   const isSshRepo = Boolean(activeRepo?.connectionId)
+  const pluginActivityItems = usePluginActivityItems()
 
   const activityItems = useMemo<ActivityBarItem[]>(
     () => [
@@ -136,9 +138,11 @@ function RightSidebarInner(): React.JSX.Element {
         title: translate('auto.components.right.sidebar.index.441733b630', 'Ports'),
         shortcut: portsShortcut === 'Unassigned' ? '' : portsShortcut,
         sshOnly: true
-      }
+      },
+      // Active plugin-contributed tabs (appended after the built-in tabs).
+      ...pluginActivityItems
     ],
-    [checksShortcut, explorerShortcut, portsShortcut, sourceControlShortcut]
+    [checksShortcut, explorerShortcut, portsShortcut, sourceControlShortcut, pluginActivityItems]
   )
 
   const visibleItems = useMemo(

@@ -103,6 +103,9 @@ module.exports = {
     'out/main/win32-utils.js',
     'out/main/daemon-entry.js',
     'out/main/computer-sidecar.js',
+    // Forked plugin backend host child process (ELECTRON_RUN_AS_NODE bypasses
+    // asar require integration, so it must live unpacked).
+    'out/main/plugin-host-entry.js',
     'out/main/chunks/**',
     'resources/**',
     'node_modules/ws/**',

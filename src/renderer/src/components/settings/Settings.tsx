@@ -48,6 +48,7 @@ import { MobileEmulatorSettingsPane } from './MobileEmulatorSettingsPane'
 import { RuntimeEnvironmentsPane } from './RuntimeEnvironmentsPane'
 import { PrivacyPane } from './PrivacyPane'
 import { AdvancedPane } from './AdvancedPane'
+import { PluginsPane } from './PluginsPane'
 import { SettingsSidebar } from './SettingsSidebar'
 import { SettingsSetupGuidePane } from './SettingsSetupGuidePane'
 import { ActiveSettingsSectionProvider, SettingsSection } from './SettingsSection'
@@ -1467,6 +1468,18 @@ function Settings(): React.JSX.Element {
                   searchEntries={getSectionSearchEntries('stats')}
                 >
                   {isSectionMounted('stats') ? <StatsPane /> : null}
+                </SettingsSection>
+
+                <SettingsSection
+                  id="plugins"
+                  title={translate('plugins.nav.title', 'Plugins')}
+                  description={translate(
+                    'plugins.nav.description',
+                    'Install and manage Orca plugins.'
+                  )}
+                  searchEntries={getSectionSearchEntries('plugins')}
+                >
+                  {isSectionMounted('plugins') ? <PluginsPane /> : null}
                 </SettingsSection>
 
                 <SettingsSection

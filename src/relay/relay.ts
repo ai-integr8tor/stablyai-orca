@@ -54,6 +54,12 @@ import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD
 } from '../shared/ssh-types'
+import { registerRelayPluginHandlers } from './plugin-handler'
+import {
+  defaultRelayWorkspaceSnapshot,
+  relayPluginStagingDir,
+  relayPluginsDir
+} from './relay-plugin-config'
 import { assertPluginSourceUnderByteCap } from './plugin-source-limit'
 import { resolveOpenCodeSourceConfigDir, resolvePiSourceAgentDir } from './plugin-overlay-env'
 import { detectPiAgentKindFromCommand } from '../shared/pi-agent-kind'
@@ -345,7 +351,14 @@ async function main(): Promise<void> {
       sameSocketIdentity(currentIdentity, ownedSocketIdentity)
     )
   }
+  // Assigned once the plugin handlers register (below); null-guarded so an early
+  // exception during setup can't hit it in the temporal dead zone.
+  let stopPluginBackends: (() => void) | null = null
   const cleanupOwnedSocket = (): void => {
+    // Synchronously SIGTERM any running plugin backend children. cleanupOwnedSocket
+    // runs on the synchronous path right before process.exit, so an awaited stop
+    // would never complete — the kill must be delivered inline or children orphan.
+    stopPluginBackends?.()
     if (ownsCurrentSocketPath()) {
       cleanupSocket(sockPath)
     }
@@ -353,14 +366,24 @@ async function main(): Promise<void> {
     ownedSocketIdentity = null
   }
 
+  // Fatal exit that first runs socket + plugin-backend cleanup. Use on exit paths
+  // that run after the plugin handlers register, so a backend child started in
+  // that window isn't orphaned (a bare process.exit would skip cleanup).
+  const exitWithCleanup = (code: number): never => {
+    cleanupOwnedSocket()
+    process.exit(code)
+  }
+  // Expose cleanup to the module-level main().catch safety net (REL-02), so a
+  // late-startup rejection that escapes the in-main guards still stops children.
+  relayCleanupOnFatal = cleanupOwnedSocket
+
   // Why: After an uncaught exception Node's internal state may be corrupted
   // (e.g. half-written buffers, broken invariants). Logging and continuing
   // would risk silent data corruption or zombie PTYs. We log for diagnostics
   // and then exit so the client can detect the disconnect and reconnect cleanly.
   process.on('uncaughtException', (err) => {
     process.stderr.write(`[relay] Uncaught exception: ${err.message}\n${err.stack}\n`)
-    cleanupOwnedSocket()
-    process.exit(1)
+    exitWithCleanup(1)
   })
 
   process.on('unhandledRejection', (reason) => {
@@ -442,6 +465,17 @@ async function main(): Promise<void> {
 
   const _workspaceSessionHandler = new WorkspaceSessionHandler(dispatcher)
   void _workspaceSessionHandler
+
+  // Right-sidebar plugin system (mobile path): list installed plugins, serve a
+  // plugin's single UI HTML, run the trusted backend child on the relay host,
+  // and round-trip UI<->backend messages. Plugin state + host-entry live under
+  // $HOME/.orca-relay. Stopped on socket cleanup so children aren't orphaned.
+  const pluginHandlers = registerRelayPluginHandlers(dispatcher, {
+    pluginsDir: relayPluginsDir(),
+    stagingDir: relayPluginStagingDir(),
+    getWorkspaceSnapshot: defaultRelayWorkspaceSnapshot
+  })
+  stopPluginBackends = pluginHandlers.stopAllSync
 
   dispatcher.onRequest('orca.cli', async (params, context) => {
     return await dispatcher.requestAnyClient('orca.cli', params, {
@@ -878,7 +912,8 @@ async function main(): Promise<void> {
     // cannot poison the active relay's hook coordinates.
     hookServer.publishEndpointFile()
   } catch {
-    process.exit(1)
+    // Runs after registerRelayPluginHandlers — clean up plugin children too.
+    exitWithCleanup(1)
   }
 
   // ── stdin/stdout transport (initial connection) ─────────────────────
@@ -964,8 +999,7 @@ async function main(): Promise<void> {
     if (socketServer && ownsCurrentSocketPath()) {
       socketServer.close()
     }
-    cleanupOwnedSocket()
-    process.exit(0)
+    exitWithCleanup(0)
   }
 
   process.on('SIGTERM', shutdown)
@@ -1001,9 +1035,14 @@ function cleanupSocket(sockPath: string): void {
   }
 }
 
+// Assigned by main() once cleanup is wired, so a late-startup rejection that
+// escapes main()'s own guards still stops plugin backend children before exit.
+let relayCleanupOnFatal: (() => void) | null = null
+
 void main().catch((err) => {
   process.stderr.write(
     `[relay] Fatal startup error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`
   )
+  relayCleanupOnFatal?.()
   process.exit(1)
 })

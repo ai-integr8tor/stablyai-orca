@@ -27,6 +27,7 @@ import {
   SlidersHorizontal,
   Smartphone,
   TabletSmartphone,
+  Plug,
   SquareTerminal,
   TextCursorInput,
   UserCog,
@@ -400,6 +401,14 @@ export function buildSettingsNavigationMetadata({
       ),
       icon: BarChart3,
       searchEntries: getStatsPaneSearchEntries(),
+      group: 'interface'
+    },
+    {
+      id: 'plugins',
+      title: translate('plugins.nav.title', 'Plugins'),
+      description: translate('plugins.nav.description', 'Install and manage Orca plugins.'),
+      icon: Plug,
+      searchEntries: [],
       group: 'interface'
     },
     {

@@ -2,7 +2,7 @@
 // imports so the dock-vs-push decision and the active-panel state machine are
 // unit-testable under node Vitest (KTD3/R8).
 
-export type ActivePanel = 'sourceControl' | 'files' | 'pr' | null
+export type ActivePanel = 'sourceControl' | 'files' | 'pr' | 'plugins' | null
 
 // Toggle/swap reducer for the wide-layout dock: tapping the active panel closes it,
 // tapping any other opens/swaps to it. Exactly one panel docks at a time (R2).
@@ -55,5 +55,7 @@ export function panelRouteDescriptor(panel: Exclude<ActivePanel, null>): { pathn
       return { pathname: '/h/[hostId]/files/[worktreeId]' }
     case 'pr':
       return { pathname: '/h/[hostId]/pr/[worktreeId]' }
+    case 'plugins':
+      return { pathname: '/h/[hostId]/plugins/[worktreeId]' }
   }
 }

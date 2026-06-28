@@ -179,6 +179,9 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'daemon-entry': resolve('src/main/daemon/daemon-entry.ts'),
           'computer-sidecar': resolve('src/main/computer/sidecar-entry.ts'),
+          // Forked plugin backend host (child process per plugin); resolved from
+          // app.asar.unpacked at runtime (see plugin-system.ts resolveEntryPath).
+          'plugin-host-entry': resolve('src/main/plugin/plugin-host-entry.ts'),
           'stt-worker': resolve('src/main/speech/stt-worker.ts'),
           'warp-theme-parser-worker': resolve('src/main/warp-themes/warp-theme-parser-worker.ts'),
           'file-watcher-worker': resolve('src/main/runtime/file-watcher-worker.ts'),

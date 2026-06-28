@@ -3061,6 +3061,11 @@ export type RightSidebarTab =
   | 'source-control'
   | 'checks'
   | 'ports'
+  // A plugin-contributed sidebar tab, keyed `plugin:<pluginId>`. Adding a plugin
+  // never edits this union — but the two runtime validators
+  // (right-sidebar-route.ts and worktrees.ts pruneRightSidebarTabByWorktree)
+  // must each accept the `plugin:` prefix or plugin routing is silently dropped.
+  | `plugin:${string}`
 export type ActiveRightSidebarTab = Exclude<RightSidebarTab, 'search'>
 export type RightSidebarExplorerView = 'files' | 'search'
 

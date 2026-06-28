@@ -165,6 +165,24 @@ export class RelayDispatcher {
     }
   }
 
+  // Send a notification to a single client (by id), not all clients. Used when a
+  // pushed message carries one client's data and must not leak to others.
+  notifyClient(clientId: number, method: string, params?: Record<string, unknown>): void {
+    if (this.disposed) {
+      return
+    }
+    const client = this.clients.get(clientId)
+    if (!client || client.closed) {
+      return
+    }
+    const msg: JsonRpcNotification = {
+      jsonrpc: '2.0',
+      method,
+      ...(params !== undefined ? { params } : {})
+    }
+    this.sendFrame(client, msg)
+  }
+
   requestPrimary(
     method: string,
     params?: Record<string, unknown>,

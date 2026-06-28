@@ -17,6 +17,11 @@ export function normalizeRightSidebarRoute(
   if (tab === 'search') {
     return { rightSidebarTab: 'explorer', rightSidebarExplorerView: 'search' }
   }
+  // A plugin-contributed tab (`plugin:<id>`). The sidebar registry decides
+  // whether it is still active and falls back to a default tab if not.
+  if (typeof tab === 'string' && tab.startsWith('plugin:')) {
+    return { rightSidebarTab: tab as ActiveRightSidebarTab, rightSidebarExplorerView: 'files' }
+  }
   if (
     tab === 'explorer' ||
     tab === 'vault' ||

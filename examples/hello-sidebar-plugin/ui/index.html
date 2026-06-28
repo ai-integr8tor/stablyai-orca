@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Hello Sidebar</title>
+    <style>
+      body { font: 13px system-ui, sans-serif; margin: 0; padding: 12px; color: #ddd; background: #1e1e1e; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+      dt { color: #888; }
+      a { color: #6cb6ff; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1 id="greeting">Hello</h1>
+    <dl>
+      <dt>Workspace</dt><dd id="workspace">—</dd>
+      <dt>Branch</dt><dd id="branch">—</dd>
+      <dt>Dirty</dt><dd id="dirty">—</dd>
+      <dt>Open files</dt><dd id="openFiles">—</dd>
+      <dt>Host</dt><dd id="host">—</dd>
+    </dl>
+    <p><a id="docs">Open Orca docs</a></p>
+    <script>
+      // Minimal vendored copy of the UI bridge (see src/shared/plugin/ui-bridge-client.ts).
+      const rn = typeof window.ReactNativeWebView?.postMessage === 'function'
+      function post(message) {
+        if (rn) window.ReactNativeWebView.postMessage(JSON.stringify(message))
+        else (window.parent || window).postMessage(message, '*')
+      }
+      window.addEventListener('message', (event) => {
+        let data = event.data
+        if (rn && typeof data === 'string') { try { data = JSON.parse(data) } catch {} }
+        if (!data || data.type !== 'state') return
+        document.getElementById('greeting').textContent = data.greeting
+        document.getElementById('workspace').textContent = data.workspace
+        document.getElementById('branch').textContent = data.branch ?? '(none)'
+        document.getElementById('dirty').textContent = data.dirty ? 'yes' : 'no'
+        document.getElementById('openFiles').textContent = data.openFiles
+        document.getElementById('host').textContent = data.host
+      })
+      document.getElementById('docs').addEventListener('click', () => {
+        post({ type: 'open', url: 'https://orca.computer' })
+      })
+    </script>
+  </body>
+</html>

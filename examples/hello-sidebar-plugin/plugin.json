@@ -1,0 +1,17 @@
+{
+  "id": "orca.hello-sidebar",
+  "name": "Hello Sidebar",
+  "version": "0.1.0",
+  "hostApiVersion": "0.1.0",
+  "main": "main.js",
+  "contributes": {
+    "sidebar": { "title": "Hello", "icon": "Sparkles", "ui": "ui/index.html" },
+    "settings": { "ui": "ui/settings.html" }
+  },
+  "capabilities": ["workspace:read", "commands", "settings"],
+  "settingsSchema": {
+    "type": "object",
+    "properties": { "greeting": { "type": "string" } },
+    "additionalProperties": false
+  }
+}

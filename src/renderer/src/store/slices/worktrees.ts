@@ -1775,7 +1775,10 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
         tab === 'workspaces' ||
         tab === 'source-control' ||
         tab === 'checks' ||
-        tab === 'ports'
+        tab === 'ports' ||
+        // Keep plugin-contributed tabs (`plugin:<id>`); the registry resolves
+        // whether the plugin is still active at render time.
+        (typeof tab === 'string' && tab.startsWith('plugin:'))
       ) {
         out[id] = tab
       } else {

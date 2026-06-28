@@ -29,6 +29,11 @@ import {
   updateTerminalSubscriptionViewport as updateCachedTerminalSubscriptionViewport
 } from './rpc-client-terminal-subscription'
 import { describeSocketEvent } from './socket-event-debug'
+import { createNotificationRegistry, type NotificationFrame } from './notification-listeners'
+import {
+  isBrowserScreencastReadyResult,
+  isTerminalSubscribedResult
+} from './rpc-stream-result-guards'
 
 type PendingRequest = {
   resolve: (response: RpcResponse) => void
@@ -92,6 +97,12 @@ export type RpcClient = {
   // to distinguish "host moved/never reachable" from "transient blip".
   getLastConnectedAt: () => number | null
   onStateChange: (listener: (state: ConnectionState) => void) => () => void
+  // Listen for server-pushed JSON-RPC notifications (no id) by method name,
+  // e.g. plugin.uiMessage. Returns an unsubscribe fn.
+  onNotification: (
+    method: string,
+    listener: (params: Record<string, unknown>) => void
+  ) => () => void
   // Why: app-resume hook. Android/iOS can kill the TCP path or park the
   // reconnect loop while the app is backgrounded; callers invoke this on
   // AppState 'active' so the session recovers without an app restart.
@@ -217,6 +228,7 @@ export function connect(
 
   const pending = new Map<string, PendingRequest>()
   const streamListeners = new Map<string, StreamRequest>()
+  const notifications = createNotificationRegistry()
   const terminalStreamListeners = new Map<number, StreamingListener>()
   const terminalStreamIdsByRequest = new Map<string, Set<number>>()
   const terminalSnapshots = new Map<number, TerminalSnapshotState>()
@@ -556,6 +568,12 @@ export function connect(
       try {
         response = JSON.parse(plaintext)
       } catch {
+        return
+      }
+
+      // Server-pushed notification (a `method`, no `id`) — route to listeners
+      // and stop before the id-keyed request/stream branches.
+      if (notifications.tryDispatch(response as unknown as NotificationFrame)) {
         return
       }
 
@@ -1258,6 +1276,8 @@ export function connect(
       }
     },
 
+    onNotification: notifications.add,
+
     close() {
       intentionallyClosed = true
       if (reconnectTimer) {
@@ -1279,28 +1299,6 @@ export function connect(
       rejectAllPending('Client closed')
     }
   }
-}
-
-function isTerminalSubscribedResult(
-  value: unknown
-): value is { type: 'subscribed'; streamId: number } {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'subscribed' &&
-    typeof (value as { streamId?: unknown }).streamId === 'number'
-  )
-}
-
-function isBrowserScreencastReadyResult(
-  value: unknown
-): value is { type: 'ready'; subscriptionId: string } {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'ready' &&
-    typeof (value as { subscriptionId?: unknown }).subscriptionId === 'string'
-  )
 }
 
 async function websocketPayloadToUint8(value: unknown): Promise<Uint8Array | null> {

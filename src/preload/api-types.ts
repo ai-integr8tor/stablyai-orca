@@ -761,6 +761,21 @@ export type AppApi = {
 }
 
 export type PreloadApi = {
+  // Plugin system surface (structural types keep preload decoupled from main).
+  plugins: {
+    list: () => Promise<
+      { id: string; version: string; active: boolean; title: string; icon: string }[]
+    >
+    installLocal: (sourceDir: string) => Promise<{ ok: boolean; id?: string; errors?: string[] }>
+    installFromSource: (input: string) => Promise<{ ok: boolean; id?: string; errors?: string[] }>
+    activate: (pluginId: string) => Promise<{ ok: boolean; error?: string }>
+    deactivate: (pluginId: string) => Promise<{ ok: boolean }>
+    remove: (pluginId: string) => Promise<{ ok: boolean }>
+    getOutput: (
+      pluginId: string
+    ) => Promise<{ channel: 'stdout' | 'stderr'; text: string; seq: number }[]>
+    sendUiMessage: (pluginId: string, message: unknown) => Promise<void>
+  }
   app: AppApi
   platform: {
     get: () => {

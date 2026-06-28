@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Hello Sidebar — Settings</title>
+    <style>
+      body { font: 13px system-ui, sans-serif; margin: 0; padding: 12px; color: #ddd; background: #1e1e1e; }
+      label { display: block; margin-bottom: 4px; color: #888; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; background: #2a2a2a; color: #ddd; border: 1px solid #3a3a3a; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <!-- The plugin owns its settings chrome (full-takeover); the host provides
+         no save/cancel. Writes go to the host-persisted, schema-validated store
+         via the backend. -->
+    <label for="greeting">Greeting</label>
+    <input id="greeting" type="text" placeholder="Hello" />
+    <script>
+      const rn = typeof window.ReactNativeWebView?.postMessage === 'function'
+      function post(message) {
+        if (rn) window.ReactNativeWebView.postMessage(JSON.stringify(message))
+        else (window.parent || window).postMessage(message, '*')
+      }
+      const input = document.getElementById('greeting')
+      input.addEventListener('change', () => post({ type: 'set-greeting', value: input.value }))
+    </script>
+  </body>
+</html>

@@ -7,7 +7,7 @@ import {
   type ActivePanel
 } from './session-panel-host'
 
-const PANELS = ['sourceControl', 'files', 'pr'] as const
+const PANELS = ['sourceControl', 'files', 'pr', 'plugins'] as const
 
 describe('nextActivePanel', () => {
   it('opens a panel from the closed state', () => {
@@ -51,7 +51,7 @@ describe('resolvePanelAction', () => {
   })
 
   it('pushes the tapped panel when docking is unavailable regardless of current', () => {
-    const currents: ActivePanel[] = [null, 'sourceControl', 'files', 'pr']
+    const currents: ActivePanel[] = [null, 'sourceControl', 'files', 'pr', 'plugins']
     for (const panel of PANELS) {
       for (const current of currents) {
         expect(resolvePanelAction({ canDock: false, tapped: panel, current })).toEqual({
@@ -87,6 +87,9 @@ describe('panelRouteDescriptor', () => {
     })
     expect(panelRouteDescriptor('pr')).toEqual({
       pathname: '/h/[hostId]/pr/[worktreeId]'
+    })
+    expect(panelRouteDescriptor('plugins')).toEqual({
+      pathname: '/h/[hostId]/plugins/[worktreeId]'
     })
   })
 })

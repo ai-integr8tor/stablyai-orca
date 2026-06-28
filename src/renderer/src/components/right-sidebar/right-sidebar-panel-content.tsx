@@ -9,6 +9,9 @@ const PortsPanel = lazy(() => import('./PortsPanel'))
 const AiVaultPanel = lazy(() => import('./AiVaultPanel'))
 const FolderWorkspaceWorktreesPanel = lazy(() => import('./FolderWorkspaceWorktreesPanel'))
 const FolderWorkspacePrChecksPanel = lazy(() => import('./FolderWorkspacePrChecksPanel'))
+const PluginPanel = lazy(() => import('./plugin-panel').then((m) => ({ default: m.PluginPanel })))
+
+const PLUGIN_TAB_PREFIX = 'plugin:'
 
 type RightSidebarPanelContentProps = {
   effectiveTab: ActiveRightSidebarTab
@@ -37,6 +40,9 @@ export function RightSidebarPanelContent({
           <FolderWorkspacePrChecksPanel
             isVisible={rightSidebarOpen && effectiveTab === 'pr-checks'}
           />
+        )}
+        {effectiveTab.startsWith(PLUGIN_TAB_PREFIX) && (
+          <PluginPanel pluginId={effectiveTab.slice(PLUGIN_TAB_PREFIX.length)} />
         )}
       </Suspense>
     </div>

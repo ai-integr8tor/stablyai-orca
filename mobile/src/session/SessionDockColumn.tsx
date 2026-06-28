@@ -5,6 +5,7 @@ import type { RpcClient } from '../transport/rpc-client'
 import { MobileSourceControlPanel } from '../source-control/MobileSourceControlPanel'
 import { MobileFileExplorerPanel } from '../files/MobileFileExplorerPanel'
 import { MobilePrViewPanel } from '../components/pr-sidebar/MobilePrViewPanel'
+import { MobilePluginListPanel } from '../components/plugins/MobilePluginListPanel'
 import { mobilePrSidebarStyles } from '../components/pr-sidebar/mobile-pr-sidebar-styles'
 import { useMobileDockResize } from './use-mobile-dock-resize'
 import type { ActivePanel } from './session-panel-host'
@@ -110,6 +111,9 @@ const DockPanelContent = memo(function DockPanelContent({
         onRequestClose={onRequestClose}
       />
     )
+  }
+  if (activePanel === 'plugins') {
+    return <MobilePluginListPanel client={client} embedded onRequestClose={onRequestClose} />
   }
   return (
     <MobilePrViewPanel

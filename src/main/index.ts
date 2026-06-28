@@ -22,6 +22,10 @@ import { registerCoreHandlers } from './ipc/register-core-handlers'
 import { initObservability, shutdownObservability } from './observability'
 import { startSpan } from './observability/tracer'
 import { registerMobileHandlers } from './ipc/mobile'
+// Plugin system (NEEDS-RUNTIME-VERIFY: boot wiring only verifiable in-app).
+import { registerPluginScheme } from './plugin/plugin-asset-protocol'
+import { createPluginSystem } from './plugin/plugin-system'
+import { registerPluginHandlers } from './ipc/plugins'
 import { initTelemetry, shutdownTelemetry, trackAppOpenedOnce } from './telemetry/client'
 import { runManagedHookInstallers } from './agent-hooks/install-telemetry'
 import {
@@ -1282,12 +1286,24 @@ function driveSyntheticTitleFromHook(
   })
 }
 
+// The orca-plugin:// scheme must be declared privileged BEFORE app is ready.
+registerPluginScheme()
+
 app.whenReady().then(async () => {
   logStartupMilestone('app-ready')
   electronApp.setAppUserModelId(devInstanceIdentity.appUserModelId)
   app.setName(devInstanceIdentity.name)
 
   store = new Store()
+  // Plugin system: build the composition root (userData paths are valid now),
+  // serve plugin assets, and expose the IPC surface. NEEDS-RUNTIME-VERIFY.
+  try {
+    const pluginSystem = createPluginSystem()
+    pluginSystem.registerAssetProtocol()
+    registerPluginHandlers(pluginSystem)
+  } catch (error) {
+    console.warn('[plugins] failed to initialize plugin system', error)
+  }
   logStartupMilestone('store-loaded')
   applyAppIcon(store.getSettings().appIcon)
   if (shouldSuppressDevEducation({ isDev: is.dev })) {

@@ -493,6 +493,32 @@ export function createMainWindow(
     // persist:orca-browser-session-<uuid>). The registry is the sole authority
     // for which partitions are valid — renderer-provided strings that are not
     // in the allowlist are rejected.
+    // Plugin UIs attach with a per-plugin partition (persist:orca-plugin-<id>)
+    // serving orca-plugin://<id>/ — a sandboxed plugin surface, not a browser
+    // session. Allow these with the SAME fail-closed hardening, requiring the
+    // plugin partition and the orca-plugin:// scheme to agree (NEEDS-RUNTIME-
+    // VERIFY: confirm the guest cannot navigate off orca-plugin://<id>/).
+    const pluginPartition = partition.startsWith('persist:orca-plugin-')
+    const pluginSrc = src.startsWith('orca-plugin://')
+    if (pluginPartition || pluginSrc) {
+      if (!pluginPartition || !pluginSrc) {
+        event.preventDefault()
+        return
+      }
+      delete webPreferences.preload
+      delete (webPreferences as Record<string, unknown>).preloadURL
+      webPreferences.nodeIntegration = false
+      webPreferences.nodeIntegrationInSubFrames = false
+      webPreferences.enableBlinkFeatures = ''
+      webPreferences.disableBlinkFeatures = ''
+      webPreferences.webSecurity = true
+      webPreferences.allowRunningInsecureContent = false
+      webPreferences.contextIsolation = true
+      webPreferences.sandbox = true
+      webPreferences.partition = partition
+      return
+    }
+
     if (!normalizedSrc || !browserSessionRegistry.isAllowedPartition(partition)) {
       event.preventDefault()
       return

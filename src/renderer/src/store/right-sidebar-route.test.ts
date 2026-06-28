@@ -15,4 +15,11 @@ describe('normalizeRightSidebarRoute', () => {
       rightSidebarExplorerView: 'files'
     })
   })
+
+  it('preserves a plugin-contributed tab route', () => {
+    expect(normalizeRightSidebarRoute('plugin:orca.hello-sidebar')).toEqual({
+      rightSidebarTab: 'plugin:orca.hello-sidebar',
+      rightSidebarExplorerView: 'files'
+    })
+  })
 })
