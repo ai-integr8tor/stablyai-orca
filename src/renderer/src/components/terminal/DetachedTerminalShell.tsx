@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import TerminalPane from '@/components/terminal-pane/TerminalPane'
 import type { DetachedTerminalSnapshot } from '../../../../shared/detached-terminal-window'
 import { hydrateDetachedTerminalSnapshot } from '@/store/slices/detached-terminal-hydration'
+import { translate } from '@/i18n/i18n'
 
 type ShellState =
   | { status: 'loading' }
@@ -82,10 +83,24 @@ export default function DetachedTerminalShell(): React.JSX.Element {
   }, [tabId, worktreeId])
 
   if (state.status === 'loading') {
-    return <div aria-label="Loading detached terminal" />
+    return (
+      <div
+        aria-label={translate(
+          'auto.components.terminal.DetachedTerminalShell.loading',
+          'Loading detached terminal'
+        )}
+      />
+    )
   }
   if (state.status === 'unavailable') {
-    return <div aria-label="Detached terminal unavailable" />
+    return (
+      <div
+        aria-label={translate(
+          'auto.components.terminal.DetachedTerminalShell.unavailable',
+          'Detached terminal unavailable'
+        )}
+      />
+    )
   }
 
   return (

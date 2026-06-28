@@ -284,7 +284,10 @@ export function SortableTabContextMenu({
           }}
           disabled={!canOpenInNewWindow}
         >
-          Open in New Window
+          {translate(
+            'auto.components.tab.bar.SortableTabContextMenu.openInNewWindow',
+            'Open in New Window'
+          )}
         </DropdownMenuItem>
         <TabWorkspaceLayoutMenuSection unifiedTabId={unifiedTabId} groupId={groupId} />
         <DropdownMenuSeparator />

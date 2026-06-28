@@ -2532,6 +2532,10 @@
             "0b38ee2f86": "Cancelar",
             "c337c9d75c": "Cerrar"
           }
+        },
+        "DetachedTerminalShell": {
+          "loading": "Loading detached terminal",
+          "unavailable": "Detached terminal unavailable"
         }
       },
       "tab": {
@@ -2634,7 +2638,8 @@
             "60f958ec75": "Pestaña Fijar",
             "417722e9c2": "Desanclar pestaña",
             "splitTerminalRight": "Dividir terminal a la derecha",
-            "splitTerminalDown": "Dividir terminal hacia abajo"
+            "splitTerminalDown": "Dividir terminal hacia abajo",
+            "openInNewWindow": "Open in New Window"
           },
           "TabBar": {
             "b1a132357f": "Nueva pestaña",

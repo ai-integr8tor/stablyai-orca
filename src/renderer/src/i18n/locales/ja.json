@@ -2532,6 +2532,10 @@
             "0b38ee2f86": "キャンセル",
             "c337c9d75c": "閉じる"
           }
+        },
+        "DetachedTerminalShell": {
+          "loading": "Loading detached terminal",
+          "unavailable": "Detached terminal unavailable"
         }
       },
       "tab": {
@@ -2634,7 +2638,8 @@
             "60f958ec75": "ピンタブ",
             "417722e9c2": "タブの固定を解除する",
             "splitTerminalRight": "ターミナルを右に分割",
-            "splitTerminalDown": "ターミナルを下に分割"
+            "splitTerminalDown": "ターミナルを下に分割",
+            "openInNewWindow": "Open in New Window"
           },
           "TabBar": {
             "b1a132357f": "新規タブ",

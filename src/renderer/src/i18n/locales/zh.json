@@ -2532,6 +2532,10 @@
             "0b38ee2f86": "取消",
             "c337c9d75c": "关闭"
           }
+        },
+        "DetachedTerminalShell": {
+          "loading": "Loading detached terminal",
+          "unavailable": "Detached terminal unavailable"
         }
       },
       "tab": {
@@ -2634,7 +2638,8 @@
             "60f958ec75": "引脚标签",
             "417722e9c2": "取消固定标签",
             "splitTerminalRight": "向右拆分终端",
-            "splitTerminalDown": "向下拆分终端"
+            "splitTerminalDown": "向下拆分终端",
+            "openInNewWindow": "Open in New Window"
           },
           "TabBar": {
             "b1a132357f": "新标签页",

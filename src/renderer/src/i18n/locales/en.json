@@ -2532,6 +2532,10 @@
             "0b38ee2f86": "Cancel",
             "c337c9d75c": "Close"
           }
+        },
+        "DetachedTerminalShell": {
+          "loading": "Loading detached terminal",
+          "unavailable": "Detached terminal unavailable"
         }
       },
       "tab": {
@@ -2634,7 +2638,8 @@
             "60f958ec75": "Pin Tab",
             "417722e9c2": "Unpin Tab",
             "splitTerminalRight": "Split terminal right",
-            "splitTerminalDown": "Split terminal down"
+            "splitTerminalDown": "Split terminal down",
+            "openInNewWindow": "Open in New Window"
           },
           "TabBar": {
             "b1a132357f": "New tab",
