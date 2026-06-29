@@ -55,6 +55,8 @@ export type UserModelConfig = {
 
 export type DictationMode = 'toggle' | 'hold'
 
+export type DictationOutputVolumeMode = 'unchanged' | 'mute' | 'duck'
+
 export type VoiceSettings = {
   enabled: boolean
   sttModel: string
@@ -66,4 +68,7 @@ export type VoiceSettings = {
   customVocabulary: string[]
   userModels: UserModelConfig[]
   openAiApiKeyConfigured: boolean
+  pauseMediaOnDictation: boolean
+  outputVolumeMode: DictationOutputVolumeMode
+  duckedVolumePercent: number
 }

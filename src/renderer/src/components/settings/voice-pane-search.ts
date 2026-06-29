@@ -28,6 +28,50 @@ export const getOpenaiTranscriptionSearchEntry = createLocalizedCatalog(
   })
 )
 
+export const getVoiceAudioOutputSearchEntry = createLocalizedCatalog(
+  (): SettingsSearchEntry => ({
+    title: translate(
+      'auto.components.settings.voice.pane.search.audioOutput.title',
+      'Audio Output'
+    ),
+    description: translate(
+      'auto.components.settings.voice.pane.search.audioOutput.description',
+      'Mute, lower volume, or pause supported media apps while dictating.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.voice.pane.search.7640ed9848', 'voice'),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.089d31a45b',
+        'dictation'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.audio',
+        'audio'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.volume',
+        'volume'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.mute',
+        'mute'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.duck',
+        'duck'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.lower',
+        'lower'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.audioOutput.pauseMedia',
+        'pause media'
+      )
+    ]
+  })
+)
+
 export const getVoicePaneSearchEntries = createLocalizedCatalog(() => [
   {
     title: translate(
@@ -96,6 +140,7 @@ export const getVoicePaneSearchEntries = createLocalizedCatalog(() => [
       )
     ]
   },
+  getVoiceAudioOutputSearchEntry(),
   {
     title: translate(
       'auto.components.settings.voice.pane.search.customVocabulary.title',

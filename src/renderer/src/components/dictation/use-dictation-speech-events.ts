@@ -30,6 +30,7 @@ type UseDictationSpeechEventsOptions = {
   stopCapture: () => void
   getRecoveryAudioChunks: () => { samples: Float32Array; sampleRate: number; sessionId: string }[]
   clearRecoveryAudio: () => void
+  restoreDictationOutput: (sessionId: string) => Promise<void>
   setDictationNotice: (notice: {
     kind: 'info' | 'error'
     message: string
@@ -56,6 +57,7 @@ export function useDictationSpeechEvents({
   stopCapture,
   getRecoveryAudioChunks,
   clearRecoveryAudio,
+  restoreDictationOutput,
   setDictationNotice
 }: UseDictationSpeechEventsOptions): void {
   useEffect(() => {
@@ -171,6 +173,7 @@ export function useDictationSpeechEvents({
       void (async () => {
         await window.api.speech.stopDictation(sessionId).catch(() => undefined)
         await waitForStoppedSession(sessionId, stoppedSessionIdsRef, stoppedResolversRef)
+        await restoreDictationOutput(sessionId)
         if (activeSessionIdRef.current !== null) {
           return
         }
@@ -211,6 +214,7 @@ export function useDictationSpeechEvents({
     stopCapture,
     getRecoveryAudioChunks,
     clearRecoveryAudio,
+    restoreDictationOutput,
     setDictationNotice
   ])
 }
