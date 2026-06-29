@@ -8,6 +8,7 @@ import {
   Platform,
   type KeyboardTypeOptions
 } from 'react-native'
+import { useTranslate } from '../i18n/useTranslate'
 import { colors, spacing, radii, typography } from '../theme/mobile-theme'
 import { BottomDrawer } from './BottomDrawer'
 
@@ -31,6 +32,11 @@ export function TextInputModal({
   message,
   defaultValue = '',
   placeholder,
+  // Caller is responsible for translating this — pass t('mobile.*', 'English').
+  // We intentionally don't auto-translate here: matching 'Save' by string and
+  // silently translating it would surprise callers who pass other English labels
+  // and expect them to render verbatim (or who pass a pre-translated string and
+  // get it double-translated). One consistent rule: caller passes a final string.
   submitLabel = 'Save',
   selectTextOnFocus = false,
   allowEmpty = false,
@@ -38,6 +44,7 @@ export function TextInputModal({
   onSubmit,
   onCancel
 }: Props) {
+  const { t } = useTranslate()
   const [value, setValue] = useState(defaultValue)
   const [previousVisible, setPreviousVisible] = useState(visible)
   const [previousDefaultValue, setPreviousDefaultValue] = useState(defaultValue)
@@ -90,7 +97,7 @@ export function TextInputModal({
           style={({ pressed }) => [styles.cancelButton, pressed && styles.buttonPressed]}
           onPress={onCancel}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{t('mobile.textInput.cancel', 'Cancel')}</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [
