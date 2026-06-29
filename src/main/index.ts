@@ -110,6 +110,15 @@ import {
 } from './ipc/pty'
 import { AgentBrowserBridge } from './browser/agent-browser-bridge'
 import { EmulatorBridge } from './emulator/emulator-bridge'
+import { EmulatorSessionRegistry } from './emulator/emulator-session-registry'
+import { AndroidBridge } from './emulator/android-bridge'
+import { RedroidDockerBackend } from './emulator/redroid-docker-backend'
+import { resolveAndroidHost } from './emulator/android-host-resolution'
+import { resolveAndroidExecutor } from './emulator/android-executor-resolution'
+import { createAndroidHostReconnectSignal } from './emulator/android-host-reconnect-signal'
+import { activateAndroidHostServices } from './emulator/android-host-activation'
+import type { SshConnection } from './ssh/ssh-connection'
+import { getSshConnectionManager } from './ipc/ssh'
 import { serveSimStateWatcher } from './emulator/serve-sim-state-watcher'
 import { browserManager } from './browser/browser-manager'
 import { OffscreenBrowserBackend } from './browser/offscreen-browser-backend'
@@ -169,6 +178,9 @@ let claudeRuntimeAuth: ClaudeRuntimeAuthService | null = null
 let runtime: OrcaRuntimeService | null = null
 let rateLimits: RateLimitService | null = null
 let runtimeRpc: OrcaRuntimeRpcServer | null = null
+// Teardown for the Android track-devices watcher; module-level so the will-quit
+// handler (outside the whenReady closure that activates it) can stop it.
+let stopAndroidHostServices: (() => void) | null = null
 // Why: set during early startup; gates whether headless serve installs the
 // offscreen browser backend (and thus advertises browser pane support).
 let headlessBrowserDisplayAvailable = false
@@ -1562,8 +1574,87 @@ app.whenReady().then(async () => {
   )
 
   // Emulator bridge (serve-sim). macOS-only feature (gated in CLI/runtime); always ship like agent-browser.
-  const emulatorBridge = new EmulatorBridge()
+  // One shared registry routes both bridges (iOS + Android sibling) by recorded kind.
+  const emulatorSessionRegistry = new EmulatorSessionRegistry()
+  const emulatorBridge = new EmulatorBridge({ registry: emulatorSessionRegistry })
   runtimeService.setEmulatorBridge(emulatorBridge)
+  // Phase 3: provision + input are live; H.264 streaming stays stubbed (Phase 4).
+  // No process-global Android watcher is started here.
+  // Remote redroid reuses the existing SSH connection machinery by target id.
+  const resolveSshConnection = (targetId: string): SshConnection | null =>
+    getSshConnectionManager()?.getConnection(targetId) ?? null
+  // Per-target SSH reconnect signals: a poller feeds public manager state into a
+  // pure detector so the remote stream source + track-devices watcher re-establish
+  // their exec channels on reconnect (those channels die with the relay). Lazy:
+  // a signal + interval is created only when something subscribes to a target.
+  const androidReconnectSignals = new Map<
+    string,
+    ReturnType<typeof createAndroidHostReconnectSignal>
+  >()
+  const ensureAndroidReconnectSignal = (
+    targetId: string
+  ): ReturnType<typeof createAndroidHostReconnectSignal> => {
+    let signal = androidReconnectSignals.get(targetId)
+    if (!signal) {
+      signal = createAndroidHostReconnectSignal()
+      androidReconnectSignals.set(targetId, signal)
+      const interval = setInterval(() => {
+        signal!.ingest(getSshConnectionManager()?.getState(targetId) ?? null)
+      }, 1000)
+      interval.unref?.()
+    }
+    return signal
+  }
+  const subscribeAndroidReconnect = (targetId: string, cb: () => void): (() => void) =>
+    ensureAndroidReconnectSignal(targetId).onReconnect(cb)
+  // Terminal SSH loss ends the remote stream cleanly (vs a timer that could fire
+  // mid-reconnect). SSH bounds its own reconnect attempts, so onGone always fires.
+  const subscribeAndroidUnrecoverable = (targetId: string, cb: () => void): (() => void) =>
+    ensureAndroidReconnectSignal(targetId).onGone(cb)
+  const redroidBackend = new RedroidDockerBackend({
+    getConnection: resolveSshConnection,
+    subscribeReconnect: subscribeAndroidReconnect,
+    subscribeUnrecoverable: subscribeAndroidUnrecoverable
+  })
+  const androidBridge = new AndroidBridge({
+    registry: emulatorSessionRegistry,
+    backend: redroidBackend,
+    // Pure selection: SSH target wins, else local on Linux, else no reachable host.
+    resolveHost: () => resolveAndroidHost(store!.getSettings(), process.platform),
+    // Input verbs share the same local/remote executor resolution as the backend.
+    getExecutor: async (host) => {
+      const resolved = await resolveAndroidExecutor(host, { getConnection: resolveSshConnection })
+      return resolved.ok ? resolved.executor : null
+    }
+  })
+  runtimeService.setAndroidBridge(androidBridge)
+  // Android host services (orphan sweep + auto-attach track-devices watcher) only
+  // run when explicitly enabled and a reachable host exists — never by default.
+  if (store.getSettings().androidEnabled) {
+    const androidHost = resolveAndroidHost(store.getSettings(), process.platform)
+    if (androidHost) {
+      stopAndroidHostServices = activateAndroidHostServices({
+        backend: redroidBackend,
+        host: androidHost,
+        // NOTE: full auto-attach is NOT functional this phase. track-devices yields
+        // bare serials with no worktree source (unlike serve-sim's PTY->worktree
+        // binding), and an externally-discovered device has no AndroidStreamHandle
+        // registered, so feeding registerActiveEmulator would create an unstreamable
+        // session. The watcher core/parser/lifecycle are complete; this sink only
+        // surfaces discovery until a serial->worktree policy lands.
+        sink: {
+          registerActiveEmulator: (serial) =>
+            console.warn(`[android] device online via track-devices: ${serial}`),
+          unregisterActiveEmulator: (serial) =>
+            console.warn(`[android] device offline via track-devices: ${serial}`)
+        },
+        // Empty at startup: nothing is live yet, so prior-crash orphans are swept.
+        getLiveSessionIds: () => [],
+        getConnection: resolveSshConnection,
+        subscribeReconnect: subscribeAndroidReconnect
+      })
+    }
+  }
   serveSimStateWatcher.start()
   serveSimStateWatcher.onDetected(({ worktreeId, info }) => {
     runtimeService.getEmulatorBridge()?.registerActiveEmulator(worktreeId, info, {
@@ -1812,7 +1903,11 @@ app.on('will-quit', (e) => {
   // down explicitly on quit alongside the other browser/session shutdowns.
   runtime?.getOffscreenBrowserBackend()?.destroyAll?.()
   const emulatorShutdown = runtime?.getEmulatorBridge()?.destroyAllSessions() ?? Promise.resolve()
+  // Why: privileged redroid containers would otherwise leak on quit — the Android
+  // bridge owns them and is torn down separately from the iOS serve-sim helpers.
+  const androidShutdown = runtime?.getAndroidBridge()?.destroyAllSessions() ?? Promise.resolve()
   serveSimStateWatcher.stop()
+  stopAndroidHostServices?.()
   killAllPty()
   const watcherShutdown = shutdownWatchersOnce()
   store?.flush()
@@ -1861,7 +1956,13 @@ app.on('will-quit', (e) => {
     // Why: normal quits preserve the detached daemon for warm reattach, but a
     // dev parent dying means the temp/dev profile has no owner left to reattach.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
-    Promise.allSettled([daemonTeardown, rpcStopAndClear, watcherShutdown, emulatorShutdown])
+    Promise.allSettled([
+      daemonTeardown,
+      rpcStopAndClear,
+      watcherShutdown,
+      emulatorShutdown,
+      androidShutdown
+    ])
       .then(() => shutdownTelemetry())
       .then(() => shutdownObservability())
       .catch(() => {

@@ -290,9 +290,11 @@ import {
   buildHeadlessTabGroupMove,
   buildHeadlessTabGroupSplit
 } from './headless-tab-group-split-layout'
-import { RuntimeEmulatorCommands, setEmulatorBridge } from './orca-runtime-emulator'
+import { RuntimeEmulatorCommands } from './orca-runtime-emulator'
+import { setEmulatorBridge, setAndroidBridge } from './mobile-bridge-instances'
 import { serveSimStateWatcher } from '../emulator/serve-sim-state-watcher'
 import type { EmulatorBridge } from '../emulator/emulator-bridge'
+import type { MobileDeviceBridge } from '../emulator/mobile-device-bridge'
 import { RuntimeFileCommands } from './orca-runtime-files'
 import { RuntimeGitCommands } from './orca-runtime-git'
 import { ClaudeAgentTeamsService } from './claude-agent-teams-service'
@@ -1829,6 +1831,7 @@ export class OrcaRuntimeService {
   private agentBrowserBridge: AgentBrowserBridge | null = null
   private offscreenBrowserBackend: BrowserBackend | null = null
   private emulatorBridge: EmulatorBridge | null = null
+  private androidBridge: MobileDeviceBridge | null = null
   private resolvedWorktreeCache: ResolvedWorktreeCache | null = null
   private resolvedWorktreeInFlight: ResolvedWorktreeInFlight | null = null
   private resolvedWorktreeGeneration = 0
@@ -2592,6 +2595,15 @@ export class OrcaRuntimeService {
 
   getEmulatorBridge(): EmulatorBridge | null {
     return this.emulatorBridge
+  }
+
+  setAndroidBridge(bridge: MobileDeviceBridge | null): void {
+    this.androidBridge = bridge
+    setAndroidBridge(bridge)
+  }
+
+  getAndroidBridge(): MobileDeviceBridge | null {
+    return this.androidBridge
   }
 
   attachWindow(windowId: number): void {
@@ -21679,6 +21691,8 @@ export class OrcaRuntimeService {
     this.emulatorCommands.emulatorListSimulators.bind(this.emulatorCommands)
   emulatorAvailability: RuntimeEmulatorCommands['emulatorAvailability'] =
     this.emulatorCommands.emulatorAvailability.bind(this.emulatorCommands)
+  emulatorAndroidAvailability: RuntimeEmulatorCommands['emulatorAndroidAvailability'] =
+    this.emulatorCommands.emulatorAndroidAvailability.bind(this.emulatorCommands)
   emulatorUnregisterActive: RuntimeEmulatorCommands['emulatorUnregisterActive'] =
     this.emulatorCommands.emulatorUnregisterActive.bind(this.emulatorCommands)
 

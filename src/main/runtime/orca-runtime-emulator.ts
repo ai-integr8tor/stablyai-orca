@@ -9,16 +9,24 @@ import {
 import { serveSimStateWatcher } from '../emulator/serve-sim-state-watcher'
 import type { EmulatorGesturePoint } from '../emulator/emulator-gesture-sender'
 import type { EmulatorSessionInfo } from '../emulator/emulator-types'
+import type { MobileDeviceBridge } from '../emulator/mobile-device-bridge'
+import type { AndroidBackendAvailability } from '../emulator/android-device-backend'
 import type { SimulatorDevice } from '../emulator/simctl-simulator-devices'
 import type { GlobalSettings } from '../../shared/types'
+import { getAndroidBridge } from './mobile-bridge-instances'
 
 // Why: dedicated file for "one surface" separation (emulator), parallel to orca-runtime-browser.ts. Keeps OrcaRuntimeService focused; emulator routing easy to scan. No max-lines disable (split further if grows; per AGENTS + plan Phase 3).
 export type RuntimeEmulatorCommandHost = {
   getEmulatorBridge(): EmulatorBridge | null
   resolveWorktreeSelector(selector: string): Promise<{ id: string }>
   getAuthoritativeWindow(): BrowserWindow
-  getSettings(): Pick<GlobalSettings, 'mobileEmulatorEnabled' | 'mobileEmulatorDefaultDeviceUdid'>
+  getSettings(): Pick<GlobalSettings, EmulatorSettingKey>
 }
+
+type EmulatorSettingKey =
+  | 'mobileEmulatorEnabled'
+  | 'mobileEmulatorDefaultDeviceUdid'
+  | 'androidEnabled'
 
 export class RuntimeEmulatorCommands {
   constructor(private readonly host: RuntimeEmulatorCommandHost) {}
@@ -29,6 +37,35 @@ export class RuntimeEmulatorCommands {
       throw new EmulatorError('emulator_no_active', 'No emulator session is active')
     }
     return bridge
+  }
+
+  // Why: attach/list route by an explicit --kind; default (and absent android
+  // bridge) behave exactly as the iOS-only path did. Android action paths are
+  // gated on androidEnabled so a disabled feature never provisions/lists devices.
+  private resolveBridge(kind?: 'ios' | 'android'): MobileDeviceBridge {
+    if (kind === 'android') {
+      if (!this.host.getSettings().androidEnabled) {
+        throw new EmulatorError('emulator_disabled', 'Android device support is disabled in Settings.')
+      }
+      const android = getAndroidBridge()
+      if (android) {
+        return android
+      }
+    }
+    return this.requireEmulatorBridge()
+  }
+
+  // Why: interaction verbs route by the kind recorded in the shared registry at
+  // attach time. With no android sessions (Phase 1) this always returns iOS.
+  private resolveBridgeForWorktree(worktreeId?: string): MobileDeviceBridge {
+    const android = getAndroidBridge()
+    if (android && worktreeId) {
+      const recorded = this.host.getEmulatorBridge()?.getActiveForWorktree(worktreeId)
+      if (recorded?.kind === 'android') {
+        return android
+      }
+    }
+    return this.requireEmulatorBridge()
   }
 
   // Why: RPC envelopes require a serializable `result` field; void/undefined omits it and breaks CLI schema validation.
@@ -42,10 +79,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     await bridge.tap(params.x, params.y, { device: params.device ?? params.emulator, worktreeId })
     return RuntimeEmulatorCommands.OK
   }
@@ -56,10 +93,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     await bridge.gesture(params.points, { device: params.device ?? params.emulator, worktreeId })
     return RuntimeEmulatorCommands.OK
   }
@@ -70,10 +107,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     await bridge.type(params.text, { device: params.device ?? params.emulator, worktreeId })
     return RuntimeEmulatorCommands.OK
   }
@@ -84,10 +121,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     await bridge.button(params.name, { device: params.device ?? params.emulator, worktreeId })
     return RuntimeEmulatorCommands.OK
   }
@@ -98,10 +135,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     await bridge.rotate(params.orientation, {
       device: params.device ?? params.emulator,
       worktreeId
@@ -115,10 +152,10 @@ export class RuntimeEmulatorCommands {
     emulator?: string
     worktree?: string
   }): Promise<unknown> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     return bridge.exec(params.command, {
       device: params.device,
       emulator: params.emulator,
@@ -130,17 +167,22 @@ export class RuntimeEmulatorCommands {
     device?: string
     worktree?: string
     focus?: boolean
+    kind?: 'ios' | 'android'
   }): Promise<{ attached: boolean; info?: EmulatorSessionInfo }> {
     const settings = this.host.getSettings()
     if (settings.mobileEmulatorEnabled === false) {
       throw new EmulatorError('emulator_disabled', 'Mobile Emulator is disabled in Settings.')
     }
-    const bridge = this.requireEmulatorBridge()
+    const bridge = this.resolveBridge(params.kind)
+    const requestedKind = params.kind ?? 'ios'
     let device = params.device ?? settings.mobileEmulatorDefaultDeviceUdid ?? undefined
-    if (!device) {
+    // Why: simctl device discovery is iOS-only. Android has a single redroid
+    // container per host, so an absent --device is provisioned directly —
+    // calling listSimulators on the Android bridge would throw before provisioning.
+    if (!device && requestedKind !== 'android') {
       device = pickDefaultSimulatorDevice(await bridge.listSimulators())?.udid
     }
-    if (!device) {
+    if (!device && requestedKind !== 'android') {
       throw new EmulatorError(
         'emulator_device_not_found',
         'No emulator device specified. Choose a default device in Settings > Mobile Emulator or pass a device.'
@@ -150,6 +192,21 @@ export class RuntimeEmulatorCommands {
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
     if (worktreeId) {
+      // Why: a worktree can hold an active session of the OTHER kind (e.g. a
+      // CLI-created Android session) when the renderer/CLI attaches the other
+      // kind. Tear it down through its owning bridge BEFORE the reusable check so
+      // its container + stream handle are released (the same-kind reuse/stop paths
+      // would otherwise skip it and leak it) and iOS never reuses an Android session.
+      const displaced = this.host.getEmulatorBridge()?.getActiveForWorktree(worktreeId)
+      const displacedKind = displaced?.kind ?? 'ios'
+      if (displaced && displacedKind !== requestedKind) {
+        const owner =
+          displacedKind === 'android' ? getAndroidBridge() : this.host.getEmulatorBridge()
+        const stopped = await owner?.stopActiveForWorktree(worktreeId, { shutdownDevice: true })
+        if (stopped) {
+          serveSimStateWatcher.unmarkOrcaManaged(stopped)
+        }
+      }
       const reusable = await bridge.getReusableActiveForWorktree(worktreeId, device)
       if (reusable) {
         // Why: renderer remounts should reconnect to the existing stream, not
@@ -168,7 +225,9 @@ export class RuntimeEmulatorCommands {
         serveSimStateWatcher.unmarkOrcaManaged(stoppedUdid)
       }
     }
-    const info = await bridge.startHelperForDevice(device)
+    // Android tolerates an empty device (single redroid container per host);
+    // the iOS path always has a resolved udid by here.
+    const info = await bridge.startHelperForDevice(device ?? '')
     if (worktreeId) {
       bridge.registerActiveEmulator(worktreeId, info, { managed: true })
       serveSimStateWatcher.markOrcaManaged(info)
@@ -181,18 +240,19 @@ export class RuntimeEmulatorCommands {
     return { attached: true, info }
   }
 
-  async emulatorList(_params: { worktree?: string } = {}): Promise<unknown> {
-    const bridge = this.requireEmulatorBridge()
+  async emulatorList(
+    params: { worktree?: string; kind?: 'ios' | 'android' } = {}
+  ): Promise<unknown> {
+    const bridge = this.resolveBridge(params.kind)
     return bridge.listRunningHelpers()
   }
 
   async emulatorUnregisterActive(params: { worktree?: string }): Promise<{ ok: true }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
     if (worktreeId) {
-      bridge.unregisterActiveEmulator(worktreeId)
+      this.resolveBridgeForWorktree(worktreeId).unregisterActiveEmulator(worktreeId)
     }
     return RuntimeEmulatorCommands.OK
   }
@@ -210,15 +270,28 @@ export class RuntimeEmulatorCommands {
     return inspectEmulatorAvailability(this.requireEmulatorBridge())
   }
 
+  // Why: sibling to emulatorAvailability so the iOS shape stays untouched. Gated
+  // on androidEnabled (off by default); delegates to the Android bridge's
+  // capability probe (binder/arch/docker, never KVM).
+  async emulatorAndroidAvailability(
+    _params: { worktree?: string; kind?: 'ios' | 'android' } = {}
+  ): Promise<AndroidBackendAvailability> {
+    if (!this.host.getSettings().androidEnabled) {
+      return { ok: false, message: 'Android device support is disabled in Settings.' }
+    }
+    const probe = getAndroidBridge()?.inspectAvailability?.()
+    return probe ?? { ok: false, reason: 'no_remote_host', message: 'Android is unavailable.' }
+  }
+
   async emulatorKill(params: {
     device?: string
     emulator?: string
     worktree?: string
   }): Promise<{ ok: true; deviceUdid: string }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     const killedUdid = await bridge.kill(params.device ?? params.emulator, worktreeId)
     serveSimStateWatcher.unmarkOrcaManaged(killedUdid)
     return { ok: true, deviceUdid: killedUdid }
@@ -230,10 +303,10 @@ export class RuntimeEmulatorCommands {
     worktree?: string
     managedOnly?: boolean
   }): Promise<{ ok: true; deviceUdid?: string }> {
-    const bridge = this.requireEmulatorBridge()
     const worktreeId = params.worktree
       ? (await this.host.resolveWorktreeSelector(params.worktree)).id
       : undefined
+    const bridge = this.resolveBridgeForWorktree(worktreeId)
     if (params.managedOnly && worktreeId && !params.device && !params.emulator) {
       const shutdownUdid = await bridge.shutdownActiveManagedForWorktree(worktreeId)
       if (shutdownUdid) {
@@ -274,22 +347,4 @@ export class RuntimeEmulatorCommands {
   }): Promise<unknown> {
     return this.emulatorExec(params)
   }
-}
-
-// Singleton accessor pattern (mirror requireAgentBrowserBridge).
-let emulatorBridgeInstance: EmulatorBridge | null = null
-
-export function setEmulatorBridge(bridge: EmulatorBridge | null): void {
-  emulatorBridgeInstance = bridge
-}
-
-export function getEmulatorBridge(): EmulatorBridge | null {
-  return emulatorBridgeInstance
-}
-
-export function requireEmulatorBridge(): EmulatorBridge {
-  if (!emulatorBridgeInstance) {
-    throw new EmulatorError('emulator_no_active', 'Emulator bridge not initialized')
-  }
-  return emulatorBridgeInstance
 }
