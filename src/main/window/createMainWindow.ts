@@ -321,6 +321,8 @@ export function createMainWindow(
   // renderer should be allowed to request Electron's native paste operation.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)
 
+  // Why: Electron reports some mouse side-button presses as app-command events,
+  // so bridge them through the same tab-switch channel as renderer mouse input.
   mainWindow.on('app-command', (event, command) => {
     const direction = resolveAppCommandTabSwitchDirection(command)
     if (direction === null) {
