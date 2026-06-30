@@ -121,7 +121,8 @@ function registerBackgroundPaneBuffer(tabId: string, leafId: string, ptyId: stri
 function buildSetupCommand(setup: WorktreeSetupLaunch): string {
   return buildSetupRunnerCommand(
     setup.runnerScriptPath,
-    isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix'
+    isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix',
+    setup.shell
   )
 }
 

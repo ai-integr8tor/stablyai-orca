@@ -20196,7 +20196,8 @@ describe('OrcaRuntimeService', () => {
     })
     vi.mocked(shouldRunSetupForCreate).mockReturnValue(true)
     vi.mocked(createSetupRunnerScript).mockReturnValue({
-      runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
+      runnerScriptPath: 'C:\\tmp\\repo\\.git\\orca\\setup-runner.sh',
+      shell: { family: 'posix', executable: 'wsl.exe' },
       envVars: {
         ORCA_ROOT_PATH: '/tmp/repo',
         ORCA_WORKTREE_PATH: '/tmp/workspaces/runtime-headless-startup-setup'
@@ -20231,6 +20232,8 @@ describe('OrcaRuntimeService', () => {
     const nonceMatch = startupCommand.match(/if \[ "\$seen" = ([0-9a-f-]+) \]/)
     expect(nonceMatch?.[1]).toBeTruthy()
     expect(startupCommand).toContain('exec claude')
+    expect(startupCommand).toContain('/mnt/c/tmp/repo/.git/orca/setup-runner.sh')
+    expect(setupCommand).toContain('wsl.exe -- bash /mnt/c/tmp/repo/.git/orca/setup-runner.sh')
     expect(setupCommand).toContain('printf')
     expect(setupCommand).toContain(`${nonceMatch![1]} "$status"`)
     expect(result.setup).toBeUndefined()
@@ -21167,7 +21170,8 @@ describe('OrcaRuntimeService', () => {
     })
     vi.mocked(shouldRunSetupForCreate).mockReturnValue(true)
     vi.mocked(createSetupRunnerScript).mockReturnValue({
-      runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
+      runnerScriptPath: 'C:\\tmp\\repo\\.git\\orca\\setup-runner.sh',
+      shell: { family: 'posix', executable: 'wsl.exe' },
       envVars: {
         ORCA_ROOT_PATH: '/tmp/repo',
         ORCA_WORKTREE_PATH: '/tmp/workspaces/runtime-startup-setup-retry'
@@ -21197,8 +21201,10 @@ describe('OrcaRuntimeService', () => {
       'repo-1',
       expect.any(String),
       expect.objectContaining({
-        runnerScriptPath: '/tmp/repo/.git/orca/setup-runner.sh',
-        command: expect.stringContaining('bash /tmp/repo/.git/orca/setup-runner.sh')
+        runnerScriptPath: 'C:\\tmp\\repo\\.git\\orca\\setup-runner.sh',
+        command: expect.stringContaining(
+          'wsl.exe -- bash /mnt/c/tmp/repo/.git/orca/setup-runner.sh'
+        )
       }),
       undefined,
       undefined
