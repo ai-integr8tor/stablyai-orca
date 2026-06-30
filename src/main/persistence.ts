@@ -3945,6 +3945,7 @@ export class Store {
       sourceControlAi: rawSourceControlAi,
       projectHostSetupMethod: rawProjectHostSetupMethod,
       forkSyncMode: rawForkSyncMode,
+      worktreeLocationMode: rawWorktreeLocationMode,
       ...repoWithoutIcon
     } = repo
     const repoIcon = sanitizeRepoIcon(rawRepoIcon)
@@ -3953,6 +3954,12 @@ export class Store {
     const sourceControlAi = normalizeRepoSourceControlAiOverrides(rawSourceControlAi)
     const projectHostSetupMethod = sanitizeRepoProjectHostSetupMethod(rawProjectHostSetupMethod)
     const forkSyncMode = sanitizeForkSyncMode(rawForkSyncMode)
+    // Why: writes are guarded, but a malformed on-disk value must not survive a
+    // reload — normalize unknown modes to undefined so the global default applies.
+    const worktreeLocationMode =
+      rawWorktreeLocationMode === 'sibling' || rawWorktreeLocationMode === 'nested'
+        ? rawWorktreeLocationMode
+        : undefined
     const gitUsername = isFolderRepo(repo)
       ? ''
       : (this.gitUsernameCache.get(repo.path) ??
@@ -3970,6 +3977,7 @@ export class Store {
       ...(sourceControlAi !== undefined ? { sourceControlAi } : {}),
       ...(projectHostSetupMethod !== undefined ? { projectHostSetupMethod } : {}),
       ...(forkSyncMode !== undefined ? { forkSyncMode } : {}),
+      ...(worktreeLocationMode !== undefined ? { worktreeLocationMode } : {}),
       kind: isFolderRepo(repo) ? 'folder' : 'git',
       gitUsername,
       hookSettings: {

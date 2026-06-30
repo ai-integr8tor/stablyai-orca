@@ -145,10 +145,13 @@ export function matchesStrongOrcaCreatePath(
   for (const layout of knownOrcaLayouts) {
     if (layout.worktreeLocationMode === 'nested') {
       const relative = relativePathInsideRoot(layout.path, worktreePath)
-      if (relative === null) {
-        continue
+      // Why: only a positive match should short-circuit. A mismatch must fall
+      // through so a later layout for the same root can still match, instead of
+      // misclassifying an Orca-managed worktree as non-Orca.
+      if (relative !== null && splitNormalizedPath(relative).length === 1) {
+        return true
       }
-      return splitNormalizedPath(relative).length === 1
+      continue
     }
     if (!layout.nestWorkspaces) {
       continue

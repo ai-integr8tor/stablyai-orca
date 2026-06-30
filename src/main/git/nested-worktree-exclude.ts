@@ -9,6 +9,10 @@ const NESTED_WORKTREE_EXCLUDE_PATTERN = '.worktrees/'
 
 type PathOps = Pick<typeof posix, 'isAbsolute' | 'join' | 'normalize'>
 
+/**
+ * Ensure a local repo's `.git/info/exclude` ignores the nested `.worktrees/`
+ * root, appending the pattern only when it is not already present.
+ */
 export async function ensureLocalNestedWorktreeRootIgnored(
   repoPath: string,
   options: GitWorktreeExecOptions = {}
@@ -29,6 +33,10 @@ export async function ensureLocalNestedWorktreeRootIgnored(
   await writeFile(excludePath, nextContent, 'utf8')
 }
 
+/**
+ * Remote-host counterpart of {@link ensureLocalNestedWorktreeRootIgnored},
+ * operating over the SSH git/filesystem providers.
+ */
 export async function ensureRemoteNestedWorktreeRootIgnored(
   repoPath: string,
   gitProvider: Pick<IGitProvider, 'exec'>,
@@ -38,8 +46,13 @@ export async function ensureRemoteNestedWorktreeRootIgnored(
   const nextContent = await readExcludeWithPattern(excludePath, async (path) => {
     try {
       return (await fsProvider.readFile(path)).content
-    } catch {
-      return ''
+    } catch (error) {
+      // Why: only a missing file means "no exclude yet". Swallowing every error
+      // (e.g. a transient read failure) would overwrite an existing exclude.
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return ''
+      }
+      throw error
     }
   })
   if (nextContent === null) {

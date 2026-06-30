@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { GlobalSettings, Repo, Worktree } from './types'
-import { buildKnownOrcaWorkspaceLayouts, classifyWorktreeOwnership } from './worktree-ownership'
+import {
+  buildKnownOrcaWorkspaceLayouts,
+  classifyWorktreeOwnership,
+  matchesStrongOrcaCreatePath
+} from './worktree-ownership'
 
 function makeRepo(overrides: Partial<Repo> = {}): Repo {
   return {
@@ -132,5 +136,23 @@ describe('repo-specific worktree ownership layouts', () => {
         (layout) => layout.path === '/local/worktrees'
       )
     ).toBe(false)
+  })
+
+  it('falls through a non-matching nested layout to a later matching layout', () => {
+    // Regression: a nested layout whose worktree has more than one segment
+    // beneath it must not short-circuit to false — a later layout for the same
+    // root can still match (else an Orca worktree is misclassified as external).
+    const repo = makeRepo({ path: '/projects/a/repo' })
+    const worktreePath = '/projects/a/worktrees/repo/feature'
+    const layouts = [
+      {
+        path: '/projects/a/worktrees',
+        nestWorkspaces: false,
+        worktreeLocationMode: 'nested' as const
+      },
+      { path: '/projects/a/worktrees', nestWorkspaces: true }
+    ]
+
+    expect(matchesStrongOrcaCreatePath(worktreePath, layouts, repo)).toBe(true)
   })
 })
