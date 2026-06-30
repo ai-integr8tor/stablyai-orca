@@ -4,7 +4,10 @@ import { toast } from 'sonner'
 import { useAppStore } from '../store'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
 import { applyUIZoom } from '@/lib/ui-zoom'
-import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import {
+  activateAndRevealFolderWorkspace,
+  activateAndRevealWorktree
+} from '@/lib/worktree-activation'
 import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
@@ -1335,6 +1338,14 @@ export function useIpcEvents(): void {
         ).catch((error) => {
           console.error('Failed to activate CLI-created worktree:', error)
         })
+      })
+    )
+    unsubs.push(
+      window.api.ui.onActivateFolderWorkspace(({ folderWorkspaceId }) => {
+        const result = activateAndRevealFolderWorkspace(folderWorkspaceId)
+        if (result === false) {
+          console.error('Failed to activate CLI-created folder workspace:', folderWorkspaceId)
+        }
       })
     )
 

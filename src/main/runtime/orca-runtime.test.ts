@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { ipcMain } from 'electron'
@@ -6560,6 +6560,51 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  it('creates managed worktree terminals with a selected cwd inside the worktree root', async () => {
+    const worktreePath = await mkdtemp(join(tmpdir(), 'orca-runtime-worktree-cwd-'))
+    const selectedCwd = join(worktreePath, 'packages', 'source')
+    const worktreeId = `${TEST_REPO_ID}::${worktreePath}`
+    await mkdir(selectedCwd, { recursive: true })
+    vi.mocked(listWorktrees).mockResolvedValue([
+      {
+        path: worktreePath,
+        head: 'abc',
+        branch: 'feature/foo',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-selected-cwd' })
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(`path:${worktreePath}`, {
+        cwd: selectedCwd,
+        title: 'Source'
+      })
+    ).resolves.toMatchObject({
+      worktreeId,
+      title: 'Source',
+      surface: 'background'
+    })
+
+    const spawnCall = spawn.mock.calls[0]?.[0] as
+      | { cwd?: string; env?: Record<string, string>; worktreeId?: string }
+      | undefined
+    const spawnedEnv = spawnCall?.env ?? {}
+    expect(spawnCall).toMatchObject({
+      cwd: await realpath(selectedCwd),
+      worktreeId
+    })
+    expect(spawnedEnv.ORCA_WORKTREE_ID).toBe(worktreeId)
+  })
+
   it.each([
     { label: 'canonical folder workspace selector', selector: TEST_FOLDER_WORKSPACE_KEY },
     { label: 'id-prefixed folder workspace selector', selector: `id:${TEST_FOLDER_WORKSPACE_KEY}` }
@@ -6648,6 +6693,128 @@ describe('OrcaRuntimeService', () => {
     expect(spawnCall?.env?.ORCA_WORKSPACE_ID).toBeUndefined()
     expect(spawnCall?.env?.ORCA_PROJECT_GROUP_ID).toBeUndefined()
     expect(spawnCall?.env?.ORCA_WORKSPACE_ROOT).toBeUndefined()
+  })
+
+  it('creates folder workspace terminals with a selected cwd inside the folder root', async () => {
+    const folderPath = await mkdtemp(join(tmpdir(), 'orca-runtime-folder-cwd-'))
+    const selectedCwd = join(folderPath, 'src', 'client')
+    await mkdir(selectedCwd, { recursive: true })
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-folder-selected-cwd' })
+    const folderWorkspace = makeFolderWorkspace({ folderPath })
+    const projectGroup = makeFolderProjectGroup({ parentPath: folderPath })
+    const runtime = new OrcaRuntimeService(
+      createFolderWorkspaceRuntimeStore(folderWorkspace, projectGroup) as never
+    )
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(TEST_FOLDER_WORKSPACE_KEY, {
+        cwd: selectedCwd,
+        title: 'Source'
+      })
+    ).resolves.toMatchObject({
+      worktreeId: TEST_FOLDER_WORKSPACE_KEY,
+      title: 'Source',
+      surface: 'background'
+    })
+
+    const spawnCall = spawn.mock.calls[0]?.[0] as
+      | { cwd?: string; env?: Record<string, string>; worktreeId?: string }
+      | undefined
+    const spawnedEnv = spawnCall?.env ?? {}
+    expect(spawnCall).toMatchObject({
+      cwd: await realpath(selectedCwd),
+      worktreeId: TEST_FOLDER_WORKSPACE_KEY
+    })
+    expect(spawnedEnv.ORCA_WORKSPACE_ROOT).toBe(folderPath)
+    expect(spawnedEnv.ORCA_WORKTREE_ID).toBe(TEST_FOLDER_WORKSPACE_KEY)
+  })
+
+  it.each([
+    {
+      label: 'managed worktree',
+      createRuntime: async () => {
+        const worktreePath = await mkdtemp(join(tmpdir(), 'orca-runtime-worktree-cwd-root-'))
+        await mkdir(join(worktreePath, 'src'), { recursive: true })
+        vi.mocked(listWorktrees).mockResolvedValue([
+          {
+            path: worktreePath,
+            head: 'abc',
+            branch: 'feature/foo',
+            isBare: false,
+            isMainWorktree: false
+          }
+        ])
+        return {
+          runtime: new OrcaRuntimeService(store),
+          selector: `path:${worktreePath}`
+        }
+      }
+    },
+    {
+      label: 'folder workspace',
+      createRuntime: async () => {
+        const folderPath = await mkdtemp(join(tmpdir(), 'orca-runtime-folder-cwd-root-'))
+        const folderWorkspace = makeFolderWorkspace({ folderPath })
+        const projectGroup = makeFolderProjectGroup({ parentPath: folderPath })
+        return {
+          runtime: new OrcaRuntimeService(
+            createFolderWorkspaceRuntimeStore(folderWorkspace, projectGroup) as never
+          ),
+          selector: TEST_FOLDER_WORKSPACE_KEY
+        }
+      }
+    }
+  ])('rejects terminal selected cwd outside the $label root', async ({ createRuntime }) => {
+    const selectedCwd = await mkdtemp(join(tmpdir(), 'orca-runtime-outside-cwd-'))
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-outside-cwd' })
+    const { runtime, selector } = await createRuntime()
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(selector, {
+        cwd: selectedCwd,
+        title: 'Source'
+      })
+    ).rejects.toThrow('terminal_cwd_outside_workspace')
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('rejects terminal cwd symlinks that escape a folder workspace root', async () => {
+    const folderPath = await mkdtemp(join(tmpdir(), 'orca-runtime-folder-cwd-symlink-root-'))
+    const outsidePath = await mkdtemp(join(tmpdir(), 'orca-runtime-folder-cwd-symlink-outside-'))
+    const linkedPath = join(folderPath, 'linked-outside')
+    await symlink(outsidePath, linkedPath, 'dir')
+    const folderWorkspace = makeFolderWorkspace({ folderPath })
+    const projectGroup = makeFolderProjectGroup({ parentPath: folderPath })
+    const runtime = new OrcaRuntimeService(
+      createFolderWorkspaceRuntimeStore(folderWorkspace, projectGroup) as never
+    )
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-symlink-escape' })
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(TEST_FOLDER_WORKSPACE_KEY, {
+        cwd: linkedPath,
+        title: 'Escaped'
+      })
+    ).rejects.toThrow('terminal_cwd_outside_workspace')
+    expect(spawn).not.toHaveBeenCalled()
   })
 
   it('rejects folder workspace terminal creation when the backing path is missing', async () => {

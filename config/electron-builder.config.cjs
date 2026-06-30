@@ -14,6 +14,10 @@ const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
 }
+const finderServiceResources = {
+  from: 'resources/darwin/Finder Services',
+  to: 'Finder Services'
+}
 // Why: SSH relay deploy resolves bundles from process.resourcesPath in packaged
 // apps. Keeping relay assets as extraResources makes them real directories
 // instead of paths hidden inside app.asar.
@@ -227,6 +231,7 @@ module.exports = {
         from: 'native/computer-use-macos/.build/release/Orca Computer Use.app',
         to: 'Orca Computer Use.app'
       },
+      finderServiceResources,
       featureWallResources
     ],
     target: [

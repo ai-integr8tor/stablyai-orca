@@ -55,6 +55,30 @@ describe('Electron runtime package contract', () => {
     expect(packageJson.scripts['build:web']).toContain('node config/scripts/verify-web-build.mjs')
   })
 
+  it('runs Finder Service generation only for mac package builds', () => {
+    const scripts = packageJson.scripts
+    const finderServicesScript = 'build:finder-services'
+    const finderServicesBuild = 'node config/scripts/build-finder-services.mjs'
+
+    expect(scripts['build:desktop']).not.toContain(finderServicesScript)
+    expect(scripts['build:desktop']).not.toContain(finderServicesBuild)
+    expect(scripts['build:win']).not.toContain(finderServicesScript)
+    expect(scripts['build:win']).not.toContain(finderServicesBuild)
+    expect(scripts['build:linux']).not.toContain(finderServicesScript)
+    expect(scripts['build:linux']).not.toContain(finderServicesBuild)
+    expect(scripts['build:release']).not.toContain(finderServicesScript)
+    expect(scripts['build:release']).not.toContain(finderServicesBuild)
+    expect(scripts['build:mac']).toContain(`pnpm run build:finder-services`)
+    expect(scripts['build:mac:release']).toContain(`pnpm run build:finder-services`)
+    expect(scripts['build:mac'].indexOf(`pnpm run build:finder-services`)).toBeLessThan(
+      scripts['build:mac'].indexOf('electron-builder')
+    )
+    expect(scripts['build:mac:release'].indexOf(`pnpm run build:finder-services`)).toBeLessThan(
+      scripts['build:mac:release'].indexOf('electron-builder')
+    )
+    expect(scripts['build:finder-services']).toBe(finderServicesBuild)
+  })
+
   it('guards release publishing before electron-builder runs', () => {
     const releaseWorkflow = readFileSync(
       join(projectDir, '.github/workflows/release-cut.yml'),

@@ -2496,6 +2496,9 @@ export type PreloadApi = {
         defaultTabs?: WorktreeDefaultTabsLaunch
       }) => void
     ) => () => void
+    onActivateFolderWorkspace: (
+      callback: (data: { folderWorkspaceId: string }) => void
+    ) => () => void
     onCreateTerminal: (
       callback: (data: {
         requestId?: string
