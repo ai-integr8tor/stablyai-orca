@@ -3,6 +3,10 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// Why: accidental tsc emits (*.js next to *.ts) must never shadow real source —
+// Vite resolves .js before .ts by default. Prefer TS extensions everywhere.
+const TS_FIRST_EXTENSIONS = ['.ts', '.tsx', '.mts', '.mjs', '.js', '.jsx', '.json']
+
 // Why: the telemetry transport is gated by two compile-time constants that
 // only the official CI release workflow sets. Contributor / `pnpm dev` /
 // third-party rebuilds must substitute literal `null` at these sites so
@@ -202,6 +206,7 @@ export default defineConfig({
     // prevents Vite's default resolver from finding the CJS entry. Point
     // directly at the published main file so the bundler can inline it.
     resolve: {
+      extensions: TS_FIRST_EXTENSIONS,
       alias: {
         '@xterm/headless': resolve('node_modules/@xterm/headless/lib-headless/xterm-headless.js'),
         '@xterm/addon-serialize': resolve(
@@ -211,6 +216,9 @@ export default defineConfig({
     }
   },
   preload: {
+    resolve: {
+      extensions: TS_FIRST_EXTENSIONS
+    },
     build: {
       externalizeDeps: {
         exclude: ['@electron-toolkit/preload']
@@ -219,6 +227,7 @@ export default defineConfig({
   },
   renderer: {
     resolve: {
+      extensions: TS_FIRST_EXTENSIONS,
       alias: {
         '@renderer': resolve('src/renderer/src'),
         '@': resolve('src/renderer/src')

@@ -29,6 +29,13 @@ import { openMobileEmulatorTab } from '@/lib/open-mobile-emulator-tab'
 import { ensureSimulatorTab, getSimulatorTabForWorktree } from '@/lib/ensure-simulator-tab'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { browserWorkspaceHasRemoteOwner } from '@/runtime/remote-browser-tab-ownership'
+import { toast } from 'sonner'
+import { extractIpcErrorMessage } from '@/lib/ipc-error'
+import { detectLanguage } from '@/lib/language-detect'
+import { createUntitledMarkdownFileWithTemplateSelection } from '@/lib/create-untitled-markdown'
+import { getConnectionId } from '@/lib/connection-context'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
+import { translate } from '@/i18n/i18n'
 
 export function recordTerminalTabGroupSplit(createdTerminal: TerminalTab | null | undefined): void {
   if (!createdTerminal) {
@@ -209,7 +216,7 @@ export function useTabGroupWorkspaceModel({
           // Why: split-group close actions bypass Terminal.tsx, but the unsaved
           // confirmation + save/discard ordering must stay centralized there so
           // tab close, bulk close, and window quit share one queueing flow.
-          requestEditorFileClose(entityId)
+          requestEditorFileClose(entityId, worktreeId)
           return false
         }
         closeFile(entityId)
@@ -379,10 +386,11 @@ export function useTabGroupWorkspaceModel({
         })
       }
       setActiveTab(terminalId)
-      setActiveTabType('terminal')
+      setActiveTabType('terminal', worktreeId)
       const activeLeafId = worktreeState.terminalLayoutsByTabId[terminalId]?.activeLeafId ?? null
-      // Why: split terminal tab activation must restore xterm focus to the
-      // store-active leaf so keyboard input cannot drift to a sibling pane.
+      // Why: clicking the tab button gives the browser focus to the tab strip
+      // after pointerdown; restore xterm focus to the store-active leaf so
+      // keyboard input cannot drift to a sibling pane.
       focusTerminalTabSurface(terminalId, activeLeafId)
     },
     [
@@ -428,11 +436,11 @@ export function useTabGroupWorkspaceModel({
       focusGroup(worktreeId, groupId)
       activateTab(item.id)
       if (item.contentType === 'simulator') {
-        setActiveTabType('simulator')
+        setActiveTabType('simulator', worktreeId)
         // simulator has no editor file entity
       } else {
         setActiveFile(item.entityId)
-        setActiveTabType('editor')
+        setActiveTabType('editor', worktreeId)
       }
     },
     [activateTab, focusGroup, groupId, groupTabs, setActiveFile, setActiveTabType, worktreeId]
@@ -463,7 +471,7 @@ export function useTabGroupWorkspaceModel({
         })
       }
       setActiveBrowserTab(browserTabId)
-      setActiveTabType('browser')
+      setActiveTabType('browser', worktreeId)
     },
     [activateTab, focusGroup, groupId, groupTabs, setActiveBrowserTab, setActiveTabType, worktreeId]
   )
@@ -599,7 +607,32 @@ export function useTabGroupWorkspaceModel({
       closeToRight,
       createSplitGroup,
       newBrowserTab: () => {
-        void openNewBrowserTabInActiveWorkspace(groupId)
+        if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+          void (async () => {
+            const state = useAppStore.getState()
+            const url = state.browserDefaultUrl ?? 'about:blank'
+            if (
+              await createWebRuntimeSessionBrowserTab({
+                worktreeId,
+                url,
+                targetGroupId: groupId,
+                selectWorktree: false
+              })
+            ) {
+              return
+            }
+            state.createBrowserTab(worktreeId, url, {
+              title: translate(
+                'auto.components.floating.terminal.FloatingTerminalPanel.8b14ba6c17',
+                'New Browser Tab'
+              ),
+              focusAddressBar: true,
+              targetGroupId: groupId
+            })
+          })()
+        } else {
+          void openNewBrowserTabInActiveWorkspace(groupId, worktreeId)
+        }
       },
       newSimulatorTab: worktreeState.mobileEmulatorEnabled
         ? () => {
@@ -617,6 +650,34 @@ export function useTabGroupWorkspaceModel({
       openEntry: async (args: TabCreateEntryArgs) => {
         await openTabBarEntry(args)
       },
+      openFileTab:
+        worktreeId === FLOATING_TERMINAL_WORKTREE_ID
+          ? async () => {
+              try {
+                const document = await window.api.app.pickFloatingMarkdownDocument()
+                if (!document) {
+                  return
+                }
+                useAppStore.getState().openFile(
+                  {
+                    filePath: document.filePath,
+                    relativePath: document.relativePath,
+                    worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
+                    language: detectLanguage(document.relativePath),
+                    mode: 'edit',
+                    runtimeEnvironmentId: null
+                  },
+                  {
+                    preview: false,
+                    targetGroupId: groupId,
+                    suppressActiveRuntimeFallback: true
+                  }
+                )
+              } catch (err) {
+                toast.error(extractIpcErrorMessage(err, 'Failed to open markdown file.'))
+              }
+            }
+          : undefined,
       duplicateBrowserTab: (browserTabId: string) => {
         void (async () => {
           const state = useAppStore.getState()
@@ -650,10 +711,56 @@ export function useTabGroupWorkspaceModel({
       // assistive-tech activation because the "+" menu can be triggered from
       // an unfocused panel without first updating global group focus.
       newFileTab: async () => {
-        await openNewMarkdownInActiveWorkspace(groupId)
+        if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+          try {
+            const markdownCwd = await window.api.app.getFloatingMarkdownDirectory()
+            if (!markdownCwd) {
+              return
+            }
+            const fileInfo = await createUntitledMarkdownFileWithTemplateSelection(
+              markdownCwd,
+              worktreeId,
+              getConnectionId(worktreeId) ?? undefined,
+              { activeRuntimeEnvironmentId: null }
+            )
+            if (!fileInfo) {
+              return
+            }
+            useAppStore.getState().openFile(fileInfo, {
+              preview: false,
+              targetGroupId: groupId,
+              suppressActiveRuntimeFallback: true
+            })
+          } catch (err) {
+            toast.error(extractIpcErrorMessage(err, 'Failed to create untitled markdown file.'))
+          }
+        } else {
+          await openNewMarkdownInActiveWorkspace(groupId, worktreeId)
+        }
       },
       newTerminalTab: () => {
-        void openNewTerminalTabInActiveWorkspace(groupId)
+        if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
+          void (async () => {
+            const state = useAppStore.getState()
+            if (
+              await createWebRuntimeSessionTerminal({
+                worktreeId,
+                environmentId: getRuntimeEnvironmentIdForWorktree(state, worktreeId),
+                targetGroupId: groupId,
+                activate: true,
+                selectWorktree: false
+              })
+            ) {
+              return
+            }
+            const tab = state.createTab(worktreeId, groupId)
+            state.setActiveTab(tab.id)
+            state.setActiveTabType('terminal', worktreeId)
+            focusTerminalTabSurface(tab.id)
+          })()
+        } else {
+          void openNewTerminalTabInActiveWorkspace(groupId, worktreeId)
+        }
       },
       newTerminalWithShell: (shellOverride: string) => {
         void (async () => {
@@ -663,14 +770,15 @@ export function useTabGroupWorkspaceModel({
               environmentId: getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId),
               targetGroupId: groupId,
               command: shellOverride,
-              activate: true
+              activate: true,
+              selectWorktree: worktreeId !== FLOATING_TERMINAL_WORKTREE_ID
             })
           ) {
             return
           }
           const terminal = createTab(worktreeId, groupId, shellOverride)
           setActiveTab(terminal.id)
-          setActiveTabType('terminal')
+          setActiveTabType('terminal', worktreeId)
           focusTerminalTabSurface(terminal.id)
         })()
       },

@@ -124,7 +124,7 @@ export type BrowserSlice = {
     url: string,
     options?: CreateBrowserTabOptions
   ) => BrowserWorkspace
-  openNewBrowserTabInActiveWorkspace: (groupId: string) => Promise<void>
+  openNewBrowserTabInActiveWorkspace: (groupId: string, worktreeId?: string) => Promise<void>
   closeBrowserTab: (tabId: string) => void
   shutdownWorktreeBrowsers: (worktreeId: string) => Promise<void>
   reopenClosedBrowserTab: (worktreeId: string) => BrowserWorkspace | null
@@ -594,19 +594,19 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
     return browserTab
   },
 
-  openNewBrowserTabInActiveWorkspace: async (groupId) => {
+  openNewBrowserTabInActiveWorkspace: async (groupId, worktreeId) => {
     const state = get()
-    const worktreeId = state.activeWorktreeId
-    if (!worktreeId) {
+    const targetWorktreeId = worktreeId ?? state.activeWorktreeId
+    if (!targetWorktreeId) {
       return
     }
     const defaultUrl = state.browserDefaultUrl ?? 'about:blank'
-    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, targetWorktreeId)
     if (runtimeEnvironmentId) {
       const { createWebRuntimeSessionBrowserTab } = await import('@/runtime/web-runtime-session')
       try {
         const created = await createWebRuntimeSessionBrowserTab({
-          worktreeId,
+          worktreeId: targetWorktreeId,
           environmentId: runtimeEnvironmentId,
           url: defaultUrl,
           targetGroupId: groupId
@@ -627,7 +627,7 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       }
       return
     }
-    get().createBrowserTab(worktreeId, defaultUrl, {
+    get().createBrowserTab(targetWorktreeId, defaultUrl, {
       title: translate('auto.store.slices.browser.d175274b6d', 'New Browser Tab'),
       focusAddressBar: true,
       targetGroupId: groupId
@@ -868,13 +868,14 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
       if (!browserTab) {
         return s
       }
+      const isActiveWorktree = browserTab.worktreeId === s.activeWorktreeId
       return {
-        activeBrowserTabId: tabId,
+        activeBrowserTabId: isActiveWorktree ? tabId : s.activeBrowserTabId,
         activeBrowserTabIdByWorktree: {
           ...s.activeBrowserTabIdByWorktree,
           [browserTab.worktreeId]: tabId
         },
-        activeTabType: 'browser',
+        activeTabType: isActiveWorktree ? 'browser' : s.activeTabType,
         activeTabTypeByWorktree: {
           ...s.activeTabTypeByWorktree,
           [browserTab.worktreeId]: 'browser'

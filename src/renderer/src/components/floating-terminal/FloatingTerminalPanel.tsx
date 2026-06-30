@@ -2,17 +2,15 @@
  * resizing, orchestration setup, and mixed terminal/browser/editor tab
  * handling in one surface so the floating worktree does not drift from the
  * main tab model while still keeping the DOM-mounted panes local. */
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Globe, Minus, TerminalSquare } from 'lucide-react'
 import { toast } from 'sonner'
-import BrowserPane from '@/components/browser-pane/BrowserPane'
-import EmulatorPane from '@/components/emulator-pane/EmulatorPane'
 import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
-import TabBar from '@/components/tab-bar/TabBar'
-import { resolveGroupTabFromVisibleId } from '@/components/tab-group/tab-group-visible-id'
-import TerminalPane from '@/components/terminal-pane/TerminalPane'
+import TabGroupSplitLayout from '@/components/tab-group/TabGroupSplitLayout'
+import TerminalPaneOverlayLayer from '@/components/terminal-pane/TerminalPaneOverlayLayer'
+import BrowserPaneOverlayLayer from '@/components/browser-pane/BrowserPaneOverlayLayer'
+import EmulatorPaneOverlayLayer from '@/components/emulator-pane/EmulatorPaneOverlayLayer'
 import { Button } from '@/components/ui/button'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useShortcutKeyDetails, type ShortcutKeyComboDetails } from '@/hooks/useShortcutLabel'
@@ -46,7 +44,10 @@ import {
   notifyOrchestrationSetupStateChanged
 } from '@/lib/orchestration-setup-state'
 import { useAppStore } from '@/store'
-import type { OpenFile } from '@/store/slices/editor'
+import {
+  ORCA_EDITOR_REQUEST_FILE_CLOSE_EVENT,
+  type EditorRequestFileCloseDetail
+} from '@/components/editor/editor-autosave'
 import { destroyWorkspaceWebviews } from '@/store/slices/browser-webview-cleanup'
 import {
   activateWebRuntimeSessionTab,
@@ -74,7 +75,6 @@ import type {
   TabGroup,
   TerminalTab
 } from '../../../../shared/types'
-import { resolveUnifiedTabLabel } from '../../../../shared/tab-title-resolution'
 import { FloatingTerminalOrchestrationDialog } from './FloatingTerminalOrchestrationDialog'
 import { FloatingTerminalResizeHandles } from './FloatingTerminalResizeHandles'
 import { FloatingTerminalWindowControls } from './FloatingTerminalWindowControls'
@@ -96,13 +96,11 @@ import {
 } from './floating-terminal-panel-bounds'
 import { translate } from '@/i18n/i18n'
 import { consumeFloatingTerminalOpenMaximizedIntent } from '@/lib/floating-terminal'
-const EMPTY_TERMINAL_TABS: TerminalTab[] = []
-const EMPTY_BROWSER_TABS: BrowserTabState[] = []
 const EMPTY_GROUPS: TabGroup[] = []
 const EMPTY_UNIFIED_TABS: Tab[] = []
+const EMPTY_TERMINAL_TABS: TerminalTab[] = []
+const EMPTY_BROWSER_TABS: BrowserTabState[] = []
 const LOCAL_RUNTIME_SETTINGS = { activeRuntimeEnvironmentId: null } as const
-
-const EditorPanel = lazy(() => import('@/components/editor/EditorPanel'))
 
 type FloatingTerminalPanelProps = {
   open: boolean
@@ -121,8 +119,11 @@ type FloatingPanelShortcutInput = Partial<
 > &
   Pick<KeyboardEvent, 'target'> & { doubleTapModifier?: PhysicalModifierToken }
 
+// Why: every tab strip root (terminal/browser/markdown) carries data-tab-id.
+// Excluding it from the titlebar drag region lets dnd-kit own the pointer for
+// tab reordering instead of starting a floating-window move.
 const FLOATING_TERMINAL_NO_DRAG_SELECTOR =
-  'button,input,textarea,select,[role="menuitem"],[data-testid="sortable-tab"],[data-floating-terminal-no-drag]'
+  'button,input,textarea,select,[role="menuitem"],[data-tab-id],[data-testid="sortable-tab"],[data-floating-terminal-no-drag]'
 const FLOATING_TERMINAL_SHORTCUT_SURFACE_SELECTOR = '[data-floating-terminal-shortcut-surface]'
 
 type FloatingTerminalPanelBoundsState = {
@@ -131,8 +132,27 @@ type FloatingTerminalPanelBoundsState = {
   source: FloatingTerminalPanelBoundsSource
 }
 
+function resolveDragTargetElement(target: EventTarget): Element | null {
+  // Why: pointer targets can be SVG icons or text nodes nested inside a tab
+  // root, neither of which is an HTMLElement. Normalize any Node to its nearest
+  // Element (text nodes via parentElement) so closest() can match a
+  // [data-tab-id] ancestor. typeof guards keep this safe in non-DOM contexts.
+  if (typeof Element !== 'undefined' && target instanceof Element) {
+    return target
+  }
+  if (typeof Node !== 'undefined' && target instanceof Node) {
+    return target.parentElement
+  }
+  // Fallback for hosts/targets that duck-type the DOM (e.g. test doubles).
+  const candidate = target as { closest?: unknown; parentElement?: Element | null }
+  if (typeof candidate.closest === 'function') {
+    return candidate as unknown as Element
+  }
+  return candidate.parentElement ?? null
+}
+
 function isFloatingTerminalDragTarget(target: EventTarget): boolean {
-  return !(target instanceof HTMLElement && target.closest(FLOATING_TERMINAL_NO_DRAG_SELECTOR))
+  return !resolveDragTargetElement(target)?.closest(FLOATING_TERMINAL_NO_DRAG_SELECTOR)
 }
 
 function readInitialPanelBounds(): FloatingTerminalPanelBoundsState {
@@ -176,12 +196,12 @@ export function FloatingTerminalPanel({
   onOpenChange,
   tourInteractionSnapshot
 }: FloatingTerminalPanelProps): React.JSX.Element | null {
-  const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
-  const browserTabsByWorktree = useAppStore((s) => s.browserTabsByWorktree)
   const groupsByWorktree = useAppStore((s) => s.groupsByWorktree)
   const unifiedTabsByWorktree = useAppStore((s) => s.unifiedTabsByWorktree)
   const openFiles = useAppStore((s) => s.openFiles)
-  const expandedPaneByTabId = useAppStore((s) => s.expandedPaneByTabId)
+  const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
+  const browserTabsByWorktree = useAppStore((s) => s.browserTabsByWorktree)
+  const reconcileWorktreeTabModel = useAppStore((s) => s.reconcileWorktreeTabModel)
   const createTab = useAppStore((s) => s.createTab)
   const createBrowserTab = useAppStore((s) => s.createBrowserTab)
   const closeTab = useAppStore((s) => s.closeTab)
@@ -191,15 +211,9 @@ export function FloatingTerminalPanel({
   const markFileDirty = useAppStore((s) => s.markFileDirty)
   const activateTab = useAppStore((s) => s.activateTab)
   const setActiveTab = useAppStore((s) => s.setActiveTab)
-  const setTabCustomTitle = useAppStore((s) => s.setTabCustomTitle)
-  const setTabColor = useAppStore((s) => s.setTabColor)
-  const setTabPaneExpanded = useAppStore((s) => s.setTabPaneExpanded)
-  const makePreviewFilePermanent = useAppStore((s) => s.makePreviewFilePermanent)
-  const pinFile = useAppStore((s) => s.pinFile)
   const openFile = useAppStore((s) => s.openFile)
   const browserDefaultUrl = useAppStore((s) => s.browserDefaultUrl)
   const floatingTerminalCwd = useAppStore((s) => s.settings?.floatingTerminalCwd ?? '')
-  const generatedTabTitlesEnabled = useAppStore((s) => s.settings?.tabAutoGenerateTitle === true)
   const newTerminalShortcut = useShortcutKeyDetails('tab.newTerminal')
   const newBrowserShortcut = useShortcutKeyDetails('tab.newBrowser')
   const newMarkdownShortcut = useShortcutKeyDetails('tab.newMarkdown')
@@ -234,6 +248,7 @@ export function FloatingTerminalPanel({
   const pendingEditorCloseQueueRef = useRef<string[]>([])
   const saveDialogFileIdRef = useRef<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const shouldRestorePanelFocusAfterWindowFocusRef = useRef(false)
   const doubleTapDetectorRef = useRef<ModifierDoubleTapDetector | null>(null)
   if (!doubleTapDetectorRef.current) {
     doubleTapDetectorRef.current = new ModifierDoubleTapDetector()
@@ -249,169 +264,82 @@ export function FloatingTerminalPanel({
     moved: boolean
   } | null>(null)
 
-  const tabs = tabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_TERMINAL_TABS
-  const browserTabs = browserTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_BROWSER_TABS
   const groups = groupsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_GROUPS
   const unifiedTabs = unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_UNIFIED_TABS
-  const floatingFiles = useMemo(
-    () => openFiles.filter((file) => file.worktreeId === FLOATING_TERMINAL_WORKTREE_ID),
-    [openFiles]
+  const layout = useAppStore((s) => s.layoutByWorktree[FLOATING_TERMINAL_WORKTREE_ID])
+  const focusedGroupId = useAppStore(
+    (s) => s.activeGroupIdByWorktree[FLOATING_TERMINAL_WORKTREE_ID]
   )
-  const activeGroup = useMemo(
-    () =>
-      groups.find((group) => group.activeTabId != null) ??
-      (unifiedTabs[0]
-        ? (groups.find((group) => group.id === unifiedTabs[0].groupId) ?? null)
-        : null),
-    [groups, unifiedTabs]
-  )
-  const groupTabs = useMemo(
-    () => (activeGroup ? unifiedTabs.filter((tab) => tab.groupId === activeGroup.id) : unifiedTabs),
-    [activeGroup, unifiedTabs]
-  )
-  const activeTab = useMemo(
-    () =>
-      (activeGroup?.activeTabId
-        ? groupTabs.find((tab) => tab.id === activeGroup.activeTabId)
-        : null) ??
-      groupTabs[0] ??
-      null,
-    [activeGroup, groupTabs]
-  )
-  const activeTerminalId = activeTab?.contentType === 'terminal' ? activeTab.entityId : null
-  const activeBrowserId = activeTab?.contentType === 'browser' ? activeTab.entityId : null
-  const activeEditorUnifiedId =
-    activeTab &&
-    activeTab.contentType !== 'terminal' &&
-    activeTab.contentType !== 'browser' &&
-    activeTab.contentType !== 'simulator'
-      ? activeTab.id
-      : null
-  const activeEditorFileId =
-    activeTab &&
-    activeTab.contentType !== 'terminal' &&
-    activeTab.contentType !== 'browser' &&
-    activeTab.contentType !== 'simulator'
-      ? activeTab.entityId
-      : null
-  const terminalTabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
-  const terminalItems = useMemo<(TerminalTab & { unifiedTabId: string })[]>(
-    () =>
-      groupTabs
-        .filter((tab) => tab.contentType === 'terminal')
-        .flatMap((tab): (TerminalTab & { unifiedTabId: string })[] => {
-          const terminalTab = terminalTabById.get(tab.entityId)
-          if (!terminalTab) {
-            return []
-          }
 
-          return [
-            {
-              ...terminalTab,
-              unifiedTabId: tab.id,
-              title: resolveUnifiedTabLabel(
-                {
-                  ...tab,
-                  quickCommandLabel: tab.quickCommandLabel ?? terminalTab.quickCommandLabel,
-                  generatedLabel: tab.generatedLabel ?? terminalTab.generatedTitle
-                },
-                generatedTabTitlesEnabled,
-                tab.label
-              ),
-              generatedTitle: terminalTab.generatedTitle ?? tab.generatedLabel ?? null,
-              quickCommandLabel: terminalTab.quickCommandLabel ?? tab.quickCommandLabel ?? null,
-              customTitle: tab.customLabel ?? terminalTab.customTitle,
-              color: tab.color ?? terminalTab.color
-            }
-          ]
-        }),
-    [generatedTabTitlesEnabled, groupTabs, terminalTabById]
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === focusedGroupId) ?? groups[0] ?? null,
+    [groups, focusedGroupId]
   )
-  const browserItems = useMemo(
+  const activeTab = useMemo(() => {
+    if (!activeGroup) {
+      return null
+    }
+    return unifiedTabs.find((tab) => tab.id === activeGroup.activeTabId) ?? null
+  }, [activeGroup, unifiedTabs])
+
+  // Why: restored sessions can retain unified tabs whose backing terminal,
+  // browser, or editor record is gone. Basing visibility on the raw unified
+  // tab count would keep the empty landing hidden and paint a blank surface,
+  // so derive the renderable set from tabs that still have a backing record.
+  const floatingTerminalTabs = tabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_TERMINAL_TABS
+  const floatingBrowserTabs =
+    browserTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? EMPTY_BROWSER_TABS
+  const renderableUnifiedTabs = useMemo(
     () =>
-      groupTabs
-        .filter((tab) => tab.contentType === 'browser')
-        .map((tab) => {
-          const browserTab = browserTabs.find((candidate) => candidate.id === tab.entityId)
-          return browserTab ? { ...browserTab, tabId: tab.id } : null
-        })
-        .filter((tab): tab is BrowserTabState & { tabId: string } => tab !== null),
-    [browserTabs, groupTabs]
-  )
-  const editorItems = useMemo(
-    () =>
-      groupTabs
-        .filter(
-          (tab) =>
-            tab.contentType !== 'terminal' &&
-            tab.contentType !== 'browser' &&
-            tab.contentType !== 'simulator'
-        )
-        .map((tab) => {
-          const file = floatingFiles.find((candidate) => candidate.id === tab.entityId)
-          return file ? { ...file, tabId: tab.id } : null
-        })
-        .filter((file): file is OpenFile & { tabId: string } => file !== null),
-    [floatingFiles, groupTabs]
-  )
-  const simulatorItems = useMemo(
-    () => groupTabs.filter((tab) => tab.contentType === 'simulator'),
-    [groupTabs]
-  )
-  // Why: restored sessions can retain unified tabs whose backing records are
-  // gone; the empty landing should follow what the user can see.
-  const hasVisibleFloatingTabs =
-    terminalItems.length > 0 ||
-    browserItems.length > 0 ||
-    editorItems.length > 0 ||
-    simulatorItems.length > 0
-  const visibleFloatingItemCount =
-    terminalItems.length + browserItems.length + editorItems.length + simulatorItems.length
-  const activeClosableTab = hasVisibleFloatingTabs ? activeTab : null
-  const tabBarOrder = useMemo(
-    () =>
-      (activeGroup?.tabOrder ?? []).map((tabId) => {
-        const tab = groupTabs.find((candidate) => candidate.id === tabId)
-        return tab?.contentType === 'terminal' || tab?.contentType === 'browser'
-          ? tab.entityId
-          : tabId
-      }),
-    [activeGroup, groupTabs]
-  )
-  const visibleFloatingTabOrder = useMemo(
-    () =>
-      tabBarOrder.filter((visibleId) => {
-        const tab = resolveGroupTabFromVisibleId(groupTabs, visibleId)
-        if (!tab) {
-          return false
-        }
+      unifiedTabs.filter((tab) => {
         if (tab.contentType === 'terminal') {
-          return terminalItems.some((item) => item.unifiedTabId === tab.id)
+          return floatingTerminalTabs.some((candidate) => candidate.id === tab.entityId)
         }
         if (tab.contentType === 'browser') {
-          return browserItems.some((item) => item.tabId === tab.id)
+          return floatingBrowserTabs.some((candidate) => candidate.id === tab.entityId)
         }
         if (tab.contentType === 'simulator') {
-          return simulatorItems.some((item) => item.id === tab.id)
+          return true
         }
-        return editorItems.some((item) => item.tabId === tab.id)
+        // Why: mirror reconcileWorktreeTabModel — an open file with the same id
+        // in another worktree must not make a stale floating editor tab look
+        // renderable, so scope the match to the floating worktree.
+        return openFiles.some(
+          (file) => file.id === tab.entityId && file.worktreeId === FLOATING_TERMINAL_WORKTREE_ID
+        )
       }),
-    [browserItems, editorItems, groupTabs, simulatorItems, tabBarOrder, terminalItems]
+    [unifiedTabs, floatingTerminalTabs, floatingBrowserTabs, openFiles]
   )
-  const activeBrowserTab = activeBrowserId
-    ? (browserTabs.find((tab) => tab.id === activeBrowserId) ?? null)
-    : null
-  const activeEditorFile = activeEditorFileId
-    ? (floatingFiles.find((file) => file.id === activeEditorFileId) ?? null)
-    : null
+  const renderableTabIds = useMemo(
+    () => new Set(renderableUnifiedTabs.map((tab) => tab.id)),
+    [renderableUnifiedTabs]
+  )
+  const hasVisibleFloatingTabs = renderableUnifiedTabs.length > 0
+  const visibleFloatingItemCount = renderableUnifiedTabs.length
+  // Why: the active/group tab order can still reference a stale tab whose
+  // backing record is gone. Resolve the active tab and selection order against
+  // the renderable set so close/rename/select-by-index never target a tab the
+  // surface does not paint.
+  const renderableActiveTab =
+    activeTab && renderableTabIds.has(activeTab.id) ? activeTab : (renderableUnifiedTabs[0] ?? null)
+  const activeClosableTab = renderableActiveTab
+
+  const visibleFloatingTabOrder = useMemo(
+    () => (activeGroup?.tabOrder ?? []).filter((tabId) => renderableTabIds.has(tabId)),
+    [activeGroup, renderableTabIds]
+  )
+
   const activeTabType =
-    activeTab?.contentType === 'browser'
+    renderableActiveTab?.contentType === 'browser'
       ? 'browser'
-      : activeTab?.contentType === 'terminal'
+      : renderableActiveTab?.contentType === 'terminal'
         ? 'terminal'
-        : activeTab?.contentType === 'simulator'
+        : renderableActiveTab?.contentType === 'simulator'
           ? 'simulator'
           : 'editor'
+
+  const activeTerminalId =
+    renderableActiveTab?.contentType === 'terminal' ? renderableActiveTab.entityId : null
 
   useContextualTour('floating-workspace', open, 'floating_workspace_visible', {
     recordFeatureInteraction: tourInteractionSnapshot?.recordFeatureInteractionForTour ?? false,
@@ -472,6 +400,49 @@ export function FloatingTerminalPanel({
     },
     [advanceEditorCloseQueue]
   )
+
+  // Why: dirty editor closes triggered from the floating panel's split-group
+  // tab strip (TabGroupPanel -> useTabGroupWorkspaceModel) dispatch the shared
+  // request-file-close event. Terminal.tsx ignores floating-worktree events, so
+  // the floating panel must route them through its own local save-dialog queue.
+  useEffect(() => {
+    const onRequestEditorClose = (event: Event): void => {
+      const detail = (event as CustomEvent<EditorRequestFileCloseDetail>).detail
+      if (!detail?.fileId || detail.worktreeId !== FLOATING_TERMINAL_WORKTREE_ID) {
+        return
+      }
+      queueEditorCloseRequests([detail.fileId])
+    }
+    window.addEventListener(
+      ORCA_EDITOR_REQUEST_FILE_CLOSE_EVENT,
+      onRequestEditorClose as EventListener
+    )
+    return () =>
+      window.removeEventListener(
+        ORCA_EDITOR_REQUEST_FILE_CLOSE_EVENT,
+        onRequestEditorClose as EventListener
+      )
+  }, [queueEditorCloseRequests])
+
+  // Why: restored sessions can leave the floating worktree with unified tabs
+  // whose backing terminal/editor/browser record is gone. The delegated
+  // TabGroupPanel renders straight from the unified-tab model, so prune the
+  // stale tabs (and repair the active tab/group/layout) when the panel opens or
+  // its backing collections change — otherwise a mixed stale+valid state hands
+  // a stale active tab and tab order to the split layout.
+  useLayoutEffect(() => {
+    if (!open) {
+      return
+    }
+    reconcileWorktreeTabModel(FLOATING_TERMINAL_WORKTREE_ID)
+  }, [
+    open,
+    reconcileWorktreeTabModel,
+    unifiedTabs,
+    floatingTerminalTabs,
+    floatingBrowserTabs,
+    openFiles
+  ])
 
   useEffect(() => {
     saveDialogFileIdRef.current = saveDialogFileId
@@ -652,8 +623,8 @@ export function FloatingTerminalPanel({
   }, [refreshOrchestrationSetupVisibility])
 
   const activateFloatingItem = useCallback(
-    (visibleId: string) => {
-      const item = resolveGroupTabFromVisibleId(groupTabs, visibleId)
+    (tabId: string) => {
+      const item = unifiedTabs.find((t) => t.id === tabId)
       if (!item) {
         return
       }
@@ -689,7 +660,7 @@ export function FloatingTerminalPanel({
         }
       }
     },
-    [activateTab, groupTabs, setActiveTab]
+    [activateTab, unifiedTabs, setActiveTab]
   )
 
   const createFloatingTerminalTab = useCallback(
@@ -795,16 +766,11 @@ export function FloatingTerminalPanel({
   }, [activeGroup, openFile])
 
   const closeFloatingItems = useCallback(
-    (visibleIds: string[]) => {
+    (tabIds: string[]) => {
       const state = useAppStore.getState()
-      const currentGroupTabs = activeGroup
-        ? (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).filter(
-            (tab) => tab.groupId === activeGroup.id
-          )
-        : (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? [])
-      const items = visibleIds
-        .map((visibleId) => resolveGroupTabFromVisibleId(currentGroupTabs, visibleId))
-        .filter((item): item is Tab => item !== null && !item.isPinned)
+      const items = tabIds
+        .map((tabId) => unifiedTabs.find((t) => t.id === tabId))
+        .filter((item): item is Tab => item !== undefined && item !== null && !item.isPinned)
       if (items.length === 0) {
         return
       }
@@ -815,8 +781,6 @@ export function FloatingTerminalPanel({
           (item.contentType === 'terminal' || item.contentType === 'browser') &&
           isWebRuntimeSessionActive(runtimeEnvironmentId)
         ) {
-          // Why: paired web clients mirror host-owned tabs; ask the runtime to
-          // close the host tab instead of deleting the local mirror directly.
           void closeWebRuntimeSessionTab({
             worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
             tabId: item.contentType === 'browser' ? item.id : item.entityId,
@@ -829,6 +793,7 @@ export function FloatingTerminalPanel({
         } else if (item.contentType === 'browser') {
           destroyWorkspaceWebviews(state.browserPagesByWorkspace, item.entityId)
           closeBrowserTab(item.entityId)
+          closeUnifiedTab(item.id)
         } else if (item.contentType === 'simulator') {
           closeUnifiedTab(item.id)
         } else {
@@ -844,88 +809,15 @@ export function FloatingTerminalPanel({
         queueEditorCloseRequests(dirtyEditorFileIds)
       }
     },
-    [activeGroup, closeBrowserTab, closeFile, closeTab, closeUnifiedTab, queueEditorCloseRequests]
+    [closeBrowserTab, closeFile, closeTab, closeUnifiedTab, queueEditorCloseRequests, unifiedTabs]
   )
 
   const closeFloatingItem = useCallback(
-    (visibleId: string) => {
-      closeFloatingItems([visibleId])
+    (tabId: string) => {
+      closeFloatingItems([tabId])
     },
     [closeFloatingItems]
   )
-
-  const closeOthers = useCallback(
-    (visibleId: string) => {
-      const state = useAppStore.getState()
-      const currentGroupTabs = activeGroup
-        ? (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).filter(
-            (tab) => tab.groupId === activeGroup.id
-          )
-        : (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? [])
-      const item = resolveGroupTabFromVisibleId(currentGroupTabs, visibleId)
-      if (!item) {
-        return
-      }
-      closeFloatingItems(
-        currentGroupTabs.filter((tab) => tab.id !== item.id && !tab.isPinned).map((tab) => tab.id)
-      )
-    },
-    [activeGroup, closeFloatingItems]
-  )
-
-  const closeToRight = useCallback(
-    (visibleId: string) => {
-      const state = useAppStore.getState()
-      const currentGroup = activeGroup
-        ? state.groupsByWorktree[FLOATING_TERMINAL_WORKTREE_ID]?.find(
-            (group) => group.id === activeGroup.id
-          )
-        : null
-      const currentGroupTabs = currentGroup
-        ? (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).filter(
-            (tab) => tab.groupId === currentGroup.id
-          )
-        : (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? [])
-      const item = resolveGroupTabFromVisibleId(currentGroupTabs, visibleId)
-      if (!item || !currentGroup) {
-        return
-      }
-      const index = currentGroup.tabOrder.indexOf(item.id)
-      if (index === -1) {
-        return
-      }
-      const tabById = new Map(currentGroupTabs.map((tab) => [tab.id, tab]))
-      closeFloatingItems(
-        currentGroup.tabOrder.slice(index + 1).filter((tabId) => {
-          const tab = tabById.get(tabId)
-          return tab ? !tab.isPinned : false
-        })
-      )
-    },
-    [activeGroup, closeFloatingItems]
-  )
-
-  const closeAllFiles = useCallback(() => {
-    const state = useAppStore.getState()
-    const currentGroupTabs = activeGroup
-      ? (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []).filter(
-          (tab) => tab.groupId === activeGroup.id
-        )
-      : (state.unifiedTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? [])
-    closeFloatingItems(
-      currentGroupTabs
-        .filter(
-          (tab) =>
-            tab.contentType !== 'terminal' &&
-            tab.contentType !== 'browser' &&
-            // Why: simulator tabs are not files; "Close All Files" must leave
-            // the Mobile Emulator open like terminal/browser tabs do.
-            tab.contentType !== 'simulator' &&
-            !tab.isPinned
-        )
-        .map((tab) => tab.id)
-    )
-  }, [activeGroup, closeFloatingItems])
 
   const focusPanelForShortcuts = useCallback((preserveExistingPanelFocus = true) => {
     const active = document.activeElement
@@ -1105,9 +997,9 @@ export function FloatingTerminalPanel({
         }
         return true
       }
-      if (matchesFloatingChrome('tab.rename') && activeTab) {
+      if (matchesFloatingChrome('tab.rename') && renderableActiveTab) {
         consume()
-        state.setRenamingTabId(activeTab.id)
+        state.setRenamingTabId(renderableActiveTab.id)
         return true
       }
       const selectedTabIndex = matchKeybindingDigitIndex(
@@ -1140,7 +1032,7 @@ export function FloatingTerminalPanel({
     },
     [
       activeClosableTab,
-      activeTab,
+      renderableActiveTab,
       activateFloatingItem,
       closeFloatingItem,
       createFloatingBrowserTab,
@@ -1371,6 +1263,7 @@ export function FloatingTerminalPanel({
 
   useEffect(() => {
     if (!open || typeof document === 'undefined') {
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
       return
     }
 
@@ -1391,21 +1284,41 @@ export function FloatingTerminalPanel({
       const panel = panelRef.current
       const active = document.activeElement
       if (!panel || !(active instanceof HTMLElement) || !panel.contains(active)) {
+        shouldRestorePanelFocusAfterWindowFocusRef.current = false
         return
       }
+      shouldRestorePanelFocusAfterWindowFocusRef.current = true
       // Why: browser webviews focus out-of-process and do not emit renderer
       // pointerdown events, so release floating ownership on renderer blur too.
       setFloatingTerminalInputFocusedInMain(false)
       active.blur()
     }
+    const handleWindowFocus = (): void => {
+      if (!shouldRestorePanelFocusAfterWindowFocusRef.current) {
+        return
+      }
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
+      const panel = panelRef.current
+      const active = document.activeElement
+      if (!panel || (active instanceof HTMLElement && panel.contains(active))) {
+        return
+      }
+      // Why: macOS app switching can blur the floating panel without a click.
+      // Restore panel ownership so Cmd/Ctrl+W cannot fall through to main tabs.
+      focusPanelForShortcuts(false)
+    }
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true)
     window.addEventListener('blur', handleWindowBlur)
+    window.addEventListener('focus', handleWindowFocus)
     return () => {
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
       document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
       window.removeEventListener('blur', handleWindowBlur)
+      window.removeEventListener('focus', handleWindowFocus)
     }
-  }, [open])
+  }, [focusPanelForShortcuts, open])
+
   const handleDragStart = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (maximized) {
       return
@@ -1505,7 +1418,7 @@ export function FloatingTerminalPanel({
     >
       <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-lg border border-black/14 bg-card dark:border-white/14">
         <div
-          className="flex h-9 shrink-0 cursor-grab items-center border-b border-border bg-[var(--bg-titlebar,var(--card))] active:cursor-grabbing"
+          className="flex h-9 shrink-0 cursor-grab items-center border-b border-border bg-[var(--bg-titlebar,var(--card))] active:cursor-grabbing px-3 justify-between"
           data-floating-terminal-shortcut-surface
           onPointerDown={handleDragStart}
           onPointerMove={handleDragMove}
@@ -1513,68 +1426,9 @@ export function FloatingTerminalPanel({
           onPointerCancel={handleDragEnd}
           onDoubleClick={handleTitlebarDoubleClick}
         >
-          <div className="flex h-full min-w-0 flex-1">
-            <TabBar
-              tabs={terminalItems}
-              activeTabId={activeTerminalId}
-              worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
-              expandedPaneByTabId={expandedPaneByTabId}
-              onActivate={activateFloatingItem}
-              onClose={closeFloatingItem}
-              onCloseOthers={closeOthers}
-              onCloseToRight={closeToRight}
-              onNewTerminalTab={() => createFloatingTerminalTab()}
-              onNewTerminalWithShell={createFloatingTerminalTab}
-              onNewBrowserTab={createFloatingBrowserTab}
-              onNewFileTab={createFloatingMarkdownTab}
-              onOpenFileTab={openFloatingMarkdownTab}
-              newTabMenuOrder="markdown-first"
-              onSetCustomTitle={setTabCustomTitle}
-              onSetTabColor={setTabColor}
-              onTogglePaneExpand={(tabId) =>
-                setTabPaneExpanded(tabId, expandedPaneByTabId[tabId] !== true)
-              }
-              editorFiles={editorItems}
-              browserTabs={browserItems}
-              activeFileId={activeEditorUnifiedId}
-              activeBrowserTabId={activeBrowserId}
-              activeSimulatorTabId={activeTab?.contentType === 'simulator' ? activeTab.id : null}
-              activeTabType={activeTabType}
-              onActivateFile={activateFloatingItem}
-              onCloseFile={closeFloatingItem}
-              onActivateBrowserTab={activateFloatingItem}
-              onCloseBrowserTab={closeFloatingItem}
-              onDuplicateBrowserTab={(browserTabId) => {
-                void (async () => {
-                  const source = browserTabs.find((tab) => tab.id === browserTabId)
-                  if (!source) {
-                    return
-                  }
-                  if (
-                    await createWebRuntimeSessionBrowserTab({
-                      worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
-                      url: source.url,
-                      profileId: source.sessionProfileId,
-                      targetGroupId: activeGroup?.id,
-                      selectWorktree: false
-                    })
-                  ) {
-                    return
-                  }
-                  createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, source.url, {
-                    title: source.title,
-                    sessionProfileId: source.sessionProfileId,
-                    targetGroupId: activeGroup?.id
-                  })
-                })()
-              }}
-              onCloseAllFiles={closeAllFiles}
-              onMakePreviewFilePermanent={makePreviewFilePermanent}
-              onPinFile={pinFile}
-              tabBarOrder={tabBarOrder}
-              tabStripChrome="floating-panel"
-            />
-          </div>
+          <span className="text-xs font-medium text-muted-foreground select-none">
+            {translate('auto.components.floating.terminal.FloatingTerminalPanel.title', 'Terminal')}
+          </span>
           <FloatingTerminalWindowControls
             maximized={maximized}
             onToggleMaximized={toggleMaximized}
@@ -1588,79 +1442,32 @@ export function FloatingTerminalPanel({
             hasVisibleFloatingTabs ? 'floating-workspace-surface' : undefined
           }
         >
-          {cwd
-            ? tabs.map((tab) => {
-                const isActive = tab.id === activeTerminalId
-                return (
-                  <div
-                    key={`${tab.id}-${tab.generation ?? 0}`}
-                    className={isActive ? 'absolute inset-0' : 'absolute inset-0 hidden'}
-                    aria-hidden={!isActive}
-                  >
-                    <TerminalPane
-                      tabId={tab.id}
-                      worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
-                      cwd={cwd}
-                      isActive={isActive}
-                      // Why: the closed panel is only CSS-hidden, so gate
-                      // visibility on `open` too. This routes the floating
-                      // terminal through the standard hidden-terminal
-                      // suspend/resume path: no live WebGL context (or glyph
-                      // atlas to corrupt) while hidden, and the resume on
-                      // reopen rebuilds the renderer from scratch.
-                      isVisible={isActive && open}
-                      onPtyExit={() => closeTab(tab.id)}
-                      onCloseTab={() => closeFloatingItem(tab.id)}
-                    />
-                  </div>
-                )
-              })
-            : null}
-          {browserTabs.map((tab) => {
-            const isActive = tab.id === activeBrowserTab?.id
-            return (
-              <div
-                key={tab.id}
-                className={isActive ? 'absolute inset-0 flex' : 'absolute inset-0 hidden'}
-                aria-hidden={!isActive}
-              >
-                <BrowserPane browserTab={tab} isActive={open && isActive} />
-              </div>
-            )
-          })}
-          {simulatorItems.map((tab) => {
-            const isActive = tab.id === activeTab?.id
-            return (
-              <div
-                key={tab.id}
-                className={isActive ? 'absolute inset-0 flex' : 'absolute inset-0 hidden'}
-                aria-hidden={!isActive}
-              >
-                <EmulatorPane tab={tab} worktreeId={tab.worktreeId} isActive={open && isActive} />
-              </div>
-            )
-          })}
-          {activeEditorFile ? (
-            <div className="absolute inset-0 flex min-h-0 min-w-0">
-              <Suspense
-                fallback={
-                  <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    {translate(
-                      'auto.components.floating.terminal.FloatingTerminalPanel.d6b563ae24',
-                      'Loading editor...'
-                    )}
-                  </div>
-                }
-              >
-                {/* Why: floating workspace markdown is scratch/local context,
-                    not a repo review surface that should expose agent notes. */}
-                <EditorPanel
-                  activeFileId={activeEditorFile.id}
-                  activeViewStateId={activeEditorUnifiedId}
-                  markdownAnnotationsEnabled={false}
-                />
-              </Suspense>
-            </div>
+          {hasVisibleFloatingTabs && layout ? (
+            <TabGroupSplitLayout
+              layout={layout}
+              worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
+              focusedGroupId={focusedGroupId}
+              isWorktreeActive={open}
+            />
+          ) : null}
+          {hasVisibleFloatingTabs && cwd ? (
+            <TerminalPaneOverlayLayer
+              worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
+              worktreePath={cwd}
+              isWorktreeActive={open}
+            />
+          ) : null}
+          {hasVisibleFloatingTabs ? (
+            <>
+              <BrowserPaneOverlayLayer
+                worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
+                isWorktreeActive={open}
+              />
+              <EmulatorPaneOverlayLayer
+                worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
+                isWorktreeActive={open}
+              />
+            </>
           ) : null}
           {!hasVisibleFloatingTabs ? (
             <FloatingTerminalEmptyState
