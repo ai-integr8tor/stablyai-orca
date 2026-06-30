@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
     coreTotal: 5,
     stepDone: {}
   },
-  menuItems: [] as { label: string; onSelect?: () => void }[]
+  menuItems: [] as { label: string; onSelect?: (event?: Event) => void }[]
 }))
 
 let updateStatus = { state: 'idle' } as const
@@ -55,7 +55,13 @@ vi.mock('../setup-guide/SetupGuideProgressRing', () => ({
 vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DropdownMenuItem: ({ children, onSelect }: { children: ReactNode; onSelect?: () => void }) => {
+  DropdownMenuItem: ({
+    children,
+    onSelect
+  }: {
+    children: ReactNode
+    onSelect?: (event?: Event) => void
+  }) => {
     const textFromNode = (node: ReactNode): string => {
       if (typeof node === 'string' || typeof node === 'number') {
         return String(node)
@@ -70,7 +76,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
     }
     mocks.menuItems.push({ label: textFromNode(children), onSelect })
     return (
-      <button data-testid="menu-item" onClick={onSelect}>
+      <button data-testid="menu-item" onClick={(event) => onSelect?.(event.nativeEvent)}>
         {children}
       </button>
     )

@@ -145,20 +145,23 @@ export function buildSettingsNavigationMetadata({
       searchEntries: getOrchestrationPaneSearchEntries(),
       group: 'capabilities'
     },
-    {
-      id: 'skills',
-      title: translate('auto.hooks.useSettingsNavigationMetadata.skillsTitle', 'Skills'),
-      description: translate(
-        'auto.hooks.useSettingsNavigationMetadata.skillsDescription',
-        'Browse local agent skills by provider and source.'
-      ),
-      icon: BookOpen,
-      searchEntries: getSkillsPaneSearchEntries(),
-      group: 'capabilities',
-      badge: translate('auto.hooks.useSettingsNavigationMetadata.skillsBeta', 'Beta')
-    },
+    // Why: skill discovery scans local skill directories via window.api.skills,
+    // which the web client cannot do — gate it like the other desktop-only panes
+    // so web users don't navigate into a dead Skills pane.
     ...(showDesktopOnlySettings
       ? [
+          {
+            id: 'skills',
+            title: translate('auto.hooks.useSettingsNavigationMetadata.skillsTitle', 'Skills'),
+            description: translate(
+              'auto.hooks.useSettingsNavigationMetadata.skillsDescription',
+              'Browse local agent skills by provider and source.'
+            ),
+            icon: BookOpen,
+            searchEntries: getSkillsPaneSearchEntries(),
+            group: 'capabilities',
+            badge: translate('auto.hooks.useSettingsNavigationMetadata.skillsBeta', 'Beta')
+          },
           {
             id: 'computer-use',
             title: translate('auto.hooks.useSettingsNavigationMetadata.b35e92364b', 'Computer Use'),

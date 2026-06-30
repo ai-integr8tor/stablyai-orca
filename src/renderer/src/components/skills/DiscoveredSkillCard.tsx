@@ -60,7 +60,12 @@ function pluralizeSkillFiles(count: number): string {
 function ProviderGlyph({ providers }: { providers: readonly SkillProvider[] }): React.JSX.Element {
   const primaryProvider = providers[0] ?? 'agent-skills'
   const Icon = primaryProvider === 'codex' ? Code2 : primaryProvider === 'claude' ? Sparkles : Bot
-  const label = providers.map((provider) => skillProviderLabels[provider]).join(', ')
+  // Why: fall the label back to the primary provider too, so an empty providers
+  // list does not render an empty aria-label / tooltip alongside the glyph.
+  const label =
+    providers.length > 0
+      ? providers.map((provider) => skillProviderLabels[provider]).join(', ')
+      : skillProviderLabels[primaryProvider]
 
   return (
     <Tooltip>

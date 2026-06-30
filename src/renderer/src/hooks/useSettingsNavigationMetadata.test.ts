@@ -39,11 +39,10 @@ describe('settings navigation metadata', () => {
   })
 
   it('puts web-safe AI capability panes at the top while hiding desktop-only panes', () => {
-    expect(ids({ isWebClient: true }).slice(0, 8)).toEqual([
+    expect(ids({ isWebClient: true }).slice(0, 7)).toEqual([
       'agents',
       'accounts',
       'orchestration',
-      'skills',
       'setup-guide',
       'general',
       'integrations',
@@ -54,6 +53,7 @@ describe('settings navigation metadata', () => {
   it('keeps desktop-only Settings panes out of web metadata', () => {
     const webIds = ids({ isWebClient: true })
 
+    expect(webIds).not.toContain('skills')
     expect(webIds).not.toContain('browser')
     expect(webIds).not.toContain('ssh')
     expect(webIds).not.toContain('mobile')
