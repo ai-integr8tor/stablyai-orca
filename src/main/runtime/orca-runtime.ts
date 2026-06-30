@@ -39,6 +39,7 @@ import {
   getClonePathComparisonKey
 } from '../git/repo-clone-path'
 import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-message'
+import { throwRefreshBaseRefError } from '../../shared/worktree-remote-error'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -12757,9 +12758,14 @@ export class OrcaRuntimeService {
         ...localWorktreeGitOptionArgs
       )
       if (!refreshResult.ok) {
-        throw new Error(
-          `Could not refresh base ref "${baseBranch}" from "${remoteTrackingBase.remote}". Check your network and try again.`
-        )
+        // Why: legacy runtime path mirrors worktree-remote so both surfaces
+        // emit identical [code] messages and renderer i18n keys apply uniformly.
+        throwRefreshBaseRefError({
+          tag: 'refresh-base-ref-runtime',
+          baseBranch,
+          remote: remoteTrackingBase.remote,
+          cause: new Error(`refresh failed: ${refreshResult.errorKind}`)
+        })
       }
       if (
         !hadLocalBaseRef &&

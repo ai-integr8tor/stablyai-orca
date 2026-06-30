@@ -52,6 +52,7 @@ import {
 } from '../hooks'
 import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
+import { throwRefreshBaseRefError } from '../../shared/worktree-remote-error'
 import { getActiveMultiplexer } from './ssh'
 import type { SshGitProvider } from '../providers/ssh-git-provider'
 import { TUI_AGENT_CONFIG, isTuiAgent } from '../../shared/tui-agent-config'
@@ -1575,10 +1576,16 @@ export async function createRemoteWorktree(
   if (remoteTrackingBase) {
     try {
       await refreshRemoteTrackingBaseForWorktreeCreate(provider, repo, remoteTrackingBase)
-    } catch {
-      throw new Error(
-        `Could not refresh base ref "${baseBranch}" from "${remoteTrackingBase.remote}". Check your network and try again.`
-      )
+    } catch (err) {
+      // Why: the underlying git fetch failure carries the real cause (DNS,
+      // SSH, missing ref, repo forbidden). Surface it through the shared
+      // classifier so the renderer can show a localized, actionable message.
+      throwRefreshBaseRefError({
+        tag: 'refresh-base-ref',
+        baseBranch,
+        remote: remoteTrackingBase.remote,
+        cause: err
+      })
     }
   } else if (!(await hasRemoteCommitObject(provider, repo.path, baseBranch))) {
     // Why: local or otherwise non-remote-tracking bases preserve legacy
@@ -2139,9 +2146,16 @@ export async function createLocalWorktree(
     await timing.time('refresh_base_ref', async () => {
       const result = await remoteTrackingRefresh.promise
       if (!result.ok) {
-        throw new Error(
-          `Could not refresh base ref "${baseBranch}" from "${remoteTrackingRefresh.base.remote}". Check your network and try again.`
-        )
+        // Why: precheck and create share the same diagnostic format so the
+        // renderer renders a single localized message regardless of which path
+        // surfaced the failure. The upstream `result` only carries errorKind,
+        // so synthesize an Error with the kind and let the classifier map it.
+        throwRefreshBaseRefError({
+          tag: 'refresh-base-ref-precheck',
+          baseBranch,
+          remote: remoteTrackingRefresh.base.remote,
+          cause: new Error(`refresh failed: ${result.errorKind}`)
+        })
       }
       if (
         !remoteTrackingRefresh.hadLocalBaseRef &&

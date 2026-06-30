@@ -2208,7 +2208,15 @@
             "ed2a664f8b": "No se pudo crear el árbol de trabajo",
             "a3346fc6ed": "Cancelar la creación del árbol de trabajo",
             "532aea14ce": "Cancelar",
-            "767951265d": "Algo salió mal al crear el árbol de trabajo."
+            "767951265d": "Algo salió mal al crear el árbol de trabajo.",
+            "errors": {
+              "network": "Error de red. Verifica tu conexión e inténtalo de nuevo.",
+              "auth": "Falló la autenticación remota. Verifica tus credenciales o clave SSH.",
+              "noUpstream": "La rama base seleccionada no tiene upstream. Elige otra base.",
+              "remoteRefMissing": "La rama base no existe en el remoto. Verifica el nombre o elige otra base.",
+              "remoteForbidden": "El repositorio remoto es inaccesible o está prohibido. Verifica la URL y tus permisos.",
+              "unknown": "{{message}}"
+            }
           }
         }
       },

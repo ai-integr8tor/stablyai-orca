@@ -4,6 +4,54 @@ import { useAppStore } from '@/store'
 import { retryBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import { getCreationProgressLabel } from '@/lib/pending-worktree-creation'
 import { translate } from '@/i18n/i18n'
+import { parseRefreshBaseRefErrorPrefix } from '../../../../shared/worktree-remote-error'
+
+/**
+ * i18n key prefix shared by the 5-class error messages emitted from main.
+ *
+ * Why: single source of truth for the i18n path so a panel rename
+ * doesn't require hunting through 5 locale files.
+ */
+const WORKTREE_PANEL_ERROR_KEY_PREFIX =
+  'auto.components.worktree.creation.WorktreeCreationPanel.errors' as const
+
+/**
+ * Map an `entry.error` string from main into the user-visible message
+ * shown inside the creation panel.
+ *
+ * Branches:
+ *  - empty input  → default "something went wrong" translation
+ *  - no `[code]` prefix → render the raw string verbatim
+ *  - `[unknown]` → render with the `errors.unknown` template, passing
+ *    the raw message through `{{message}}`
+ *  - known code   → look up `errors.<code>` and fall back to the raw
+ *    message via the i18n's fallback argument
+ *
+ * Why: extracting the IIFE keeps the JSX readable and makes each
+ * branch individually testable. `entry.error` is trusted main-process
+ * output; React's text-child escaping is the XSS guard.
+ */
+function resolveWorktreeCreationErrorMessage(
+  raw: string | undefined,
+  translate: (key: string, fallback: string, options?: Record<string, string>) => string
+): string {
+  if (!raw) {
+    return translate(
+      'auto.components.worktree.creation.WorktreeCreationPanel.767951265d',
+      'Something went wrong while creating the worktree.'
+    )
+  }
+  const parsed = parseRefreshBaseRefErrorPrefix(raw)
+  if (!parsed) {
+    return raw
+  }
+  if (parsed.code === 'unknown') {
+    return translate(`${WORKTREE_PANEL_ERROR_KEY_PREFIX}.unknown`, parsed.message, {
+      message: parsed.message
+    })
+  }
+  return translate(`${WORKTREE_PANEL_ERROR_KEY_PREFIX}.${parsed.code}`, parsed.message)
+}
 
 /**
  * In-frame creation state, shown in the workspace content area while a worktree
@@ -89,11 +137,7 @@ export default function WorktreeCreationPanel({
               )}
             </span>
             <span className="text-muted-foreground">
-              {entry.error ??
-                translate(
-                  'auto.components.worktree.creation.WorktreeCreationPanel.767951265d',
-                  'Something went wrong while creating the worktree.'
-                )}
+              {resolveWorktreeCreationErrorMessage(entry.error, translate)}
             </span>
             <button
               type="button"
