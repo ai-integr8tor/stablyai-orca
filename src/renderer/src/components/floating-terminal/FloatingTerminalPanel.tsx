@@ -10,7 +10,11 @@ import BrowserPane from '@/components/browser-pane/BrowserPane'
 import EmulatorPane from '@/components/emulator-pane/EmulatorPane'
 import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import TabBar from '@/components/tab-bar/TabBar'
+import TabDragPreview from '@/components/tab-bar/TabDragPreview'
+import { TabDragProvider } from '@/components/tab-group/tab-drag-context'
+import { useTabDragSplit } from '@/components/tab-group/useTabDragSplit'
 import { resolveGroupTabFromVisibleId } from '@/components/tab-group/tab-group-visible-id'
 import TerminalPane from '@/components/terminal-pane/TerminalPane'
 import { Button } from '@/components/ui/button'
@@ -121,8 +125,11 @@ type FloatingPanelShortcutInput = Partial<
 > &
   Pick<KeyboardEvent, 'target'> & { doubleTapModifier?: PhysicalModifierToken }
 
+// Why: every tab strip root (terminal/browser/markdown) carries data-tab-id.
+// Excluding it from the titlebar drag region lets dnd-kit own the pointer for
+// tab reordering instead of starting a floating-window move.
 const FLOATING_TERMINAL_NO_DRAG_SELECTOR =
-  'button,input,textarea,select,[role="menuitem"],[data-testid="sortable-tab"],[data-floating-terminal-no-drag]'
+  'button,input,textarea,select,[role="menuitem"],[data-tab-id],[data-testid="sortable-tab"],[data-floating-terminal-no-drag]'
 const FLOATING_TERMINAL_SHORTCUT_SURFACE_SELECTOR = '[data-floating-terminal-shortcut-surface]'
 
 type FloatingTerminalPanelBoundsState = {
@@ -131,8 +138,27 @@ type FloatingTerminalPanelBoundsState = {
   source: FloatingTerminalPanelBoundsSource
 }
 
+function resolveDragTargetElement(target: EventTarget): Element | null {
+  // Why: pointer targets can be SVG icons or text nodes nested inside a tab
+  // root, neither of which is an HTMLElement. Normalize any Node to its nearest
+  // Element (text nodes via parentElement) so closest() can match a
+  // [data-tab-id] ancestor. typeof guards keep this safe in non-DOM contexts.
+  if (typeof Element !== 'undefined' && target instanceof Element) {
+    return target
+  }
+  if (typeof Node !== 'undefined' && target instanceof Node) {
+    return target.parentElement
+  }
+  // Fallback for hosts/targets that duck-type the DOM (e.g. test doubles).
+  const candidate = target as { closest?: unknown; parentElement?: Element | null }
+  if (typeof candidate.closest === 'function') {
+    return candidate as unknown as Element
+  }
+  return candidate.parentElement ?? null
+}
+
 function isFloatingTerminalDragTarget(target: EventTarget): boolean {
-  return !(target instanceof HTMLElement && target.closest(FLOATING_TERMINAL_NO_DRAG_SELECTOR))
+  return !resolveDragTargetElement(target)?.closest(FLOATING_TERMINAL_NO_DRAG_SELECTOR)
 }
 
 function readInitialPanelBounds(): FloatingTerminalPanelBoundsState {
@@ -234,6 +260,7 @@ export function FloatingTerminalPanel({
   const pendingEditorCloseQueueRef = useRef<string[]>([])
   const saveDialogFileIdRef = useRef<string | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const shouldRestorePanelFocusAfterWindowFocusRef = useRef(false)
   const doubleTapDetectorRef = useRef<ModifierDoubleTapDetector | null>(null)
   if (!doubleTapDetectorRef.current) {
     doubleTapDetectorRef.current = new ModifierDoubleTapDetector()
@@ -265,6 +292,13 @@ export function FloatingTerminalPanel({
         : null),
     [groups, unifiedTabs]
   )
+  // Why: reuse the workspace tab drag/reorder engine so floating tabs reorder
+  // identically. The floating worktree renders no split-pane layout, so the
+  // hook's split-target resolution naturally returns null (no panel geometry)
+  // and only the same-group reorder path runs. enabled is gated on `open` so a
+  // hidden panel's pointer sensor uses an impossible activation distance,
+  // preventing drag activation while hidden.
+  const dragSplit = useTabDragSplit({ worktreeId: FLOATING_TERMINAL_WORKTREE_ID, enabled: open })
   const groupTabs = useMemo(
     () => (activeGroup ? unifiedTabs.filter((tab) => tab.groupId === activeGroup.id) : unifiedTabs),
     [activeGroup, unifiedTabs]
@@ -1371,6 +1405,7 @@ export function FloatingTerminalPanel({
 
   useEffect(() => {
     if (!open || typeof document === 'undefined') {
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
       return
     }
 
@@ -1391,21 +1426,41 @@ export function FloatingTerminalPanel({
       const panel = panelRef.current
       const active = document.activeElement
       if (!panel || !(active instanceof HTMLElement) || !panel.contains(active)) {
+        shouldRestorePanelFocusAfterWindowFocusRef.current = false
         return
       }
+      shouldRestorePanelFocusAfterWindowFocusRef.current = true
       // Why: browser webviews focus out-of-process and do not emit renderer
       // pointerdown events, so release floating ownership on renderer blur too.
       setFloatingTerminalInputFocusedInMain(false)
       active.blur()
     }
+    const handleWindowFocus = (): void => {
+      if (!shouldRestorePanelFocusAfterWindowFocusRef.current) {
+        return
+      }
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
+      const panel = panelRef.current
+      const active = document.activeElement
+      if (!panel || (active instanceof HTMLElement && panel.contains(active))) {
+        return
+      }
+      // Why: macOS app switching can blur the floating panel without a click.
+      // Restore panel ownership so Cmd/Ctrl+W cannot fall through to main tabs.
+      focusPanelForShortcuts(false)
+    }
 
     document.addEventListener('pointerdown', handleOutsidePointerDown, true)
     window.addEventListener('blur', handleWindowBlur)
+    window.addEventListener('focus', handleWindowFocus)
     return () => {
+      shouldRestorePanelFocusAfterWindowFocusRef.current = false
       document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
       window.removeEventListener('blur', handleWindowBlur)
+      window.removeEventListener('focus', handleWindowFocus)
     }
-  }, [open])
+  }, [focusPanelForShortcuts, open])
+
   const handleDragStart = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (maximized) {
       return
@@ -1513,68 +1568,95 @@ export function FloatingTerminalPanel({
           onPointerCancel={handleDragEnd}
           onDoubleClick={handleTitlebarDoubleClick}
         >
-          <div className="flex h-full min-w-0 flex-1">
-            <TabBar
-              tabs={terminalItems}
-              activeTabId={activeTerminalId}
-              worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
-              expandedPaneByTabId={expandedPaneByTabId}
-              onActivate={activateFloatingItem}
-              onClose={closeFloatingItem}
-              onCloseOthers={closeOthers}
-              onCloseToRight={closeToRight}
-              onNewTerminalTab={() => createFloatingTerminalTab()}
-              onNewTerminalWithShell={createFloatingTerminalTab}
-              onNewBrowserTab={createFloatingBrowserTab}
-              onNewFileTab={createFloatingMarkdownTab}
-              onOpenFileTab={openFloatingMarkdownTab}
-              newTabMenuOrder="markdown-first"
-              onSetCustomTitle={setTabCustomTitle}
-              onSetTabColor={setTabColor}
-              onTogglePaneExpand={(tabId) =>
-                setTabPaneExpanded(tabId, expandedPaneByTabId[tabId] !== true)
-              }
-              editorFiles={editorItems}
-              browserTabs={browserItems}
-              activeFileId={activeEditorUnifiedId}
-              activeBrowserTabId={activeBrowserId}
-              activeSimulatorTabId={activeTab?.contentType === 'simulator' ? activeTab.id : null}
-              activeTabType={activeTabType}
-              onActivateFile={activateFloatingItem}
-              onCloseFile={closeFloatingItem}
-              onActivateBrowserTab={activateFloatingItem}
-              onCloseBrowserTab={closeFloatingItem}
-              onDuplicateBrowserTab={(browserTabId) => {
-                void (async () => {
-                  const source = browserTabs.find((tab) => tab.id === browserTabId)
-                  if (!source) {
-                    return
+          <TabDragProvider
+            isTabDragActive={dragSplit.activeDrag !== null}
+            isTabDragActiveRef={dragSplit.isTabDragActiveRef}
+          >
+            <DndContext
+              sensors={dragSplit.sensors}
+              collisionDetection={dragSplit.collisionDetection}
+              onDragStart={dragSplit.onDragStart}
+              onDragMove={dragSplit.onDragMove}
+              onDragOver={dragSplit.onDragOver}
+              onDragEnd={dragSplit.onDragEnd}
+              onDragCancel={dragSplit.onDragCancel}
+              // Why: the strip fits the panel width, so dnd-kit edge autoscroll
+              // is unnecessary and would fight the reorder. Matches the main
+              // workspace layout (see TabGroupSplitLayout).
+              autoScroll={false}
+            >
+              <div ref={dragSplit.setDragRootNode} className="flex h-full min-w-0 flex-1">
+                <TabBar
+                  tabs={terminalItems}
+                  activeTabId={activeTerminalId}
+                  worktreeId={FLOATING_TERMINAL_WORKTREE_ID}
+                  expandedPaneByTabId={expandedPaneByTabId}
+                  onActivate={activateFloatingItem}
+                  onClose={closeFloatingItem}
+                  onCloseOthers={closeOthers}
+                  onCloseToRight={closeToRight}
+                  onNewTerminalTab={() => createFloatingTerminalTab()}
+                  onNewTerminalWithShell={createFloatingTerminalTab}
+                  onNewBrowserTab={createFloatingBrowserTab}
+                  onNewFileTab={createFloatingMarkdownTab}
+                  onOpenFileTab={openFloatingMarkdownTab}
+                  newTabMenuOrder="markdown-first"
+                  onSetCustomTitle={setTabCustomTitle}
+                  onSetTabColor={setTabColor}
+                  onTogglePaneExpand={(tabId) =>
+                    setTabPaneExpanded(tabId, expandedPaneByTabId[tabId] !== true)
                   }
-                  if (
-                    await createWebRuntimeSessionBrowserTab({
-                      worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
-                      url: source.url,
-                      profileId: source.sessionProfileId,
-                      targetGroupId: activeGroup?.id,
-                      selectWorktree: false
-                    })
-                  ) {
-                    return
+                  editorFiles={editorItems}
+                  browserTabs={browserItems}
+                  activeFileId={activeEditorUnifiedId}
+                  activeBrowserTabId={activeBrowserId}
+                  activeSimulatorTabId={
+                    activeTab?.contentType === 'simulator' ? activeTab.id : null
                   }
-                  createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, source.url, {
-                    title: source.title,
-                    sessionProfileId: source.sessionProfileId,
-                    targetGroupId: activeGroup?.id
-                  })
-                })()
-              }}
-              onCloseAllFiles={closeAllFiles}
-              onMakePreviewFilePermanent={makePreviewFilePermanent}
-              onPinFile={pinFile}
-              tabBarOrder={tabBarOrder}
-              tabStripChrome="floating-panel"
-            />
-          </div>
+                  activeTabType={activeTabType}
+                  onActivateFile={activateFloatingItem}
+                  onCloseFile={closeFloatingItem}
+                  onActivateBrowserTab={activateFloatingItem}
+                  onCloseBrowserTab={closeFloatingItem}
+                  onDuplicateBrowserTab={(browserTabId) => {
+                    void (async () => {
+                      const source = browserTabs.find((tab) => tab.id === browserTabId)
+                      if (!source) {
+                        return
+                      }
+                      if (
+                        await createWebRuntimeSessionBrowserTab({
+                          worktreeId: FLOATING_TERMINAL_WORKTREE_ID,
+                          url: source.url,
+                          profileId: source.sessionProfileId,
+                          targetGroupId: activeGroup?.id,
+                          selectWorktree: false
+                        })
+                      ) {
+                        return
+                      }
+                      createBrowserTab(FLOATING_TERMINAL_WORKTREE_ID, source.url, {
+                        title: source.title,
+                        sessionProfileId: source.sessionProfileId,
+                        targetGroupId: activeGroup?.id
+                      })
+                    })()
+                  }}
+                  onCloseAllFiles={closeAllFiles}
+                  onMakePreviewFilePermanent={makePreviewFilePermanent}
+                  onPinFile={pinFile}
+                  tabBarOrder={tabBarOrder}
+                  tabStripChrome="floating-panel"
+                  hoveredTabInsertion={dragSplit.hoveredTabInsertion}
+                />
+              </div>
+              {/* Why: ghost that tracks the cursor across the panel while the
+                  source tab stays anchored in the strip (overflow-hidden). */}
+              <DragOverlay dropAnimation={null}>
+                {dragSplit.activeDrag ? <TabDragPreview drag={dragSplit.activeDrag} /> : null}
+              </DragOverlay>
+            </DndContext>
+          </TabDragProvider>
           <FloatingTerminalWindowControls
             maximized={maximized}
             onToggleMaximized={toggleMaximized}

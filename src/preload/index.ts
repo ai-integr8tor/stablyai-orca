@@ -3073,8 +3073,9 @@ const api = {
       ipcRenderer.on('ui:hardReloadBrowserPage', listener)
       return () => ipcRenderer.removeListener('ui:hardReloadBrowserPage', listener)
     },
-    onCloseActiveTab: (callback: () => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent) => callback()
+    onCloseActiveTab: (callback: (payload?: { browserTabId?: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload?: { browserTabId?: string }) =>
+        callback(payload)
       ipcRenderer.on('ui:closeActiveTab', listener)
       return () => ipcRenderer.removeListener('ui:closeActiveTab', listener)
     },
