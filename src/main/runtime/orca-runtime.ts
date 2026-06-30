@@ -742,6 +742,7 @@ type RuntimeStore = {
   getSettings(): {
     workspaceDir: string
     nestWorkspaces: boolean
+    defaultWorktreeLocationMode?: GlobalSettings['defaultWorktreeLocationMode']
     refreshLocalBaseRefOnWorktreeCreate: boolean
     localBaseRefSuggestionDismissed?: boolean
     branchPrefix: string
@@ -12288,7 +12289,7 @@ export class OrcaRuntimeService {
       ...remoteTrackingBaseOption,
       ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
     }
-    if (usesNestedWorktreeLocation(repo)) {
+    if (usesNestedWorktreeLocation(repo, settings)) {
       await ensureLocalNestedWorktreeRootIgnored(repo.path, localWorktreeGitOptions)
     }
     const defaultAddWorktreeOption = addProjectGitOptions()

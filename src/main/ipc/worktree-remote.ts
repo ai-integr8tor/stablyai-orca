@@ -1525,7 +1525,7 @@ export async function createRemoteWorktree(
     }
   }
 
-  if (usesNestedWorktreeLocation(repo)) {
+  if (usesNestedWorktreeLocation(repo, settings)) {
     if (!fsProvider) {
       throw new Error('Could not prepare nested worktree ignore rules for this SSH repo.')
     }
@@ -2126,7 +2126,7 @@ export async function createLocalWorktree(
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
   }
-  if (usesNestedWorktreeLocation(repo)) {
+  if (usesNestedWorktreeLocation(repo, settings)) {
     await ensureLocalNestedWorktreeRootIgnored(repo.path, localWorktreeGitOptions)
   }
   const addResult: AddWorktreeResult =

@@ -29,6 +29,7 @@ import {
   DEFAULT_LEFT_SIDEBAR_TINT_OPACITY
 } from './left-sidebar-appearance'
 import { DEFAULT_SOURCE_CONTROL_GROUP_ORDER } from './source-control-group-order'
+import { DEFAULT_WORKTREE_LOCATION_MODE } from './worktree-location-mode'
 
 export { DEFAULT_STATUS_BAR_ITEMS } from './status-bar-defaults'
 export {
@@ -182,6 +183,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
   return {
     workspaceDir: getDefaultWorkspaceDir(homedir),
     nestWorkspaces: true,
+    defaultWorktreeLocationMode: DEFAULT_WORKTREE_LOCATION_MODE,
     workspaceDirHistory: [],
     refreshLocalBaseRefOnWorktreeCreate: false,
     localBaseRefSuggestionDismissed: false,

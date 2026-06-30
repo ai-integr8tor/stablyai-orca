@@ -269,6 +269,47 @@ describe('computeWorktreePath', () => {
     })
   })
 
+  it('uses the global nested worktree default for repos without an explicit mode', () => {
+    const settings = {
+      nestWorkspaces: true,
+      workspaceDir: '/global/workspaces',
+      defaultWorktreeLocationMode: 'nested' as const
+    }
+    const repo = {
+      path: '/projects/app/repo',
+      worktreeBasePath: '../ignored-worktrees'
+    }
+
+    expect(computeWorktreePath('feature', repo.path, getWorktreePathSettings(repo, settings))).toBe(
+      posix.join('/projects/app/repo', '.worktrees', 'feature')
+    )
+    expect(getWorktreeCreationLayout(repo, settings)).toEqual({
+      path: '.worktrees',
+      nestWorkspaces: false,
+      worktreeLocationMode: 'nested'
+    })
+  })
+
+  it('lets an explicit repo sibling mode override the global nested default', () => {
+    const settings = {
+      nestWorkspaces: false,
+      workspaceDir: '/global/workspaces',
+      defaultWorktreeLocationMode: 'nested' as const
+    }
+    const repo = {
+      path: '/projects/app/repo',
+      worktreeLocationMode: 'sibling' as const
+    }
+
+    expect(computeWorktreePath('feature', repo.path, getWorktreePathSettings(repo, settings))).toBe(
+      posix.join('/global/workspaces', 'feature')
+    )
+    expect(getWorktreeCreationLayout(repo, settings)).toEqual({
+      path: '/global/workspaces',
+      nestWorkspaces: false
+    })
+  })
+
   it('resolves Windows-style relative workspace directories with Windows separators', () => {
     expect(
       computeWorktreePath('feature', 'C:\\Projects\\app\\repo', {

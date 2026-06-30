@@ -95,6 +95,29 @@ describe('repo-specific worktree ownership layouts', () => {
     ).toBe('orca-managed')
   })
 
+  it('classifies global-default nested .worktrees paths as Orca-managed', () => {
+    const repo = makeRepo()
+    const settings = makeSettings({
+      workspaceDir: '/global/workspaces',
+      nestWorkspaces: true,
+      defaultWorktreeLocationMode: 'nested'
+    })
+
+    expect(buildKnownOrcaWorkspaceLayouts(settings, repo)[0]).toEqual({
+      path: '/projects/a/repo/.worktrees',
+      nestWorkspaces: false,
+      worktreeLocationMode: 'nested'
+    })
+    expect(
+      classifyWorktreeOwnership({
+        repo,
+        settings,
+        worktree: makeWorktree('/projects/a/repo/.worktrees/feature'),
+        knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
+      })
+    ).toBe('orca-managed')
+  })
+
   it('includes relative global layouts for SSH repos without applying absolute desktop paths', () => {
     const repo = makeRepo({ path: '/remote/repo', connectionId: 'ssh-1' })
     const relativeSettings = makeSettings({ workspaceDir: '../worktrees' })
