@@ -109,7 +109,7 @@ export function registerCoreHandlers(
 
   registerAppHandlers(store, { onBeforeRelaunch: lifecycleOptions.onBeforeRelaunch })
   registerCliHandlers()
-  registerPreflightHandlers()
+  registerPreflightHandlers(store)
   registerClaudeUsageHandlers(claudeUsage)
   registerCodexUsageHandlers(codexUsage)
   registerOpenCodeUsageHandlers(openCodeUsage)

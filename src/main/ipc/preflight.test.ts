@@ -73,6 +73,10 @@ vi.mock('../gitea/client', () => ({
   getGiteaAuthStatus: getGiteaAuthStatusMock
 }))
 
+vi.mock('./runtime-environment-transport-routing', () => ({
+  callRuntimeEnvironment: vi.fn()
+}))
+
 import {
   _resetPreflightCache,
   detectInstalledAgents,
@@ -82,6 +86,8 @@ import {
 } from './preflight'
 
 type HandlerMap = Record<string, (_event?: unknown, args?: unknown) => Promise<unknown>>
+
+const mockStore = { getSettings: () => ({ activeRuntimeEnvironmentId: null }) } as never
 
 describe('preflight', () => {
   const originalPlatform = process.platform
@@ -420,7 +426,7 @@ describe('preflight', () => {
       .mockResolvedValueOnce({ stdout: 'github.com\n' })
       .mockResolvedValueOnce({ stdout: 'Logged in to gitlab.com\n' })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     const status = await handlers['preflight:check']()
 
@@ -447,7 +453,7 @@ describe('preflight', () => {
       .mockResolvedValueOnce({ stdout: 'github.com\n  - Active account: true\n' })
       .mockResolvedValueOnce({ stdout: 'Logged in to gitlab.com\n' })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     const firstStatus = await handlers['preflight:check']()
     const refreshedStatus = await handlers['preflight:check'](null, { force: true })
@@ -572,7 +578,7 @@ describe('preflight', () => {
       throw new Error('not found')
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     await expect(handlers['preflight:detectAgents']()).resolves.toEqual(['openclaude', 'cursor'])
   })
@@ -669,7 +675,7 @@ describe('preflight', () => {
       request
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     await expect(
       handlers['preflight:detectRemoteAgents'](undefined, { connectionId: 'ssh-1' })
@@ -686,7 +692,7 @@ describe('preflight', () => {
   it('returns no remote agents when the SSH connection is unavailable', async () => {
     getActiveMultiplexerMock.mockReturnValue(null)
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     await expect(
       handlers['preflight:detectRemoteAgents'](undefined, { connectionId: 'ssh-1' })
@@ -700,7 +706,7 @@ describe('preflight', () => {
       request
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     await expect(
       handlers['preflight:detectRemoteAgents'](undefined, { connectionId: 'ssh-1' })
@@ -721,7 +727,7 @@ describe('preflight', () => {
       request
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     await expect(
       handlers['preflight:detectRemoteWindowsTerminalCapabilities'](undefined, {
@@ -845,7 +851,7 @@ describe('preflight', () => {
       throw new Error('not found')
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     const result = (await handlers['preflight:refreshAgents'](undefined, {
       projectRuntime: {
@@ -898,7 +904,7 @@ describe('preflight', () => {
       throw new Error('not found')
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     const result = (await handlers['preflight:refreshAgents']()) as {
       agents: string[]
@@ -934,7 +940,7 @@ describe('preflight', () => {
       throw new Error('not found')
     })
 
-    registerPreflightHandlers()
+    registerPreflightHandlers(mockStore)
 
     const result = (await handlers['preflight:refreshAgents']()) as {
       agents: string[]
@@ -963,7 +969,7 @@ describe('preflight', () => {
       hydrateShellPathMock.mockResolvedValueOnce({ segments: [], ok: false, failureReason })
       execFileAsyncMock.mockRejectedValue(new Error('not found'))
 
-      registerPreflightHandlers()
+      registerPreflightHandlers(mockStore)
 
       const result = (await handlers['preflight:refreshAgents']()) as {
         pathSource: string
