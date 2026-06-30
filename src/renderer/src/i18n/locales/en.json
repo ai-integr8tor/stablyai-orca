@@ -3346,7 +3346,13 @@
           "6a62a0168c": "No matches",
           "cd7893fbc1": "Scanning skills",
           "35b9a724a0": "Available",
-          "0c74e7ff34": "Local"
+          "0c74e7ff34": "Local",
+          "5f8ad7efc1": "Unknown",
+          "6e4ef57af8": "Just now",
+          "c2a6a5dd13": "1 file",
+          "a421c52a18": "{{count}} files",
+          "c16750a08a": "{{count}} locations",
+          "42884b773d": "Filter by source"
         }
       },
       "sidebar": {

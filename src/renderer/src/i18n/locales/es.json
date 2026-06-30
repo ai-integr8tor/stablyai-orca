@@ -3346,7 +3346,13 @@
           "6a62a0168c": "No hay coincidencias",
           "cd7893fbc1": "Habilidades de escaneo",
           "35b9a724a0": "Disponible",
-          "0c74e7ff34": "Local"
+          "0c74e7ff34": "Local",
+          "5f8ad7efc1": "Desconocido",
+          "6e4ef57af8": "Ahora mismo",
+          "c2a6a5dd13": "1 archivo",
+          "a421c52a18": "{{count}} archivos",
+          "c16750a08a": "{{count}} ubicaciones",
+          "42884b773d": "Filtrar por fuente"
         }
       },
       "sidebar": {

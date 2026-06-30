@@ -1,4 +1,4 @@
-import { BookOpen, Clock, FolderOpen } from 'lucide-react'
+import { Bot, Box, Clock, Code2, FolderOpen, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import type { DiscoveredSkill, SkillProvider, SkillSourceKind } from '../../../../shared/skills'
 import { Badge } from '@/components/ui/badge'
@@ -13,29 +13,79 @@ const skillProviderLabels: Record<SkillProvider, string> = {
   'agent-skills': 'Agent Skills'
 }
 
-export const skillSourceLabels: Record<SkillSourceKind, string> = {
-  home: 'Home',
-  repo: 'Repository',
-  bundled: 'Bundled',
-  plugin: 'Plugin'
+export function getSkillSourceLabel(sourceKind: SkillSourceKind): string {
+  switch (sourceKind) {
+    case 'home':
+      return translate('auto.components.skills.SkillsPage.571c5818c1', 'Home')
+    case 'repo':
+      return translate('auto.components.skills.SkillsPage.aa59462502', 'Repository')
+    case 'bundled':
+      return translate('auto.components.skills.SkillsPage.4d177feabd', 'Bundled')
+    case 'plugin':
+      return translate('auto.components.skills.SkillsPage.984405683f', 'Plugin')
+  }
 }
 
-const skillUpdatedAtFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit'
-})
+const RELATIVE_TIME_UNITS = [
+  { unit: 'year', seconds: 60 * 60 * 24 * 365 },
+  { unit: 'month', seconds: 60 * 60 * 24 * 30 },
+  { unit: 'week', seconds: 60 * 60 * 24 * 7 },
+  { unit: 'day', seconds: 60 * 60 * 24 },
+  { unit: 'hour', seconds: 60 * 60 },
+  { unit: 'minute', seconds: 60 }
+] as const
 
 function formatSkillUpdatedAt(value: number | null): string {
-  return value ? skillUpdatedAtFormatter.format(new Date(value)) : 'Unknown'
+  if (!value) {
+    return translate('auto.components.skills.SkillsPage.5f8ad7efc1', 'Unknown')
+  }
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - value) / 1000))
+  for (const { unit, seconds } of RELATIVE_TIME_UNITS) {
+    if (elapsedSeconds >= seconds) {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'narrow' }).format(
+        -Math.floor(elapsedSeconds / seconds),
+        unit
+      )
+    }
+  }
+  return translate('auto.components.skills.SkillsPage.6e4ef57af8', 'Just now')
 }
 
 function pluralizeSkillFiles(count: number): string {
-  return `${count} file${count === 1 ? '' : 's'}`
+  return count === 1
+    ? translate('auto.components.skills.SkillsPage.c2a6a5dd13', '1 file')
+    : translate('auto.components.skills.SkillsPage.a421c52a18', '{{count}} files', { count })
 }
 
-export function DiscoveredSkillCard({ skill }: { skill: DiscoveredSkill }): React.JSX.Element {
+function ProviderGlyph({ providers }: { providers: readonly SkillProvider[] }): React.JSX.Element {
+  const primaryProvider = providers[0] ?? 'agent-skills'
+  const Icon = primaryProvider === 'codex' ? Code2 : primaryProvider === 'claude' ? Sparkles : Bot
+  const label = providers.map((provider) => skillProviderLabels[provider]).join(', ')
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={label}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground"
+        >
+          <Icon className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={4}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+export function DiscoveredSkillCard({
+  skill,
+  duplicateCount = 1
+}: {
+  skill: DiscoveredSkill
+  duplicateCount?: number
+}): React.JSX.Element {
   const revealSkill = async (): Promise<void> => {
     const result = await window.api.shell.openInFileManager(skill.skillFilePath)
     if (!result.ok) {
@@ -46,33 +96,29 @@ export function DiscoveredSkillCard({ skill }: { skill: DiscoveredSkill }): Reac
   }
 
   return (
-    <Card className="rounded-lg">
-      <CardContent className="space-y-3 p-4">
+    <Card className="h-full rounded-lg py-0 shadow-xs">
+      <CardContent className="flex h-full flex-col gap-4 p-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-            <BookOpen className="size-4 text-muted-foreground" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <ProviderGlyph providers={skill.providers} />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="flex min-w-0 items-center gap-2">
               <h3 className="min-w-0 truncate text-sm font-semibold">{skill.name}</h3>
-              <Badge
-                variant={skill.installed ? 'secondary' : 'outline'}
-                className="h-5 text-[10px]"
-              >
-                {skill.installed
-                  ? translate('auto.components.skills.SkillsPage.0c74e7ff34', 'Local')
-                  : translate('auto.components.skills.SkillsPage.35b9a724a0', 'Available')}
-              </Badge>
-              <Badge variant="outline" className="h-5 text-[10px]">
-                {skillSourceLabels[skill.sourceKind]}
-              </Badge>
+              {duplicateCount > 1 ? (
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {translate(
+                    'auto.components.skills.SkillsPage.c16750a08a',
+                    '{{count}} locations',
+                    { count: duplicateCount }
+                  )}
+                </span>
+              ) : null}
             </div>
             {skill.description ? (
               <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
                 {skill.description}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
                 {translate('auto.components.skills.SkillsPage.9963dff6d3', 'No description found.')}
               </p>
             )}
@@ -92,30 +138,26 @@ export function DiscoveredSkillCard({ skill }: { skill: DiscoveredSkill }): Reac
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={4}>
-              {translate('auto.components.skills.SkillsPage.dc4c3328ee', 'Reveal file')}
+              <span className="block max-w-[28rem] truncate">
+                {translate('auto.components.skills.SkillsPage.dc4c3328ee', 'Reveal file')}:{' '}
+                {skill.skillFilePath}
+              </span>
             </TooltipContent>
           </Tooltip>
         </div>
 
-        <div className="grid gap-2 text-[11px] text-muted-foreground md:grid-cols-[1fr_auto_auto] md:items-center">
-          <div className="min-w-0 truncate font-mono" title={skill.skillFilePath}>
-            {skill.skillFilePath}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {skill.providers.map((provider) => (
-              <Badge key={provider} variant="outline" className="h-5 text-[10px]">
-                {skillProviderLabels[provider]}
-              </Badge>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 whitespace-nowrap">
-            <span>{skill.sourceLabel}</span>
-            <span>{pluralizeSkillFiles(skill.fileCount)}</span>
-            <span className="inline-flex items-center gap-1">
-              <Clock className="size-3" />
-              {formatSkillUpdatedAt(skill.updatedAt)}
-            </span>
-          </div>
+        <div className="mt-auto flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-border pt-3 text-[11px] text-muted-foreground">
+          <Badge variant="outline" className="h-5 text-[10px]">
+            {getSkillSourceLabel(skill.sourceKind)}
+          </Badge>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+            <Box className="size-3" />
+            {pluralizeSkillFiles(skill.fileCount)}
+          </span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+            <Clock className="size-3" />
+            {formatSkillUpdatedAt(skill.updatedAt)}
+          </span>
         </div>
       </CardContent>
     </Card>
