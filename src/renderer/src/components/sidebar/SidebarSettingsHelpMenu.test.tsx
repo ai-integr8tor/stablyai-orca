@@ -5,7 +5,6 @@ import { SidebarSettingsHelpMenu } from './SidebarSettingsHelpMenu'
 
 const mocks = vi.hoisted(() => ({
   openModal: vi.fn(),
-  openSkillsPage: vi.fn(),
   openSettingsPage: vi.fn(),
   openSettingsTarget: vi.fn(),
   appRestart: vi.fn(),
@@ -27,7 +26,6 @@ vi.mock('@/store', () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
     selector({
       openModal: mocks.openModal,
-      openSkillsPage: mocks.openSkillsPage,
       openSettingsPage: mocks.openSettingsPage,
       openSettingsTarget: mocks.openSettingsTarget,
       updateStatus
@@ -156,12 +154,13 @@ describe('SidebarSettingsHelpMenu', () => {
     expect(html).toContain('Keyboard Shortcuts')
   })
 
-  it('opens the skills gallery from the help menu', () => {
+  it('opens the skills section in Settings from the help menu', () => {
     renderToStaticMarkup(<SidebarSettingsHelpMenu />)
     const skillsItem = mocks.menuItems.find((item) => item.label === 'Skills')
     expect(skillsItem).toBeDefined()
     skillsItem?.onSelect?.()
-    expect(mocks.openSkillsPage).toHaveBeenCalledTimes(1)
+    expect(mocks.openSettingsTarget).toHaveBeenCalledWith({ pane: 'skills', repoId: null })
+    expect(mocks.openSettingsPage).toHaveBeenCalledTimes(1)
   })
 
   it('renders Milestones with progress when setup is incomplete', () => {

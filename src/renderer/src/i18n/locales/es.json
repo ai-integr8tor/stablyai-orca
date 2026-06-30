@@ -618,7 +618,10 @@
         "b1c2f8b0ac": "Cambio de cuenta opcional para Claude, Codex, Gemini y OpenCode Go.",
         "f70ac54d38": "Cuentas de proveedores de IA",
         "4121f7a0a2": "Administre agents de IA, establezca un valor predeterminado y personalice comandos.",
-        "b49abbd2f7": "Agentes"
+        "b49abbd2f7": "Agentes",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source."
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "El contenido pegado es demasiado grande."
@@ -5928,7 +5931,9 @@
           "9abb9be3bc": "Configuración",
           "23c6874fdf": "Capacidades de IA",
           "2309068a6f": "destructivo",
-          "65358016ea": "Desechar"
+          "65358016ea": "Desechar",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source."
         },
         "SettingsFormControls": {
           "42a4d15a30": "No hay fuentes coincidentes.",
@@ -8336,6 +8341,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "Remove {{value0}} shortcut {{value1}}",
           "2a9588b1c2": "Remove this binding"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         }
       },
       "right": {

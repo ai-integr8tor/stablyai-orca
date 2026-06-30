@@ -618,7 +618,10 @@
         "b1c2f8b0ac": "Claude、Codex、Gemini、OpenCode Go のオプションのアカウント切り替え。",
         "f70ac54d38": "AI プロバイダー アカウント",
         "4121f7a0a2": "AI agents を管理し、デフォルトを設定し、コマンドをカスタマイズします。",
-        "b49abbd2f7": "エージェント"
+        "b49abbd2f7": "エージェント",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source."
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "貼り付け内容が大きすぎます。"
@@ -5950,7 +5953,9 @@
           "9abb9be3bc": "セットアップ",
           "23c6874fdf": "AI 機能",
           "2309068a6f": "破壊的な",
-          "65358016ea": "破棄"
+          "65358016ea": "破棄",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source."
         },
         "SettingsFormControls": {
           "42a4d15a30": "一致するフォントがありません。",
@@ -8336,6 +8341,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "Remove {{value0}} shortcut {{value1}}",
           "2a9588b1c2": "Remove this binding"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         }
       },
       "right": {

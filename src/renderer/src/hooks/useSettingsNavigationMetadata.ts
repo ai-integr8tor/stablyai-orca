@@ -9,6 +9,7 @@ import {
   Bell,
   Blocks,
   Bot,
+  BookOpen,
   Cable,
   FlaskConical,
   GitBranch,
@@ -54,6 +55,7 @@ import { getQuickCommandsPaneSearchEntries } from '@/components/settings/quick-c
 import { getBrowserPaneCombinedSearchEntries } from '@/components/settings/browser-pane-search'
 import { getNotificationsPaneSearchEntries } from '@/components/settings/notifications-search'
 import { getOrchestrationPaneSearchEntries } from '@/components/settings/orchestration-search'
+import { getSkillsPaneSearchEntries } from '@/components/settings/skills-search'
 import {
   getRuntimeEnvironmentsSearchEntry,
   getWebRuntimeEnvironmentsSearchEntry
@@ -142,6 +144,18 @@ export function buildSettingsNavigationMetadata({
       icon: Network,
       searchEntries: getOrchestrationPaneSearchEntries(),
       group: 'capabilities'
+    },
+    {
+      id: 'skills',
+      title: translate('auto.hooks.useSettingsNavigationMetadata.skillsTitle', 'Skills'),
+      description: translate(
+        'auto.hooks.useSettingsNavigationMetadata.skillsDescription',
+        'Browse local agent skills by provider and source.'
+      ),
+      icon: BookOpen,
+      searchEntries: getSkillsPaneSearchEntries(),
+      group: 'capabilities',
+      badge: translate('auto.hooks.useSettingsNavigationMetadata.skillsBeta', 'Beta')
     },
     ...(showDesktopOnlySettings
       ? [

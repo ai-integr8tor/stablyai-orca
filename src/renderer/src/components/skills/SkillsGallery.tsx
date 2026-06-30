@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, BookOpen, Loader2, RefreshCw, Settings } from 'lucide-react'
+import { BookOpen, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useAppStore } from '@/store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import type { DiscoveredSkill, SkillDiscoveryResult } from '../../../../shared/skills'
 import { countSkillsBySource, filterSkills, type SkillsFilterState } from './skills-filter'
@@ -13,7 +11,7 @@ import { SkillsGalleryGrid } from './SkillsGalleryGrid'
 
 const EMPTY_SKILLS: DiscoveredSkill[] = []
 
-function pluralize(count: number, singular: string): string {
+export function pluralizeSkillCount(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? '' : 's'}`
 }
 
@@ -27,7 +25,7 @@ function EmptyState({
   onRefresh: () => void
 }): React.JSX.Element {
   return (
-    <div className="flex flex-1 items-center justify-center p-8">
+    <div className="flex min-h-[20rem] flex-1 items-center justify-center p-8">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
         {loading ? (
           <Loader2 className="size-7 animate-spin text-muted-foreground" />
@@ -68,10 +66,11 @@ function EmptyState({
   )
 }
 
-export default function SkillsPage(): React.JSX.Element {
-  const closeSkillsPage = useAppStore((s) => s.closeSkillsPage)
-  const openSettingsPage = useAppStore((s) => s.openSettingsPage)
-  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
+export function SkillsGallery({
+  onSummaryChange
+}: {
+  onSummaryChange?: (summary: { skillCount: number; activeSourceCount: number }) => void
+}): React.JSX.Element {
   const [result, setResult] = useState<SkillDiscoveryResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<SkillsFilterState>({
@@ -106,91 +105,17 @@ export default function SkillsPage(): React.JSX.Element {
     void loadSkills()
   }, [loadSkills])
 
-  const openSkillManagement = useCallback((): void => {
-    // Why: Settings already owns install/update terminals; the gallery stays read-only.
-    openSettingsTarget({ pane: 'general', repoId: null, sectionId: 'cli' })
-    openSettingsPage()
-  }, [openSettingsPage, openSettingsTarget])
-
-  useEffect(() => {
-    const hasVisibleOverlay = (): boolean =>
-      Array.from(
-        document.querySelectorAll('[role="dialog"], [role="listbox"], [role="menu"]')
-      ).some((element) => {
-        if (!(element instanceof HTMLElement)) {
-          return false
-        }
-        if (element.closest('[aria-hidden="true"]')) {
-          return false
-        }
-        const style = window.getComputedStyle(element)
-        return (
-          style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          element.getClientRects().length > 0
-        )
-      })
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') {
-        return
-      }
-      // Why: menus and dialogs own Escape before page-level navigation.
-      if (hasVisibleOverlay()) {
-        return
-      }
-      const target = event.target as HTMLElement | null
-      if (
-        target?.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""]')
-      ) {
-        return
-      }
-      event.preventDefault()
-      closeSkillsPage()
-    }
-
-    // Why: tooltips can consume Escape before bubble listeners see it. Capture
-    // keeps page-level back navigation reliable when no overlay is active.
-    window.addEventListener('keydown', handleKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-  }, [closeSkillsPage])
-
   const skills = result?.skills ?? EMPTY_SKILLS
   const visibleSkills = useMemo(() => filterSkills(skills, filters), [filters, skills])
   const sourceCounts = useMemo(() => countSkillsBySource(skills), [skills])
   const activeSourceCount = result?.sources.filter((source) => source.exists).length ?? 0
 
-  return (
-    <main className="flex min-h-0 flex-1 flex-col bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
-        <Button variant="outline" size="sm" onClick={closeSkillsPage} className="shrink-0 gap-1.5">
-          <ArrowLeft className="size-3.5" />
-          {translate('auto.components.skills.SkillsPage.7e828fb2c6', 'Back')}
-        </Button>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <BookOpen className="size-4 text-muted-foreground" />
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-sm font-semibold">
-                {translate('auto.components.skills.SkillsPage.f43ad6edf3', 'Skills')}
-              </h1>
-              <Badge variant="secondary">
-                {translate('auto.components.skills.SkillsPage.b088e0785d', 'Beta')}
-              </Badge>
-            </div>
-            <p className="truncate text-xs text-muted-foreground">
-              {pluralize(skills.length, 'skill')}{' '}
-              {translate('auto.components.skills.SkillsPage.e46e162e2e', 'from')}{' '}
-              {pluralize(activeSourceCount, 'source')}
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={openSkillManagement} className="shrink-0">
-          <Settings className="size-3.5" />
-          {translate('auto.components.skills.SkillsPage.0f54d1b7f8', 'Manage')}
-        </Button>
-      </header>
+  useEffect(() => {
+    onSummaryChange?.({ skillCount: skills.length, activeSourceCount })
+  }, [activeSourceCount, onSummaryChange, skills.length])
 
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
       <SkillsFilterBar
         filters={filters}
         sourceCounts={sourceCounts}
@@ -210,6 +135,6 @@ export default function SkillsPage(): React.JSX.Element {
           />
         )}
       </section>
-    </main>
+    </div>
   )
 }
