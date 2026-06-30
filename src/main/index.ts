@@ -24,6 +24,7 @@ import { initDaemonPtyProvider, disconnectDaemon, shutdownDaemon } from './daemo
 import { closeAllWatchers } from './ipc/filesystem-watcher'
 import { disposeWorktreeBaseDirectoryWatchers } from './ipc/worktree-base-directory-watcher'
 import { registerCoreHandlers } from './ipc/register-core-handlers'
+import { dictationOutputControlService } from './speech/dictation-output-control'
 import { initObservability, shutdownObservability } from './observability'
 import { startSpan } from './observability/tracer'
 import { registerMobileHandlers } from './ipc/mobile'
@@ -778,7 +779,15 @@ function openMainWindow(): BrowserWindow {
         codexRuntimeHome ? [codexRuntimeHome.getHostRuntimeHomePath()] : [],
       onBeforeRelaunch: async () => {
         isQuitting = true
-        await preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
+        const cleanupResults = await Promise.allSettled([
+          preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store }),
+          dictationOutputControlService.restoreAll()
+        ])
+        for (const result of cleanupResults) {
+          if (result.status === 'rejected') {
+            console.error('[app] Failed to complete relaunch cleanup:', result.reason)
+          }
+        }
       }
     }
   )
@@ -1900,7 +1909,13 @@ app.on('will-quit', (e) => {
     // Why: normal quits preserve the detached daemon for warm reattach, but a
     // dev parent dying means the temp/dev profile has no owner left to reattach.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
-    Promise.allSettled([daemonTeardown, rpcStopAndClear, watcherShutdown, emulatorShutdown])
+    Promise.allSettled([
+      daemonTeardown,
+      rpcStopAndClear,
+      watcherShutdown,
+      emulatorShutdown,
+      dictationOutputControlService.restoreAll()
+    ])
       .then(() => shutdownTelemetry())
       .then(() => shutdownObservability())
       .catch(() => {
