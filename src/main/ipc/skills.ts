@@ -1,8 +1,9 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import type { Store } from '../persistence'
 import { discoverSkills } from '../skills/discovery'
 import type { SkillDiscoveryResult, SkillDiscoveryTarget } from '../../shared/skills'
 import { getDefaultWslDistro, getWslHome } from '../wsl'
+import { callRuntimeEnvironment } from './runtime-environment-transport-routing'
 
 type SkillDiscoveryRuntimeTarget =
   | { runtime: 'host' }
@@ -35,6 +36,26 @@ export function registerSkillsHandlers(store: Store): void {
   ipcMain.handle(
     'skills:discover',
     async (_event, target?: SkillDiscoveryTarget): Promise<SkillDiscoveryResult> => {
+      // Why: when connected to a remote Orca runtime the skill files live on
+      // the server, not on the local host. Proxy to the server's RPC method so
+      // discovery scans the correct filesystem. Prefer an explicit environmentId
+      // from the caller, then fall back to the persisted active environment.
+      const environmentId =
+        target?.environmentId?.trim() || store.getSettings().activeRuntimeEnvironmentId?.trim()
+      if (environmentId) {
+        const response = await callRuntimeEnvironment(
+          app.getPath('userData'),
+          environmentId,
+          'skills.discover',
+          target,
+          15_000
+        )
+        if (response.ok) {
+          return response.result as SkillDiscoveryResult
+        }
+        return { skills: [], sources: [], scannedAt: Date.now() }
+      }
+
       const runtimeTarget = getSkillDiscoveryRuntimeTarget(target)
       if (runtimeTarget.runtime === 'wsl') {
         if (process.platform !== 'win32') {
