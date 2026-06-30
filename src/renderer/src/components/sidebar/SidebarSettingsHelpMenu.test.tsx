@@ -5,6 +5,7 @@ import { SidebarSettingsHelpMenu } from './SidebarSettingsHelpMenu'
 
 const mocks = vi.hoisted(() => ({
   openModal: vi.fn(),
+  openSkillsPage: vi.fn(),
   openSettingsPage: vi.fn(),
   openSettingsTarget: vi.fn(),
   appRestart: vi.fn(),
@@ -16,7 +17,8 @@ const mocks = vi.hoisted(() => ({
     coreDoneCount: 2,
     coreTotal: 5,
     stepDone: {}
-  }
+  },
+  menuItems: [] as { label: string; onSelect?: () => void }[]
 }))
 
 let updateStatus = { state: 'idle' } as const
@@ -25,6 +27,7 @@ vi.mock('@/store', () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
     selector({
       openModal: mocks.openModal,
+      openSkillsPage: mocks.openSkillsPage,
       openSettingsPage: mocks.openSettingsPage,
       openSettingsTarget: mocks.openSettingsTarget,
       updateStatus
@@ -54,11 +57,26 @@ vi.mock('../setup-guide/SetupGuideProgressRing', () => ({
 vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-  DropdownMenuItem: ({ children, onSelect }: { children: ReactNode; onSelect?: () => void }) => (
-    <button data-testid="menu-item" onClick={onSelect}>
-      {children}
-    </button>
-  ),
+  DropdownMenuItem: ({ children, onSelect }: { children: ReactNode; onSelect?: () => void }) => {
+    const textFromNode = (node: ReactNode): string => {
+      if (typeof node === 'string' || typeof node === 'number') {
+        return String(node)
+      }
+      if (Array.isArray(node)) {
+        return node.map(textFromNode).join('')
+      }
+      if (node && typeof node === 'object' && 'props' in node) {
+        return textFromNode((node as { props?: { children?: ReactNode } }).props?.children)
+      }
+      return ''
+    }
+    mocks.menuItems.push({ label: textFromNode(children), onSelect })
+    return (
+      <button data-testid="menu-item" onClick={onSelect}>
+        {children}
+      </button>
+    )
+  },
   DropdownMenuSeparator: () => <hr />,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>
 }))
@@ -107,6 +125,7 @@ describe('SidebarSettingsHelpMenu', () => {
       coreTotal: 5,
       stepDone: {}
     }
+    mocks.menuItems.length = 0
   })
 
   it('renders the help button with correct aria-label', () => {
@@ -135,6 +154,14 @@ describe('SidebarSettingsHelpMenu', () => {
   it('renders Keyboard Shortcuts menu item', () => {
     const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
     expect(html).toContain('Keyboard Shortcuts')
+  })
+
+  it('opens the skills gallery from the help menu', () => {
+    renderToStaticMarkup(<SidebarSettingsHelpMenu />)
+    const skillsItem = mocks.menuItems.find((item) => item.label === 'Skills')
+    expect(skillsItem).toBeDefined()
+    skillsItem?.onSelect?.()
+    expect(mocks.openSkillsPage).toHaveBeenCalledTimes(1)
   })
 
   it('renders Milestones with progress when setup is incomplete', () => {

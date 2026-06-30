@@ -80,6 +80,7 @@ function ExternalMenuItem({
 
 export function SidebarSettingsHelpMenu(): React.JSX.Element {
   const openModal = useAppStore((s) => s.openModal)
+  const openSkillsPage = useAppStore((s) => s.openSkillsPage)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const updateStatus = useAppStore((s) => s.updateStatus)
@@ -221,6 +222,10 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
               )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={openSkillsPage}>
+              <BookOpen className="size-3.5" />
+              {translate('auto.components.sidebar.SidebarSettingsHelpMenu.1a2f3b9d44', 'Skills')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
               <MessageSquareText className="size-3.5" />
               {translate(
