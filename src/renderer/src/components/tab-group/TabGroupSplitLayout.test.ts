@@ -4,16 +4,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const setTabGroupSplitRatioMock = vi.fn()
 const recordFeatureInteractionMock = vi.fn()
 const setDragRootNodeMock = vi.fn()
+const togglePaneZoomMock = vi.fn()
+let zoomedGroupIdByWorktree: Record<string, string | null> = {}
 const useAppStoreMock = vi.fn(
   (
     selector: (state: {
       recordFeatureInteraction: typeof recordFeatureInteractionMock
       setTabGroupSplitRatio: typeof setTabGroupSplitRatioMock
+      togglePaneZoom: typeof togglePaneZoomMock
+      zoomedGroupIdByWorktree: Record<string, string | null>
     }) => unknown
   ) =>
     selector({
       recordFeatureInteraction: recordFeatureInteractionMock,
-      setTabGroupSplitRatio: setTabGroupSplitRatioMock
+      setTabGroupSplitRatio: setTabGroupSplitRatioMock,
+      togglePaneZoom: togglePaneZoomMock,
+      zoomedGroupIdByWorktree
     })
 )
 vi.mock('../../store', () => ({
@@ -21,6 +27,8 @@ vi.mock('../../store', () => ({
     selector: (state: {
       recordFeatureInteraction: typeof recordFeatureInteractionMock
       setTabGroupSplitRatio: typeof setTabGroupSplitRatioMock
+      togglePaneZoom: typeof togglePaneZoomMock
+      zoomedGroupIdByWorktree: Record<string, string | null>
     }) => unknown
   ) => useAppStoreMock(selector)
 }))
@@ -69,12 +77,16 @@ describe('TabGroupSplitLayout', () => {
     setTabGroupSplitRatioMock.mockClear()
     recordFeatureInteractionMock.mockClear()
     setDragRootNodeMock.mockClear()
+    togglePaneZoomMock.mockClear()
+    zoomedGroupIdByWorktree = {}
     useAppStoreMock.mockClear()
   })
 
   function getLayoutWrapper(element: ReturnType<typeof TabGroupSplitLayout>) {
     const dndContext = asElement(element.props.children)
-    return React.Children.toArray(dndContext.props.children as React.ReactNode)[0]
+    return React.Children.toArray(dndContext.props.children as React.ReactNode).find((child) => {
+      return asElement(child).props?.ref === setDragRootNodeMock
+    })
   }
 
   function getSplitNodeElement(element: ReturnType<typeof TabGroupSplitLayout>) {
@@ -205,5 +217,35 @@ describe('TabGroupSplitLayout', () => {
     ;(resizeHandle.props.onResizeStart as () => void)()
 
     expect(recordFeatureInteractionMock).toHaveBeenCalledWith('terminal-panes')
+  })
+
+  it('renders only the zoomed group while preserving split-pane context', () => {
+    zoomedGroupIdByWorktree = { 'wt-1': 'right-group' }
+    const element = TabGroupSplitLayout({
+      layout: {
+        type: 'split',
+        direction: 'horizontal',
+        ratio: 0.2,
+        first: { type: 'leaf', groupId: 'left-group' },
+        second: { type: 'leaf', groupId: 'right-group' }
+      },
+      worktreeId: 'wt-1',
+      focusedGroupId: 'right-group',
+      isWorktreeActive: true
+    })
+
+    const panelProps = asElement(getSplitNodeElement(element)).props as {
+      groupId: string
+      hasSplitGroups: boolean
+      isZoomed: boolean
+    }
+
+    expect(panelProps).toEqual(
+      expect.objectContaining({
+        groupId: 'right-group',
+        hasSplitGroups: true,
+        isZoomed: true
+      })
+    )
   })
 })

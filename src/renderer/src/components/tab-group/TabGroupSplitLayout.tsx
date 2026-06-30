@@ -1,15 +1,69 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import type { TabGroupLayoutNode } from '../../../../shared/types'
+import { keybindingMatchesAction } from '../../../../shared/keybindings'
 import { useAppStore } from '../../store'
 import TabGroupPanel from './TabGroupPanel'
 import TabDragPreview from '../tab-bar/TabDragPreview'
 import { TabDragProvider } from './tab-drag-context'
 import TabPaneColumnSplitDragOverlay from './TabPaneColumnSplitDragOverlay'
 import { type HoveredTabInsertion, useTabDragSplit } from './useTabDragSplit'
+import { getShortcutPlatform } from '@/hooks/useShortcutLabel'
 
 const MIN_RATIO = 0.15
 const MAX_RATIO = 0.85
+
+function PaneZoomShortcutBoundary({
+  focusedGroupId,
+  hasSplits,
+  isWorktreeActive,
+  worktreeId
+}: {
+  focusedGroupId?: string
+  hasSplits: boolean
+  isWorktreeActive: boolean
+  worktreeId: string
+}): null {
+  const keybindings = useAppStore((state) => state.keybindings)
+  const terminalShortcutPolicy = useAppStore(
+    (state) => state.settings?.terminalShortcutPolicy ?? 'orca-first'
+  )
+  const togglePaneZoom = useAppStore((state) => state.togglePaneZoom)
+
+  useEffect(() => {
+    if (!isWorktreeActive || !hasSplits || !focusedGroupId) {
+      return
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.repeat) {
+        return
+      }
+      if (
+        !keybindingMatchesAction('tab.togglePaneZoom', event, getShortcutPlatform(), keybindings, {
+          context: 'app',
+          terminalShortcutPolicy
+        })
+      ) {
+        return
+      }
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      togglePaneZoom(worktreeId, focusedGroupId)
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [
+    focusedGroupId,
+    hasSplits,
+    isWorktreeActive,
+    keybindings,
+    terminalShortcutPolicy,
+    togglePaneZoom,
+    worktreeId
+  ])
+
+  return null
+}
 
 function ResizeHandle({
   direction,
@@ -116,6 +170,7 @@ function SplitNode({
   nodePath,
   worktreeId,
   focusedGroupId,
+  zoomedGroupId,
   isWorktreeActive,
   hasSplitGroups,
   touchesTopEdge,
@@ -128,6 +183,7 @@ function SplitNode({
   nodePath: string
   worktreeId: string
   focusedGroupId?: string
+  zoomedGroupId?: string | null
   isWorktreeActive: boolean
   hasSplitGroups: boolean
   touchesTopEdge: boolean
@@ -138,6 +194,7 @@ function SplitNode({
 }): React.JSX.Element {
   const setTabGroupSplitRatio = useAppStore((state) => state.setTabGroupSplitRatio)
   const recordFeatureInteraction = useAppStore((state) => state.recordFeatureInteraction)
+  const togglePaneZoom = useAppStore((state) => state.togglePaneZoom)
 
   if (node.type === 'leaf') {
     return (
@@ -150,6 +207,7 @@ function SplitNode({
         // "focused", Cmd/Ctrl+W and split shortcuts can hit the wrong worktree.
         isFocused={isWorktreeActive && node.groupId === focusedGroupId}
         hasSplitGroups={hasSplitGroups}
+        isZoomed={zoomedGroupId === node.groupId}
         touchesRightEdge={touchesRightEdge}
         touchesLeftEdge={touchesLeftEdge}
         reserveClosedExplorerToggleSpace={touchesTopEdge && touchesRightEdge}
@@ -158,6 +216,7 @@ function SplitNode({
         hoveredTabInsertion={
           hoveredTabInsertion?.groupId === node.groupId ? hoveredTabInsertion : null
         }
+        onTogglePaneZoom={() => togglePaneZoom(worktreeId, node.groupId)}
       />
     )
   }
@@ -176,6 +235,7 @@ function SplitNode({
           nodePath={nodePath.length > 0 ? `${nodePath}.first` : 'first'}
           worktreeId={worktreeId}
           focusedGroupId={focusedGroupId}
+          zoomedGroupId={zoomedGroupId}
           isWorktreeActive={isWorktreeActive}
           hasSplitGroups={hasSplitGroups}
           touchesTopEdge={touchesTopEdge}
@@ -196,6 +256,7 @@ function SplitNode({
           nodePath={nodePath.length > 0 ? `${nodePath}.second` : 'second'}
           worktreeId={worktreeId}
           focusedGroupId={focusedGroupId}
+          zoomedGroupId={zoomedGroupId}
           isWorktreeActive={isWorktreeActive}
           hasSplitGroups={hasSplitGroups}
           touchesTopEdge={isHorizontal ? touchesTopEdge : false}
@@ -222,6 +283,9 @@ export default function TabGroupSplitLayout({
 }): React.JSX.Element {
   const dragSplit = useTabDragSplit({ worktreeId, enabled: isWorktreeActive })
   const hasSplits = layout.type === 'split'
+  const zoomedGroupId = useAppStore((state) => state.zoomedGroupIdByWorktree[worktreeId] ?? null)
+  const visibleLayout =
+    zoomedGroupId && hasSplits ? ({ type: 'leaf', groupId: zoomedGroupId } as const) : layout
 
   return (
     <TabDragProvider
@@ -243,6 +307,12 @@ export default function TabGroupSplitLayout({
         // so disabling it is the simplest fix.
         autoScroll={false}
       >
+        <PaneZoomShortcutBoundary
+          focusedGroupId={focusedGroupId}
+          hasSplits={hasSplits}
+          isWorktreeActive={isWorktreeActive}
+          worktreeId={worktreeId}
+        />
         {/* Why: the 10px drag strip sits ABOVE the split layout — lifted out of
           each pane — so vertical split resize handles don't extend into the
           window-drag region at the top. Only the split layout's own panes
@@ -266,10 +336,11 @@ export default function TabGroupSplitLayout({
           <div className="h-[4px] shrink-0 bg-card" data-terminal-focus-release-surface="true" />
           <div className="flex flex-1 min-w-0 min-h-0 overflow-hidden">
             <SplitNode
-              node={layout}
+              node={visibleLayout}
               nodePath=""
               worktreeId={worktreeId}
               focusedGroupId={focusedGroupId}
+              zoomedGroupId={zoomedGroupId}
               isWorktreeActive={isWorktreeActive}
               hasSplitGroups={hasSplits}
               touchesTopEdge={true}

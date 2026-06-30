@@ -179,6 +179,23 @@ describe('keybindings', () => {
     expect(formatKeybindingList(['Mod+Shift+O'], 'darwin')).toBe('⌘⇧O')
   })
 
+  it('defines a terminal-safe workspace pane zoom shortcut', () => {
+    expect(getEffectiveKeybindingsForAction('tab.togglePaneZoom', 'darwin')).toEqual([
+      'Mod+Alt+Enter'
+    ])
+    expect(formatKeybindingList(['Mod+Alt+Enter'], 'darwin')).toBe('⌘⌥Enter')
+    expect(formatKeybindingList(['Mod+Alt+Enter'], 'linux')).toBe('Ctrl+Alt+Enter')
+    expect(
+      keybindingMatchesAction(
+        'tab.togglePaneZoom',
+        { key: 'Enter', code: 'Enter', meta: false, control: true, alt: true, shift: false },
+        'linux',
+        undefined,
+        { context: 'terminal', terminalShortcutPolicy: 'terminal-first' }
+      )
+    ).toBe(true)
+  })
+
   it('uses overrides as the complete effective binding list for an action', () => {
     const overrides = {
       'worktree.quickOpen': ['Ctrl+Alt+O', 'not-a-shortcut']
