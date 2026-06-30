@@ -5668,7 +5668,11 @@
           "addPlannedHostToHost": "添加 {{host}}",
           "addPlannedHostConfirm": "这仅记录项目应在此主机上可用。你可以稍后添加文件夹或克隆。",
           "projectRuntime": "项目运行时",
-          "projectRuntimeDescription": "选择此项目运行在 Windows 还是 WSL。"
+          "projectRuntimeDescription": "选择此项目运行在 Windows 还是 WSL。",
+          "nestedWorktreesLabel": "Store worktrees inside this project",
+          "nestedWorktreesDescription": "Create new worktrees in .worktrees inside the project root and keep that folder ignored.",
+          "nestedWorktreesPath": "New worktrees will be created under .worktrees in this project.",
+          "nestedWorktreesPlaceholder": ".worktrees"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "命令模板",

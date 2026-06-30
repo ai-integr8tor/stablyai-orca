@@ -5668,7 +5668,11 @@
           "addPlannedHostToHost": "{{host}} 추가",
           "addPlannedHostConfirm": "이 프로젝트를 이 호스트에서 사용할 예정이라는 사실만 기록합니다. 폴더 추가나 클론은 나중에 할 수 있습니다.",
           "projectRuntime": "프로젝트 런타임",
-          "projectRuntimeDescription": "이 프로젝트를 Windows에서 실행할지 WSL에서 실행할지 선택합니다."
+          "projectRuntimeDescription": "이 프로젝트를 Windows에서 실행할지 WSL에서 실행할지 선택합니다.",
+          "nestedWorktreesLabel": "Store worktrees inside this project",
+          "nestedWorktreesDescription": "Create new worktrees in .worktrees inside the project root and keep that folder ignored.",
+          "nestedWorktreesPath": "New worktrees will be created under .worktrees in this project.",
+          "nestedWorktreesPlaceholder": ".worktrees"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "명령 템플릿",

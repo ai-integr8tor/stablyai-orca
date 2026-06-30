@@ -5720,7 +5720,11 @@
           "addPlannedHostToHost": "Add {{host}}",
           "addPlannedHostConfirm": "This only records that the project should be available on this host. You can add the folder or clone later.",
           "projectRuntime": "Project Runtime",
-          "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL."
+          "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL.",
+          "nestedWorktreesLabel": "Store worktrees inside this project",
+          "nestedWorktreesDescription": "Create new worktrees in .worktrees inside the project root and keep that folder ignored.",
+          "nestedWorktreesPath": "New worktrees will be created under .worktrees in this project.",
+          "nestedWorktreesPlaceholder": ".worktrees"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "Command template",

@@ -46,9 +46,16 @@ export function effectiveExternalWorktreeVisibility(
 
 export function buildKnownOrcaWorkspaceLayouts(
   settings: Pick<GlobalSettings, 'workspaceDir' | 'nestWorkspaces' | 'workspaceDirHistory'>,
-  repo?: Pick<Repo, 'path' | 'connectionId' | 'worktreeBasePath'>
+  repo?: Pick<Repo, 'path' | 'connectionId' | 'worktreeBasePath' | 'worktreeLocationMode'>
 ): OrcaWorkspaceLayout[] {
   const layouts: OrcaWorkspaceLayout[] = []
+  if (repo?.worktreeLocationMode === 'nested') {
+    layouts.push({
+      path: resolveRuntimePath(repo.path, '.worktrees'),
+      nestWorkspaces: false,
+      worktreeLocationMode: 'nested'
+    })
+  }
   const repoBasePath = getRepoWorktreeBasePath(repo)
   if (repo && repoBasePath) {
     layouts.push({
@@ -249,6 +256,13 @@ export function matchesStrongOrcaCreatePath(
     return false
   }
   for (const layout of knownOrcaLayouts) {
+    if (layout.worktreeLocationMode === 'nested') {
+      const relative = relativePathInsideRoot(layout.path, worktreePath)
+      if (relative === null) {
+        continue
+      }
+      return splitNormalizedPath(relative).length === 1
+    }
     if (!layout.nestWorkspaces) {
       continue
     }
