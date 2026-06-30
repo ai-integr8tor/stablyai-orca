@@ -141,6 +141,7 @@ import {
 } from '../../../../shared/agent-title-owner'
 import type { TuiAgent } from '../../../../shared/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
@@ -2831,6 +2832,11 @@ export function connectPanePty(
     let foregroundRefreshRiskScanTail = ''
 
     function trailingIncompleteCsiSequence(data: string): string {
+      // Why: a chunk can end on a lone ESC whose `[...` continuation arrives in
+      // the next chunk. Carry the dangling ESC so the split CSI start survives.
+      if (data.endsWith('\x1b')) {
+        return '\x1b'
+      }
       const escapeIndex = data.lastIndexOf('\x1b[')
       if (escapeIndex === -1) {
         return ''
@@ -2845,6 +2851,15 @@ export function connectPanePty(
       return tail.slice(-TERMINAL_RENDERER_RISK_SCAN_TAIL_CHARS)
     }
 
+    function chunkHasNonAscii(data: string): boolean {
+      for (let index = 0; index < data.length; index += 1) {
+        if (data.charCodeAt(index) > 0x7f) {
+          return true
+        }
+      }
+      return false
+    }
+
     function foregroundAnsiOutputPrefersRenderRefresh(data: string): boolean {
       if (!data) {
         return false
@@ -2852,8 +2867,11 @@ export function connectPanePty(
       const scanData = foregroundRefreshRiskScanTail
         ? `${foregroundRefreshRiskScanTail}${data}`
         : data
-      const prefersRefresh =
-        scanData.includes('\x1b[') && terminalOutputPrefersRenderRefresh(scanData)
+      // Why: complex/wide/RTL script redraws corrupt the atlas without any CSI
+      // sequence, so admit non-ASCII chunks too. Plain-ASCII output with no CSI
+      // still short-circuits here to keep the foreground hot path cheap.
+      const couldPreferRefresh = scanData.includes('\x1b[') || chunkHasNonAscii(scanData)
+      const prefersRefresh = couldPreferRefresh && terminalOutputPrefersRenderRefresh(scanData)
       foregroundRefreshRiskScanTail = trailingIncompleteCsiSequence(scanData)
       return prefersRefresh
     }
@@ -3080,6 +3098,7 @@ export function connectPanePty(
       if (foregroundAnsiOutputPrefersRenderRefresh(data)) {
         // Why: Codex-style background SGR panels can paint cell fills while
         // glyphs lag behind; refresh only renderer-risk ANSI chunks, not all output.
+        scheduleTerminalWebglAtlasRecovery()
         return { refresh: true, inPlaceRewrite: rewriteOutputPrefersRenderRefresh }
       }
       if (rewriteOutputPrefersRenderRefresh) {
