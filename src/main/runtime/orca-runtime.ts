@@ -596,6 +596,7 @@ import {
   loadHooks,
   parseOrcaYaml,
   readIssueCommand,
+  resolveSetupRunnerShell,
   runHook,
   shouldRunSetupForCreate,
   writeIssueCommand
@@ -1876,6 +1877,16 @@ type LayoutQueueEntry = {
     target: PtyLayoutTarget
     waiters: ((r: ApplyLayoutResult) => void)[]
   }[]
+}
+
+function getSetupRunnerCommandPlatformForLaunch(
+  setup: CreateWorktreeResult['setup'],
+  fallbackPlatform: 'windows' | 'posix'
+): 'windows' | 'posix' {
+  if (setup?.shell) {
+    return setup.shell.family === 'posix' ? 'posix' : 'windows'
+  }
+  return getSetupRunnerCommandPlatformForPath(setup?.runnerScriptPath ?? '', fallbackPlatform)
 }
 
 export class OrcaRuntimeService {
@@ -12241,7 +12252,11 @@ export class OrcaRuntimeService {
       if (args.setup) {
         const setupCommand =
           args.wrappedSetupCommand ??
-          buildSetupRunnerCommand(args.setup.runnerScriptPath, args.setupCommandPlatform)
+          buildSetupRunnerCommand(
+            args.setup.runnerScriptPath,
+            args.setupCommandPlatform,
+            args.setup.shell
+          )
         const shouldSplitSetup =
           primaryTerminalHandle &&
           (setupLaunchMode === 'split-vertical' || setupLaunchMode === 'split-horizontal')
@@ -13049,12 +13064,19 @@ export class OrcaRuntimeService {
         try {
           // Why: setup+startup must share the terminal runner path even without
           // a renderer window, so the startup shell can wait on setup completion.
-          setup = createSetupRunnerScript(
-            repo,
-            worktreePath,
-            hooks.scripts.setup,
-            this.getLocalGitExecutionOptionArgs(repo)[0]
-          )
+          const runtimeTarget = this.getLocalGitExecutionOptionArgs(repo)[0]
+          const setupShell = resolveSetupRunnerShell(settings)
+          setup = setupShell
+            ? createSetupRunnerScript(
+                repo,
+                worktreePath,
+                hooks.scripts.setup,
+                runtimeTarget,
+                setupShell
+              )
+            : runtimeTarget
+              ? createSetupRunnerScript(repo, worktreePath, hooks.scripts.setup, runtimeTarget)
+              : createSetupRunnerScript(repo, worktreePath, hooks.scripts.setup)
         } catch (error) {
           // Why: the git worktree is already real at this point. If runner
           // generation fails, keep creation successful and surface the problem in
@@ -13104,8 +13126,8 @@ export class OrcaRuntimeService {
     let sequencedStartup = effectiveStartup
     let wrappedSetupCommandStr: string | undefined
     if (effectiveStartup && setup?.waitForAgentStartup === true) {
-      const platform = getSetupRunnerCommandPlatformForPath(
-        setup.runnerScriptPath,
+      const platform = getSetupRunnerCommandPlatformForLaunch(
+        setup,
         process.platform === 'win32' ? 'windows' : 'posix'
       )
       const sequenced = createSequencedSetupAgentCommands({
@@ -13181,11 +13203,7 @@ export class OrcaRuntimeService {
           ...(defaultTabs ? { defaultTabs } : {}),
           primaryTerminalHandle: startupTerminalHandle,
           hasStartupTerminal: didSpawnStartup,
-          setupCommandPlatform: setup
-            ? isWindowsAbsolutePathLike(setup.runnerScriptPath)
-              ? 'windows'
-              : 'posix'
-            : 'posix',
+          setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(setup, 'posix'),
           // Why: carry the wait-for-agent wrapped setup command (#6298) so the
           // Setup tab runs the same script the sequenced agent waits on.
           ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
@@ -13234,11 +13252,7 @@ export class OrcaRuntimeService {
         ...(defaultTabs ? { defaultTabs } : {}),
         primaryTerminalHandle: startupTerminalHandle,
         hasStartupTerminal: didSpawnStartup,
-        setupCommandPlatform: setup
-          ? isWindowsAbsolutePathLike(setup.runnerScriptPath)
-            ? 'windows'
-            : 'posix'
-          : 'posix',
+        setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(setup, 'posix'),
         ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
       })
       // Why: runtime owns setup spawning here, so the RPC result must omit setup
@@ -13409,7 +13423,7 @@ export class OrcaRuntimeService {
     let sequencedStartup = args.startup
     let wrappedSetupCommandStr: string | undefined
     if (args.startup && result.setup?.waitForAgentStartup === true) {
-      const platform = getSetupRunnerCommandPlatformForPath(result.setup.runnerScriptPath, 'posix')
+      const platform = getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix')
       const sequenced = createSequencedSetupAgentCommands({
         runnerScriptPath: result.setup.runnerScriptPath,
         startupCommand: args.startup.command,
@@ -13479,11 +13493,7 @@ export class OrcaRuntimeService {
           ...(result.defaultTabs ? { defaultTabs: result.defaultTabs } : {}),
           primaryTerminalHandle: startupTerminalHandle,
           hasStartupTerminal: didSpawnStartup,
-          setupCommandPlatform: result.setup
-            ? isWindowsAbsolutePathLike(result.setup.runnerScriptPath)
-              ? 'windows'
-              : 'posix'
-            : 'posix',
+          setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix'),
           // Why: carry the wait-for-agent wrapped setup command (#6298) so the
           // remote Setup tab runs the same script the sequenced agent waits on.
           ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
@@ -13537,11 +13547,7 @@ export class OrcaRuntimeService {
         ...(result.defaultTabs ? { defaultTabs: result.defaultTabs } : {}),
         primaryTerminalHandle: startupTerminalHandle,
         hasStartupTerminal: didSpawnStartup,
-        setupCommandPlatform: result.setup
-          ? isWindowsAbsolutePathLike(result.setup.runnerScriptPath)
-            ? 'windows'
-            : 'posix'
-          : 'posix',
+        setupCommandPlatform: getSetupRunnerCommandPlatformForLaunch(result.setup, 'posix'),
         ...(wrappedSetupCommandStr ? { wrappedSetupCommand: wrappedSetupCommandStr } : {})
       })
       // Why: runtime owns setup spawning here, so omit setup from the RPC result

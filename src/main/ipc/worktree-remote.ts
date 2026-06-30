@@ -40,6 +40,7 @@ import type { RemoteFetchResult, RemoteTrackingBase } from '../runtime/orca-runt
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-projection'
 import {
   buildPosixRunnerScript,
+  buildPowerShellRunnerScript,
   buildWindowsRunnerScript,
   createSetupRunnerScript,
   getDefaultTabsLaunch,
@@ -48,6 +49,7 @@ import {
   getSetupRunnerEnvVars,
   loadHooks,
   parseOrcaYaml,
+  resolveSetupRunnerShell,
   shouldRunSetupForCreate
 } from '../hooks'
 import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
@@ -97,6 +99,7 @@ import {
   buildSetupRunnerCommand,
   getSetupRunnerCommandPlatformForPath
 } from '../../shared/setup-runner-command'
+import type { SetupRunnerShell } from '../../shared/setup-runner-command'
 import { createSequencedSetupAgentCommands } from '../../shared/setup-agent-sequencing'
 import { shouldWaitForSetupBeforeAgentStartup } from '../../shared/setup-agent-startup-policy'
 import { createWorktreeCreateTimingRecorder } from '../worktree-create-timing'
@@ -154,6 +157,16 @@ type RemoteLocalBaseRefRefreshability =
 
 function appendWorktreeCreateWarning(current: string | undefined, next: string): string {
   return current ? `${current} Also ${next[0]?.toLowerCase() ?? ''}${next.slice(1)}` : next
+}
+
+function getSetupRunnerCommandPlatformForLaunch(
+  setup: CreateWorktreeResult['setup'],
+  fallbackPlatform: 'windows' | 'posix'
+): 'windows' | 'posix' {
+  if (setup?.shell) {
+    return setup.shell.family === 'posix' ? 'posix' : 'windows'
+  }
+  return getSetupRunnerCommandPlatformForPath(setup?.runnerScriptPath ?? '', fallbackPlatform)
 }
 
 function validateWorkspaceLineageParentBeforeCreate(
@@ -244,8 +257,8 @@ async function spawnLocalStartupAndSetupTerminals(args: {
   let sequencedStartup = startup
   let wrappedSetupCommandStr: string | undefined
   if (startup && setup?.waitForAgentStartup === true) {
-    const platform = getSetupRunnerCommandPlatformForPath(
-      setup.runnerScriptPath,
+    const platform = getSetupRunnerCommandPlatformForLaunch(
+      setup,
       process.platform === 'win32' ? 'windows' : 'posix'
     )
     const sequenced = createSequencedSetupAgentCommands({
@@ -308,10 +321,11 @@ async function spawnLocalStartupAndSetupTerminals(args: {
         wrappedSetupCommandStr ??
         buildSetupRunnerCommand(
           setup.runnerScriptPath,
-          getSetupRunnerCommandPlatformForPath(
-            setup.runnerScriptPath,
+          getSetupRunnerCommandPlatformForLaunch(
+            setup,
             process.platform === 'win32' ? 'windows' : 'posix'
-          )
+          ),
+          setup.shell
         )
       const setupLaunchMode =
         (settings as Partial<Pick<GlobalSettings, 'setupScriptLaunchMode'>>)
@@ -1130,10 +1144,14 @@ async function createRemoteSetupRunnerScript(
   worktreePath: string,
   script: string,
   gitProvider: SshGitProvider,
-  fsProvider: IFilesystemProvider
+  fsProvider: IFilesystemProvider,
+  setupShell?: SetupRunnerShell
 ): Promise<CreateWorktreeResult['setup']> {
   const useWindowsFormat = isWindowsAbsolutePathLike(worktreePath)
-  const runnerRelativePath = useWindowsFormat ? 'orca/setup-runner.cmd' : 'orca/setup-runner.sh'
+  const runnerShell = useWindowsFormat ? (setupShell ?? { family: 'cmd' as const }) : undefined
+  const runnerExtension =
+    runnerShell?.family === 'cmd' ? 'cmd' : runnerShell?.family === 'powershell' ? 'ps1' : 'sh'
+  const runnerRelativePath = `orca/setup-runner.${runnerExtension}`
   const { stdout } = await gitProvider.exec(
     ['rev-parse', '--git-path', runnerRelativePath],
     worktreePath
@@ -1145,11 +1163,16 @@ async function createRemoteSetupRunnerScript(
   await fsProvider.createDir(runnerDir)
   await fsProvider.writeFile(
     runnerScriptPath,
-    useWindowsFormat ? buildWindowsRunnerScript(script) : buildPosixRunnerScript(script)
+    runnerShell?.family === 'cmd'
+      ? buildWindowsRunnerScript(script)
+      : runnerShell?.family === 'powershell'
+        ? buildPowerShellRunnerScript(script)
+        : buildPosixRunnerScript(script)
   )
   return {
     runnerScriptPath,
     envVars: getSetupRunnerEnvVars(repo, worktreePath),
+    ...(runnerShell ? { shell: runnerShell } : {}),
     ...(shouldWaitForSetupBeforeAgentStartup(repo.hookSettings?.setupAgentStartupPolicy)
       ? { waitForAgentStartup: true }
       : {})
@@ -1828,7 +1851,11 @@ export async function createRemoteWorktree(
             created.path,
             setupScript,
             provider,
-            fsProvider
+            fsProvider,
+            resolveSetupRunnerShell(
+              settings,
+              isWindowsAbsolutePathLike(created.path) ? 'win32' : 'linux'
+            )
           )
         } catch (error) {
           console.error(`[hooks] Failed to prepare setup runner for ${created.path}:`, error)
@@ -2429,12 +2456,13 @@ export async function createLocalWorktree(
         // fails, surfacing the error as a hard create failure would lie to the UI
         // about the underlying git state and strand a real worktree on disk.
         // Degrade to "created without setup launch" instead.
-        setup = createSetupRunnerScript(
-          repo,
-          worktreePath,
-          setupScript,
-          ...localWorktreeGitOptionArgs
-        )
+        const setupShell = resolveSetupRunnerShell(settings)
+        const runtimeTarget = localWorktreeGitOptionArgs[0]
+        setup = setupShell
+          ? createSetupRunnerScript(repo, worktreePath, setupScript, runtimeTarget, setupShell)
+          : runtimeTarget
+            ? createSetupRunnerScript(repo, worktreePath, setupScript, runtimeTarget)
+            : createSetupRunnerScript(repo, worktreePath, setupScript)
       } catch (error) {
         console.error(`[hooks] Failed to prepare setup runner for ${worktreePath}:`, error)
       }

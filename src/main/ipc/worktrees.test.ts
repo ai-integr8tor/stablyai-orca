@@ -41,8 +41,10 @@ const {
   parseOrcaYamlMock,
   shouldRunSetupForCreateMock,
   buildPosixRunnerScriptMock,
+  buildPowerShellRunnerScriptMock,
   buildWindowsRunnerScriptMock,
   getSetupRunnerEnvVarsMock,
+  resolveSetupRunnerShellMock,
   runHookMock,
   hasHooksFileMock,
   loadHooksMock,
@@ -90,8 +92,10 @@ const {
   parseOrcaYamlMock: vi.fn(),
   shouldRunSetupForCreateMock: vi.fn(),
   buildPosixRunnerScriptMock: vi.fn(),
+  buildPowerShellRunnerScriptMock: vi.fn(),
   buildWindowsRunnerScriptMock: vi.fn(),
   getSetupRunnerEnvVarsMock: vi.fn(),
+  resolveSetupRunnerShellMock: vi.fn(),
   runHookMock: vi.fn(),
   hasHooksFileMock: vi.fn(),
   loadHooksMock: vi.fn(),
@@ -169,6 +173,7 @@ vi.mock('./ssh', () => ({
 
 vi.mock('../hooks', () => ({
   buildPosixRunnerScript: buildPosixRunnerScriptMock,
+  buildPowerShellRunnerScript: buildPowerShellRunnerScriptMock,
   buildWindowsRunnerScript: buildWindowsRunnerScriptMock,
   createIssueCommandRunnerScript: createIssueCommandRunnerScriptMock,
   createSetupRunnerScript: createSetupRunnerScriptMock,
@@ -178,6 +183,7 @@ vi.mock('../hooks', () => ({
   getSetupRunnerEnvVars: getSetupRunnerEnvVarsMock,
   loadHooks: loadHooksMock,
   parseOrcaYaml: parseOrcaYamlMock,
+  resolveSetupRunnerShell: resolveSetupRunnerShellMock,
   runHook: runHookMock,
   hasHooksFile: hasHooksFileMock,
   shouldRunSetupForCreate: shouldRunSetupForCreateMock
@@ -302,8 +308,10 @@ describe('registerWorktreeHandlers', () => {
       createIssueCommandRunnerScriptMock,
       createSetupRunnerScriptMock,
       buildPosixRunnerScriptMock,
+      buildPowerShellRunnerScriptMock,
       buildWindowsRunnerScriptMock,
       getSetupRunnerEnvVarsMock,
+      resolveSetupRunnerShellMock,
       shouldRunSetupForCreateMock,
       runHookMock,
       hasHooksFileMock,
@@ -407,7 +415,9 @@ describe('registerWorktreeHandlers', () => {
     buildPosixRunnerScriptMock.mockImplementation(
       (script: string) => `#!/usr/bin/env bash\nset -e\n${script.replace(/\r\n/g, '\n')}\n`
     )
+    buildPowerShellRunnerScriptMock.mockImplementation((script: string) => script)
     buildWindowsRunnerScriptMock.mockImplementation((script: string) => script)
+    resolveSetupRunnerShellMock.mockReturnValue(undefined)
     getSetupRunnerEnvVarsMock.mockImplementation(
       (repoArg: { path: string }, worktreePath: string) => ({
         ORCA_ROOT_PATH: repoArg.path,
@@ -3267,6 +3277,10 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.exec).toHaveBeenCalledWith(
       ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
       '/remote/improve-dashboard'
+    )
+    expect(resolveSetupRunnerShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceDir: '/workspace' }),
+      'linux'
     )
     expect(fsProvider.createDir).toHaveBeenCalledWith(
       '/remote/repo/.git/worktrees/improve-dashboard/orca'
