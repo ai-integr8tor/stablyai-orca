@@ -84,6 +84,7 @@ import {
   getGroupKeysForWorktree,
   getLineageGroupKey
 } from './worktree-list-groups'
+import { buildProjectNavigationOrder, selectProjectNavigationTarget } from './project-navigation'
 import {
   estimateRenderRowSize,
   extractWorktreeVirtualRowIndexes,
@@ -2232,6 +2233,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
 
   const prCacheLen = useAppStore((s) => countRecordKeysByReference(s.prCache))
   const issueCacheLen = useAppStore((s) => countRecordKeysByReference(s.issueCache))
+  const lastVisitedAtByWorktreeId = useAppStore((s) => s.lastVisitedAtByWorktreeId)
   const renderRowKeySignature = useMemo(
     () => renderRows.map(getRenderRowKey).join('\n'),
     [renderRows]
@@ -2402,6 +2404,97 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     ]
   )
 
+  const navigateProject = useCallback(
+    (direction: 'up' | 'down') => {
+      // Why: derive the project cycle from the same all-expanded layout worktree
+      // nav uses, then collapse each worktree to its top-level project —
+      // getGroupKeysForWorktree[0] is the project group when grouped, or the repo
+      // group key when ungrouped, with nested groups folded into their ancestor.
+      const allWorktreeRows = buildRows(
+        groupBy,
+        worktrees,
+        repoMap,
+        prCache,
+        new Set<string>(),
+        repoOrder,
+        workspaceStatuses,
+        projectOrderBy,
+        worktreeLineageById,
+        worktreeMap,
+        true,
+        settings,
+        projectGroups,
+        new Set(),
+        new Map(),
+        new Map(),
+        [],
+        projectGrouping
+      ).filter((r): r is Extract<Row, { type: 'item' }> => r.type === 'item')
+
+      // Why: drop the Pinned section's duplicate rows so the project cycle order
+      // follows the visible section headers, not pin order. Each worktree still
+      // appears under its real section because the layout above is fully expanded.
+      const orderedWorktrees = allWorktreeRows
+        .filter((row) => row.sectionKey !== PINNED_GROUP_KEY)
+        .map((row) => row.worktree)
+      const { orderedProjectKeys, worktreesByProjectKey, projectKeyByWorktreeId } =
+        buildProjectNavigationOrder(orderedWorktrees, (worktree) =>
+          // Top-level project: the project group when grouped (nested groups fold
+          // into their ancestor), or the repo group key when ungrouped.
+          getGroupKeysForWorktree(
+            groupBy,
+            worktree,
+            repoMap,
+            prCache,
+            workspaceStatuses,
+            settings,
+            projectGroups,
+            projectGrouping
+          )[0] ?? null
+        )
+
+      const activeProjectKey =
+        activeWorktreeId != null ? (projectKeyByWorktreeId.get(activeWorktreeId) ?? null) : null
+      const nextWorktreeId = selectProjectNavigationTarget({
+        orderedProjectKeys,
+        worktreesByProjectKey,
+        activeProjectKey,
+        activeWorktreeId,
+        lastVisitedAtByWorktreeId,
+        direction
+      })
+      if (nextWorktreeId == null) {
+        return
+      }
+      // Why: project switching is real navigation, so reuse the activation helper
+      // that records history and reveals the worktree, exactly like worktree nav.
+      activateAndRevealWorktree(nextWorktreeId)
+
+      const rowIndex = renderRows.findIndex((row) => renderRowContainsWorktree(row, nextWorktreeId))
+      if (rowIndex !== -1) {
+        virtualizer.scrollToIndex(rowIndex, { align: 'auto' })
+      }
+    },
+    [
+      renderRows,
+      activeWorktreeId,
+      virtualizer,
+      groupBy,
+      projectOrderBy,
+      worktrees,
+      repoMap,
+      prCache,
+      repoOrder,
+      workspaceStatuses,
+      worktreeLineageById,
+      worktreeMap,
+      settings,
+      projectGroups,
+      projectGrouping,
+      lastVisitedAtByWorktreeId
+    ]
+  )
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (activeModal !== 'none' || isEditableTarget(e.target)) {
@@ -2424,12 +2517,29 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         markDirectScrollInput()
         navigateWorktree(direction)
         e.preventDefault()
+        return
+      }
+
+      const projectDirection = keybindingMatchesAction(
+        'project.navigatePrevious',
+        e,
+        platform,
+        keybindings
+      )
+        ? 'up'
+        : keybindingMatchesAction('project.navigateNext', e, platform, keybindings)
+          ? 'down'
+          : null
+      if (projectDirection) {
+        markDirectScrollInput()
+        navigateProject(projectDirection)
+        e.preventDefault()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-  }, [activeModal, keybindings, markDirectScrollInput, navigateWorktree])
+  }, [activeModal, keybindings, markDirectScrollInput, navigateWorktree, navigateProject])
 
   const handleContainerKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
