@@ -9,6 +9,7 @@ import { TabDragProvider } from './tab-drag-context'
 import TabPaneColumnSplitDragOverlay from './TabPaneColumnSplitDragOverlay'
 import { type HoveredTabInsertion, useTabDragSplit } from './useTabDragSplit'
 import { getShortcutPlatform } from '@/hooks/useShortcutLabel'
+import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 
 const MIN_RATIO = 0.15
 const MAX_RATIO = 0.85
@@ -29,9 +30,21 @@ function PaneZoomShortcutBoundary({
     (state) => state.settings?.terminalShortcutPolicy ?? 'orca-first'
   )
   const togglePaneZoom = useAppStore((state) => state.togglePaneZoom)
+  const terminalPaneZoomTabId = useAppStore((state) => {
+    const focusedGroup = (state.groupsByWorktree[worktreeId] ?? []).find(
+      (candidate) => candidate.id === focusedGroupId
+    )
+    const activeTab = (state.unifiedTabsByWorktree[worktreeId] ?? []).find(
+      (candidate) => candidate.id === focusedGroup?.activeTabId
+    )
+    if (activeTab?.contentType !== 'terminal') {
+      return null
+    }
+    return state.canExpandPaneByTabId[activeTab.entityId] === true ? activeTab.entityId : null
+  })
 
   useEffect(() => {
-    if (!isWorktreeActive || !hasSplits || !focusedGroupId) {
+    if (!isWorktreeActive || (!hasSplits && !terminalPaneZoomTabId) || !focusedGroupId) {
       return
     }
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -48,7 +61,17 @@ function PaneZoomShortcutBoundary({
       }
       event.preventDefault()
       event.stopImmediatePropagation()
-      togglePaneZoom(worktreeId, focusedGroupId)
+      if (hasSplits) {
+        togglePaneZoom(worktreeId, focusedGroupId)
+        return
+      }
+      // Why: single-group terminal splits own their leaf layout inside
+      // TerminalPane, so the tab zoom command asks that mounted pane to toggle.
+      window.dispatchEvent(
+        new CustomEvent(TOGGLE_TERMINAL_PANE_EXPAND_EVENT, {
+          detail: { tabId: terminalPaneZoomTabId }
+        })
+      )
     }
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
@@ -58,6 +81,7 @@ function PaneZoomShortcutBoundary({
     isWorktreeActive,
     keybindings,
     terminalShortcutPolicy,
+    terminalPaneZoomTabId,
     togglePaneZoom,
     worktreeId
   ])

@@ -6,6 +6,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import TabGroupPanel from './TabGroupPanel'
 
+const toggleActiveTerminalPaneZoomMock = vi.fn()
+let modelOverrides: {
+  activeTerminalPaneIsZoomed?: boolean
+  canZoomActiveTerminalPane?: boolean
+} = {}
+
 vi.mock('@dnd-kit/core', () => ({
   useDroppable: () => ({ setNodeRef: vi.fn() })
 }))
@@ -42,10 +48,13 @@ vi.mock('./useTabGroupWorkspaceModel', () => ({
       pinFile: vi.fn(),
       setTabColor: vi.fn(),
       setTabCustomTitle: vi.fn(),
+      toggleActiveTerminalPaneZoom: toggleActiveTerminalPaneZoomMock,
       toggleTerminalPaneExpand: vi.fn()
     },
     editorItems: [],
     expandedPaneByTabId: {},
+    activeTerminalPaneIsZoomed: modelOverrides.activeTerminalPaneIsZoomed ?? false,
+    canZoomActiveTerminalPane: modelOverrides.canZoomActiveTerminalPane ?? false,
     group: { id: 'group-1', worktreeId: 'wt-1', activeTabId: null, tabOrder: [] },
     groupTabs: [],
     tabBarOrder: [],
@@ -76,9 +85,11 @@ vi.mock('@/i18n/i18n', () => ({
 const mounted: { container: HTMLDivElement; root: Root }[] = []
 
 function renderPanel({
+  hasSplitGroups = true,
   isZoomed,
   onTogglePaneZoom
 }: {
+  hasSplitGroups?: boolean
   isZoomed: boolean
   onTogglePaneZoom: () => void
 }): HTMLDivElement {
@@ -91,7 +102,7 @@ function renderPanel({
         groupId="group-1"
         worktreeId="wt-1"
         isFocused
-        hasSplitGroups
+        hasSplitGroups={hasSplitGroups}
         isZoomed={isZoomed}
         touchesRightEdge
         touchesLeftEdge
@@ -106,6 +117,8 @@ function renderPanel({
 }
 
 afterEach(() => {
+  modelOverrides = {}
+  toggleActiveTerminalPaneZoomMock.mockClear()
   for (const { container, root } of mounted.splice(0)) {
     act(() => root.unmount())
     container.remove()
@@ -136,5 +149,34 @@ describe('TabGroupPanel pane zoom affordance', () => {
     expect(button?.getAttribute('aria-pressed')).toBe('true')
     expect(container.textContent).toContain('Ctrl')
     expect(container.textContent).toContain('Enter')
+  })
+
+  it('shows the zoom button for a focused terminal split in a single tab group', () => {
+    modelOverrides = { canZoomActiveTerminalPane: true }
+    const onTogglePaneZoom = vi.fn()
+    const container = renderPanel({ hasSplitGroups: false, isZoomed: false, onTogglePaneZoom })
+
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom pane"]')
+
+    expect(button).not.toBeNull()
+
+    act(() => button?.click())
+
+    expect(toggleActiveTerminalPaneZoomMock).toHaveBeenCalledTimes(1)
+    expect(onTogglePaneZoom).not.toHaveBeenCalled()
+  })
+
+  it('shows restore state for an already zoomed terminal split', () => {
+    modelOverrides = { activeTerminalPaneIsZoomed: true, canZoomActiveTerminalPane: true }
+    const container = renderPanel({
+      hasSplitGroups: false,
+      isZoomed: false,
+      onTogglePaneZoom: vi.fn()
+    })
+
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="Restore pane"]')
+
+    expect(button).not.toBeNull()
+    expect(button?.getAttribute('aria-pressed')).toBe('true')
   })
 })

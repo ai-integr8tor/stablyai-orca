@@ -15,6 +15,10 @@ vi.mock('@/components/ui/tooltip', () => ({
   TooltipContent: ({ children }: { children?: ReactNode }) => <span>{children}</span>
 }))
 
+vi.mock('@/hooks/useShortcutLabel', () => ({
+  useShortcutKeyDetails: () => ({ keys: ['Ctrl', 'Alt', 'Enter'], doubleTap: false })
+}))
+
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string, values?: Record<string, string>) =>
     Object.entries(values ?? {}).reduce(
@@ -44,16 +48,21 @@ function renderOverlay({
   paneTitles,
   paneCount = 2,
   showAlwaysOnHeaders = true,
+  activePaneIsZoomed = false,
+  onTogglePaneZoom = vi.fn(),
   onClosePane = vi.fn(),
   onRemoveTitle = vi.fn()
 }: {
   paneTitles: Record<number, string>
   paneCount?: number
   showAlwaysOnHeaders?: boolean
+  activePaneIsZoomed?: boolean
+  onTogglePaneZoom?: ReturnType<typeof vi.fn>
   onClosePane?: ReturnType<typeof vi.fn>
   onRemoveTitle?: ReturnType<typeof vi.fn>
 }): {
   container: HTMLDivElement
+  onTogglePaneZoom: ReturnType<typeof vi.fn>
   onClosePane: ReturnType<typeof vi.fn>
   onRemoveTitle: ReturnType<typeof vi.fn>
 } {
@@ -81,11 +90,13 @@ function renderOverlay({
         renameInputRef={createRef<HTMLInputElement>()}
         titleUsesLightSurface={false}
         paneTitleBackground="transparent"
+        activePaneIsZoomed={activePaneIsZoomed}
         terminalContentVisible
         hiddenStartupStyle={{}}
         managerRef={{ current: null } as RefObject<PaneManager | null>}
         paneTransportsRef={{ current: new Map() } as RefObject<Map<number, PtyTransport>>}
         onSplitPane={vi.fn()}
+        onTogglePaneZoom={onTogglePaneZoom as () => void}
         onBeginPaneDrag={vi.fn()}
         onActivatePaneTitleInteraction={vi.fn()}
         onPaneTitleContextMenu={vi.fn()}
@@ -100,7 +111,7 @@ function renderOverlay({
     )
   })
   mounted.push({ container, root })
-  return { container, onClosePane, onRemoveTitle }
+  return { container, onTogglePaneZoom, onClosePane, onRemoveTitle }
 }
 
 afterEach(() => {
@@ -141,5 +152,36 @@ describe('TerminalPaneHeaderOverlay', () => {
 
     expect(onClosePane).toHaveBeenCalledWith(1)
     expect(onRemoveTitle).not.toHaveBeenCalled()
+  })
+
+  it('shows a zoom button for the active split pane header', () => {
+    const { container, onTogglePaneZoom } = renderOverlay({
+      paneTitles: { 1: '', 2: '' }
+    })
+
+    const zoomPane = container.querySelector<HTMLButtonElement>('button[aria-label="Zoom pane"]')
+
+    expect(zoomPane).not.toBeNull()
+    expect(zoomPane?.getAttribute('aria-pressed')).toBe('false')
+
+    act(() => zoomPane?.click())
+
+    expect(onTogglePaneZoom).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows restore state for the active zoomed split pane header', () => {
+    const { container } = renderOverlay({
+      activePaneIsZoomed: true,
+      paneTitles: { 1: '', 2: '' }
+    })
+
+    const restorePane = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Restore pane"]'
+    )
+
+    expect(restorePane).not.toBeNull()
+    expect(restorePane?.getAttribute('aria-pressed')).toBe('true')
+    expect(container.textContent).toContain('Ctrl')
+    expect(container.textContent).toContain('Enter')
   })
 })

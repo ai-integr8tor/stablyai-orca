@@ -58,6 +58,8 @@ export default function TabGroupPanel({
   const model = useTabGroupWorkspaceModel({ groupId, worktreeId })
   const { activeTab, browserItems, commands, editorItems, tabBarOrder, terminalTabs } = model
   const zoomShortcut = useShortcutKeyDetails('tab.togglePaneZoom')
+  const canZoomPane = hasSplitGroups || model.canZoomActiveTerminalPane
+  const isPaneZoomed = hasSplitGroups ? isZoomed : model.activeTerminalPaneIsZoomed
   const { setNodeRef: setBodyDropRef } = useDroppable({
     id: getTabPaneBodyDroppableId(groupId),
     data: {
@@ -192,7 +194,7 @@ export default function TabGroupPanel({
   const splitPaneButtonClassName = `${menuButtonClassName} ${
     isFocused ? 'opacity-100' : 'opacity-70 hover:opacity-100'
   }`
-  const zoomPaneLabel = isZoomed
+  const zoomPaneLabel = isPaneZoomed
     ? translate('auto.components.tab.group.TabGroupPanel.restorePane', 'Restore pane')
     : translate('auto.components.tab.group.TabGroupPanel.zoomPane', 'Zoom pane')
   // Why: focused-only — quick commands and Close split pane stay with the
@@ -298,7 +300,7 @@ export default function TabGroupPanel({
               {isFocused ? (
                 <TabBarQuickCommandsButton worktreeId={worktreeId} groupId={groupId} />
               ) : null}
-              {isFocused && hasSplitGroups ? (
+              {isFocused && canZoomPane ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -306,13 +308,17 @@ export default function TabGroupPanel({
                       variant="ghost"
                       size="icon-xs"
                       aria-label={zoomPaneLabel}
-                      aria-pressed={isZoomed}
+                      aria-pressed={isPaneZoomed}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onTogglePaneZoom()
+                        if (hasSplitGroups) {
+                          onTogglePaneZoom()
+                          return
+                        }
+                        commands.toggleActiveTerminalPaneZoom()
                       }}
                     >
-                      {isZoomed ? (
+                      {isPaneZoomed ? (
                         <Minimize2 className="size-4" />
                       ) : (
                         <Maximize2 className="size-4" />

@@ -2577,11 +2577,18 @@ export default function TerminalPane({
         renameInputRef={renameInputRef}
         titleUsesLightSurface={titleUsesLightSurface}
         paneTitleBackground={paneTitleBackground}
+        activePaneIsZoomed={activePane?.id !== undefined && expandedPaneId === activePane.id}
         terminalContentVisible={terminalContentVisible}
         hiddenStartupStyle={hiddenStartupStyle}
         managerRef={managerRef}
         paneTransportsRef={paneTransportsRef}
         onSplitPane={splitTerminalPaneFromHeader}
+        onTogglePaneZoom={() => {
+          const pane = managerRef.current?.getActivePane() ?? managedPanes[0]
+          if (pane) {
+            toggleExpandPane(pane.id)
+          }
+        }}
         onBeginPaneDrag={beginPaneDragFromHeader}
         onActivatePaneTitleInteraction={activatePaneTitleInteraction}
         onPaneTitleContextMenu={contextMenu.onPaneTitleContextMenu}
