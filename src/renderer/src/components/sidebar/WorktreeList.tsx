@@ -84,7 +84,12 @@ import {
   getGroupKeysForWorktree,
   getLineageGroupKey
 } from './worktree-list-groups'
-import { buildProjectNavigationOrder, selectProjectNavigationTarget } from './project-navigation'
+import {
+  buildProjectNavigationOrder,
+  resolveTopLevelProjectGroupId,
+  selectProjectNavigationTarget,
+  type ProjectNavigationEntry
+} from './project-navigation'
 import {
   estimateRenderRowSize,
   extractWorktreeVirtualRowIndexes,
@@ -123,7 +128,7 @@ import {
   useVirtualizedScrollAnchor,
   type VirtualizedScrollAnchor
 } from '@/hooks/useVirtualizedScrollAnchor'
-import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { activateAndRevealFolderWorkspace, activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useFolderWorkspacePathStatusCacheExpiryTick } from '@/lib/folder-workspace-path-status-cache-expiry'
 import {
   getFolderWorkspacePathStatusDescription,
@@ -258,7 +263,7 @@ import { buildSidebarHostOptions } from './sidebar-host-options'
 import { HostSectionHeaderMenu } from './HostSectionHeaderMenu'
 import { ProjectHeaderActions } from './ProjectHeaderActions'
 import { translate } from '@/i18n/i18n'
-import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
+import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
 import {
   isConfirmedStaleFolderPathStatus,
@@ -629,6 +634,8 @@ type VirtualizedWorktreeViewportProps = {
   agentSendTargetWorktreeId: string | null
   worktrees: Worktree[]
   folderWorkspaces: readonly FolderWorkspace[]
+  /** Host-filtered folder workspaces, mirroring the rendered rows, for project nav. */
+  visibleFolderWorkspacesForRows: readonly FolderWorkspace[]
   selectedWorktreeIds: ReadonlySet<string>
   selectedWorktrees: readonly Worktree[]
   onSelectionGesture: (event: React.MouseEvent<HTMLElement>, worktreeId: string) => boolean
@@ -1268,6 +1275,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   agentSendTargetWorktreeId,
   worktrees,
   folderWorkspaces,
+  visibleFolderWorkspacesForRows,
   selectedWorktreeIds,
   selectedWorktrees,
   onSelectionGesture,
@@ -2407,10 +2415,9 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   const navigateProject = useCallback(
     (direction: 'up' | 'down') => {
       // Why: derive the project cycle from the same all-expanded layout worktree
-      // nav uses, then collapse each worktree to its top-level project —
-      // getGroupKeysForWorktree[0] is the project group when grouped, or the repo
-      // group key when ungrouped, with nested groups folded into their ancestor.
-      const allWorktreeRows = buildRows(
+      // nav uses, but keep folder-workspace rows too so folder-only projects stay
+      // reachable. Each member collapses to its top-level project key.
+      const allRows = buildRows(
         groupBy,
         worktrees,
         repoMap,
@@ -2428,34 +2435,65 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         new Map(),
         new Map(),
         [],
-        projectGrouping
-      ).filter((r): r is Extract<Row, { type: 'item' }> => r.type === 'item')
+        projectGrouping,
+        // 19th positional arg: folder workspaces. Use the host-filtered list so
+        // project nav matches the visible sidebar and never lands on a workspace
+        // hidden by the active host filter (worktrees are already filtered).
+        visibleFolderWorkspacesForRows
+      )
 
-      // Why: drop the Pinned section's duplicate rows so the project cycle order
+      // Top-level project key for a folder workspace: walk its project group to the
+      // outermost ancestor, matching getGroupKeysForWorktree[0] for worktrees in
+      // the same group so they share one cycle stop.
+      const parentGroupIdById = new Map(
+        projectGroups.map((group) => [group.id, group.parentGroupId ?? null])
+      )
+      const folderProjectKey = (projectGroupId: string): string | null => {
+        const topId = resolveTopLevelProjectGroupId(projectGroupId, parentGroupIdById)
+        return topId ? getProjectGroupHeaderKey(topId) : null
+      }
+
+      // Why: skip the Pinned section's duplicate worktree rows so the cycle order
       // follows the visible section headers, not pin order. Each worktree still
       // appears under its real section because the layout above is fully expanded.
-      const orderedWorktrees = allWorktreeRows
-        .filter((row) => row.sectionKey !== PINNED_GROUP_KEY)
-        .map((row) => row.worktree)
+      const entries: ProjectNavigationEntry[] = []
+      for (const row of allRows) {
+        if (row.type === 'item') {
+          if (row.sectionKey === PINNED_GROUP_KEY) {
+            continue
+          }
+          entries.push({
+            // Top-level project: the project group when grouped (nested groups fold
+            // into their ancestor), or the repo group key when ungrouped.
+            worktree: row.worktree,
+            projectKey:
+              getGroupKeysForWorktree(
+                groupBy,
+                row.worktree,
+                repoMap,
+                prCache,
+                workspaceStatuses,
+                settings,
+                projectGroups,
+                projectGrouping
+              )[0] ?? null
+          })
+        } else if (row.type === 'folder-workspace') {
+          // Folder workspaces reuse the worktree recency/activation id via
+          // folderWorkspaceToWorktree (id === folderWorkspaceKey(...)).
+          entries.push({
+            worktree: folderWorkspaceToWorktree(row.folderWorkspace),
+            projectKey: folderProjectKey(row.folderWorkspace.projectGroupId)
+          })
+        }
+      }
+
       const { orderedProjectKeys, worktreesByProjectKey, projectKeyByWorktreeId } =
-        buildProjectNavigationOrder(orderedWorktrees, (worktree) =>
-          // Top-level project: the project group when grouped (nested groups fold
-          // into their ancestor), or the repo group key when ungrouped.
-          getGroupKeysForWorktree(
-            groupBy,
-            worktree,
-            repoMap,
-            prCache,
-            workspaceStatuses,
-            settings,
-            projectGroups,
-            projectGrouping
-          )[0] ?? null
-        )
+        buildProjectNavigationOrder(entries)
 
       const activeProjectKey =
         activeWorktreeId != null ? (projectKeyByWorktreeId.get(activeWorktreeId) ?? null) : null
-      const nextWorktreeId = selectProjectNavigationTarget({
+      const targetId = selectProjectNavigationTarget({
         orderedProjectKeys,
         worktreesByProjectKey,
         activeProjectKey,
@@ -2463,14 +2501,19 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         lastVisitedAtByWorktreeId,
         direction
       })
-      if (nextWorktreeId == null) {
+      if (targetId == null) {
         return
       }
-      // Why: project switching is real navigation, so reuse the activation helper
-      // that records history and reveals the worktree, exactly like worktree nav.
-      activateAndRevealWorktree(nextWorktreeId)
 
-      const rowIndex = renderRows.findIndex((row) => renderRowContainsWorktree(row, nextWorktreeId))
+      // Why: project switching is real navigation, so reuse the activation helpers
+      // that record history and reveal the target, exactly like worktree nav.
+      const targetScope = parseWorkspaceKey(targetId)
+      if (targetScope?.type === 'folder') {
+        activateAndRevealFolderWorkspace(targetScope.folderWorkspaceId)
+        return
+      }
+      activateAndRevealWorktree(targetId)
+      const rowIndex = renderRows.findIndex((row) => renderRowContainsWorktree(row, targetId))
       if (rowIndex !== -1) {
         virtualizer.scrollToIndex(rowIndex, { align: 'auto' })
       }
@@ -2491,6 +2534,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
       settings,
       projectGroups,
       projectGrouping,
+      visibleFolderWorkspacesForRows,
       lastVisitedAtByWorktreeId
     ]
   )
@@ -6780,6 +6824,7 @@ const WorktreeList = React.memo(function WorktreeList({
         agentSendTargetWorktreeId={agentSendTargetWorktreeId}
         worktrees={worktrees}
         folderWorkspaces={folderWorkspaces}
+        visibleFolderWorkspacesForRows={visibleFolderWorkspacesForRows}
         selectedWorktreeIds={selectedWorktreeIds}
         selectedWorktrees={selectedWorktrees}
         onSelectionGesture={updateSelectionForGesture}
