@@ -39,6 +39,9 @@ export type KeybindingActionId =
   | 'workspace.delete'
   | 'workspace.openBoard'
   | 'workspace.selectByIndex'
+  | 'workspace.togglePin'
+  | 'workspace.copyPath'
+  | 'workspace.sleep'
   | 'voice.dictation'
   | 'view.tasks'
   | 'sidebar.left.toggle'
@@ -69,6 +72,7 @@ export type KeybindingActionId =
   | 'tab.closeAll'
   | 'tab.rename'
   | 'tab.reopenClosed'
+  | 'tab.togglePin'
   | 'tab.nextSameType'
   | 'tab.previousSameType'
   | 'tab.nextAllTypes'
@@ -320,6 +324,38 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     // representative — its digit normalizes to 1, but the modifier set is what
     // matters and any of 1-9 fires it. mac Cmd+1-9, Windows/Linux Ctrl+1-9 → Mod+1.
     defaultBindings: platformBindings(['Mod+1'])
+  },
+  {
+    id: 'workspace.togglePin',
+    title: 'Pin / Unpin Workspace',
+    group: 'Global',
+    scope: 'global',
+    conflictGroup: 'workspace-pin',
+    searchKeywords: ['shortcut', 'global', 'workspace', 'worktree', 'pin', 'unpin'],
+    defaultBindings: {
+      darwin: ['Mod+Alt+P'],
+      linux: [],
+      win32: []
+    },
+    allowInTerminal: true
+  },
+  {
+    id: 'workspace.copyPath',
+    title: 'Copy Workspace Path',
+    group: 'Global',
+    scope: 'global',
+    searchKeywords: ['shortcut', 'global', 'workspace', 'worktree', 'copy', 'path'],
+    defaultBindings: platformBindings([]),
+    allowInTerminal: true
+  },
+  {
+    id: 'workspace.sleep',
+    title: 'Sleep Workspace',
+    group: 'Global',
+    scope: 'global',
+    searchKeywords: ['shortcut', 'global', 'workspace', 'worktree', 'sleep', 'stop'],
+    defaultBindings: platformBindings([]),
+    allowInTerminal: true
   },
   {
     id: 'voice.dictation',
@@ -625,6 +661,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     scope: 'tabs',
     searchKeywords: ['shortcut', 'tab', 'reopen', 'restore', 'closed'],
     defaultBindings: platformBindings(['Mod+Shift+T'])
+  },
+  {
+    id: 'tab.togglePin',
+    title: 'Pin / Unpin Tab',
+    group: 'Tabs',
+    scope: 'tabs',
+    conflictGroup: 'workspace-pin',
+    searchKeywords: ['shortcut', 'tab', 'pin', 'unpin'],
+    defaultBindings: platformBindings([])
   },
   {
     id: 'tab.nextSameType',

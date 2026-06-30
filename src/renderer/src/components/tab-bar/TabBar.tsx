@@ -3,7 +3,7 @@
  * to a file that was already ~398 code lines on main. The per-type render
  * branches share little beyond drag data, so consolidating them would cost
  * more clarity than the ~5 lines of bloat is worth. */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SortableContext } from '@dnd-kit/sortable'
 import {
   ChevronLeft,
@@ -51,7 +51,14 @@ import {
 import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
-import { useOptionalShortcutLabel, useShortcutLabel } from '@/hooks/useShortcutLabel'
+import {
+  useOptionalShortcutLabel,
+  useShortcutLabel,
+  useShortcutKeyDetails
+} from '@/hooks/useShortcutLabel'
+import { isEditableTarget } from '@/lib/editable-target'
+import { getShortcutPlatform } from '@/lib/shortcut-platform'
+import { keybindingMatchesAction } from '../../../../shared/keybindings'
 import {
   type BuiltInWindowsTerminalShell,
   WINDOWS_GIT_BASH_SHELL
@@ -66,6 +73,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
@@ -272,6 +280,7 @@ function TabBarInner({
 }: TabBarProps): React.JSX.Element {
   const includeTopTabBorder = tabStripChrome !== 'floating-panel'
   const newTerminalShortcut = useShortcutLabel('tab.newTerminal')
+  const newTerminalShortcutDetails = useShortcutKeyDetails('tab.newTerminal')
   const newBrowserShortcut = useShortcutLabel('tab.newBrowser')
   const newSimulatorShortcut = useShortcutLabel('tab.newSimulator')
   const newFileShortcut = useShortcutLabel('tab.newMarkdown')
@@ -970,6 +979,12 @@ function TabBarInner({
     activeTabType,
     orderedItems
   ])
+  const activeItem = useMemo(() => {
+    if (!activeVisibleTabId) {
+      return null
+    }
+    return orderedItems.find((item) => item.id === activeVisibleTabId) ?? null
+  }, [activeVisibleTabId, orderedItems])
   const tabStripLayoutKey = useMemo(
     () =>
       orderedItems
@@ -987,18 +1002,63 @@ function TabBarInner({
     [expandedPaneByTabId, generatedTabTitlesEnabled, orderedItems, statusByRelativePath]
   )
 
-  const togglePinned = (item: TabItem): void => {
-    // pinTab/unpinTab mirror the change to the host for remote-server tabs.
-    if (item.isPinned) {
-      unpinTab(item.unifiedTabId)
+  const togglePinShortcutLabel = useOptionalShortcutLabel('tab.togglePin')
+  // Why: split panes mount one TabBar per group; the global chord must follow
+  // the focused group instead of whichever listener mounted first.
+  const ownsTogglePinShortcut =
+    activeWorktreeId === worktreeId &&
+    (groupId === undefined || activeGroupIdForWorktree === resolvedGroupId)
+
+  const togglePinned = useCallback(
+    (item: TabItem): void => {
+      // pinTab/unpinTab mirror the change to the host for remote-server tabs.
+      if (item.isPinned) {
+        unpinTab(item.unifiedTabId)
+        return
+      }
+      if (item.type === 'editor' && onPinFile) {
+        onPinFile(item.data.id, item.unifiedTabId)
+        return
+      }
+      pinTab(item.unifiedTabId)
+    },
+    [onPinFile, pinTab, unpinTab]
+  )
+
+  useEffect(() => {
+    if (!ownsTogglePinShortcut) {
       return
     }
-    if (item.type === 'editor' && onPinFile) {
-      onPinFile(item.data.id, item.unifiedTabId)
-      return
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.repeat || isEditableTarget(e.target)) {
+        return
+      }
+
+      const shortcutPlatform = getShortcutPlatform()
+      const context =
+        e.target instanceof HTMLElement && e.target.classList.contains('xterm-helper-textarea')
+          ? 'terminal'
+          : 'app'
+      const keybindings = useAppStore.getState().keybindings
+      const settings = useAppStore.getState().settings
+      const matches = keybindingMatchesAction('tab.togglePin', e, shortcutPlatform, keybindings, {
+        context,
+        terminalShortcutPolicy: settings?.terminalShortcutPolicy ?? 'orca-first'
+      })
+
+      if (matches && activeItem) {
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        togglePinned(activeItem)
+      }
     }
-    pinTab(item.unifiedTabId)
-  }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true })
+    }
+  }, [activeItem, ownsTogglePinShortcut, togglePinned])
 
   const { tabStripRef, tabStripOverflowState, scrollTabStrip } = useTabStripOverflowNavigation({
     activeVisibleTabId,
@@ -1166,6 +1226,7 @@ function TabBarInner({
                     onCloseToRight={() => onCloseToRight(item.id)}
                     onDuplicate={() => onDuplicateBrowserTab?.(item.id)}
                     onTogglePin={() => togglePinned(item)}
+                    togglePinShortcutLabel={togglePinShortcutLabel}
                     dragData={dragData}
                     dropIndicator={dropIndicatorByVisibleId.get(item.id) ?? null}
                     includeTopTabBorder={includeTopTabBorder}
@@ -1268,20 +1329,32 @@ function TabBarInner({
         // pointer events and make that toast (and other outside UI) unclickable.
         modal={false}
       >
-        <DropdownMenuTrigger asChild>
-          <button
-            className="ml-2 my-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            title={translate('auto.components.tab.bar.TabBar.b1a132357f', 'New tab')}
-            // Why: aria-label matches the tooltip so E2E can locate the "+"
-            // affordance via getByRole('button', { name: 'New tab' }). The
-            // store-only createTab() round-trip that preceded this was a
-            // tautology — it would pass even if the + button had been deleted.
-            aria-label={translate('auto.components.tab.bar.TabBar.b1a132357f', 'New tab')}
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="ml-2 my-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                // Why: aria-label matches the tooltip so E2E can locate the "+"
+                // affordance via getByRole('button', { name: 'New tab' }). The
+                // store-only createTab() round-trip that preceded this was a
+                // tautology — it would pass even if the + button had been deleted.
+                aria-label={translate('auto.components.tab.bar.TabBar.b1a132357f', 'New tab')}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6} className="flex items-center gap-2">
+            <span>{translate('auto.components.tab.bar.TabBar.b1a132357f', 'New tab')}</span>
+            {newTerminalShortcutDetails.keys.length > 0 && (
+              <ShortcutKeyCombo
+                keys={newTerminalShortcutDetails.keys}
+                doubleTap={newTerminalShortcutDetails.doubleTap}
+              />
+            )}
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenuContent
           align="start"
           sideOffset={6}
