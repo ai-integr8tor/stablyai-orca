@@ -1,11 +1,12 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { ipcMain, shell } from 'electron'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../../shared/keybindings'
 import type { KeybindingService } from '../keybindings/keybinding-service'
 import { rebuildAppMenu } from '../menu/register-app-menu'
 import { authorizeExternalPath } from './filesystem-auth'
+import { detachedWindowRegistry } from '../window/detached-window-registry'
 
 function broadcastKeybindingsChanged(snapshot: KeybindingFileSnapshot): void {
-  for (const window of BrowserWindow.getAllWindows()) {
+  for (const window of detachedWindowRegistry.getAppWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('keybindings:changed', snapshot)
     }

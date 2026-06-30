@@ -1,28 +1,29 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const {
-  browserWindowGetAllWindowsMock,
-  createFromPathMock,
-  dockSetIconMock,
-  isMock,
-  windowSetIconMock
-} = vi.hoisted(() => ({
-  browserWindowGetAllWindowsMock: vi.fn(),
-  createFromPathMock: vi.fn(),
-  dockSetIconMock: vi.fn(),
-  isMock: { dev: false },
-  windowSetIconMock: vi.fn()
-}))
+const { getAppWindowsMock, createFromPathMock, dockSetIconMock, isMock, windowSetIconMock } =
+  vi.hoisted(() => ({
+    getAppWindowsMock: vi.fn(),
+    createFromPathMock: vi.fn(),
+    dockSetIconMock: vi.fn(),
+    isMock: { dev: false },
+    windowSetIconMock: vi.fn()
+  }))
 
 vi.mock('electron', () => ({
   app: { dock: { setIcon: dockSetIconMock } },
-  BrowserWindow: { getAllWindows: browserWindowGetAllWindowsMock },
+  BrowserWindow: {},
   nativeImage: { createFromPath: createFromPathMock }
 }))
 
 vi.mock('@electron-toolkit/utils', () => ({
   is: isMock
+}))
+
+vi.mock('./window/detached-window-registry', () => ({
+  detachedWindowRegistry: {
+    getAppWindows: getAppWindowsMock
+  }
 }))
 
 vi.mock('../../resources/icon.png?asset', () => ({
@@ -71,7 +72,7 @@ function createMockChildProcess(): EventEmitter & { kill: ReturnType<typeof vi.f
 
 describe('app icon selection', () => {
   beforeEach(() => {
-    browserWindowGetAllWindowsMock.mockReset()
+    getAppWindowsMock.mockReset()
     createFromPathMock.mockReset()
     dockSetIconMock.mockReset()
     windowSetIconMock.mockReset()
@@ -89,10 +90,10 @@ describe('app icon selection', () => {
     expect(getAppIconPath('missing')).toBe('classic-icon')
   })
 
-  it('applies the selected icon to the dock and live windows', () => {
+  it('applies the selected icon to the dock and registered app windows', () => {
     const image = { isEmpty: () => false }
     createFromPathMock.mockReturnValue(image)
-    browserWindowGetAllWindowsMock.mockReturnValue([
+    getAppWindowsMock.mockReturnValue([
       { isDestroyed: () => false, setIcon: windowSetIconMock },
       { isDestroyed: () => true, setIcon: vi.fn() }
     ])

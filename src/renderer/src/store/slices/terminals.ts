@@ -961,6 +961,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   },
 
   closeTab: (tabId, opts) => {
+    const ownerWorktreeId = getTerminalTabOwnerWorktreeId(get().tabsByWorktree, tabId)
+    if (ownerWorktreeId) {
+      void window.api.detachedTerminal?.closeWindow({ worktreeId: ownerWorktreeId, tabId })
+    }
     set((s) => {
       const next = { ...s.tabsByWorktree }
       let closingPtyId: string | null = null

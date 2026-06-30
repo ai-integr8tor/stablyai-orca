@@ -46,7 +46,8 @@ import {
 } from '../../shared/keybindings'
 import { getMainE2EConfig } from '../e2e-config'
 import { buildEditableContextMenuTemplate } from './editable-context-menu'
-import { clearTrustedUIRendererWebContentsId, setTrustedUIRendererWebContentsId } from '../ipc/ui'
+import { trustedRendererRegistry } from './trusted-renderer-registry'
+import { detachedWindowRegistry } from './detached-window-registry'
 
 function forceRepaint(window: BrowserWindow): void {
   if (window.isDestroyed()) {
@@ -320,9 +321,10 @@ export function createMainWindow(
     }
   })
   const rendererWebContentsId = mainWindow.webContents.id
-  // Why: native paste fallback is privileged IPC; only the real top-level
-  // renderer should be allowed to request Electron's native paste operation.
-  setTrustedUIRendererWebContentsId(rendererWebContentsId)
+  // Why: privileged renderer IPC is capability-scoped so detached terminal
+  // windows can receive only the subsets they need.
+  trustedRendererRegistry.grantMany(rendererWebContentsId, ['ui', 'clipboard', 'pty', 'browser'])
+  detachedWindowRegistry.registerMainWindow(mainWindow)
 
   if (process.platform === 'darwin') {
     // Why: persistent browser webviews use separate compositor layers, and on
@@ -1214,7 +1216,8 @@ export function createMainWindow(
     ipcMain.removeListener(terminalInputFocusChannel, onTerminalInputFocused)
     ipcMain.removeListener(floatingTerminalInputFocusChannel, onFloatingTerminalInputFocused)
     ipcMain.removeListener(shortcutRecorderFocusChannel, onShortcutRecorderFocused)
-    clearTrustedUIRendererWebContentsId(rendererWebContentsId)
+    trustedRendererRegistry.clearWebContents(rendererWebContentsId)
+    detachedWindowRegistry.unregisterWindow(mainWindow)
     // Why: on updater-triggered shutdown, BrowserWindow can emit `closed`
     // after its webContents has already been destroyed. The destroyed
     // webContents owns its listeners, so do not touch `mainWindow.webContents`

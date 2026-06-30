@@ -30,7 +30,7 @@ import { registerNotebookHandlers } from './notebook'
 import { registerOnboardingHandlers } from './onboarding'
 import { registerDeveloperPermissionHandlers } from './developer-permissions'
 import { registerComputerUsePermissionHandlers } from './computer-use-permissions'
-import { setTrustedBrowserRendererWebContentsId, setAgentBrowserBridgeRef } from './browser'
+import { setAgentBrowserBridgeRef } from './browser'
 import { registerSessionHandlers } from './session'
 import { registerSettingsHandlers } from './settings'
 import { registerDiagnosticsHandlers } from './diagnostics'
@@ -44,7 +44,7 @@ import { registerTelemetryHandlers } from './telemetry'
 import { registerBrowserHandlers } from './browser'
 import { registerShellHandlers } from './shell'
 import { registerPetHandlers } from './pet'
-import { registerUIHandlers, setTrustedUIRendererWebContentsId } from './ui'
+import { registerUIHandlers } from './ui'
 import { registerEmulatorFrameStreamHandlers } from './emulator-frame-stream'
 import { registerEmulatorVideoStreamHandlers } from './emulator-video-stream'
 import { registerSpeechHandlers } from './speech'
@@ -53,10 +53,9 @@ import { registerAgentHookHandlers } from './agent-hooks'
 import { registerAgentTrustHandlers } from './agent-trust'
 import { registerClaudeAccountHandlers } from './claude-accounts'
 import { registerUpdaterHandlers } from '../window/attach-main-window-services'
-import {
-  registerClipboardHandlers,
-  setTrustedClipboardRendererWebContentsId
-} from '../window/clipboard-ipc-handlers'
+import { registerClipboardHandlers } from '../window/clipboard-ipc-handlers'
+import { trustedRendererRegistry } from '../window/trusted-renderer-registry'
+import { registerDetachedTerminalHandlers } from '../window/detached-window-coordinator'
 import type { ClaudeUsageStore } from '../claude-usage/store'
 import type { CodexUsageStore } from '../codex-usage/store'
 import type { OpenCodeUsageStore } from '../opencode-usage/store'
@@ -97,9 +96,14 @@ export function registerCoreHandlers(
   // openMainWindow() is called again on 'activate'. ipcMain.handle() throws
   // if a channel is registered twice, so we guard to register only once and
   // just update the per-window web-contents ID on subsequent calls.
-  setTrustedBrowserRendererWebContentsId(mainWindowWebContentsId)
-  setTrustedClipboardRendererWebContentsId(mainWindowWebContentsId)
-  setTrustedUIRendererWebContentsId(mainWindowWebContentsId)
+  if (mainWindowWebContentsId !== null) {
+    trustedRendererRegistry.grantMany(mainWindowWebContentsId, [
+      'ui',
+      'clipboard',
+      'pty',
+      'browser'
+    ])
+  }
   setAgentBrowserBridgeRef(runtime.getAgentBrowserBridge())
   if (registered) {
     return
@@ -172,5 +176,6 @@ export function registerCoreHandlers(
   registerNativeChatHandlers()
   registerClipboardHandlers(store)
   registerUpdaterHandlers(store)
+  registerDetachedTerminalHandlers()
   registerSpeechHandlers(store)
 }

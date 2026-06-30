@@ -101,6 +101,9 @@ import {
 } from '../project-groups/folder-workspace-path-status'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { resolveLocalProjectRuntimeForWorktreeId } from '../local-project-runtime-resolution'
+import { trustedRendererRegistry } from '../window/trusted-renderer-registry'
+import { paneOwnershipRegistry } from '../window/pane-ownership-registry'
+import { detachedWindowRegistry } from '../window/detached-window-registry'
 
 // ─── Provider Registry ──────────────────────────────────────────────
 // Routes PTY operations by connectionId. null = local provider.
@@ -1231,6 +1234,10 @@ export function registerPtyHandlers(
   ipcMain.removeAllListeners('pty:ackData')
   ipcMain.removeAllListeners('pty:serializeBuffer:response')
 
+  if (typeof mainWindow.webContents.id === 'number') {
+    trustedRendererRegistry.grant(mainWindow.webContents.id, 'pty')
+    paneOwnershipRegistry.setPrimaryAppWebContentsId(mainWindow.webContents.id)
+  }
   // Configure the local provider with app-specific hooks.
   // Why: only LocalPtyProvider has the configure() method — daemon-backed
   // providers handle subprocess spawning internally and don't need main-process
@@ -1450,6 +1457,26 @@ export function registerPtyHandlers(
     )
   }
 
+  function getRegisteredWindowForWebContentsId(webContentsId: number): BrowserWindow | null {
+    return (
+      detachedWindowRegistry
+        .getAppWindows()
+        .find((window) => window.webContents.id === webContentsId && !window.isDestroyed()) ?? null
+    )
+  }
+
+  function getOwnerWindowForPty(ptyId: string): BrowserWindow | null {
+    const ownerWebContentsId = paneOwnershipRegistry.getOwnerForPty(ptyId)
+    if (ownerWebContentsId === null || ownerWebContentsId === mainWindow.webContents.id) {
+      return null
+    }
+    return getRegisteredWindowForWebContentsId(ownerWebContentsId)
+  }
+
+  function getPaneRequestTargetWindow(ptyId: string): BrowserWindow | null {
+    return getOwnerWindowForPty(ptyId) ?? (mainWindow.isDestroyed() ? null : mainWindow)
+  }
+
   function sendPtyDataToRenderer(
     id: string,
     payload: { id: string; data: string; seq?: number; rawLength?: number }
@@ -1459,6 +1486,7 @@ export function registerPtyHandlers(
     rendererInFlightTotalChars += charCount
     recordPtyRendererDeliveryPressure()
     mainWindow.webContents.send('pty:data', payload)
+    getOwnerWindowForPty(id)?.webContents.send('pty:data', payload)
   }
 
   function getPendingPtyFlushEntries(): [string, PendingPtyData][] {
@@ -1654,6 +1682,7 @@ export function registerPtyHandlers(
         )
         rendererInFlightCharsByPty.delete(payload.id)
         recordPtyRendererDeliveryPressure()
+        getOwnerWindowForPty(payload.id)?.webContents.send('pty:exit', payload)
         mainWindow.webContents.send('pty:exit', payload)
       }
     })
@@ -1670,7 +1699,11 @@ export function registerPtyHandlers(
   type SerializeResult = { data: string; cols: number; rows: number; lastTitle?: string } | null
   const pendingSerializeRequests = new Map<
     string,
-    { resolve: (result: SerializeResult) => void; timeout: NodeJS.Timeout }
+    {
+      resolve: (result: SerializeResult) => void
+      timeout: NodeJS.Timeout
+      expectedResponderWebContentsId: number
+    }
   >()
 
   function settleSerializeRequest(requestId: string, result: SerializeResult): void {
@@ -1686,7 +1719,7 @@ export function registerPtyHandlers(
   ipcMain.on(
     'pty:serializeBuffer:response',
     (
-      _event,
+      event,
       args: {
         requestId?: string
         snapshot?: {
@@ -1698,6 +1731,13 @@ export function registerPtyHandlers(
       }
     ) => {
       if (typeof args?.requestId !== 'string') {
+        return
+      }
+      const pending = pendingSerializeRequests.get(args.requestId)
+      if (
+        !pending ||
+        (event?.sender?.id ?? mainWindow.webContents.id) !== pending.expectedResponderWebContentsId
+      ) {
         return
       }
       const snapshot = args.snapshot
@@ -1726,7 +1766,8 @@ export function registerPtyHandlers(
     ptyId: string,
     opts?: { scrollbackRows?: number; altScreenForcesZeroRows?: boolean }
   ): Promise<SerializeResult> {
-    if (mainWindow.isDestroyed()) {
+    const targetWindow = getPaneRequestTargetWindow(ptyId)
+    if (!targetWindow) {
       return Promise.resolve(null)
     }
 
@@ -1735,7 +1776,11 @@ export function registerPtyHandlers(
       const timeout = setTimeout(() => {
         settleSerializeRequest(requestId, null)
       }, 750)
-      pendingSerializeRequests.set(requestId, { resolve, timeout })
+      pendingSerializeRequests.set(requestId, {
+        resolve,
+        timeout,
+        expectedResponderWebContentsId: targetWindow.webContents.id
+      })
       const payload: {
         requestId: string
         ptyId: string
@@ -1744,7 +1789,7 @@ export function registerPtyHandlers(
       if (opts) {
         payload.opts = opts
       }
-      mainWindow.webContents.send('pty:serializeBuffer:request', payload)
+      targetWindow.webContents.send('pty:serializeBuffer:request', payload)
     })
   }
 
@@ -2212,7 +2257,7 @@ export function registerPtyHandlers(
       // Why: desktop xterm owns local scrollback, while daemon/SSH providers
       // own their own retained buffers. Clear both surfaces so mobile
       // resubscribe snapshots do not resurrect cleared history.
-      mainWindow.webContents.send('pty:clearBuffer:request', { ptyId })
+      getPaneRequestTargetWindow(ptyId)?.webContents.send('pty:clearBuffer:request', { ptyId })
       try {
         await getProviderForPty(ptyId).clearBuffer(ptyId)
       } catch {
@@ -2263,7 +2308,7 @@ export function registerPtyHandlers(
   ipcMain.handle(
     'pty:getMainBufferSnapshot',
     async (
-      _event,
+      event,
       args: { id?: unknown; opts?: { scrollbackRows?: unknown } }
     ): Promise<{
       data: string
@@ -2275,7 +2320,12 @@ export function registerPtyHandlers(
       source?: 'headless' | 'renderer'
       alternateScreen?: boolean
     } | null> => {
-      if (!runtime || typeof args?.id !== 'string' || args.id.length === 0) {
+      if (
+        !runtime ||
+        typeof args?.id !== 'string' ||
+        args.id.length === 0 ||
+        !senderCanAccessPty(event, args.id)
+      ) {
         return null
       }
       const scrollbackRows = normalizeSnapshotScrollbackRows(args.opts?.scrollbackRows)
@@ -3049,13 +3099,14 @@ export function registerPtyHandlers(
     (value as { id: string }).id.length > 0 &&
     typeof (value as { data?: unknown }).data === 'string'
 
-  const isPtyWriteEventFromMainWindow = (
-    event: IpcMainEvent | IpcMainInvokeEvent,
-    mainWebContents: WebContents
-  ): boolean =>
-    event.sender === mainWebContents &&
-    !mainWindow.isDestroyed() &&
-    !(typeof mainWebContents.isDestroyed === 'function' && mainWebContents.isDestroyed())
+  const senderCanAccessPty = (event: IpcMainEvent | IpcMainInvokeEvent, ptyId: string): boolean => {
+    const sender = event?.sender ?? mainWindow.webContents
+    return (
+      trustedRendererRegistry.has(sender.id, 'pty') &&
+      !sender.isDestroyed?.() &&
+      paneOwnershipRegistry.senderOwnsPty(sender, ptyId)
+    )
+  }
 
   const writePtyInput = (args: PtyWritePayload): boolean | Promise<boolean> => {
     // Why: defense-in-depth for the mobile-presence lock. The renderer's
@@ -3107,13 +3158,13 @@ export function registerPtyHandlers(
   }
 
   ipcMain.on('pty:write', (event, args: unknown) => {
-    if (!isPtyWriteEventFromMainWindow(event, mainWindow.webContents) || !isPtyWritePayload(args)) {
+    if (!isPtyWritePayload(args) || !senderCanAccessPty(event, args.id)) {
       return
     }
     writePtyInput(args)
   })
   ipcMain.handle('pty:writeAccepted', (event, args: unknown): boolean | Promise<boolean> => {
-    if (!isPtyWriteEventFromMainWindow(event, mainWindow.webContents) || !isPtyWritePayload(args)) {
+    if (!isPtyWritePayload(args) || !senderCanAccessPty(event, args.id)) {
       return false
     }
     return writePtyInputAccepted(args)
@@ -3123,7 +3174,10 @@ export function registerPtyHandlers(
   // Using ipcMain.on (not .handle) halves IPC traffic by avoiding the
   // empty acknowledgement message back to the renderer.
   ipcMain.removeAllListeners('pty:resize')
-  ipcMain.on('pty:resize', (_event, args: { id: string; cols: number; rows: number }) => {
+  ipcMain.on('pty:resize', (event, args: { id: string; cols: number; rows: number }) => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return
+    }
     // Why: after a desktop-fit override change, the desktop renderer's
     // re-render cascade runs safeFit on ALL panes (not just the affected
     // one). Background-tab panes get measured at full-width (214) instead
@@ -3168,13 +3222,19 @@ export function registerPtyHandlers(
   // driver gate; pty:reportGeometry never resizes the PTY, only refreshes
   // the restore-target cache. See docs/mobile-fit-hold.md.
   ipcMain.removeAllListeners('pty:reportGeometry')
-  ipcMain.on('pty:reportGeometry', (_event, args: { id: string; cols: number; rows: number }) => {
+  ipcMain.on('pty:reportGeometry', (event, args: { id: string; cols: number; rows: number }) => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return
+    }
     runtime?.recordRendererGeometry(args.id, args.cols, args.rows)
   })
 
   // Why: fire-and-forget — clears the DaemonPtyAdapter's sticky cold restore
   // cache after the renderer has consumed the data. No-op for non-daemon providers.
-  ipcMain.on('pty:ackColdRestore', (_event, args: { id: string }) => {
+  ipcMain.on('pty:ackColdRestore', (event, args: { id: string }) => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return
+    }
     const provider = tryGetProviderForPty(args.id)
     if (provider && 'ackColdRestore' in provider && typeof provider.ackColdRestore === 'function') {
       provider.ackColdRestore(args.id)
@@ -3184,7 +3244,16 @@ export function registerPtyHandlers(
   // Why: renderer ACKs bound main→renderer terminal delivery without stopping
   // PTY ingestion. Agent/status consumers still see every chunk through the
   // provider/runtime path while background renderer writes wait their turn.
-  ipcMain.on('pty:ackData', (_event, args: { id: string; charCount: number }) => {
+  ipcMain.on('pty:ackData', (event, args: { id: string; charCount: number }) => {
+    const sender = event?.sender ?? mainWindow.webContents
+    if (
+      !args?.id ||
+      sender.id !== mainWindow.webContents.id ||
+      !trustedRendererRegistry.has(sender.id, 'pty') ||
+      sender.isDestroyed?.()
+    ) {
+      return
+    }
     const charCount = Number.isFinite(args.charCount) ? Math.max(0, args.charCount) : 0
     const current = rendererInFlightCharsByPty.get(args.id) ?? 0
     const acknowledged = Math.min(current, charCount)
@@ -3221,13 +3290,19 @@ export function registerPtyHandlers(
   })
 
   ipcMain.removeAllListeners('pty:signal')
-  ipcMain.on('pty:signal', (_event, args: { id: string; signal: string }) => {
+  ipcMain.on('pty:signal', (event, args: { id: string; signal: string }) => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return
+    }
     tryGetProviderForPty(args.id)
       ?.sendSignal(args.id, args.signal)
       .catch(() => {})
   })
 
-  ipcMain.handle('pty:kill', async (_event, args: { id: string; keepHistory?: boolean }) => {
+  ipcMain.handle('pty:kill', async (event, args: { id: string; keepHistory?: boolean }) => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return
+    }
     const ownedConnectionId = ptyOwnership.get(args.id)
     const parsedSshId = ownedConnectionId === undefined ? parseAppSshPtyId(args.id) : null
     const connectionId = ownedConnectionId ?? parsedSshId?.connectionId
@@ -3263,7 +3338,7 @@ export function registerPtyHandlers(
 
   ipcMain.handle(
     'pty:listSessions',
-    async (): Promise<{ id: string; cwd: string; title: string }[]> => {
+    async (event): Promise<{ id: string; cwd: string; title: string }[]> => {
       const providerSessions = await Promise.all([
         Promise.resolve({
           connectionId: null as string | null,
@@ -3281,27 +3356,30 @@ export function registerPtyHandlers(
           // through IPC. Rebuild ownership while listing so remote sessions
           // discovered after reconnect still route to their original provider.
           ptyOwnership.set(session.id, connectionId)
-          deduped.set(session.id, session)
+          if (senderCanAccessPty(event, session.id)) {
+            deduped.set(session.id, session)
+          }
         }
       }
       return Array.from(deduped.values())
     }
   )
 
-  ipcMain.handle(
-    'pty:hasChildProcesses',
-    async (_event, args: { id: string }): Promise<boolean> => {
-      if (!hasPtyProviderForInspection(args.id)) {
-        return false
-      }
-      return getProviderForPty(args.id).hasChildProcesses(args.id)
+  ipcMain.handle('pty:hasChildProcesses', async (event, args: { id: string }): Promise<boolean> => {
+    if (!args?.id || !senderCanAccessPty(event, args.id) || !hasPtyProviderForInspection(args.id)) {
+      return false
     }
-  )
+    return getProviderForPty(args.id).hasChildProcesses(args.id)
+  })
 
   ipcMain.handle(
     'pty:getForegroundProcess',
-    async (_event, args: { id: string }): Promise<string | null> => {
-      if (!hasPtyProviderForInspection(args.id)) {
+    async (event, args: { id: string }): Promise<string | null> => {
+      if (
+        !args?.id ||
+        !senderCanAccessPty(event, args.id) ||
+        !hasPtyProviderForInspection(args.id)
+      ) {
         return null
       }
       return getProviderForPty(args.id).getForegroundProcess(args.id)
@@ -3314,7 +3392,10 @@ export function registerPtyHandlers(
   // use the same code path. Providers return '' when the id is unknown or
   // the platform cannot resolve a cwd (Windows); the renderer treats ''
   // as "fall through to the next fallback layer".
-  ipcMain.handle('pty:getCwd', async (_event, args: { id: string }): Promise<string> => {
+  ipcMain.handle('pty:getCwd', async (event, args: { id: string }): Promise<string> => {
+    if (!args?.id || !senderCanAccessPty(event, args.id)) {
+      return ''
+    }
     try {
       return await getProviderForPty(args.id).getCwd(args.id)
     } catch {

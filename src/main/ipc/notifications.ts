@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: notification IPC keeps permission, dispatch, custom sound asset, and sound-loading handlers colocated so renderer/main contracts stay auditable. */
-import { app, BrowserWindow, Notification, ipcMain, shell } from 'electron'
+import { app, Notification, ipcMain, shell } from 'electron'
 import { readFile, stat } from 'node:fs/promises'
 import { extname, isAbsolute, normalize } from 'node:path'
 import beepSoundPath from '../../../resources/notification-sounds/beep.mp3?asset'
@@ -24,6 +24,7 @@ import { getRepoIdFromWorktreeId } from '../../shared/worktree-id'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { buildNotificationOptions } from './notification-options'
 import { parsePaneKey } from '../../shared/stable-pane-id'
+import { detachedWindowRegistry } from '../window/detached-window-registry'
 
 const NOTIFICATION_COOLDOWN_MS = 5000
 const MAX_RECENT_NOTIFICATION_KEYS = 50
@@ -267,8 +268,7 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
         return { delivered: false, reason: 'source-disabled' }
       }
 
-      const browserWindow =
-        BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null
+      const browserWindow = detachedWindowRegistry.getPrimaryAppWindow()
       if (
         settings.suppressWhenFocused &&
         args.isActiveWorktree &&
@@ -381,7 +381,7 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
         const repoId = getRepoIdFromWorktreeId(args.worktreeId)
         clickHandler = () => {
           release()
-          const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+          const win = detachedWindowRegistry.getPrimaryAppWindow()
           if (!win) {
             return
           }

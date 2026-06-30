@@ -62,6 +62,7 @@ import {
   waitForTabRegistration,
   waitForWorktreeTabRegistration
 } from './browser'
+import { trustedRendererRegistry } from '../window/trusted-renderer-registry'
 
 describe('registerBrowserHandlers', () => {
   beforeEach(() => {
@@ -83,6 +84,9 @@ describe('registerBrowserHandlers', () => {
     openDevToolsMock.mockResolvedValue(true)
     setAnnotationViewportBridgeMock.mockResolvedValue(true)
     setAgentBrowserBridgeRef(null)
+    trustedRendererRegistry.clearWebContents(91)
+    trustedRendererRegistry.clearWebContents(92)
+    trustedRendererRegistry.grant(91, 'browser')
   })
 
   afterEach(() => {
@@ -173,6 +177,7 @@ describe('registerBrowserHandlers', () => {
     const result = activeTabChangedHandler(
       {
         sender: {
+          id: 91,
           isDestroyed: () => false,
           getType: () => 'window',
           getURL: () => 'file:///renderer/index.html'

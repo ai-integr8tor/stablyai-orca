@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { fromWebContentsMock, getAllWindowsMock, handleMock, onMock, removeAllListenersMock } =
-  vi.hoisted(() => ({
-    fromWebContentsMock: vi.fn(),
-    getAllWindowsMock: vi.fn(() => []),
-    handleMock: vi.fn(),
-    onMock: vi.fn(),
-    removeAllListenersMock: vi.fn()
-  }))
+const {
+  fromWebContentsMock,
+  getAppWindowsMock,
+  getAllWindowsMock,
+  handleMock,
+  onMock,
+  removeAllListenersMock
+} = vi.hoisted(() => ({
+  fromWebContentsMock: vi.fn(),
+  getAppWindowsMock: vi.fn(() => []),
+  getAllWindowsMock: vi.fn(() => []),
+  handleMock: vi.fn(),
+  onMock: vi.fn(),
+  removeAllListenersMock: vi.fn()
+}))
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -21,11 +28,18 @@ vi.mock('electron', () => ({
   }
 }))
 
+vi.mock('../window/detached-window-registry', () => ({
+  detachedWindowRegistry: {
+    getAppWindows: getAppWindowsMock
+  }
+}))
+
 import {
   clearTrustedUIRendererWebContentsId,
   registerUIHandlers,
   setTrustedUIRendererWebContentsId
 } from './ui'
+import { trustedRendererRegistry } from '../window/trusted-renderer-registry'
 
 function makeStore() {
   return {
@@ -62,14 +76,38 @@ describe('registerUIHandlers', () => {
     fromWebContentsMock.mockReset()
     getAllWindowsMock.mockReset()
     getAllWindowsMock.mockReturnValue([])
+    getAppWindowsMock.mockReset()
+    getAppWindowsMock.mockReturnValue([])
     handleMock.mockReset()
     onMock.mockReset()
     removeAllListenersMock.mockReset()
-    setTrustedUIRendererWebContentsId(null)
+    trustedRendererRegistry.clearWebContents(17)
+    trustedRendererRegistry.clearWebContents(42)
   })
 
   afterEach(() => {
     vi.unstubAllEnvs()
+  })
+
+  it('broadcasts UI state changes only to registered app windows', () => {
+    const appSend = vi.fn()
+    const offscreenSend = vi.fn()
+    const store = makeStore()
+    getAllWindowsMock.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: offscreenSend } }
+    ] as never)
+    getAppWindowsMock.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: appSend } },
+      { isDestroyed: () => true, webContents: { send: vi.fn() } }
+    ] as never)
+
+    registerUIHandlers(store as never)
+    const listener = store.onUIChanged.mock.calls[0]?.[0] as (ui: unknown) => void
+    listener({ activeTabId: 'tab-1' })
+
+    expect(appSend).toHaveBeenCalledWith('ui:stateChanged', { activeTabId: 'tab-1' })
+    expect(offscreenSend).not.toHaveBeenCalled()
+    expect(getAppWindowsMock).toHaveBeenCalled()
   })
 
   it('routes native paste fallback to the requesting webContents only', () => {
@@ -162,7 +200,7 @@ describe('registerUIHandlers', () => {
     expect(paste).not.toHaveBeenCalled()
   })
 
-  it('allows native paste fallback only from the configured dev renderer origin', () => {
+  it('rejects dev renderer origin senders until a capability is granted', () => {
     const paste = vi.fn()
     const pasteAndMatchStyle = vi.fn()
     const event = makeUIEvent({ getURL: () => 'http://localhost:5173/workspace' })
@@ -174,17 +212,13 @@ describe('registerUIHandlers', () => {
     const nativePasteHandler = getNativePasteHandler()
     nativePasteHandler?.(event)
 
-    expect(fromWebContentsMock).toHaveBeenCalledWith(event.sender)
-    expect(paste).toHaveBeenCalledTimes(1)
-
-    fromWebContentsMock.mockClear()
-    paste.mockClear()
-    nativePasteHandler?.(makeUIEvent({ getURL: () => 'http://127.0.0.1:5173/workspace' }))
-    nativePasteHandler?.(makeUIEvent({ getURL: () => 'file:///orca/index.html' }))
-    nativePasteHandler?.(makeUIEvent({ getURL: () => 'not a url' }))
-
     expect(fromWebContentsMock).not.toHaveBeenCalled()
     expect(paste).not.toHaveBeenCalled()
-    expect(pasteAndMatchStyle).not.toHaveBeenCalled()
+
+    setTrustedUIRendererWebContentsId(17)
+    nativePasteHandler?.(event)
+
+    expect(fromWebContentsMock).toHaveBeenCalledWith(event.sender)
+    expect(paste).toHaveBeenCalledTimes(1)
   })
 })

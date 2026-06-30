@@ -4,7 +4,7 @@ import {
   type ExecFileOptions
 } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
-import { app, BrowserWindow, nativeImage } from 'electron'
+import { app, nativeImage } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import classicIcon from '../../resources/icon.png?asset'
 import classicDevIcon from '../../resources/icon-dev.png?asset'
@@ -13,6 +13,7 @@ import watercolorMacDockIcon from '../../resources/app-icons/orca-watercolor.png
 import blueIcon from '../../resources/app-icons/orca-blue.png?asset'
 import blueMacDockIcon from '../../resources/app-icons/orca-blue.png?asset&asarUnpack'
 import { normalizeAppIconId, type AppIconId } from '../shared/app-icon'
+import { detachedWindowRegistry } from './window/detached-window-registry'
 
 const APP_ICON_PATHS = {
   classic: is.dev ? classicDevIcon : classicIcon,
@@ -295,7 +296,7 @@ export function applyAppIcon(value: unknown): void {
   if (process.platform === 'darwin') {
     app.dock?.setIcon(image)
   }
-  for (const window of BrowserWindow.getAllWindows()) {
+  for (const window of detachedWindowRegistry.getAppWindows()) {
     if (!window.isDestroyed()) {
       window.setIcon(image)
     }

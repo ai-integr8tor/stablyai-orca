@@ -3,14 +3,14 @@ import type { KeybindingFileSnapshot } from '../../shared/keybindings'
 
 const {
   authorizeExternalPathMock,
-  getAllWindowsMock,
+  getAppWindowsMock,
   handleMock,
   openPathMock,
   rebuildAppMenuMock,
   showItemInFolderMock
 } = vi.hoisted(() => ({
   authorizeExternalPathMock: vi.fn(),
-  getAllWindowsMock: vi.fn(() => []),
+  getAppWindowsMock: vi.fn(() => []),
   handleMock: vi.fn(),
   openPathMock: vi.fn(),
   rebuildAppMenuMock: vi.fn(),
@@ -18,9 +18,7 @@ const {
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: getAllWindowsMock
-  },
+  BrowserWindow: {},
   ipcMain: {
     handle: handleMock
   },
@@ -36,6 +34,12 @@ vi.mock('./filesystem-auth', () => ({
 
 vi.mock('../menu/register-app-menu', () => ({
   rebuildAppMenu: rebuildAppMenuMock
+}))
+
+vi.mock('../window/detached-window-registry', () => ({
+  detachedWindowRegistry: {
+    getAppWindows: getAppWindowsMock
+  }
 }))
 
 import { registerKeybindingHandlers } from './keybindings'
@@ -61,7 +65,7 @@ function getHandler(channel: string): (...args: unknown[]) => unknown {
 describe('registerKeybindingHandlers', () => {
   beforeEach(() => {
     authorizeExternalPathMock.mockReset()
-    getAllWindowsMock.mockReturnValue([])
+    getAppWindowsMock.mockReturnValue([])
     handleMock.mockReset()
     openPathMock.mockReset()
     rebuildAppMenuMock.mockReset()
@@ -82,5 +86,24 @@ describe('registerKeybindingHandlers', () => {
     await expect(getHandler('keybindings:openFile')()).resolves.toBe(snapshot)
     expect(authorizeExternalPathMock).toHaveBeenCalledWith(snapshot.path)
     expect(openPathMock).toHaveBeenCalledWith(snapshot.path)
+  })
+
+  it('broadcasts keybinding changes only to registered app windows', () => {
+    const appSend = vi.fn()
+    const offscreenSend = vi.fn()
+    getAppWindowsMock.mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: appSend } },
+      { isDestroyed: () => true, webContents: { send: offscreenSend } }
+    ] as never)
+    const service = {
+      setActionBindings: vi.fn(() => snapshot)
+    }
+    registerKeybindingHandlers(service as never)
+
+    getHandler('keybindings:setAction')({}, { actionId: 'newTerminal', bindings: ['Cmd+T'] })
+
+    expect(appSend).toHaveBeenCalledWith('keybindings:changed', snapshot)
+    expect(offscreenSend).not.toHaveBeenCalled()
+    expect(getAppWindowsMock).toHaveBeenCalled()
   })
 })

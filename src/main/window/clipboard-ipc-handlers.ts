@@ -34,8 +34,7 @@ import {
   writeRemoteFileToClipboard
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
-
-let trustedClipboardRendererWebContentsId: number | null = null
+import { trustedRendererRegistry } from './trusted-renderer-registry'
 
 type ClipboardWriteFileRequest = {
   filePath: string
@@ -55,7 +54,10 @@ async function saveClipboardImageBufferForTarget(
 }
 
 export function setTrustedClipboardRendererWebContentsId(webContentsId: number | null): void {
-  trustedClipboardRendererWebContentsId = webContentsId
+  if (webContentsId === null) {
+    return
+  }
+  trustedRendererRegistry.grant(webContentsId, 'clipboard')
 }
 
 // Run a short-lived OS clipboard helper (PowerShell / wl-copy / xclip), feeding
@@ -229,18 +231,5 @@ function isTrustedClipboardRenderer(sender: WebContents): boolean {
   if (sender.isDestroyed() || sender.getType() !== 'window') {
     return false
   }
-  if (trustedClipboardRendererWebContentsId != null) {
-    return sender.id === trustedClipboardRendererWebContentsId
-  }
-
-  const senderUrl = sender.getURL()
-  if (process.env.ELECTRON_RENDERER_URL) {
-    try {
-      return new URL(senderUrl).origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
-    } catch {
-      return false
-    }
-  }
-
-  return senderUrl.startsWith('file://')
+  return trustedRendererRegistry.has(sender.id, 'clipboard')
 }

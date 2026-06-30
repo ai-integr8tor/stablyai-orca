@@ -220,6 +220,7 @@ type UseTerminalPaneLifecycleDeps = {
   isActiveRef: React.RefObject<boolean>
   isVisibleRef: React.RefObject<boolean>
   onPtyExitRef: React.RefObject<(ptyId: string) => void>
+  onPtyDataSubscriptionReadyRef?: React.RefObject<((ptyId: string) => void) | undefined>
   onPtyErrorRef?: React.RefObject<(paneId: number, message: string) => void>
   clearTabPtyId: (tabId: string, ptyId: string) => void
   consumeSuppressedPtyExit: (ptyId: string) => boolean
@@ -507,6 +508,7 @@ export function useTerminalPaneLifecycle({
   isActiveRef,
   isVisibleRef,
   onPtyExitRef,
+  onPtyDataSubscriptionReadyRef,
   onPtyErrorRef,
   clearTabPtyId,
   consumeSuppressedPtyExit,
@@ -719,6 +721,7 @@ export function useTerminalPaneLifecycle({
       isActiveRef,
       isVisibleRef,
       onPtyExitRef,
+      onPtyDataSubscriptionReadyRef,
       onPtyErrorRef,
       clearTabPtyId,
       consumeSuppressedPtyExit,

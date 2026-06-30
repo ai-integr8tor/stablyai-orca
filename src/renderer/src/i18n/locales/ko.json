@@ -2534,6 +2534,10 @@
             "0b38ee2f86": "취소",
             "c337c9d75c": "닫기"
           }
+        },
+        "DetachedTerminalShell": {
+          "loading": "Loading detached terminal",
+          "unavailable": "Detached terminal unavailable"
         }
       },
       "tab": {
@@ -2636,7 +2640,8 @@
             "60f958ec75": "탭 고정",
             "417722e9c2": "탭 고정 해제",
             "splitTerminalRight": "터미널을 오른쪽으로 분할",
-            "splitTerminalDown": "터미널을 아래로 분할"
+            "splitTerminalDown": "터미널을 아래로 분할",
+            "openInNewWindow": "Open in New Window"
           },
           "TabBar": {
             "b1a132357f": "새 탭",

@@ -182,6 +182,7 @@ type TerminalPaneProps = {
   isolatedPaneKey?: string | null
   onPtyExit: (ptyId: string) => void
   onCloseTab: () => void
+  onPtyDataSubscriptionReady?: (ptyId: string) => void
 }
 
 type PaneTitleOverlayRect = {
@@ -247,7 +248,8 @@ export default function TerminalPane({
   isWorktreeActive = isVisible,
   isolatedPaneKey = null,
   onPtyExit,
-  onCloseTab
+  onCloseTab,
+  onPtyDataSubscriptionReady
 }: TerminalPaneProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const managerRef = useRef<PaneManager | null>(null)
@@ -846,6 +848,8 @@ export default function TerminalPane({
   macOptionAsAltRef.current = effectiveMacOptionAsAlt
   const onPtyExitRef = useRef(onPtyExit)
   onPtyExitRef.current = onPtyExit
+  const onPtyDataSubscriptionReadyRef = useRef(onPtyDataSubscriptionReady)
+  onPtyDataSubscriptionReadyRef.current = onPtyDataSubscriptionReady
 
   const systemPrefersDark = useSystemPrefersDark()
   const dispatchNotification = useNotificationDispatch(worktreeId)
@@ -1305,6 +1309,7 @@ export default function TerminalPane({
     isActiveRef,
     isVisibleRef,
     onPtyExitRef,
+    onPtyDataSubscriptionReadyRef,
     onPtyErrorRef,
     clearTabPtyId,
     consumeSuppressedPtyExit: useAppStore((store) => store.consumeSuppressedPtyExit),
@@ -1526,6 +1531,7 @@ export default function TerminalPane({
         isActiveRef,
         isVisibleRef,
         onPtyExitRef,
+        onPtyDataSubscriptionReadyRef,
         onPtyErrorRef,
         clearTabPtyId,
         consumeSuppressedPtyExit: useAppStore.getState().consumeSuppressedPtyExit,
