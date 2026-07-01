@@ -176,6 +176,7 @@ type TerminalPaneProps = {
   isActive: boolean
   isVisible?: boolean
   isWorktreeActive?: boolean
+  suppressHeaderPaneZoomControl?: boolean
   // Why: when set (Activity portal), this pane visually isolates the given
   // split pane so only that leaf is shown. Implemented as a transient layout
   // override (separate snapshot ref) — does NOT touch expandedPaneId state
@@ -247,6 +248,7 @@ export default function TerminalPane({
   isActive,
   isVisible = true,
   isWorktreeActive = isVisible,
+  suppressHeaderPaneZoomControl = false,
   isolatedPaneKey = null,
   onPtyExit,
   onCloseTab
@@ -2974,6 +2976,7 @@ export default function TerminalPane({
         titleUsesLightSurface={titleUsesLightSurface}
         paneTitleBackground={paneTitleBackground}
         activePaneIsZoomed={activePane?.id !== undefined && expandedPaneId === activePane.id}
+        suppressPaneZoomControl={suppressHeaderPaneZoomControl}
         terminalContentVisible={terminalContentVisible}
         hiddenStartupStyle={hiddenStartupStyle}
         managerRef={managerRef}

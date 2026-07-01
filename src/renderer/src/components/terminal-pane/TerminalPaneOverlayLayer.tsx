@@ -59,6 +59,7 @@ type TerminalOverlaySlotProps = {
   consumeSuppressedPtyExit: (ptyId: string) => boolean
   closeTab: (tabId: string) => void
   leaveWorktreeIfEmpty: () => void
+  suppressHeaderPaneZoomControl: boolean
 }
 
 const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
@@ -74,7 +75,8 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
   onFocusOwningGroup,
   consumeSuppressedPtyExit,
   closeTab,
-  leaveWorktreeIfEmpty
+  leaveWorktreeIfEmpty,
+  suppressHeaderPaneZoomControl
 }: TerminalOverlaySlotProps): React.JSX.Element {
   const anchorName = groupId !== undefined ? tabGroupBodyAnchorName(groupId) : undefined
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -230,6 +232,7 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
       // flag still lets hidden tabs throttle rendering.
       isVisible={isVisible || activityTerminalPortal !== null}
       isWorktreeActive={isWorktreeActive || activityTerminalPortal !== null}
+      suppressHeaderPaneZoomControl={suppressHeaderPaneZoomControl}
       isolatedPaneKey={activityTerminalPortal?.paneKey ?? null}
       onPtyExit={(ptyId) => {
         if (consumeSuppressedPtyExit(ptyId)) {
@@ -343,6 +346,7 @@ const TerminalPaneOverlayLayer = memo(function TerminalPaneOverlayLayer({
     }
     return entries
   }, [groupActiveTabById, unifiedTabs])
+  const hasSplitGroups = groups.length > 1
 
   if (!worktreePath) {
     return null
@@ -374,6 +378,10 @@ const TerminalPaneOverlayLayer = memo(function TerminalPaneOverlayLayer({
             consumeSuppressedPtyExit={consumeSuppressedPtyExit}
             closeTab={closeTab}
             leaveWorktreeIfEmpty={leaveWorktreeIfEmpty}
+            // Why: tab-group split chrome owns the visible zoom command when
+            // multiple groups exist; the terminal header zoom is for single-group
+            // terminal leaf splits so identical labels do not target two scopes.
+            suppressHeaderPaneZoomControl={Boolean(assignment && hasSplitGroups)}
           />
         )
       })}

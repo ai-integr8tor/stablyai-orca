@@ -39,6 +39,7 @@ type TerminalPaneHeaderOverlayProps = {
   titleUsesLightSurface: boolean
   paneTitleBackground: string
   activePaneIsZoomed: boolean
+  suppressPaneZoomControl?: boolean
   terminalContentVisible: boolean
   hiddenStartupStyle: CSSProperties
   managerRef: RefObject<PaneManager | null>
@@ -81,6 +82,7 @@ export default function TerminalPaneHeaderOverlay({
   titleUsesLightSurface,
   paneTitleBackground,
   activePaneIsZoomed,
+  suppressPaneZoomControl = false,
   terminalContentVisible,
   hiddenStartupStyle,
   managerRef,
@@ -234,7 +236,10 @@ export default function TerminalPaneHeaderOverlay({
                   </button>
                 ) : null}
                 <div className="pane-title-actions ml-auto flex shrink-0 items-center gap-0">
-                  {paneCount > 1 && showAlwaysOnHeaders && isActivePane ? (
+                  {paneCount > 1 &&
+                  showAlwaysOnHeaders &&
+                  isActivePane &&
+                  !suppressPaneZoomControl ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
