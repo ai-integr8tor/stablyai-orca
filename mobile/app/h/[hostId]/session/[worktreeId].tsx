@@ -1075,6 +1075,12 @@ export default function SessionScreen() {
   // Why: post-RPC refresh timers capture this screen and must not survive
   // route reuse or unmount.
   const delayedActionTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+  // Why: each terminal file tap schedules its own async-arriving-tab retries,
+  // but those timers are not cancelled when a newer tap fires. Without cross-tap
+  // arbitration a late-syncing earlier tap's retry can steal focus back from the
+  // file the user tapped most recently. Bump this on every tap and have each
+  // tap's retries no-op once a newer tap has superseded them.
+  const terminalFileTapActivationSeqRef = useRef(0)
   // Why: server-side layout state machine emits a monotonic seq on every
   // applyLayout. Track the highest seq we've observed per handle and drop
   // any scrollback/resized event with a strictly older seq — these are
@@ -3243,6 +3249,11 @@ export default function SessionScreen() {
       if (handle !== activeHandleRef.current || !client) {
         return
       }
+      // Why: claim a fresh activation seq for this tap. A later tap bumps the
+      // seq, so this tap's pending retries can detect they've been superseded
+      // and stop before re-foregrounding their (now stale) opened tab.
+      const activationSeq = terminalFileTapActivationSeqRef.current + 1
+      terminalFileTapActivationSeqRef.current = activationSeq
       void (async () => {
         try {
           const worktree = `id:${worktreeId}`
@@ -3287,8 +3298,13 @@ export default function SessionScreen() {
             if (activated) {
               return
             }
+            // A newer tap superseded this one — its retries own the focus now,
+            // so stop before stealing it back to this tap's earlier file.
+            if (terminalFileTapActivationSeqRef.current !== activationSeq) {
+              return
+            }
             await fetchSessionTabs()
-            if (activated) {
+            if (activated || terminalFileTapActivationSeqRef.current !== activationSeq) {
               return
             }
             const opened = sessionTabsRef.current.find(
