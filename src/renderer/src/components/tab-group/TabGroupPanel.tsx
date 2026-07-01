@@ -189,6 +189,8 @@ export default function TabGroupPanel({
 
   const menuButtonClassName =
     'my-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+  // Why: split-group zoom and terminal leaf zoom use separate state; when both
+  // could apply, the tab-group chrome owns the command to avoid duplicate scopes.
   const zoomPaneLabel = isPaneZoomed
     ? translate('auto.components.tab.group.TabGroupPanel.restorePane', 'Restore pane')
     : translate('auto.components.tab.group.TabGroupPanel.zoomPane', 'Zoom pane')
