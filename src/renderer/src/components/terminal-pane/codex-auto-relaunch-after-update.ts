@@ -15,6 +15,9 @@ type CodexAutoRelaunchAfterUpdateOptions = {
   now?: () => number
 }
 
+/**
+ * Watches PTY output for the Codex self-update success message and relaunches Codex once.
+ */
 export type CodexAutoRelaunchAfterUpdate = {
   observeOutput: (data: string) => void
   dispose: () => void
@@ -28,11 +31,17 @@ function normalizeProcessName(processName: string | null): string | null {
   return pathSegment.toLowerCase().replace(/\.exe$/, '')
 }
 
+/**
+ * Returns true when the foreground process name still appears to be a Codex CLI binary.
+ */
 export function isCodexForegroundProcessName(processName: string | null): boolean {
   const normalized = normalizeProcessName(processName)
   return normalized === 'codex' || normalized?.startsWith('codex-') === true
 }
 
+/**
+ * Creates a terminal-output observer that resubmits the original Codex startup command after update.
+ */
 export function createCodexAutoRelaunchAfterUpdate(
   options: CodexAutoRelaunchAfterUpdateOptions
 ): CodexAutoRelaunchAfterUpdate {
@@ -63,12 +72,19 @@ export function createCodexAutoRelaunchAfterUpdate(
     }, delayMs)
   }
 
+  const scheduleRetryIfWithinWindow = (): void => {
+    if (now() - firstObservedAt < CODEX_RELAUNCH_MAX_WAIT_MS) {
+      scheduleCheck(CODEX_RELAUNCH_POLL_MS)
+    }
+  }
+
   const checkForegroundAndRelaunch = async (): Promise<void> => {
     if (!startupCommand || relaunched || options.isDisposed()) {
       return
     }
     const ptyId = options.getPtyId()
     if (!ptyId) {
+      scheduleRetryIfWithinWindow()
       return
     }
 
@@ -76,7 +92,10 @@ export function createCodexAutoRelaunchAfterUpdate(
     try {
       foregroundProcess = await options.inspectForegroundProcess(ptyId)
     } catch {
-      foregroundProcess = null
+      // Why: an inspection miss is not proof that Codex exited; retry instead
+      // of injecting a second startup command into a potentially live TUI.
+      scheduleRetryIfWithinWindow()
+      return
     }
 
     if (relaunched || options.isDisposed()) {
@@ -87,12 +106,13 @@ export function createCodexAutoRelaunchAfterUpdate(
       // Why: Codex exits after self-update instead of execing the new CLI.
       // Repeat only Orca's original Codex startup command once Codex is gone.
       relaunched = options.sendInput(`${startupCommand}\r`)
+      if (!relaunched) {
+        scheduleRetryIfWithinWindow()
+      }
       return
     }
 
-    if (now() - firstObservedAt < CODEX_RELAUNCH_MAX_WAIT_MS) {
-      scheduleCheck(CODEX_RELAUNCH_POLL_MS)
-    }
+    scheduleRetryIfWithinWindow()
   }
 
   return {
