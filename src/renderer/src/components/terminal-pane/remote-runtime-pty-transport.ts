@@ -87,7 +87,6 @@ export function createRemoteRuntimePtyTransport(
   let multiplexedStreamHandle: string | null = null
   let desiredViewport: { cols: number; rows: number } | null = null
   let storedCallbacks: Parameters<PtyTransport['connect']>[0]['callbacks'] = {}
-  let resubscribing = false
   const clientId = `desktop:${tabId ?? 'tab'}:${leafId ?? 'leaf'}`
   const outputProcessor = createPtyOutputProcessor({
     onTitleChange,
@@ -443,21 +442,26 @@ export function createRemoteRuntimePtyTransport(
           }
           multiplexedStream = null
           multiplexedStreamHandle = null
-          if (destroyed || !connected || !handle || resubscribing) {
+          if (destroyed || !connected || !handle) {
             return
           }
-          resubscribing = true
-          const resubscribeHandle = handle
-          const resubscribePtyId = remotePtyId
-          void subscribeToHandle()
-            .catch((error) => {
-              if (isCurrentRemoteTerminal(resubscribeHandle, resubscribePtyId)) {
-                handleRemoteTerminalError(error)
-              }
-            })
-            .finally(() => {
-              resubscribing = false
-            })
+          // Why: clearing connected/handle here makes a duplicate close from
+          // the multiplexer short-circuit on the early-return guard above, so
+          // onError / onDisconnect fire exactly once per WS drop.
+          connected = false
+          handle = null
+          remotePtyId = null
+          // Why: when the WS-paired multiplex drops (paired runtime
+          // disconnected), do NOT kick off another resubscribe round — that
+          // path was spamming the red error toast on every reconnect attempt.
+          // The pane becomes interactive again the next time the multiplex
+          // re-opens via web-runtime-client setState('connected'). The message
+          // is deduped by TerminalErrorTable so repeated onClose firings stay
+          // a single row.
+          storedCallbacks.onDisconnect?.()
+          storedCallbacks.onError?.(
+            'Remote Orca runtime connection lost — waiting for runtime to come back.'
+          )
         }
       }
     })

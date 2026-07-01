@@ -41,7 +41,7 @@ import { useEffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/use-effective-
 import { useTerminalFontZoom } from './useTerminalFontZoom'
 import CloseTerminalDialog, { type CloseTerminalDialogCopyKind } from './CloseTerminalDialog'
 import { MobileDriverOverlay } from './MobileDriverOverlay'
-import { TerminalErrorToast } from './TerminalErrorToast'
+import { useTerminalErrorActions } from './use-terminal-error-table'
 import { TerminalSessionStateSaveFailureDialog } from './TerminalSessionStateSaveFailureDialog'
 import TerminalContextMenu from './TerminalContextMenu'
 import TerminalPaneHeaderOverlay from './TerminalPaneHeaderOverlay'
@@ -97,7 +97,6 @@ import { isPrimarySelectionEnabled, readPrimarySelectionText } from '@/lib/prima
 import { APP_MENU_PASTE_EVENT } from '@/lib/app-menu-paste'
 import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/workspace-file-drag'
 import { isTerminalSessionStateSaveFailure } from '../../../../shared/terminal-session-state-save-failure'
-import { isTerminalZeroDimensionsDiagnostic } from '../../../../shared/terminal-zero-dimensions-diagnostic'
 import {
   isSyntheticSinglePaneTitle,
   sanitizeTerminalLayoutPaneTitles
@@ -314,7 +313,11 @@ export default function TerminalPane({
   // Add action starts with a fresh draft instead of reusing cancelled text.
   const [quickCommandDraft, setQuickCommandDraft] = useState(createTerminalQuickCommandDraft)
   const [agentSessionFork, setAgentSessionFork] = useState<PreparedAgentSessionFork | null>(null)
-  const [terminalError, setTerminalError] = useState<string | null>(null)
+  // Why: the banner is rendered once per workspace in
+  // TerminalErrorBannerOverlayLayer, but TerminalPane still owns the dispatch
+  // side (push on PTY/paste errors, clear on reset) so the store stays the
+  // single source of truth.
+  const { push: pushTerminalError, clear: clearTerminalError } = useTerminalErrorActions(worktreeId)
   const [sessionStateSaveFailureOpen, setSessionStateSaveFailureOpen] = useState(false)
   const daemonActions = useDaemonActions()
   // Why: override state lives in a plain Map for perf (safeFit reads it on
@@ -521,12 +524,16 @@ export default function TerminalPane({
   )
   const onPtyErrorRef = useRef((_paneId: number, message: string) => {
     if (isTerminalSessionStateSaveFailure(message)) {
-      setTerminalError(null)
+      clearTerminalError()
       setSessionStateSaveFailureOpen(true)
       return
     }
-    setTerminalError((prev) => (prev ? `${prev}\n${message}` : message))
+    pushTerminalError(message)
   })
+  const onResetErrorRef = useRef<() => void>(clearTerminalError)
+  useLayoutEffect(() => {
+    onResetErrorRef.current = clearTerminalError
+  }, [clearTerminalError])
 
   const setTabPaneExpanded = useAppStore((store) => store.setTabPaneExpanded)
   const setTabCanExpandPane = useAppStore((store) => store.setTabCanExpandPane)
@@ -705,12 +712,11 @@ export default function TerminalPane({
       // after first visibility lets inactive agent tabs refit and SIGWINCH.
       setShouldMeasureHiddenStartup(false)
     }
-    if (isVisible) {
-      // Why: a hidden pane that connected at 0×0 self-heals via the pane resize
-      // observer once shown, so clear that stale diagnostic. Scoped to the
-      // zero-dimensions message so genuine paste/save-failure errors survive.
-      setTerminalError((prev) => (prev && isTerminalZeroDimensionsDiagnostic(prev) ? null : prev))
-    }
+    // Why: a 0×0 diagnostic is only ever reported when the pane is already
+    // visible but un-sized, and Task 1's dedup keeps it bounded. The toast
+    // now only clears via the new onResetErrorRef fired on PTY connect, so
+    // the previous visibility-driven clear is no longer needed and would
+    // otherwise race the new single-source-of-truth path.
   }, [isVisible, shouldMeasureHiddenStartup])
 
   const clearSessionRestoredBannerForPane = useCallback((paneId: number): void => {
@@ -1306,6 +1312,7 @@ export default function TerminalPane({
     isVisibleRef,
     onPtyExitRef,
     onPtyErrorRef,
+    onResetErrorRef,
     clearTabPtyId,
     consumeSuppressedPtyExit: useAppStore((store) => store.consumeSuppressedPtyExit),
     updateTabTitle,
@@ -1512,7 +1519,9 @@ export default function TerminalPane({
       transport?.destroy?.()
       paneTransportsRef.current.delete(paneId)
       setCacheTimerStartedAt(makePaneKey(tabId, pane.leafId), null)
-      setTerminalError(null)
+      // Why: the new connectPanePty call below fires onResetErrorRef on
+      // successful spawn/attach, so a manual clear here would double-fire the
+      // reset — drop it.
 
       const newPaneBinding = connectPanePty(pane, manager, {
         tabId,
@@ -1527,6 +1536,7 @@ export default function TerminalPane({
         isVisibleRef,
         onPtyExitRef,
         onPtyErrorRef,
+        onResetErrorRef,
         clearTabPtyId,
         consumeSuppressedPtyExit: useAppStore.getState().consumeSuppressedPtyExit,
         updateTabTitle,
@@ -1888,7 +1898,7 @@ export default function TerminalPane({
         canContinue: () => isPanePasteTargetMounted(pane, transport, ptyId)
       })
       if (execution.status !== 'pasted') {
-        setTerminalError(formatTerminalPasteExecutionError(execution.reason))
+        pushTerminalError(formatTerminalPasteExecutionError(execution.reason))
         return
       }
       if (text) {
@@ -1918,10 +1928,10 @@ export default function TerminalPane({
         pasteText: (text, options) =>
           executePanePasteText(pane, source, activeElementAtDispatch, text, options),
         onTextPasteError: () =>
-          setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
-        onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))
+          pushTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
+        onImagePasteError: (error) => pushTerminalError(formatClipboardImagePasteError(error))
       }).catch(() => {
-        setTerminalError('Paste failed.')
+        pushTerminalError('Paste failed.')
       })
     }
 
@@ -2054,10 +2064,10 @@ export default function TerminalPane({
         pasteText: (text, options) =>
           executePanePasteText(pane, 'app-menu', activeElementAtDispatch, text, options),
         onTextPasteError: () =>
-          setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
-        onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))
+          pushTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
+        onImagePasteError: (error) => pushTerminalError(formatClipboardImagePasteError(error))
       }).catch(() => {
-        setTerminalError('Paste failed.')
+        pushTerminalError('Paste failed.')
       })
     }
 
@@ -2072,7 +2082,14 @@ export default function TerminalPane({
       container.removeEventListener('paste', onPaste, { capture: true })
       window.removeEventListener(APP_MENU_PASTE_EVENT, onAppMenuPaste)
     }
-  }, [isActive, worktreeId, keybindings, forceBracketedMultilineTextPaste, tabId])
+  }, [
+    isActive,
+    worktreeId,
+    keybindings,
+    forceBracketedMultilineTextPaste,
+    tabId,
+    pushTerminalError
+  ])
 
   // Why: a click inside the terminal container is a deliberate interaction
   // with the pane — dismiss the attention indicator for this tab and worktree
@@ -2439,7 +2456,7 @@ export default function TerminalPane({
     onClearPaneScrollback: clearPaneScrollback,
     onSetTitle: handleStartRename,
     onClearPaneTitle: handleClearPaneTitleShortcut,
-    onPasteError: setTerminalError,
+    onPasteError: pushTerminalError,
     onAgentSessionForkReady: setAgentSessionFork,
     forceBracketedMultilineTextPaste,
     rightClickToPaste
@@ -2623,13 +2640,13 @@ export default function TerminalPane({
           canContinue: targetStillMounted
         })
         if (execution.status !== 'pasted') {
-          setTerminalError(formatTerminalPasteExecutionError(execution.reason))
+          pushTerminalError(formatTerminalPasteExecutionError(execution.reason))
           return
         }
         recordTerminalUserInputForLeaf(tabId, clickedPane.leafId)
       })
     },
-    [getPrimarySelectionMiddleClickPane, tabId, worktreeId]
+    [getPrimarySelectionMiddleClickPane, tabId, worktreeId, pushTerminalError]
   )
 
   const handlePrimarySelectionAuxClick = useCallback(
@@ -2801,13 +2818,6 @@ export default function TerminalPane({
           })
         }}
       />
-      {terminalError && isActive && (
-        <TerminalErrorToast
-          error={terminalError}
-          onDismiss={() => setTerminalError(null)}
-          onRestartDaemon={() => daemonActions.setPending('restart')}
-        />
-      )}
       <DaemonActionDialog api={daemonActions} />
       {isActive && (
         <TerminalSessionStateSaveFailureDialog

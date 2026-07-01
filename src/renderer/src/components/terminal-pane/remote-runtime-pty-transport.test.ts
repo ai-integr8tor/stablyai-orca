@@ -1231,7 +1231,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     )
   })
 
-  it('resubscribes without surfacing a PTY error when the remote runtime subscription closes', async () => {
+  it('surfaces a single one-shot error and skips resubscribe when the remote runtime closes the subscription', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onExit = vi.fn()
     const onDisconnect = vi.fn()
@@ -1247,33 +1247,62 @@ describe('createRemoteRuntimePtyTransport', () => {
     await transport.connect({ url: '', callbacks: { onExit, onDisconnect, onError } })
     await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
     subscriptionCallbacks?.onClose?.()
+    // Second close must not stack — Task 1's TerminalErrorTable dedups to a single row.
+    subscriptionCallbacks?.onClose?.()
 
     expect(onExit).not.toHaveBeenCalled()
-    expect(onDisconnect).not.toHaveBeenCalled()
     expect(onPtyExit).not.toHaveBeenCalled()
-    expect(onError).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(runtimeSubscribe).toHaveBeenCalledTimes(2))
+    // Why: one-shot — a second onClose must not re-fire onDisconnect/onError,
+    // even though the multiplex per-stream close callback is called repeatedly.
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(
+      'Remote Orca runtime connection lost — waiting for runtime to come back.'
+    )
+    expect(runtimeSubscribe).toHaveBeenCalledTimes(1)
   })
 
-  it('resubscribes with the latest pane viewport after the remote stream closes', async () => {
+  it('surfaces a single one-shot error on multiplex WS close without resubscribing', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onError = vi.fn()
     const transport = createRemoteRuntimePtyTransport('env-1', {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       leafId: 'pane:1'
     })
 
-    await transport.connect({ url: '', cols: 80, rows: 24, callbacks: {} })
+    await transport.connect({ url: '', callbacks: { onError } })
     await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-    expect(latestSubscribePayload().viewport).toEqual({ cols: 80, rows: 24 })
 
-    expect(transport.resize(132, 43)).toBe(true)
+    // Simulate WS-side close: the multiplexer invokes onTransportClose on its streams.
     subscriptionCallbacks?.onClose?.()
 
-    await vi.waitFor(() => expect(runtimeSubscribe).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => {
-      expect(latestSubscribePayload().viewport).toEqual({ cols: 132, rows: 43 })
+    expect(onError).toHaveBeenCalledWith(
+      'Remote Orca runtime connection lost — waiting for runtime to come back.'
+    )
+    // Closed by remote runtime -> no resubscribe round.
+    expect(runtimeSubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the remote runtime pane when the user unsubscribes explicitly', async () => {
+    const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
+    const onExit = vi.fn()
+    const onDisconnect = vi.fn()
+    const transport = createRemoteRuntimePtyTransport('env-1', {
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      leafId: 'pane:1'
     })
+
+    await transport.connect({ url: '', callbacks: { onExit, onDisconnect } })
+    await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
+
+    // User-initiated close (transport.disconnect closes the stream locally; no
+    // onTransportClose fires, so no one-shot error appears).
+    transport.disconnect()
+
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(transport.getPtyId()).toBeNull()
   })
 
   it('coalesces rapid remote terminal input before sending it to the runtime', async () => {
