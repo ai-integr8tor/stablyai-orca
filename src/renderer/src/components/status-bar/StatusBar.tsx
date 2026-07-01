@@ -61,6 +61,11 @@ import { UpdateStatusSegment } from './UpdateStatusSegment'
 import { isStatusBarItemAvailable } from './status-bar-agent-gating'
 import { getVisibleUsageProvider, isUsageEmptyState } from './status-bar-provider-visibility'
 import { StatusBarUsageEmptyCta } from './StatusBarUsageEmptyCta'
+import { useResetCountdownClock } from '@/hooks/useResetCountdownClock'
+import {
+  collectStatusBarResetTimes,
+  formatStatusBarSessionWindowLabel
+} from './status-bar-reset-countdowns'
 import { shouldOpenStatusBarContextMenu } from './status-bar-context-menu-policy'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from '@/lib/floating-terminal'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
@@ -623,11 +628,13 @@ function AccountRuntimeToggle<TGroup extends { key: string; label: string }>({
 function ClaudeSwitcherMenu({
   claude,
   compact,
-  iconOnly
+  iconOnly,
+  now
 }: {
   claude: ProviderRateLimits
   compact: boolean
   iconOnly: boolean
+  now: number
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(false)
@@ -771,6 +778,7 @@ function ClaudeSwitcherMenu({
       provider={claude}
       compact={compact}
       iconOnly={iconOnly}
+      now={now}
       ariaLabel={translate(
         'auto.components.status.bar.StatusBar.3dd7ddfae1',
         'Open Claude details and account switcher'
@@ -1034,13 +1042,16 @@ const STATUS_BAR_BUCKET_NAMES = new Set(['Flash', 'Pro', '1.5 Pro'])
 
 function ProviderSegment({
   p,
-  compact
+  compact,
+  now
 }: {
   p: ProviderRateLimits | null
   compact: boolean
+  now: number
 }): React.JSX.Element {
   const provider = p?.provider ?? 'claude'
   const statusLabel = p ? getProviderUsageStatusLabel(p) : ''
+  const sessionLabel = p?.session ? formatStatusBarSessionWindowLabel(p.session, now) : ''
 
   // Idle / initial load
   if (!p || p.status === 'idle') {
@@ -1102,7 +1113,7 @@ function ProviderSegment({
           )
         })}
         {visibleBuckets.length === 0 && p.session && (
-          <WindowLabel w={p.session} label={formatWindowLabel(p.session.windowMinutes)} />
+          <WindowLabel w={p.session} label={sessionLabel} />
         )}
         {isStale && <AlertTriangle size={11} className="text-muted-foreground/80" />}
       </span>
@@ -1113,9 +1124,7 @@ function ProviderSegment({
     <span className="inline-flex items-center gap-1.5">
       <ProviderIcon provider={provider} />
       {p.session && !compact && <MiniBar leftPct={Math.max(0, 100 - p.session.usedPercent)} />}
-      {p.session && (
-        <WindowLabel w={p.session} label={formatWindowLabel(p.session.windowMinutes)} />
-      )}
+      {p.session && <WindowLabel w={p.session} label={sessionLabel} />}
       {p.session && p.weekly && <span className="text-muted-foreground">·</span>}
       {p.weekly && <WindowLabel w={p.weekly} label={formatWindowLabel(p.weekly.windowMinutes)} />}
       {isStale && <AlertTriangle size={11} className="text-muted-foreground/80" />}
@@ -1126,11 +1135,13 @@ function ProviderSegment({
 function CodexSwitcherMenu({
   codex,
   compact,
-  iconOnly
+  iconOnly,
+  now
 }: {
   codex: ProviderRateLimits
   compact: boolean
   iconOnly: boolean
+  now: number
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(false)
@@ -1373,7 +1384,7 @@ function CodexSwitcherMenu({
   const resetCreditCount = codex.rateLimitResetCredits?.availableCount ?? null
   const resetCreditExpiry =
     resetCreditCount !== null
-      ? formatResetCreditExpiry(codex.rateLimitResetCredits?.nextExpiresAt, resetCreditCount)
+      ? formatResetCreditExpiry(codex.rateLimitResetCredits?.nextExpiresAt, resetCreditCount, now)
       : null
   const canRedeemReset = resetCreditCount !== null && resetCreditCount > 0
 
@@ -1382,6 +1393,7 @@ function CodexSwitcherMenu({
       provider={codex}
       compact={compact}
       iconOnly={iconOnly}
+      now={now}
       // Why: Codex reset credits render beside the reset action below; showing
       // them in the generic provider summary duplicates the same metadata.
       hidePanelResetCredits
@@ -1605,6 +1617,7 @@ export function ProviderDetailsMenu({
   compact,
   iconOnly,
   ariaLabel,
+  now = Date.now(),
   topContent,
   hidePanelResetCredits = false,
   open,
@@ -1615,6 +1628,7 @@ export function ProviderDetailsMenu({
   compact: boolean
   iconOnly: boolean
   ariaLabel: string
+  now?: number
   topContent?: React.ReactNode
   hidePanelResetCredits?: boolean
   open?: boolean
@@ -1658,7 +1672,7 @@ export function ProviderDetailsMenu({
               </span>
             </span>
           ) : (
-            <ProviderSegment p={provider} compact={compact} />
+            <ProviderSegment p={provider} compact={compact} now={now} />
           )}
         </button>
       </DropdownMenuTrigger>
@@ -1683,7 +1697,7 @@ export function ProviderDetailsMenu({
         {topContent}
         <div className="p-2">
           {/* Why: provider-specific action sections may render richer reset-credit UI. */}
-          <ProviderPanel p={provider} showResetCredits={!hidePanelResetCredits} />
+          <ProviderPanel p={provider} now={now} showResetCredits={!hidePanelResetCredits} />
         </div>
         {children ? (
           <>
@@ -1792,10 +1806,6 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     }
   }, [isRefreshing, refreshRateLimits, refreshDetectedAgents])
 
-  if (!statusBarVisible) {
-    return null
-  }
-
   const { claude, codex, gemini, opencodeGo, kimi } = rateLimits
 
   // Why: a provider earns a bar from either a usable live snapshot or durable
@@ -1848,6 +1858,36 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     gemini?.status === 'fetching' ||
     opencodeGo?.status === 'fetching' ||
     kimi?.status === 'fetching'
+  const usageCountdownResetTimes = useMemo(() => {
+    if (!statusBarVisible || isEmptyUsageState) {
+      return []
+    }
+    return collectStatusBarResetTimes([
+      showClaude ? visibleClaude : null,
+      showCodex ? visibleCodex : null,
+      showGemini ? visibleGemini : null,
+      showOpencodeGo ? visibleOpencodeGo : null,
+      showKimi ? visibleKimi : null
+    ])
+  }, [
+    statusBarVisible,
+    isEmptyUsageState,
+    showClaude,
+    visibleClaude,
+    showCodex,
+    visibleCodex,
+    showGemini,
+    visibleGemini,
+    showOpencodeGo,
+    visibleOpencodeGo,
+    showKimi,
+    visibleKimi
+  ])
+  const usageCountdownNow = useResetCountdownClock(usageCountdownResetTimes)
+
+  if (!statusBarVisible) {
+    return null
+  }
 
   const compact = containerWidth < 900
   const iconOnly = containerWidth < 500
@@ -1884,16 +1924,27 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
         ) : (
           <>
             {showClaude && (
-              <ClaudeSwitcherMenu claude={visibleClaude} compact={compact} iconOnly={iconOnly} />
+              <ClaudeSwitcherMenu
+                claude={visibleClaude}
+                compact={compact}
+                iconOnly={iconOnly}
+                now={usageCountdownNow}
+              />
             )}
             {showCodex && (
-              <CodexSwitcherMenu codex={visibleCodex} compact={compact} iconOnly={iconOnly} />
+              <CodexSwitcherMenu
+                codex={visibleCodex}
+                compact={compact}
+                iconOnly={iconOnly}
+                now={usageCountdownNow}
+              />
             )}
             {showGemini && (
               <ProviderDetailsMenu
                 provider={visibleGemini}
                 compact={compact}
                 iconOnly={iconOnly}
+                now={usageCountdownNow}
                 ariaLabel={translate(
                   'auto.components.status.bar.StatusBar.d2375976eb',
                   'Open Gemini usage details'
@@ -1905,6 +1956,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
                 provider={visibleOpencodeGo}
                 compact={compact}
                 iconOnly={iconOnly}
+                now={usageCountdownNow}
                 ariaLabel={translate(
                   'auto.components.status.bar.StatusBar.629251f4b6',
                   'Open OpenCode Go usage details'
@@ -1916,6 +1968,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
                 provider={visibleKimi}
                 compact={compact}
                 iconOnly={iconOnly}
+                now={usageCountdownNow}
                 ariaLabel={translate(
                   'auto.components.status.bar.StatusBar.fda8146810',
                   'Open Kimi usage details'
