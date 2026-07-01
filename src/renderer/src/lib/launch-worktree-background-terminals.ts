@@ -119,6 +119,7 @@ function registerBackgroundPaneBuffer(tabId: string, leafId: string, ptyId: stri
 }
 
 function buildSetupCommand(setup: WorktreeSetupLaunch): string {
+  // Why: background setup tabs can launch later, so they must reuse the same shell chosen when the runner was written.
   return buildSetupRunnerCommand(
     setup.runnerScriptPath,
     isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix',
