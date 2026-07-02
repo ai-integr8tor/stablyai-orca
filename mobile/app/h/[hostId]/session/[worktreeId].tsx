@@ -71,6 +71,7 @@ import {
   panelRouteDescriptor
 } from '../../../../src/session/session-panel-host'
 import { useMobilePrBranchContext } from '../../../../src/session/use-mobile-pr-branch-context'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../src/worktree/workspace-list-types'
 import { SessionDockColumn } from '../../../../src/session/SessionDockColumn'
 import type { ConnectionState, RpcFailure, RpcSuccess } from '../../../../src/transport/types'
 import { useMobileDictation } from '../../../../src/hooks/use-mobile-dictation'
@@ -804,6 +805,7 @@ export default function SessionScreen() {
     warning?: string
   }>()
   const isFolderWorkspaceRoute = worktreeId.startsWith('folder:')
+  const isFloatingWorkspaceRoute = worktreeId === FLOATING_TERMINAL_WORKTREE_ID
   const router = useRouter()
   const insets = useSafeAreaInsets()
   // Why: shared client per host owned by RpcClientProvider. See
@@ -848,7 +850,8 @@ export default function SessionScreen() {
   } = useMobilePrBranchContext({
     client,
     connState,
-    worktreeId
+    worktreeId,
+    disabled: isFloatingWorkspaceRoute
   })
   useEffect(() => {
     if (prRepoContextLoaded && !prIsGithubRepo && activePanel === 'pr') {
@@ -4308,6 +4311,7 @@ export default function SessionScreen() {
 
   useEffect(() => {
     if (
+      isFloatingWorkspaceRoute ||
       !client ||
       !showEmptyState ||
       creating ||
@@ -4322,7 +4326,15 @@ export default function SessionScreen() {
     initialEmptySessionAutoCreateRef.current = worktreeId
     setCreateError('')
     void handleCreateTerminal()
-  }, [client, creating, creatingBrowser, creatingMarkdown, showEmptyState, worktreeId])
+  }, [
+    client,
+    creating,
+    creatingBrowser,
+    creatingMarkdown,
+    isFloatingWorkspaceRoute,
+    showEmptyState,
+    worktreeId
+  ])
 
   // Why: the reconnect loop parks at its give-up cap; without an in-session
   // affordance the only recovery is leaving the screen or restarting the
@@ -4477,6 +4489,14 @@ export default function SessionScreen() {
   }, [])
 
   const handlePanelTap = (tapped: Exclude<ActivePanel, null>) => {
+    if (
+      isFloatingWorkspaceRoute &&
+      (tapped === 'files' || tapped === 'sourceControl' || tapped === 'pr')
+    ) {
+      // Why: the floating sentinel exposes terminal tabs only; ignore stale
+      // panel taps so Files/Source Control/PR never open from this route.
+      return
+    }
     const action = resolvePanelAction({ canDock: canDockPanel, tapped, current: activePanel })
     if (action.kind === 'dock') {
       setActivePanel(action.next)
@@ -4529,19 +4549,21 @@ export default function SessionScreen() {
                 </Text>
               </Pressable>
             </View>
-            <Pressable
-              style={({ pressed }) => [
-                styles.filesButton,
-                pressed && styles.filesButtonPressed,
-                activePanel === 'files' && styles.filesButtonActive
-              ]}
-              onPress={() => handlePanelTap('files')}
-              hitSlop={8}
-              accessibilityLabel="Open file explorer"
-            >
-              <Folder size={18} color={colors.textSecondary} strokeWidth={2.1} />
-            </Pressable>
-            {!isFolderWorkspaceRoute && (
+            {!isFloatingWorkspaceRoute && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.filesButton,
+                  pressed && styles.filesButtonPressed,
+                  activePanel === 'files' && styles.filesButtonActive
+                ]}
+                onPress={() => handlePanelTap('files')}
+                hitSlop={8}
+                accessibilityLabel="Open file explorer"
+              >
+                <Folder size={18} color={colors.textSecondary} strokeWidth={2.1} />
+              </Pressable>
+            )}
+            {!isFolderWorkspaceRoute && !isFloatingWorkspaceRoute && (
               <Pressable
                 style={({ pressed }) => [
                   styles.filesButton,
@@ -4642,27 +4664,29 @@ export default function SessionScreen() {
                     </View>
                   </Pressable>
                 ))}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.newTerminalButton,
-                    pressed && styles.newTerminalButtonPressed,
-                    (creating ||
-                      creatingBrowser ||
-                      creatingMarkdown ||
-                      connState !== 'connected') &&
-                      styles.newTerminalButtonDisabled
-                  ]}
-                  disabled={
-                    creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
-                  }
-                  onPress={() => {
-                    setCreateError('')
-                    setShowCreateTabDrawer(true)
-                  }}
-                  accessibilityLabel="New tab"
-                >
-                  <Plus size={16} color={colors.textSecondary} strokeWidth={2.2} />
-                </Pressable>
+                {!isFloatingWorkspaceRoute && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.newTerminalButton,
+                      pressed && styles.newTerminalButtonPressed,
+                      (creating ||
+                        creatingBrowser ||
+                        creatingMarkdown ||
+                        connState !== 'connected') &&
+                        styles.newTerminalButtonDisabled
+                    ]}
+                    disabled={
+                      creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
+                    }
+                    onPress={() => {
+                      setCreateError('')
+                      setShowCreateTabDrawer(true)
+                    }}
+                    accessibilityLabel="New tab"
+                  >
+                    <Plus size={16} color={colors.textSecondary} strokeWidth={2.2} />
+                  </Pressable>
+                )}
               </ScrollView>
             </View>
           )}
@@ -4695,33 +4719,39 @@ export default function SessionScreen() {
               </View>
             ) : showEmptyState ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No tabs in this session</Text>
+                <Text style={styles.emptyText}>
+                  {isFloatingWorkspaceRoute
+                    ? 'No trusted floating terminal sessions'
+                    : 'No tabs in this session'}
+                </Text>
                 {createError ? <Text style={styles.createError}>{createError}</Text> : null}
-                <View style={styles.emptyActions}>
-                  <Pressable
-                    style={[
-                      styles.createButton,
-                      (creating ||
-                        creatingBrowser ||
-                        creatingMarkdown ||
-                        connState !== 'connected') &&
-                        styles.createButtonDisabled
-                    ]}
-                    disabled={
-                      creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
-                    }
-                    onPress={() => {
-                      setCreateError('')
-                      setShowCreateTabDrawer(true)
-                    }}
-                  >
-                    <Text style={styles.createButtonText}>
-                      {creating || creatingBrowser || creatingMarkdown
-                        ? 'Creating...'
-                        : 'Create Tab'}
-                    </Text>
-                  </Pressable>
-                </View>
+                {!isFloatingWorkspaceRoute && (
+                  <View style={styles.emptyActions}>
+                    <Pressable
+                      style={[
+                        styles.createButton,
+                        (creating ||
+                          creatingBrowser ||
+                          creatingMarkdown ||
+                          connState !== 'connected') &&
+                          styles.createButtonDisabled
+                      ]}
+                      disabled={
+                        creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
+                      }
+                      onPress={() => {
+                        setCreateError('')
+                        setShowCreateTabDrawer(true)
+                      }}
+                    >
+                      <Text style={styles.createButtonText}>
+                        {creating || creatingBrowser || creatingMarkdown
+                          ? 'Creating...'
+                          : 'Create Tab'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             ) : activeMarkdownTab ? (
               <View style={styles.markdownFrame}>

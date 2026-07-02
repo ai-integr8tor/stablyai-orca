@@ -120,6 +120,17 @@ const electronMocks = vi.hoisted(() => {
 
 vi.mock('electron', () => electronMocks)
 
+const floatingWorkspaceDirectoryMocks = vi.hoisted(() => ({
+  trustedFloatingCwds: new Set<string>()
+}))
+
+vi.mock('../ipc/floating-workspace-directory', () => ({
+  isTrustedFloatingWorkspaceDescendant: vi.fn(
+    async (_store: unknown, cwd: string | null | undefined) =>
+      typeof cwd === 'string' && floatingWorkspaceDirectoryMocks.trustedFloatingCwds.has(cwd)
+  )
+}))
+
 const {
   MOCK_GIT_WORKTREES,
   addWorktreeMock,
@@ -2012,6 +2023,153 @@ describe('OrcaRuntimeService', () => {
     await expect(
       runtime.showManagedWorktree(`id:${FLOATING_TERMINAL_WORKTREE_ID}`)
     ).rejects.toThrow('selector_not_found')
+  })
+
+  it('publishes a trusted floating workspace row from worktree.ps', async () => {
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.clear()
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.add('/tmp/floating-workspace')
+    const runtime = new OrcaRuntimeService(store)
+    runtime['recordPtyWorktree']('floating-pty-1', FLOATING_TERMINAL_WORKTREE_ID, {
+      connected: true,
+      cwd: '/tmp/floating-workspace',
+      mobileTrustedFloatingCwd: true
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const floatingRow = worktrees.find(
+      (worktree) => worktree.worktreeId === FLOATING_TERMINAL_WORKTREE_ID
+    )
+    expect(floatingRow).toMatchObject({
+      workspaceKind: 'floating-workspace',
+      displayName: 'Floating Workspace',
+      isPinned: true,
+      liveTerminalCount: 1
+    })
+  })
+
+  it('omits the floating workspace row for an untrusted cwd', async () => {
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.clear()
+    const runtime = new OrcaRuntimeService(store)
+    runtime['recordPtyWorktree']('floating-pty-untrusted', FLOATING_TERMINAL_WORKTREE_ID, {
+      connected: true,
+      cwd: homedir(),
+      mobileTrustedFloatingCwd: false
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    expect(
+      worktrees.find((worktree) => worktree.worktreeId === FLOATING_TERMINAL_WORKTREE_ID)
+    ).toBeUndefined()
+  })
+
+  it('returns only trusted terminal tabs for the floating sentinel session', async () => {
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.clear()
+    const runtime = new OrcaRuntimeService(store)
+    runtime['recordPtyWorktree']('floating-pty-trusted', FLOATING_TERMINAL_WORKTREE_ID, {
+      connected: true,
+      cwd: '/tmp/floating-workspace',
+      mobileTrustedFloatingCwd: true,
+      tabId: 'tab-trusted',
+      paneKey: 'tab-trusted:1'
+    })
+    runtime['recordPtyWorktree']('floating-pty-untrusted', FLOATING_TERMINAL_WORKTREE_ID, {
+      connected: true,
+      cwd: homedir(),
+      mobileTrustedFloatingCwd: false,
+      tabId: 'tab-untrusted',
+      paneKey: 'tab-untrusted:1'
+    })
+    runtime['mobileSessionTabsByWorktree'].set(FLOATING_TERMINAL_WORKTREE_ID, {
+      worktree: FLOATING_TERMINAL_WORKTREE_ID,
+      publicationEpoch: 'epoch-floating',
+      snapshotVersion: 1,
+      activeGroupId: 'group-floating',
+      activeTabId: 'tab-trusted::pane:1',
+      activeTabType: 'terminal',
+      tabs: [
+        {
+          type: 'terminal',
+          id: 'tab-trusted::pane:1',
+          parentTabId: 'tab-trusted',
+          leafId: 'pane:1',
+          title: 'Trusted floating terminal',
+          ptyId: 'floating-pty-trusted',
+          isActive: true
+        },
+        {
+          type: 'terminal',
+          id: 'tab-untrusted::pane:1',
+          parentTabId: 'tab-untrusted',
+          leafId: 'pane:1',
+          title: 'Untrusted floating terminal',
+          ptyId: 'floating-pty-untrusted',
+          isActive: false
+        },
+        {
+          type: 'markdown',
+          id: 'floating-markdown',
+          title: 'Notes',
+          filePath: '/tmp/floating-workspace/notes.md',
+          relativePath: 'notes.md',
+          language: 'markdown',
+          mode: 'markdown-preview',
+          isDirty: false,
+          isActive: false,
+          sourceFileId: 'floating-markdown-src',
+          sourceFilePath: '/tmp/floating-workspace/notes.md',
+          sourceRelativePath: 'notes.md',
+          documentVersion: '1'
+        }
+      ]
+    })
+
+    const result = await runtime.listMobileSessionTabs(`id:${FLOATING_TERMINAL_WORKTREE_ID}`)
+    expect(result.tabs.map((tab) => tab.id)).toEqual(['tab-trusted::pane:1'])
+  })
+
+  it('resolves floating trust via controller getCwd when listProcesses cwd is empty', async () => {
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.clear()
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.add('/tmp/floating-workspace')
+    const floatingPtyId = `${FLOATING_TERMINAL_WORKTREE_ID}@@trusted`
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      // Why: the local provider reports an empty cwd here, mirroring production.
+      listProcesses: async () => [{ id: floatingPtyId, cwd: '', title: 'shell' }],
+      getCwd: async (ptyId) => (ptyId === floatingPtyId ? '/tmp/floating-workspace' : '')
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+
+    const { worktrees } = await runtime.getWorktreePs()
+    expect(
+      worktrees.find((worktree) => worktree.worktreeId === FLOATING_TERMINAL_WORKTREE_ID)
+    ).toMatchObject({ workspaceKind: 'floating-workspace', liveTerminalCount: 1 })
+  })
+
+  it('keeps the floating row hidden when controller getCwd throws', async () => {
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.clear()
+    floatingWorkspaceDirectoryMocks.trustedFloatingCwds.add('/tmp/floating-workspace')
+    const floatingPtyId = `${FLOATING_TERMINAL_WORKTREE_ID}@@broken`
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [{ id: floatingPtyId, cwd: '', title: 'shell' }],
+      getCwd: async () => {
+        throw new Error('cwd probe failed')
+      }
+    })
+    runtime.attachWindow(1)
+    runtime.markGraphReady(1)
+
+    const { worktrees } = await runtime.getWorktreePs()
+    expect(
+      worktrees.find((worktree) => worktree.worktreeId === FLOATING_TERMINAL_WORKTREE_ID)
+    ).toBeUndefined()
   })
 
   it('still throws selector_not_found for an unknown id selector', async () => {

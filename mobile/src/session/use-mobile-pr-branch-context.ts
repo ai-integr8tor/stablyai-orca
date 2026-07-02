@@ -38,8 +38,9 @@ export function useMobilePrBranchContext(input: {
   client: RpcClient | null
   connState: ConnectionState
   worktreeId: string
+  disabled?: boolean
 }): MobilePrBranchContext {
-  const { client, connState, worktreeId } = input
+  const { client, connState, worktreeId, disabled } = input
   const [context, setContext] = useState<MobilePrBranchContext>({
     branch: null,
     headSha: null,
@@ -53,6 +54,18 @@ export function useMobilePrBranchContext(input: {
 
   useEffect(() => {
     let cancelled = false
+    if (disabled) {
+      // Why: the floating sentinel is terminal-only; skip every PR/git RPC and
+      // report a loaded, non-GitHub context so the PR entry stays hidden.
+      setContext({
+        branch: null,
+        headSha: null,
+        isGithubRepo: false,
+        repoLoaded: true,
+        loaded: true
+      })
+      return
+    }
     if (!ready || !client) {
       setContext({
         branch: null,
@@ -121,7 +134,7 @@ export function useMobilePrBranchContext(input: {
     return () => {
       cancelled = true
     }
-  }, [ready, client, worktreeId])
+  }, [ready, client, worktreeId, disabled])
 
   return context
 }
