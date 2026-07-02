@@ -2,6 +2,7 @@ import type React from 'react'
 
 import type { GlobalSettings, StatusBarItem } from '../../../../shared/types'
 import type { FeatureInteractionId } from '../../../../shared/feature-interaction-catalog'
+import { DEFAULT_FILE_ICON_THEME } from '../../../../shared/file-icon-theme'
 import { SearchableSetting } from './SearchableSetting'
 import { AppearanceAdvancedDisclosure } from './AppearanceAdvancedDisclosure'
 import { useAppStore } from '../../store'
@@ -13,6 +14,7 @@ import {
 } from './SettingsFormControls'
 import { useAvailableStatusBarToggles } from '../status-bar/use-available-status-bar-toggles'
 import { getLayoutEntries, getSidebarEntries, getStatusBarToggles } from './appearance-search'
+import { getFileIconThemeEntries } from './file-icon-theme-search'
 import { LeftSidebarAppearanceSetting } from './LeftSidebarAppearanceSetting'
 import {
   getLeftSidebarAppearanceEntry,
@@ -66,6 +68,7 @@ export function AppearanceWindowSidebarSection({
   const leftSidebarAppearanceEntry = getLeftSidebarAppearanceEntry()
   const sidebarEntries = getSidebarEntries()
   const workspaceCardLayoutEntry = getWorkspaceCardLayoutEntry()
+  const fileIconThemeEntry = getFileIconThemeEntries()[0]
   const layoutEntries = getLayoutEntries()
   const statusBarTitle = translate(
     'auto.components.settings.AppearancePane.3e4175e5c6',
@@ -92,7 +95,10 @@ export function AppearanceWindowSidebarSection({
     workspaceCardLayoutEntry,
     ...sidebarEntries
   ])
-  const fileExplorerAdvancedMatches = matchesSettingsSearch(searchQuery, layoutEntries)
+  const fileExplorerAdvancedMatches = matchesSettingsSearch(searchQuery, [
+    fileIconThemeEntry,
+    ...layoutEntries
+  ])
   const showStatusBarControls = !isSearching || statusBarSectionMatches || statusBarControlMatches
   const showSidebarAdvanced = !isSearching || sidebarAdvancedMatches
   const showFileExplorerAdvanced = !isSearching || fileExplorerAdvancedMatches
@@ -275,6 +281,46 @@ export function AppearanceWindowSidebarSection({
                   )}
                 />
                 <div className="ml-4 divide-y divide-border/40">
+                  <SearchableSetting
+                    title={fileIconThemeEntry?.title}
+                    description={fileIconThemeEntry?.description}
+                    keywords={fileIconThemeEntry?.keywords ?? ['file icons', 'material', 'classic']}
+                  >
+                    <SettingsRow
+                      label={translate(
+                        'auto.components.settings.AppearancePane.fileIconThemeLabel',
+                        'File Icons'
+                      )}
+                      description={fileIconThemeEntry?.description}
+                      control={
+                        <SettingsSegmentedControl
+                          value={settings.fileIconTheme ?? DEFAULT_FILE_ICON_THEME}
+                          onChange={(fileIconTheme) => updateSettings({ fileIconTheme })}
+                          ariaLabel={translate(
+                            'auto.components.settings.AppearancePane.fileIconThemeLabel',
+                            'File Icons'
+                          )}
+                          options={[
+                            {
+                              value: 'classic',
+                              label: translate(
+                                'auto.components.settings.AppearancePane.fileIconThemeClassic',
+                                'Classic'
+                              )
+                            },
+                            {
+                              value: 'material',
+                              label: translate(
+                                'auto.components.settings.AppearancePane.fileIconThemeMaterial',
+                                'Material'
+                              )
+                            }
+                          ]}
+                        />
+                      }
+                    />
+                  </SearchableSetting>
+
                   <SearchableSetting
                     title={
                       layoutEntries[0]?.title ??

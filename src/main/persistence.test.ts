@@ -507,6 +507,7 @@ describe('Store', () => {
     expect(settings.sourceControlGroupOrder).toBe('changes-first')
     expect(settings.theme).toBe('system')
     expect(settings.appIcon).toBe('classic')
+    expect(settings.fileIconTheme).toBe('classic')
     expect(settings.appFontFamily).toBe('Geist')
     expect(settings.editorAutoSave).toBe(false)
     expect(settings.editorAutoSaveDelayMs).toBe(1000)
@@ -2068,6 +2069,7 @@ describe('Store', () => {
     expect(store.getSettings().rightSidebarOpenByDefault).toBe(true)
     expect(store.getSettings().sourceControlViewMode).toBe('list')
     expect(store.getSettings().showGitIgnoredFiles).toBe(true)
+    expect(store.getSettings().fileIconTheme).toBe('classic')
     expect(store.getSettings().showTasksButton).toBe(true)
     expect(store.getSettings().showAutomationsButton).toBe(true)
     expect(store.getSettings().combinedDiffFileTreeVisibleByDefault).toBe(false)
@@ -4686,6 +4688,25 @@ describe('Store', () => {
     expect(store.updateSettings({ appIcon: 'watercolor' }).appIcon).toBe('watercolor')
     expect(store.updateSettings({ appIcon: 'blue' }).appIcon).toBe('blue')
     expect(store.updateSettings({ appIcon: 'not-real' as never }).appIcon).toBe('classic')
+  })
+
+  it('normalizes file icon theme on load and update', async () => {
+    writeFileSync(
+      join(testState.dir, 'orca-data.json'),
+      JSON.stringify({
+        settings: {
+          fileIconTheme: 'not-real'
+        }
+      })
+    )
+    const store = await createStore()
+
+    expect(store.getSettings().fileIconTheme).toBe('classic')
+
+    expect(store.updateSettings({ fileIconTheme: 'material' }).fileIconTheme).toBe('material')
+    expect(store.updateSettings({ fileIconTheme: 'not-real' as never }).fileIconTheme).toBe(
+      'classic'
+    )
   })
 
   it('updateSettings keeps the legacy commit-message AI projection in sync', async () => {

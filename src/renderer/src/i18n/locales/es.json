@@ -4984,7 +4984,10 @@
           "windowSidebarSummary": "Barra lateral, barra de estado y explorador de archivos",
           "statusBarCount": "{{value0}} indicadores visibles.",
           "gitIgnoredGlossary": "Archivos que coinciden con .gitignore.",
-          "statusBarDescription": "Elige qué indicadores aparecen en la barra de estado."
+          "statusBarDescription": "Elige qué indicadores aparecen en la barra de estado.",
+          "fileIconThemeLabel": "File Icons",
+          "fileIconThemeClassic": "Classic",
+          "fileIconThemeMaterial": "Material"
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -8994,6 +8997,12 @@
           "a8f3e2c1b4": "Créditos semanales",
           "b7e2d9f0a3": "El mismo porcentaje de créditos semanales que la pantalla grok /usage en la terminal.",
           "c6d1a8f4e2": "Se restablece {{when}}"
+        },
+        "fileIconTheme": {
+          "search": {
+            "title": "File Icons",
+            "description": "Choose how file type icons appear in the file explorer and editor tabs."
+          }
         }
       },
       "right": {

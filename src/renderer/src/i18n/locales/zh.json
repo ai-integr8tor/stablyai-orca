@@ -4969,7 +4969,10 @@
           "windowSidebarSummary": "侧边栏、状态栏和文件浏览器",
           "statusBarCount": "显示 {{value0}} 个指示器。",
           "gitIgnoredGlossary": "与 .gitignore 匹配的文件。",
-          "statusBarDescription": "选择状态栏中显示哪些指示器。"
+          "statusBarDescription": "选择状态栏中显示哪些指示器。",
+          "fileIconThemeLabel": "File Icons",
+          "fileIconThemeClassic": "Classic",
+          "fileIconThemeMaterial": "Material"
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -8994,6 +8997,12 @@
           "a8f3e2c1b4": "每周额度",
           "b7e2d9f0a3": "与终端中 grok /usage 屏幕显示的每周额度百分比相同。",
           "c6d1a8f4e2": "{{when}} 重置"
+        },
+        "fileIconTheme": {
+          "search": {
+            "title": "File Icons",
+            "description": "Choose how file type icons appear in the file explorer and editor tabs."
+          }
         }
       },
       "right": {
