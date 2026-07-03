@@ -33,6 +33,21 @@ describe('nested repo import telemetry schemas', () => {
       }).success
     ).toBe(true)
 
+    // Empty-selection "Open as Folder" escape hatch: zero selected, repos found.
+    expect(
+      eventSchemas.add_repo_nested_import_action.safeParse({
+        attempt_id: attemptId,
+        surface: 'sidebar',
+        runtime_kind: 'local',
+        action: 'open_as_folder',
+        found_count: 3,
+        found_count_bucket: '2-3',
+        selected_count: 0,
+        selected_count_bucket: '0',
+        all_selected: false
+      }).success
+    ).toBe(true)
+
     expect(
       eventSchemas.add_repo_nested_import_result.safeParse({
         attempt_id: attemptId,

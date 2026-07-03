@@ -79,6 +79,7 @@ function renderStepContent(overrides: Partial<StepContentProps>): string {
     onNestedGroupNameChange: vi.fn(),
     onNestedSelectedPathsChange: vi.fn(),
     onImportNestedRepos: vi.fn(),
+    onOpenAsFolder: vi.fn(),
     onCreateNameChange: vi.fn(),
     onCreateParentChange: vi.fn(),
     onPickCreateParent: vi.fn(),

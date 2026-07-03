@@ -20,6 +20,7 @@ type AddRepoNestedImportStepProps = {
   onGroupNameChange: (value: string) => void
   onSelectedPathsChange: Dispatch<SetStateAction<Set<string>>>
   onImport: (mode: 'group' | 'separate') => void
+  onOpenAsFolder: () => void
   onStopScan: () => void
 }
 
@@ -32,6 +33,7 @@ export function AddRepoNestedImportStep({
   onGroupNameChange,
   onSelectedPathsChange,
   onImport,
+  onOpenAsFolder,
   onStopScan
 }: AddRepoNestedImportStepProps): React.JSX.Element {
   const folderName = getRuntimePathBasename(scan.selectedPath) || scan.selectedPath
@@ -39,6 +41,7 @@ export function AddRepoNestedImportStep({
   const [pendingImportMode, setPendingImportMode] = useState<'group' | 'separate' | null>(null)
   const showSeparateSpinner = isAdding && pendingImportMode === 'separate'
   const showGroupSpinner = isAdding && pendingImportMode === 'group'
+  const hasNoSelectedRepos = selectedPaths.size === 0
 
   useEffect(() => {
     if (!isAdding) {
@@ -137,10 +140,32 @@ export function AddRepoNestedImportStep({
             placeholder={folderName}
           />
         </div>
+        {/* Why: zero selected repos disables import, so expose the existing
+        folder-add flow instead of leaving this step as a dead end. */}
+        {hasNoSelectedRepos ? (
+          <p className="shrink-0 text-xs text-muted-foreground">
+            {translate(
+              'auto.components.sidebar.AddRepoNestedImportStep.f4a91c2e8b',
+              'Select at least one repository to import, or open the folder as-is.'
+            )}
+          </p>
+        ) : null}
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {hasNoSelectedRepos ? (
+            <Button
+              onClick={onOpenAsFolder}
+              disabled={isAdding || scanInProgress || !scan.selectedPath}
+              variant="outline"
+            >
+              {translate(
+                'auto.components.sidebar.AddRepoNestedImportStep.0e7ad2b931',
+                'Open as Folder'
+              )}
+            </Button>
+          ) : null}
           <Button
             onClick={() => handleImport('separate')}
-            disabled={isAdding || scanInProgress || selectedPaths.size === 0}
+            disabled={isAdding || scanInProgress || hasNoSelectedRepos}
             variant="outline"
           >
             {showSeparateSpinner ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -151,7 +176,7 @@ export function AddRepoNestedImportStep({
           </Button>
           <Button
             onClick={() => handleImport('group')}
-            disabled={isAdding || scanInProgress || selectedPaths.size === 0}
+            disabled={isAdding || scanInProgress || hasNoSelectedRepos}
           >
             {showGroupSpinner ? <Loader2 className="size-3.5 animate-spin" /> : null}
             {translate(

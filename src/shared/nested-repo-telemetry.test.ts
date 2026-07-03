@@ -89,6 +89,29 @@ describe('nested repo telemetry payloads', () => {
     })
   })
 
+  it('records opening the parent folder as a zero-selection import action', () => {
+    expect(
+      buildNestedRepoImportActionTelemetry({
+        attemptId,
+        surface: 'sidebar',
+        runtimeKind: 'local',
+        action: 'open_as_folder',
+        foundCount: 3,
+        selectedCount: 0
+      })
+    ).toEqual({
+      attempt_id: attemptId,
+      surface: 'sidebar',
+      runtime_kind: 'local',
+      action: 'open_as_folder',
+      found_count: 3,
+      found_count_bucket: '2-3',
+      selected_count: 0,
+      selected_count_bucket: '0',
+      all_selected: false
+    })
+  })
+
   it('computes all_selected from raw counts before caps are applied', () => {
     const action = buildNestedRepoImportActionTelemetry({
       attemptId,

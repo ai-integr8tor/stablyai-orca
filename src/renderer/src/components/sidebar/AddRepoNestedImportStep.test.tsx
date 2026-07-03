@@ -41,6 +41,7 @@ function renderStepMarkup(
           onGroupNameChange={vi.fn()}
           onSelectedPathsChange={vi.fn()}
           onImport={vi.fn()}
+          onOpenAsFolder={vi.fn()}
           onStopScan={vi.fn()}
           {...overrides}
         />
@@ -85,6 +86,8 @@ describe('AddRepoNestedImportStep', () => {
     expect(html).toContain('Orca will group them and let you work from the parent folder')
     expect(html).toContain('No, import separately')
     expect(html).toContain('Yes, import as group')
+    expect(html).not.toContain('Open as Folder')
+    expect(html).not.toContain('Select at least one repository to import')
     expect(html).toContain('payments/api')
     expect(html).toContain('billing/api')
     expect(html).not.toContain('disabled=""')
@@ -122,6 +125,7 @@ describe('AddRepoNestedImportStep', () => {
               onGroupNameChange={vi.fn()}
               onSelectedPathsChange={vi.fn()}
               onImport={onImport}
+              onOpenAsFolder={vi.fn()}
               onStopScan={vi.fn()}
             />
           </Dialog>
@@ -162,6 +166,7 @@ describe('AddRepoNestedImportStep', () => {
                 onImport(mode)
                 setIsAdding(true)
               }}
+              onOpenAsFolder={vi.fn()}
               onStopScan={vi.fn()}
             />
           </Dialog>
@@ -180,5 +185,69 @@ describe('AddRepoNestedImportStep', () => {
     expect(onImport).toHaveBeenCalledWith('group')
     expect(findButton(host, 'Yes, import as group').querySelector('.animate-spin')).not.toBeNull()
     expect(findButton(host, 'No, import separately').querySelector('.animate-spin')).toBeNull()
+  })
+
+  it('offers opening the parent folder when no repositories are selected', () => {
+    const onOpenAsFolder = vi.fn()
+    const host = document.createElement('div')
+    container = host
+    document.body.appendChild(host)
+    root = createRoot(host)
+
+    act(() => {
+      root?.render(
+        <TooltipProvider>
+          <Dialog open>
+            <AddRepoNestedImportStep
+              scan={scan}
+              groupName=""
+              selectedPaths={new Set()}
+              isAdding={false}
+              scanInProgress={false}
+              onGroupNameChange={vi.fn()}
+              onSelectedPathsChange={vi.fn()}
+              onImport={vi.fn()}
+              onOpenAsFolder={onOpenAsFolder}
+              onStopScan={vi.fn()}
+            />
+          </Dialog>
+        </TooltipProvider>
+      )
+    })
+
+    const openAsFolderButton = findButton(host, 'Open as Folder')
+
+    expect(host.textContent).toContain(
+      'Select at least one repository to import, or open the folder as-is.'
+    )
+    expect(openAsFolderButton.disabled).toBe(false)
+    expect(findButton(host, 'No, import separately').disabled).toBe(true)
+    expect(findButton(host, 'Yes, import as group').disabled).toBe(true)
+
+    act(() => {
+      openAsFolderButton.click()
+    })
+
+    expect(onOpenAsFolder).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the open-as-folder action disabled while scanning with no selection', () => {
+    const html = renderStepMarkup({
+      selectedPaths: new Set(),
+      scanInProgress: true
+    })
+
+    expect(html).toContain('Open as Folder')
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Open as Folder<\/button>/)
+  })
+
+  it('keeps the open-as-folder action disabled without a selected path', () => {
+    const html = renderStepMarkup({
+      selectedPaths: new Set(),
+      scan: { ...scan, selectedPath: '' }
+    })
+
+    expect(html).toContain('Open as Folder')
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Open as Folder<\/button>/)
   })
 })

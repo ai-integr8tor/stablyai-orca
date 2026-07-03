@@ -16,11 +16,14 @@ import { useAddRepoHostChangeReset } from './use-add-repo-host-change-reset'
 import { AddRepoDialogChrome } from './AddRepoDialogChrome'
 import { AddRepoHostSelectorSlot } from './AddRepoHostSelectorSlot'
 import { useAddRepoRemoteNestedScan } from './use-add-repo-remote-nested-scan'
+import { useOpenNestedFolderAsFolder } from './use-open-nested-folder-as-folder'
+import { useAddRepoDialogReset } from './use-add-repo-dialog-reset'
 
 const AddRepoDialog = React.memo(function AddRepoDialog() {
   const activeModal = useAppStore((s) => s.activeModal)
   const modalData = useAppStore((s) => s.modalData)
   const closeModal = useAppStore((s) => s.closeModal)
+  const openModal = useAppStore((s) => s.openModal)
   const addRepoPath = useAppStore((s) => s.addRepoPath)
   const scanNestedRepos = useAppStore((s) => s.scanNestedRepos)
   const cancelNestedRepoScan = useAppStore((s) => s.cancelNestedRepoScan)
@@ -210,47 +213,20 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
       setIsAdding
     })
 
-  const resetState = useCallback(() => {
-    // Why: kill the git clone process if one is running, so backing out
-    // or closing the dialog doesn't leave a clone running on disk.
-    void window.api.repos.cloneAbort()
-    resetLocalFolderFlow()
-    setStep('add')
-    setIsAdding(false)
-    setAddProjectBusyLabel(null)
-    resetServerPathFlow()
-    resetCloneFlow()
-    resetNestedImportFlow()
-    resetNestedRepoReviewState()
-    resetCreateDefaultState()
-    resetCreateState()
-    resetRemoteState()
-  }, [
-    resetCloneFlow,
+  const { resetState, resetHostScopedState } = useAddRepoDialogReset({
+    step,
+    setStep,
+    setIsAdding,
+    setAddProjectBusyLabel,
     resetLocalFolderFlow,
+    resetServerPathFlow,
+    resetCloneFlow,
+    resetNestedImportFlow,
     resetNestedRepoReviewState,
     resetCreateDefaultState,
-    resetServerPathFlow,
-    resetNestedImportFlow,
-    resetRemoteState,
-    resetCreateState
-  ])
-
-  const resetHostScopedState = useCallback(() => {
-    setIsAdding(false)
-    setAddProjectBusyLabel(null)
-    resetServerPathFlow()
-    resetCloneFlow()
-    resetCreateDefaultState()
-    resetCreateState()
-    resetRemoteState()
-  }, [
-    resetCloneFlow,
-    resetCreateDefaultState,
     resetCreateState,
-    resetRemoteState,
-    resetServerPathFlow
-  ])
+    resetRemoteState
+  })
 
   useAddRepoHostChangeReset({
     isOpen,
@@ -278,6 +254,17 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
     },
     [closeModal, isAdding, resetState, step, trackNestedBackAction]
   )
+
+  const handleOpenNestedFolderAsFolder = useOpenNestedFolderAsFolder({
+    nestedScan,
+    nestedConnectionId,
+    runtimeEnvironmentId: selectedRuntimeEnvironmentId,
+    nestedAttemptId,
+    nestedRuntimeKind,
+    getNestedRepoRuntimeKind,
+    openModal,
+    resetState
+  })
 
   return (
     <AddRepoDialogChrome
@@ -381,6 +368,7 @@ const AddRepoDialog = React.memo(function AddRepoDialog() {
         onNestedGroupNameChange={setNestedGroupName}
         onNestedSelectedPathsChange={setNestedSelectedPaths}
         onImportNestedRepos={(mode) => void handleImportNestedRepos(mode)}
+        onOpenAsFolder={handleOpenNestedFolderAsFolder}
         onCreateNameChange={(value) => {
           setCreateName(value)
           setCreateError(null)
