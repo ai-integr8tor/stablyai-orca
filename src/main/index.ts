@@ -137,6 +137,10 @@ import { AutomationService } from './automations/service'
 import { createHeadlessAutomationOutputSnapshotBuffer } from './automations/headless-dispatch'
 import { buildHeadlessAutomationWorktreeCreateArgs } from './automations/headless-workspace-create'
 import { AgentAwakeService } from './agent-awake-service'
+import { PluginService } from './plugins/plugin-service'
+import { resolvePluginHostEntryPath } from './plugins/plugin-host-process'
+import { setPluginServiceForRpc } from './runtime/rpc/methods/plugins'
+import { normalizeDisabledPlugins } from '../shared/plugins/plugin-extension-registry'
 import {
   getCrashBreadcrumbSnapshot,
   recordCoalescedCrashBreadcrumb,
@@ -200,6 +204,7 @@ let unsubscribeAgentAwakeStatusChanges: (() => void) | null = null
 let watcherShutdownPromise: Promise<void> | null = null
 let watcherShutdownDone = false
 let automations: AutomationService | null = null
+let pluginService: PluginService | null = null
 let keybindings: KeybindingService | null = null
 let expectedRendererReload: { webContentsId: number; until: number } | null = null
 let firstWindowStartupServicesReady: Promise<void> = Promise.resolve()
@@ -831,7 +836,8 @@ function openMainWindow(): BrowserWindow {
         isQuitting = true
         await preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
       }
-    }
+    },
+    pluginService ?? undefined
   )
   automations.setWebContents(window.webContents)
   automations.start()
@@ -1767,6 +1773,19 @@ app.whenReady().then(async () => {
     prepareForCodexLaunch: prepareCodexRuntimeHomeForLaunch,
     prepareForClaudeLaunch: (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target)
   })
+  pluginService = new PluginService({
+    userDataPath: app.getPath('userData'),
+    getDisabledPlugins: () => normalizeDisabledPlugins(store?.getSettings().disabledPlugins),
+    hostEntryPath: resolvePluginHostEntryPath(app.getAppPath(), app.isPackaged)
+  })
+  // Why: headless `orca serve` clients reach plugins through the runtime RPC
+  // methods, which resolve the service via this module-level setter.
+  setPluginServiceForRpc(pluginService)
+  // Why: plugin host startup forks child processes; it must not block window
+  // startup, and a broken plugin surfaces via listPlugins() status instead.
+  void pluginService.initialize().catch((error) => {
+    console.warn('[plugins] failed to initialize plugin service:', error)
+  })
   starNag = new StarNagService(store, stats)
   starNag.start()
   starNag.registerIpcHandlers()
@@ -2085,6 +2104,11 @@ app.on('will-quit', (e) => {
   // agent_start events with no matching stops.
   starNag?.stop()
   automations?.stop()
+  // Why: plugin hosts are forked children; dispose sends shutdown and
+  // escalates to SIGKILL so they cannot outlive the app.
+  setPluginServiceForRpc(null)
+  void pluginService?.dispose()
+  pluginService = null
   setUnreadDockBadgeCount(0)
   agentHookServer.stop()
   stats?.flush()
