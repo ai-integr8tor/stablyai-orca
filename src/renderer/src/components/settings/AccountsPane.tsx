@@ -45,6 +45,7 @@ import { translate } from '@/i18n/i18n'
 export { getAccountsPaneSearchEntries }
 
 const EMPTY_WSL_DISTROS: string[] = []
+const CODEX_SIGN_IN_CANCELLED_MESSAGE = 'Codex sign-in was cancelled.'
 
 type AccountsPaneProps = {
   settings: GlobalSettings
@@ -158,6 +159,10 @@ function getCodexAccountErrorDescription(error: unknown): string {
   if (normalizedMessage.includes('codex sign-in took too long to finish')) {
     return 'Codex sign-in took too long to finish. Please try again.'
   }
+  if (normalizedMessage.includes('codex sign-in was cancelled')) {
+    return CODEX_SIGN_IN_CANCELLED_MESSAGE
+  }
+
   if (
     normalizedMessage.includes('auth error 502') ||
     normalizedMessage.includes('gateway') ||
@@ -504,6 +509,28 @@ export function AccountsPane({
         })
       }
     } catch (error) {
+      const description = getCodexAccountErrorDescription(error)
+      if (description === CODEX_SIGN_IN_CANCELLED_MESSAGE) {
+        return
+      }
+      toast.error(
+        translate(
+          'auto.components.settings.AccountsPane.5bf8764953',
+          'Codex account update failed.'
+        ),
+        {
+          description
+        }
+      )
+    } finally {
+      setCodexAction('idle')
+    }
+  }
+
+  const cancelCodexReauthentication = async (accountId: string): Promise<void> => {
+    try {
+      await window.api.codexAccounts.cancelReauthentication({ accountId })
+    } catch (error) {
       toast.error(
         translate(
           'auto.components.settings.AccountsPane.5bf8764953',
@@ -513,8 +540,6 @@ export function AccountsPane({
           description: getCodexAccountErrorDescription(error)
         }
       )
-    } finally {
-      setCodexAction('idle')
     }
   }
 
@@ -1087,22 +1112,31 @@ export function AccountsPane({
                           size="xs"
                           onClick={(event) => {
                             event.stopPropagation()
+                            if (isReauthing) {
+                              void cancelCodexReauthentication(account.id)
+                              return
+                            }
                             void runCodexAccountAction(`reauth:${account.id}`, () =>
                               window.api.codexAccounts.reauthenticate({ accountId: account.id })
                             )
                           }}
-                          disabled={isBusy}
+                          disabled={accountRuntimeUnavailable || (isBusy && !isReauthing)}
                           className="h-6 px-2 text-muted-foreground hover:text-foreground"
                         >
                           {isReauthing ? (
-                            <Loader2 className="size-3 animate-spin" />
+                            <X className="size-3" />
                           ) : (
                             <RefreshCw className="size-3" />
                           )}
-                          {translate(
-                            'auto.components.settings.AccountsPane.8a0f870153',
-                            'Re-authenticate'
-                          )}
+                          {isReauthing
+                            ? translate(
+                                'auto.components.settings.AccountsPane.dbb9626ed1',
+                                'Cancel'
+                              )
+                            : translate(
+                                'auto.components.settings.AccountsPane.8a0f870153',
+                                'Re-authenticate'
+                              )}
                         </Button>
                         <Button
                           variant="ghost"

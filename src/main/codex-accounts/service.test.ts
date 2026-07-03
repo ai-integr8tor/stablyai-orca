@@ -642,6 +642,100 @@ describe('CodexAccountService config sync', () => {
     warnSpy.mockRestore()
   })
 
+  it('cancels a hanging reauthentication so another attempt can start', async () => {
+    vi.resetModules()
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      '',
+      createCodexAuthJson('old@example.com', 'provider-account-old', 'refresh-old')
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'old@example.com',
+          managedHomePath,
+          providerAccountId: 'provider-account-old',
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ],
+      activeCodexManagedAccountId: 'account-1'
+    })
+    let spawnCount = 0
+    const firstChild = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough
+      stderr: PassThrough
+      kill: () => boolean
+    }
+    firstChild.stdout = new PassThrough()
+    firstChild.stderr = new PassThrough()
+    firstChild.kill = vi.fn(() => true)
+    const spawnMock = vi.fn(
+      (_command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+        spawnCount += 1
+        if (spawnCount === 1) {
+          return firstChild
+        }
+        const child = new EventEmitter() as EventEmitter & {
+          stdout: PassThrough
+          stderr: PassThrough
+          kill: () => boolean
+        }
+        child.stdout = new PassThrough()
+        child.stderr = new PassThrough()
+        child.kill = vi.fn(() => true)
+        const loginHome = options.env.CODEX_HOME
+        expect(loginHome).toBeTruthy()
+        writeFileSync(
+          join(loginHome!, 'auth.json'),
+          createCodexAuthJson('new@example.com', 'provider-account-new', 'refresh-new'),
+          'utf-8'
+        )
+        queueMicrotask(() => child.emit('close', 0))
+        return child
+      }
+    )
+
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(),
+      spawn: spawnMock
+    }))
+    vi.doMock('../codex-cli/command', () => ({
+      resolveCodexCommand: () => 'codex'
+    }))
+
+    const store = createStore(settings)
+    const rateLimits = createRateLimits()
+    const runtimeHome = createRuntimeHome()
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    const firstAttempt = service.reauthenticateAccount('account-1')
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1))
+
+    expect(service.cancelReauthentication('account-1')).toBe(true)
+    await expect(firstAttempt).rejects.toThrow('Codex sign-in was cancelled.')
+    expect(firstChild.kill).toHaveBeenCalledTimes(1)
+    expect(store.getSettings().codexManagedAccounts[0].email).toBe('old@example.com')
+
+    const result = await service.reauthenticateAccount('account-1')
+
+    expect(result.accounts[0]).toMatchObject({
+      email: 'new@example.com',
+      providerAccountId: 'provider-account-new'
+    })
+    expect(spawnMock).toHaveBeenCalledTimes(2)
+  })
+
   it('does not recreate a missing managed home at a different account path', async () => {
     vi.resetModules()
     const managedHomePath = join(testState.userDataDir, 'codex-accounts', 'other-account', 'home')
