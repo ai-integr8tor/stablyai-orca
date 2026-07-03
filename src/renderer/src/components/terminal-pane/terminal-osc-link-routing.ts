@@ -2,16 +2,28 @@ import { resolveTerminalFileLinkText } from '@/lib/terminal-links'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 import { ORCA_URL_SCHEME } from '../../../../shared/orca-deep-link'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
-import { isTerminalLinkActivation } from './terminal-link-handlers'
 import { resolveTerminalFileUrlTarget } from './terminal-file-url-target'
 import { openDetectedFilePath } from './terminal-file-open-routing'
+import { isTerminalLinkActivation } from './terminal-link-activation'
 import {
   openTerminalHttpLink,
   type TerminalLinkRoutingPreferenceRequester
 } from './terminal-url-link-hit-testing'
 
 type TerminalLinkEvent = Pick<MouseEvent, 'metaKey' | 'ctrlKey'> &
-  Partial<Pick<MouseEvent, 'shiftKey' | 'preventDefault' | 'stopPropagation'>>
+  Partial<Pick<MouseEvent, 'button' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>>
+
+function isDesktopOscLinkActivation(event: TerminalLinkEvent | undefined): boolean {
+  if (!event) {
+    return false
+  }
+  if ('button' in event && event.button !== undefined && event.button !== 0) {
+    return false
+  }
+  // Why: desktop xterm links must not open while the user is just placing the
+  // cursor or selecting text. Mobile URL taps use a separate WebView path.
+  return isTerminalLinkActivation(event)
+}
 
 export function handleOscLink(
   rawText: string,
@@ -20,14 +32,12 @@ export function handleOscLink(
     Partial<Pick<LinkHandlerDeps, 'runtimeEnvironmentId' | 'startupCwd' | 'terminalHomePath'>> & {
       requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
     }
-): void {
-  if (!isTerminalLinkActivation(event)) {
-    return
+): boolean {
+  if (!isDesktopOscLinkActivation(event)) {
+    return false
   }
-
-  // Why: xterm renders URL links as clickable anchors. Once Orca decides to
-  // handle a modified click itself, we must suppress the browser's default
-  // anchor navigation or Electron will still launch the system browser.
+  // Why: xterm renders OSC 8 links as clickable anchors. Orca must suppress
+  // default anchor navigation so link-routing settings can choose the target.
   // Note: we intentionally do NOT stopPropagation here — xterm's
   // SelectionService listens for mouseup on ownerDocument to clear the
   // pending drag-select state initiated by the mousedown of the same click.
@@ -59,15 +69,14 @@ export function handleOscLink(
   ) {
     // Why: `new URL("C:\\path\\file.ts")` succeeds with protocol `c:`;
     // Windows OSC links need file-path routing before generic URL parsing.
-    return
+    return true
   }
 
   let parsed: URL
   try {
     parsed = new URL(rawText)
   } catch {
-    openDetectedPathLink()
-    return
+    return openDetectedPathLink()
   }
 
   if (parsed.protocol === `${ORCA_URL_SCHEME}:`) {
@@ -75,7 +84,7 @@ export function handleOscLink(
     // already intercepted here, so forward to the main router (which reuses the
     // same focusTerminal action as `terminal focus`) instead of an OS round-trip.
     window.api.ui.openOrcaDeepLink(parsed.toString())
-    return
+    return true
   }
 
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
@@ -84,7 +93,7 @@ export function handleOscLink(
       forceSystemBrowser: Boolean(event?.shiftKey),
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
     })
-    return
+    return true
   }
 
   if (parsed.protocol === 'file:') {
@@ -99,11 +108,13 @@ export function handleOscLink(
       !deps.runtimeEnvironmentId
     const resolved = resolveTerminalFileUrlTarget(parsed, { allowUncHost })
     if (!resolved) {
-      return
+      return false
     }
     openDetectedFilePath(resolved.filePath, resolved.line, resolved.column, {
       ...deps,
       openWithSystemDefault: Boolean(event?.shiftKey)
     })
+    return true
   }
+  return false
 }
