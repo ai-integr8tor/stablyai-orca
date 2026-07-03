@@ -2040,6 +2040,8 @@ function isNewTurnEvent(source: AgentHookSource, eventName: unknown): boolean {
       return false
     case 'grok':
       return isGrokEvent(eventName, 'user_prompt_submit')
+    case 'abacusai':
+      return eventName === 'UserPromptSubmit'
     case 'copilot': {
       const normalizedEventName = normalizeCopilotEventName(eventName)
       return normalizedEventName === 'SessionStart' || normalizedEventName === 'UserPromptSubmit'
@@ -2134,6 +2136,10 @@ function extractToolFields(
       return extractCommandCodeToolFields(eventName, hookPayload)
     case 'grok':
       return extractGrokToolFields(eventName, hookPayload)
+    case 'abacusai':
+      // Why: Abacus AI hook payloads currently do not expose stable tool-name/input
+      // fields across events, so we intentionally skip tool snapshot extraction.
+      return {}
     case 'copilot':
       return extractCopilotToolFields(normalizeCopilotEventName(eventName), hookPayload)
     case 'hermes':
@@ -2309,6 +2315,54 @@ function normalizeKimiEvent(
         resetOnNewTurn: isNewTurnEvent('kimi', eventName)
       }),
       agentType: 'kimi',
+      toolName: snapshot.toolName,
+      toolInput: snapshot.toolInput,
+      lastAssistantMessage: snapshot.lastAssistantMessage,
+      interrupted
+    })
+  )
+}
+
+function normalizeAbacusaiEvent(
+  state: HookListenerState,
+  eventName: unknown,
+  promptText: string,
+  paneKey: string,
+  hookPayload: Record<string, unknown>
+): ParsedAgentStatusPayload | null {
+  const stateName =
+    eventName === 'UserPromptSubmit' ||
+    eventName === 'PreToolUse' ||
+    eventName === 'PostToolUse' ||
+    eventName === 'PostToolUseFailure'
+      ? 'working'
+      : eventName === 'PermissionRequest'
+        ? 'waiting'
+        : eventName === 'Stop' || eventName === 'StopFailure'
+          ? 'done'
+          : null
+
+  if (!stateName) {
+    return null
+  }
+
+  const snapshot = resolveToolState(
+    state,
+    paneKey,
+    extractToolFields('abacusai', eventName, hookPayload),
+    { resetOnNewTurn: isNewTurnEvent('abacusai', eventName) }
+  )
+
+  const interrupted =
+    eventName === 'Stop' && hookPayload['is_interrupt'] === true ? true : undefined
+
+  return parseAgentStatusPayload(
+    JSON.stringify({
+      state: stateName,
+      prompt: resolvePrompt(state, paneKey, promptText, {
+        resetOnNewTurn: isNewTurnEvent('abacusai', eventName)
+      }),
+      agentType: 'abacusai',
       toolName: snapshot.toolName,
       toolInput: snapshot.toolInput,
       lastAssistantMessage: snapshot.lastAssistantMessage,
@@ -3282,6 +3336,9 @@ export function normalizeHookPayload(
     case 'grok':
       payload = normalizeGrokEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
       break
+    case 'abacusai':
+      payload = normalizeAbacusaiEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
+      break
     case 'copilot':
       payload = normalizeCopilotEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
       break
@@ -3347,6 +3404,7 @@ export const HOOK_SOURCE_BY_PATHNAME: Readonly<Record<string, AgentHookSource>> 
   '/hook/droid': 'droid',
   '/hook/command-code': 'command-code',
   '/hook/grok': 'grok',
+  '/hook/abacusai': 'abacusai',
   '/hook/copilot': 'copilot',
   '/hook/hermes': 'hermes',
   '/hook/devin': 'devin',
