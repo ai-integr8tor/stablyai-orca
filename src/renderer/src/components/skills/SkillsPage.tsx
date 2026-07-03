@@ -15,6 +15,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
+import { discoverSkillsForRuntimeTarget } from '@/runtime/runtime-skills-client'
+import { useActiveSkillDiscoveryRuntimeTarget } from '@/hooks/use-active-skill-discovery-runtime-target'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import type {
   DiscoveredSkill,
@@ -195,6 +197,7 @@ function EmptyState({
 
 export default function SkillsPage(): React.JSX.Element {
   const closeSkillsPage = useAppStore((s) => s.closeSkillsPage)
+  const runtimeTarget = useActiveSkillDiscoveryRuntimeTarget()
   const [result, setResult] = useState<SkillDiscoveryResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<SkillsFilterState>({
@@ -207,7 +210,7 @@ export default function SkillsPage(): React.JSX.Element {
   const loadSkills = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
-      const nextResult = await window.api.skills.discover()
+      const nextResult = await discoverSkillsForRuntimeTarget(runtimeTarget)
       if (mountedRef.current) {
         setResult(nextResult)
       }
@@ -215,7 +218,7 @@ export default function SkillsPage(): React.JSX.Element {
       console.error('Failed to discover skills:', error)
       if (mountedRef.current) {
         toast.error(
-          translate('auto.components.skills.SkillsPage.ea72d6185b', 'Could not scan local skills')
+          translate('auto.components.skills.SkillsPage.ea72d6185b', 'Could not scan skills')
         )
       }
     } finally {
@@ -223,7 +226,7 @@ export default function SkillsPage(): React.JSX.Element {
         setLoading(false)
       }
     }
-  }, [mountedRef])
+  }, [mountedRef, runtimeTarget])
 
   useEffect(() => {
     void loadSkills()
