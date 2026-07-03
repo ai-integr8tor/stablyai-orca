@@ -2706,6 +2706,9 @@ export type GlobalSettings = {
   /** Agents hidden from future picker and automatic launch choices. Detection
    *  remains a raw PATH capability snapshot. */
   disabledTuiAgents: TuiAgent[]
+  /** Plugin ids the user disabled. Discovered plugins stay listed but are not
+   *  activated, mirroring the disabledTuiAgents model. */
+  disabledPlugins: string[]
   /** One-shot guard so the experimental Claude Agent Teams launch mode starts
    *  hidden for existing profiles without overriding later user opt-ins. */
   claudeAgentTeamsDefaultDisabledMigrated?: boolean
@@ -3133,6 +3136,9 @@ export type RightSidebarTab =
   | 'source-control'
   | 'checks'
   | 'ports'
+  // Plugin-contributed panels are keyed `plugin:<pluginId>/<panelId>` so the
+  // static union stays closed while plugin tabs remain type-representable.
+  | `plugin:${string}`
 export type ActiveRightSidebarTab = Exclude<RightSidebarTab, 'search'>
 export type RightSidebarExplorerView = 'files' | 'search'
 
