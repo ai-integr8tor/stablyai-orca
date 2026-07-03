@@ -41,9 +41,6 @@ export type SkillDiscoveryTarget = {
   /** Workspace path whose local .agents/.claude skill roots should be scanned. */
   cwd?: string | null
   projectRuntime?: ProjectExecutionRuntimeResolution
-  // Why: when connected to a remote Orca runtime, discovery must scan the
-  // server's filesystem via the remote RPC rather than the local host.
-  environmentId?: string | null
 }
 
 export type SkillFrontmatterSummary = {
