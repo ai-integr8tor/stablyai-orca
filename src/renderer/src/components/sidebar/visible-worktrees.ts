@@ -165,8 +165,11 @@ export function computeVisibleWorktreeIds(
   }
 
   if (!opts.showSleepingWorkspaces) {
+    // Keep a slept workspace visible while it has a pending notification, so an
+    // unread agent completion isn't silently hidden by the Hide-sleeping filter.
     all = all.filter(
       (w) =>
+        w.isUnread ||
         !isInactiveWorkspace(
           w.id,
           opts.tabsByWorktree,

@@ -451,8 +451,11 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         if (hideAutomationGeneratedWorkspaces && isAutomationGeneratedWorkspace(worktree)) {
           return false
         }
+        // Keep a slept workspace listed while it has a pending notification so
+        // the Hide-sleeping filter can't bury an unread agent completion.
         if (
           !showSleepingWorkspaces &&
+          !worktree.isUnread &&
           isInactiveWorkspace(worktree.id, tabsByWorktree, ptyIdsByTabId, browserTabsByWorktree)
         ) {
           return false
