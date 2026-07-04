@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { hasActiveWorkspaceActivity, isInactiveWorkspace } from './worktree-activity-state'
+import {
+  hasActiveWorkspaceActivity,
+  isHiddenBySleepFilter,
+  isInactiveWorkspace
+} from './worktree-activity-state'
 import type { TerminalTab } from '../../../shared/types'
 
 function makeTab(id: string): Pick<TerminalTab, 'id'> {
@@ -62,5 +66,43 @@ describe('worktree activity state', () => {
         { 'wt-1': [{ id: 'browser-1' }] }
       )
     ).toBe(true)
+  })
+})
+
+describe('isHiddenBySleepFilter', () => {
+  it('hides an inactive, read workspace when the sleep filter is on', () => {
+    expect(isHiddenBySleepFilter({ id: 'wt-1', isUnread: false }, false, {}, {}, {})).toBe(true)
+  })
+
+  it('keeps an inactive workspace visible when it has a pending unread notification', () => {
+    expect(isHiddenBySleepFilter({ id: 'wt-1', isUnread: true }, false, {}, {}, {})).toBe(false)
+  })
+
+  it('keeps an active workspace (live pty) visible even when read', () => {
+    expect(
+      isHiddenBySleepFilter(
+        { id: 'wt-1', isUnread: false },
+        false,
+        { 'wt-1': [makeTab('tab-1')] },
+        { 'tab-1': ['pty-1'] },
+        {}
+      )
+    ).toBe(false)
+  })
+
+  it('keeps an active workspace (browser tab) visible even when read', () => {
+    expect(
+      isHiddenBySleepFilter(
+        { id: 'wt-1', isUnread: false },
+        false,
+        { 'wt-1': [makeTab('tab-1')] },
+        { 'tab-1': [] },
+        { 'wt-1': [{ id: 'browser-1' }] }
+      )
+    ).toBe(false)
+  })
+
+  it('never hides any workspace when the sleep filter is off', () => {
+    expect(isHiddenBySleepFilter({ id: 'wt-1', isUnread: false }, true, {}, {}, {})).toBe(false)
   })
 })

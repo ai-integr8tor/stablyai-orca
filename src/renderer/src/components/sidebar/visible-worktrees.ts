@@ -1,6 +1,6 @@
 import type { Worktree, Repo, TerminalTab, WorktreeLineage } from '../../../../shared/types'
 import { buildWorktreeComparator, sortWorktreesSmart } from './smart-sort'
-import { isInactiveWorkspace } from '@/lib/worktree-activity-state'
+import { isHiddenBySleepFilter } from '@/lib/worktree-activity-state'
 import { useAppStore } from '@/store'
 import { getAllWorktreesFromState, getRepoMapFromState } from '@/store/selectors'
 import { DEFAULT_SHOW_SLEEPING_WORKSPACES } from '../../../../shared/constants'
@@ -164,20 +164,18 @@ export function computeVisibleWorktreeIds(
     all = all.filter((w) => selectedRepoIds.has(w.repoId))
   }
 
-  if (!opts.showSleepingWorkspaces) {
-    // Keep a slept workspace visible while it has a pending notification, so an
-    // unread agent completion isn't silently hidden by the Hide-sleeping filter.
-    all = all.filter(
-      (w) =>
-        w.isUnread ||
-        !isInactiveWorkspace(
-          w.id,
-          opts.tabsByWorktree,
-          opts.ptyIdsByTabId,
-          opts.browserTabsByWorktree
-        )
-    )
-  }
+  // Keep a slept workspace visible while it has a pending notification, so an
+  // unread agent completion isn't buried by the Hide-sleeping filter.
+  all = all.filter(
+    (w) =>
+      !isHiddenBySleepFilter(
+        w,
+        opts.showSleepingWorkspaces,
+        opts.tabsByWorktree,
+        opts.ptyIdsByTabId,
+        opts.browserTabsByWorktree
+      )
+  )
 
   // Apply cached sort order. Items not yet in the cache (e.g. brand-new
   // worktrees before the next sortEpoch bump) are appended at the end.

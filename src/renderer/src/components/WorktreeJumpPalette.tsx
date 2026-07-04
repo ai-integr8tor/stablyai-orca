@@ -30,7 +30,7 @@ import {
   isAutomationGeneratedWorkspace,
   isDefaultBranchWorkspace
 } from '@/components/sidebar/visible-worktrees'
-import { isInactiveWorkspace } from '@/lib/worktree-activity-state'
+import { isHiddenBySleepFilter } from '@/lib/worktree-activity-state'
 import { orderEmptyQueryWorktrees } from '@/lib/order-empty-query-worktrees'
 import StatusIndicator from '@/components/sidebar/StatusIndicator'
 import { cn } from '@/lib/utils'
@@ -454,9 +454,13 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         // Keep a slept workspace listed while it has a pending notification so
         // the Hide-sleeping filter can't bury an unread agent completion.
         if (
-          !showSleepingWorkspaces &&
-          !worktree.isUnread &&
-          isInactiveWorkspace(worktree.id, tabsByWorktree, ptyIdsByTabId, browserTabsByWorktree)
+          isHiddenBySleepFilter(
+            worktree,
+            showSleepingWorkspaces,
+            tabsByWorktree,
+            ptyIdsByTabId,
+            browserTabsByWorktree
+          )
         ) {
           return false
         }
