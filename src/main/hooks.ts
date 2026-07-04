@@ -7,8 +7,16 @@ import { getRuntimePathBasename } from '../shared/cross-platform-path'
 import { resolveHookCommandSourcePolicy } from '../shared/hook-command-source-policy'
 import { shouldWaitForSetupBeforeAgentStartup } from '../shared/setup-agent-startup-policy'
 import { parseOrcaYaml } from '../shared/orca-yaml'
+import { resolveWindowsShellStartupFamily } from '../shared/windows-terminal-shell'
 import { gitExecFileSync } from './git/runner'
 import { isWslPath, parseWslPath, toWindowsWslPath, toLinuxPath } from './wsl'
+import {
+  resolveEffectiveWindowsPowerShell,
+  shouldProbeWindowsPowerShellAvailability,
+  type WindowsPowerShellImplementation,
+  type WindowsPowerShellShellFamily
+} from './providers/windows-powershell'
+import { isPwshAvailable } from './pwsh'
 import type {
   HookCommandSourcePolicy,
   OrcaHooks,
@@ -19,12 +27,15 @@ import type {
   WorktreeSetupLaunch
 } from '../shared/types'
 import type { ProjectExecutionRuntimeResolution } from '../shared/project-execution-runtime'
+import type { SetupRunnerShell } from '../shared/setup-runner-command'
 
 const HOOK_TIMEOUT = 120_000 // 2 minutes
 
 export type HookRuntimeTarget = {
   wslDistro?: string | null
 }
+
+type SetupRunnerShellSettings = Record<string, unknown> | undefined
 
 function getHookShell(): string | undefined {
   if (process.platform === 'win32') {
@@ -421,6 +432,25 @@ export function buildWindowsRunnerScript(script: string): string {
   return runnerScript
 }
 
+export function buildPowerShellRunnerScript(script: string): string {
+  let runnerScript = "$ErrorActionPreference = 'Stop'\r\n"
+
+  for (const rawLine of iterateLfScriptLines(script)) {
+    const command = rawLine.trim()
+    if (!command) {
+      runnerScript += '\r\n'
+      continue
+    }
+
+    runnerScript +=
+      `$global:LASTEXITCODE = 0\r\n${command}\r\n` +
+      `if (-not $?) { exit 1 }\r\n` +
+      `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\r\n`
+  }
+
+  return runnerScript
+}
+
 function* iterateLfScriptLines(script: string): Generator<string> {
   let lineStart = 0
 
@@ -442,7 +472,8 @@ export function createSetupRunnerScript(
   repo: Repo,
   worktreePath: string,
   script: string,
-  projectRuntime?: ProjectExecutionRuntimeResolution | HookRuntimeTarget
+  projectRuntime?: ProjectExecutionRuntimeResolution | HookRuntimeTarget,
+  setupShell?: SetupRunnerShell
 ): WorktreeSetupLaunch {
   return createWorktreeRunnerScript(
     repo,
@@ -450,7 +481,8 @@ export function createSetupRunnerScript(
     script,
     'setup-runner',
     getHookRuntimeTarget(projectRuntime),
-    shouldWaitForSetupBeforeAgentStartup(repo.hookSettings?.setupAgentStartupPolicy)
+    shouldWaitForSetupBeforeAgentStartup(repo.hookSettings?.setupAgentStartupPolicy),
+    setupShell
   )
 }
 
@@ -509,17 +541,23 @@ function createWorktreeRunnerScript(
   script: string,
   runnerBaseName: 'setup-runner' | 'issue-command-runner',
   runtimeTarget?: HookRuntimeTarget,
-  waitForAgentStartup?: boolean
+  waitForAgentStartup?: boolean,
+  setupShell?: SetupRunnerShell
 ): WorktreeSetupLaunch {
   const envVars = getSetupEnvVars(repo, worktreePath)
   // Why: WSL worktrees run on a Linux filesystem even though process.platform
   // is 'win32'. Use bash scripts for WSL, .cmd for native Windows.
   const wslWorktree = isWslPath(worktreePath) || Boolean(runtimeTarget?.wslDistro)
-  const useWindowsFormat = process.platform === 'win32' && !wslWorktree
+  const nativeWindowsWorktree = process.platform === 'win32' && !wslWorktree
+  const runnerShell: SetupRunnerShell = nativeWindowsWorktree
+    ? (setupShell ?? { family: 'cmd' })
+    : { family: 'posix' }
   // Why: linked git worktrees use a `.git` file that points at the real gitdir,
   // so writing under `${worktreePath}/.git/...` fails. `git rev-parse --git-path`
   // resolves the actual per-worktree git storage path safely across platforms.
-  const gitRelPath = useWindowsFormat ? `orca/${runnerBaseName}.cmd` : `orca/${runnerBaseName}.sh`
+  const runnerExtension =
+    runnerShell.family === 'cmd' ? 'cmd' : runnerShell.family === 'powershell' ? 'ps1' : 'sh'
+  const gitRelPath = `orca/${runnerBaseName}.${runnerExtension}`
   let runnerScriptPath = getGitPath(worktreePath, gitRelPath, runtimeTarget)
 
   // Why: for WSL worktrees, getGitPath returns a Linux path (e.g. /home/user/...)
@@ -534,13 +572,17 @@ function createWorktreeRunnerScript(
 
   mkdirSync(dirname(runnerScriptPath), { recursive: true })
 
-  if (useWindowsFormat) {
+  if (runnerShell.family === 'cmd') {
     writeFileSync(runnerScriptPath, buildWindowsRunnerScript(script), 'utf-8')
+  } else if (runnerShell.family === 'powershell') {
+    writeFileSync(runnerScriptPath, buildPowerShellRunnerScript(script), 'utf-8')
   } else {
     writeFileSync(runnerScriptPath, buildPosixRunnerScript(script), 'utf-8')
-    // Why: chmod via UNC paths to WSL filesystem is supported by Windows and
-    // sets the execute bit correctly inside WSL.
-    chmodSync(runnerScriptPath, 0o755)
+    if (!nativeWindowsWorktree) {
+      // Why: chmod via UNC paths to WSL filesystem is supported by Windows and
+      // sets the execute bit correctly inside WSL.
+      chmodSync(runnerScriptPath, 0o755)
+    }
   }
 
   // Why: when the worktree is on WSL, env vars like ORCA_ROOT_PATH and
@@ -555,8 +597,57 @@ function createWorktreeRunnerScript(
   return {
     runnerScriptPath,
     envVars,
+    ...(nativeWindowsWorktree && runnerBaseName === 'setup-runner' ? { shell: runnerShell } : {}),
     ...(waitForAgentStartup === true ? { waitForAgentStartup: true } : {})
   }
+}
+
+export function resolveSetupRunnerShell(
+  settings: SetupRunnerShellSettings,
+  platform: NodeJS.Platform = process.platform
+): SetupRunnerShell | undefined {
+  if (platform !== 'win32') {
+    return undefined
+  }
+
+  const terminalWindowsShell = settings?.terminalWindowsShell
+  const configuredShell =
+    typeof terminalWindowsShell === 'string' && terminalWindowsShell.trim()
+      ? terminalWindowsShell.trim()
+      : 'powershell.exe'
+  const shellBasename = configuredShell.replaceAll('\\', '/').split('/').pop()?.toLowerCase()
+  const family = resolveWindowsShellStartupFamily(configuredShell)
+  if (family === 'posix') {
+    // Why: deferred setup launches may happen outside PATH resolution, so keep explicit WSL and Git Bash executables.
+    return shellBasename === 'wsl.exe' || shellBasename === 'wsl' || shellBasename === 'bash.exe'
+      ? { family: 'posix', executable: configuredShell }
+      : { family: 'posix' }
+  }
+  if (family === 'cmd') {
+    return { family: 'cmd' }
+  }
+
+  const shellFamily: WindowsPowerShellShellFamily =
+    shellBasename === 'pwsh.exe' ? 'pwsh.exe' : 'powershell.exe'
+  const implementationValue = settings?.terminalWindowsPowerShellImplementation
+  const implementation: WindowsPowerShellImplementation | undefined =
+    implementationValue === 'auto' ||
+    implementationValue === 'powershell.exe' ||
+    implementationValue === 'pwsh.exe'
+      ? implementationValue
+      : undefined
+  const shouldProbePwsh = shouldProbeWindowsPowerShellAvailability({
+    shellFamily,
+    implementation
+  })
+  const executable =
+    resolveEffectiveWindowsPowerShell({
+      shellFamily,
+      implementation,
+      pwshAvailable: shouldProbePwsh ? isPwshAvailable() : false
+    }) ?? configuredShell
+
+  return { family: 'powershell', executable }
 }
 
 /**

@@ -40,6 +40,7 @@ import type {
   GlobalWindowsRuntimeDefault,
   LocalWindowsRuntimePreference
 } from './project-execution-runtime'
+import type { SetupRunnerShell } from './setup-runner-command'
 
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
@@ -1993,6 +1994,7 @@ export type RepoHookSettings = {
 export type WorktreeSetupLaunch = {
   runnerScriptPath: string
   envVars: Record<string, string>
+  shell?: SetupRunnerShell
   command?: string
   waitForAgentStartup?: boolean
 }

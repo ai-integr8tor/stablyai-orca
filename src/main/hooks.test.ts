@@ -1059,6 +1059,7 @@ describe('runHook', () => {
         }
       )
       expect(result.runnerScriptPath).toContain('setup-runner.sh')
+      expect(result.shell).toBeUndefined()
       expect(mkdirSyncMock).toHaveBeenCalled()
       expect(writeFileSyncMock).toHaveBeenCalledWith(
         expect.stringContaining('setup-runner.sh'),
@@ -1136,6 +1137,158 @@ describe('createSetupRunnerScript', () => {
       }
     }) as unknown as Repo
 
+  it('writes POSIX setup runners for Git Bash on native Windows paths', async () => {
+    gitExecFileSyncMock.mockReset()
+    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\setup-runner.sh\n')
+    const fs = await import('node:fs')
+    const writeFileSyncMock = vi.mocked(fs.writeFileSync)
+    const chmodSyncMock = vi.mocked(fs.chmodSync)
+    writeFileSyncMock.mockClear()
+    chmodSyncMock.mockClear()
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+
+    try {
+      const { createSetupRunnerScript } = await import('./hooks')
+      const result = createSetupRunnerScript(
+        makeRepo(),
+        'C:\\repo-worktree',
+        'pnpm install\r\nnpm run build',
+        undefined,
+        { family: 'posix' }
+      )
+
+      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+        ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
+        { cwd: 'C:\\repo-worktree' }
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        'C:\\repo\\.git\\orca\\setup-runner.sh',
+        '#!/usr/bin/env bash\nset -e\npnpm install\nnpm run build\n',
+        'utf-8'
+      )
+      expect(chmodSyncMock).not.toHaveBeenCalled()
+      expect(result).toMatchObject({
+        runnerScriptPath: 'C:\\repo\\.git\\orca\\setup-runner.sh',
+        shell: { family: 'posix' }
+      })
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
+  it('writes PowerShell setup runners for configured PowerShell on native Windows paths', async () => {
+    gitExecFileSyncMock.mockReset()
+    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\setup-runner.ps1\n')
+    const fs = await import('node:fs')
+    const writeFileSyncMock = vi.mocked(fs.writeFileSync)
+    writeFileSyncMock.mockClear()
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+
+    try {
+      const { createSetupRunnerScript } = await import('./hooks')
+      const result = createSetupRunnerScript(
+        makeRepo(),
+        'C:\\repo-worktree',
+        'pnpm install\nnpm run build',
+        undefined,
+        { family: 'powershell', executable: 'pwsh.exe' }
+      )
+
+      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+        ['rev-parse', '--git-path', 'orca/setup-runner.ps1'],
+        { cwd: 'C:\\repo-worktree' }
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        'C:\\repo\\.git\\orca\\setup-runner.ps1',
+        expect.stringContaining("$ErrorActionPreference = 'Stop'\r\n"),
+        'utf-8'
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        'C:\\repo\\.git\\orca\\setup-runner.ps1',
+        expect.stringContaining('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'),
+        'utf-8'
+      )
+      expect(result).toMatchObject({
+        runnerScriptPath: 'C:\\repo\\.git\\orca\\setup-runner.ps1',
+        shell: { family: 'powershell', executable: 'pwsh.exe' }
+      })
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
+  it('preserves cmd.exe setup runner semantics for configured cmd users', async () => {
+    gitExecFileSyncMock.mockReset()
+    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\setup-runner.cmd\n')
+    const fs = await import('node:fs')
+    const writeFileSyncMock = vi.mocked(fs.writeFileSync)
+    writeFileSyncMock.mockClear()
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+
+    try {
+      const { createSetupRunnerScript } = await import('./hooks')
+      const result = createSetupRunnerScript(
+        makeRepo(),
+        'C:\\repo-worktree',
+        'pnpm install\nnpm run build',
+        undefined,
+        { family: 'cmd' }
+      )
+
+      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+        ['rev-parse', '--git-path', 'orca/setup-runner.cmd'],
+        { cwd: 'C:\\repo-worktree' }
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        'C:\\repo\\.git\\orca\\setup-runner.cmd',
+        expect.stringContaining('call pnpm install\r\nif errorlevel 1 exit /b %errorlevel%'),
+        'utf-8'
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        'C:\\repo\\.git\\orca\\setup-runner.cmd',
+        expect.stringContaining('call npm run build\r\nif errorlevel 1 exit /b %errorlevel%'),
+        'utf-8'
+      )
+      expect(result.shell).toEqual({ family: 'cmd' })
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
+  it('keeps POSIX runner behavior on POSIX platforms', async () => {
+    gitExecFileSyncMock.mockReset()
+    gitExecFileSyncMock.mockReturnValue('/test/repo/.git/orca/setup-runner.sh\n')
+    const fs = await import('node:fs')
+    const writeFileSyncMock = vi.mocked(fs.writeFileSync)
+    const chmodSyncMock = vi.mocked(fs.chmodSync)
+    writeFileSyncMock.mockClear()
+    chmodSyncMock.mockClear()
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+
+    try {
+      const { createSetupRunnerScript } = await import('./hooks')
+      const result = createSetupRunnerScript(makeRepo(), '/test/worktree', 'pnpm install')
+
+      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+        ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
+        { cwd: '/test/worktree' }
+      )
+      expect(writeFileSyncMock).toHaveBeenCalledWith(
+        '/test/repo/.git/orca/setup-runner.sh',
+        '#!/usr/bin/env bash\nset -e\npnpm install\n',
+        'utf-8'
+      )
+      expect(chmodSyncMock).toHaveBeenCalledWith('/test/repo/.git/orca/setup-runner.sh', 0o755)
+      expect(result.shell).toBeUndefined()
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
   it('omits waitForAgentStartup unless the repo explicitly waits for setup', async () => {
     gitExecFileSyncMock.mockReset()
     gitExecFileSyncMock.mockReturnValue('/test/repo/.git/orca/setup-runner.sh\n')
@@ -1152,6 +1305,56 @@ describe('createSetupRunnerScript', () => {
       createSetupRunnerScript(makeRepo('wait-for-setup'), '/test/worktree', 'echo setup')
         .waitForAgentStartup
     ).toBe(true)
+  })
+})
+
+describe('resolveSetupRunnerShell', () => {
+  it('maps git-bash to POSIX setup launch metadata on Windows', async () => {
+    const { resolveSetupRunnerShell } = await import('./hooks')
+
+    expect(resolveSetupRunnerShell({ terminalWindowsShell: 'git-bash' }, 'win32')).toEqual({
+      family: 'posix'
+    })
+  })
+
+  it('maps the configured PowerShell implementation into setup launch metadata', async () => {
+    const { resolveSetupRunnerShell } = await import('./hooks')
+
+    expect(
+      resolveSetupRunnerShell(
+        {
+          terminalWindowsShell: 'powershell',
+          terminalWindowsPowerShellImplementation: 'pwsh.exe'
+        },
+        'win32'
+      )
+    ).toEqual({
+      family: 'powershell',
+      executable: 'pwsh.exe'
+    })
+  })
+
+  it('preserves wsl.exe for Windows setup launch metadata', async () => {
+    const { resolveSetupRunnerShell } = await import('./hooks')
+
+    expect(resolveSetupRunnerShell({ terminalWindowsShell: 'wsl.exe' }, 'win32')).toEqual({
+      family: 'posix',
+      executable: 'wsl.exe'
+    })
+  })
+
+  it('preserves a configured Git Bash executable for Windows setup launch metadata', async () => {
+    const { resolveSetupRunnerShell } = await import('./hooks')
+
+    expect(
+      resolveSetupRunnerShell(
+        { terminalWindowsShell: 'C:\\Program Files\\Git\\bin\\bash.exe' },
+        'win32'
+      )
+    ).toEqual({
+      family: 'posix',
+      executable: 'C:\\Program Files\\Git\\bin\\bash.exe'
+    })
   })
 })
 

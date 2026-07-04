@@ -19,6 +19,7 @@ const {
   getDefaultTabsLaunchMock,
   createIssueCommandRunnerScriptMock,
   createSetupRunnerScriptMock,
+  resolveSetupRunnerShellMock,
   shouldRunSetupForCreateMock,
   runHookMock,
   hasHooksFileMock,
@@ -47,6 +48,7 @@ const {
   getDefaultTabsLaunchMock: vi.fn(),
   createIssueCommandRunnerScriptMock: vi.fn(),
   createSetupRunnerScriptMock: vi.fn(),
+  resolveSetupRunnerShellMock: vi.fn(),
   shouldRunSetupForCreateMock: vi.fn(),
   runHookMock: vi.fn(),
   hasHooksFileMock: vi.fn(),
@@ -107,6 +109,7 @@ vi.mock('../hooks', () => ({
   loadHooks: loadHooksMock,
   runHook: runHookMock,
   hasHooksFile: hasHooksFileMock,
+  resolveSetupRunnerShell: resolveSetupRunnerShellMock,
   shouldRunSetupForCreate: shouldRunSetupForCreateMock
 }))
 
@@ -173,6 +176,7 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
     getDefaultTabsLaunchMock.mockReset()
     createIssueCommandRunnerScriptMock.mockReset()
     createSetupRunnerScriptMock.mockReset()
+    resolveSetupRunnerShellMock.mockReset()
     shouldRunSetupForCreateMock.mockReset()
     runHookMock.mockReset()
     hasHooksFileMock.mockReset()
@@ -226,6 +230,7 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
       refreshLocalBaseRefOnWorktreeCreate: false,
       workspaceDir: 'C:\\workspaces'
     })
+    resolveSetupRunnerShellMock.mockReturnValue(undefined)
     store.getWorktreeMeta.mockReturnValue(undefined)
     store.setWorktreeMeta.mockReturnValue({})
     resolveLocalGitUsernameMock.mockResolvedValue('')
@@ -299,6 +304,61 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
         path: 'C:/workspaces/improve-dashboard',
         branch: 'refs/heads/improve-dashboard'
       })
+    })
+  })
+
+  it('passes the configured Windows setup shell into local setup runner generation', async () => {
+    const setupShell = { family: 'posix' as const }
+    store.getSettings.mockReturnValue({
+      branchPrefix: 'none',
+      nestWorkspaces: false,
+      refreshLocalBaseRefOnWorktreeCreate: false,
+      terminalWindowsShell: 'git-bash',
+      workspaceDir: 'C:\\workspaces'
+    })
+    resolveSetupRunnerShellMock.mockReturnValue(setupShell)
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: 'C:/workspaces/improve-dashboard',
+        head: 'abc123',
+        branch: 'refs/heads/improve-dashboard',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+    getEffectiveHooksMock.mockReturnValue({ scripts: { setup: 'pnpm install' } })
+    getEffectiveHooksFromConfigMock.mockReturnValue({ scripts: { setup: 'pnpm install' } })
+    shouldRunSetupForCreateMock.mockReturnValue(true)
+    createSetupRunnerScriptMock.mockReturnValue({
+      runnerScriptPath: 'C:\\repo\\.git\\orca\\setup-runner.sh',
+      shell: setupShell,
+      envVars: {
+        ORCA_ROOT_PATH: 'C:\\repo',
+        ORCA_WORKTREE_PATH: 'C:\\workspaces\\improve-dashboard'
+      }
+    })
+
+    const result = await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'improve-dashboard',
+      setupDecision: 'run'
+    })
+
+    expect(resolveSetupRunnerShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalWindowsShell: 'git-bash' })
+    )
+    expect(createSetupRunnerScriptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'repo-1' }),
+      'C:\\workspaces\\improve-dashboard',
+      'pnpm install',
+      undefined,
+      setupShell
+    )
+    expect(result).toMatchObject({
+      setup: {
+        runnerScriptPath: 'C:\\repo\\.git\\orca\\setup-runner.sh',
+        shell: setupShell
+      }
     })
   })
 

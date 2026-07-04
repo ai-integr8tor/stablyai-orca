@@ -92,6 +92,13 @@ export type IssueCommandLaunch =
   | WorktreeSetupLaunch
   | { command: string; env?: Record<string, string> }
 
+function getSetupRunnerCommandPlatformForLaunch(setup: WorktreeSetupLaunch): 'windows' | 'posix' {
+  return getSetupRunnerCommandPlatformForPath(
+    setup.runnerScriptPath,
+    navigator.userAgent.includes('Windows') ? 'windows' : 'posix'
+  )
+}
+
 type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
   tabsByWorktree: Record<string, { id: string }[]>
   defaultTerminalTabsAppliedByWorktreeId: Record<string, true>
@@ -473,14 +480,12 @@ export function ensureWorktreeHasInitialTerminal(
   let wrappedSetupCommandStr: string | undefined
 
   if (startup && setup?.waitForAgentStartup === true) {
-    const platform = getSetupRunnerCommandPlatformForPath(
-      setup.runnerScriptPath,
-      navigator.userAgent.includes('Windows') ? 'windows' : 'posix'
-    )
+    const platform = getSetupRunnerCommandPlatformForLaunch(setup)
     const sequenced = createSequencedSetupAgentCommands({
       runnerScriptPath: setup.runnerScriptPath,
       startupCommand: startup.command,
-      platform
+      platform,
+      shell: setup.shell
     })
     sequencedStartup = {
       ...startup,
@@ -695,7 +700,9 @@ function queueSetupAndIssueCommands(
     const mode = useAppStore.getState().settings?.setupScriptLaunchMode ?? 'new-tab'
     const setupCommand = {
       command:
-        wrappedSetupCommandStr ?? setup.command ?? buildSetupRunnerCommand(setup.runnerScriptPath),
+        wrappedSetupCommandStr ??
+        setup.command ??
+        buildSetupRunnerCommand(setup.runnerScriptPath, setup.shell),
       env: setup.envVars
     }
     if (mode === 'new-tab') {
@@ -734,7 +741,7 @@ function queueSetupAndIssueCommands(
     const queuedIssueCommand =
       'runnerScriptPath' in issueCommand
         ? {
-            command: buildSetupRunnerCommand(issueCommand.runnerScriptPath),
+            command: buildSetupRunnerCommand(issueCommand.runnerScriptPath, issueCommand.shell),
             env: issueCommand.envVars
           }
         : { command: issueCommand.command, env: issueCommand.env }
