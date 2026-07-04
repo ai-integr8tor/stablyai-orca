@@ -12,6 +12,7 @@ import type { TerminalPaneSplitSource } from '../shared/feature-education-teleme
 import type { ProjectExecutionRuntimeResolution } from '../shared/project-execution-runtime'
 import type { StartupCommandDelivery } from '../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../shared/agent-session-resume'
+import type { PluginPanelActionOutcome } from '../shared/plugins/plugin-panel-bridge'
 import type {
   BaseRefSearchResult,
   BaseRefDefaultResult,
@@ -516,7 +517,13 @@ const api = {
       pluginId: string
       method: string
       args?: unknown
-    }): Promise<unknown> => ipcRenderer.invoke('plugins:invokeCodeProvider', args)
+    }): Promise<unknown> => ipcRenderer.invoke('plugins:invokeCodeProvider', args),
+    panelAction: (args: {
+      pluginId: string
+      panelId?: string
+      action: string
+      params?: unknown
+    }): Promise<PluginPanelActionOutcome> => ipcRenderer.invoke('plugins:panelAction', args)
   } satisfies PreloadApi['plugins'],
 
   repos: {
