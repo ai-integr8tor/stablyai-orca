@@ -17,6 +17,7 @@ import {
   shouldDeferRemoteFileBrowserPasteResolve,
   type DirEntry
 } from './remote-file-browser-helpers'
+import { driveBreadcrumbPath, splitBrowsePath } from './remote-file-browser-drive-paths'
 import { browseRuntimeServerDirectory } from '@/runtime/runtime-server-directory-browser'
 import { translate } from '@/i18n/i18n'
 
@@ -258,6 +259,8 @@ export function RemoteFileBrowser({
       let basePath: string
       if (parsed.base === 'root') {
         basePath = '/'
+      } else if (parsed.base === 'drive') {
+        basePath = parsed.driveRoot ?? '/'
       } else if (parsed.base === 'home') {
         if (!homePathRef.current) {
           setPreview({
@@ -590,7 +593,17 @@ export function RemoteFileBrowser({
     ]
   )
 
-  const pathSegments = resolvedPath.split('/').filter(Boolean)
+  // Windows-host paths are drive-shaped (`M:\dev`); split with the matching
+  // separator and rebuild breadcrumb targets from the same shape.
+  const browseParts = splitBrowsePath(resolvedPath)
+  const pathSegments = browseParts.segments
+  const breadcrumbPathTo = useCallback(
+    (segmentIndex: number): string =>
+      browseParts.kind === 'drive'
+        ? driveBreadcrumbPath(browseParts.driveRoot, browseParts.segments, segmentIndex)
+        : `/${browseParts.segments.slice(0, segmentIndex + 1).join('/')}`,
+    [browseParts]
+  )
 
   // What the list should render: preview listing (with its own filter and
   // error) during path mode, committed listing otherwise.
@@ -645,12 +658,27 @@ export function RemoteFileBrowser({
           >
             /
           </button>
+          {browseParts.kind === 'drive' && (
+            <>
+              <ChevronRight className="size-2.5 shrink-0 text-muted-foreground/50" />
+              <button
+                type="button"
+                onClick={() => navigate(browseParts.driveRoot)}
+                className={cn(
+                  'truncate max-w-[120px] hover:text-foreground transition-colors cursor-pointer px-0.5',
+                  pathSegments.length === 0 && 'text-foreground font-medium'
+                )}
+              >
+                {browseParts.driveRoot.slice(0, 2)}
+              </button>
+            </>
+          )}
           {pathSegments.map((segment, i) => (
             <React.Fragment key={i}>
               <ChevronRight className="size-2.5 shrink-0 text-muted-foreground/50" />
               <button
                 type="button"
-                onClick={() => navigate(`/${pathSegments.slice(0, i + 1).join('/')}`)}
+                onClick={() => navigate(breadcrumbPathTo(i))}
                 className={cn(
                   'truncate max-w-[120px] hover:text-foreground transition-colors cursor-pointer px-0.5',
                   i === pathSegments.length - 1 && 'text-foreground font-medium'
@@ -800,11 +828,12 @@ export function RemoteFileBrowser({
   )
 }
 
-// Returns the portion of `raw` before its final `/`, used to decide whether
-// a keystroke only changed the trailing filter (cheap local update) or
-// changed a committed segment (requires re-resolving).
+// Returns the portion of `raw` before its final separator, used to decide
+// whether a keystroke only changed the trailing filter (cheap local update)
+// or changed a committed segment (requires re-resolving). Backslash counts
+// so drive-shaped inputs (`M:\dev\de`) get the same fast path.
 function committedPrefix(raw: string): string {
-  const i = raw.lastIndexOf('/')
+  const i = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'))
   return i === -1 ? '' : raw.slice(0, i + 1)
 }
 
