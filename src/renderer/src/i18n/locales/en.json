@@ -12284,7 +12284,11 @@
           "pickers": {
             "783279c991": "Use",
             "d58aef2697": "Clear",
-            "2534e82b7d": "Clear ("
+            "96cc85e839": "Loading…",
+            "2c3b81720a": "Search text is too large.",
+            "96b30a41bc": "Press Enter to use the typed value.",
+            "8776bc66db": "No matches",
+            "f7690f6c74": "Clear ({{value0}})"
           },
           "section": {
             "menu": {

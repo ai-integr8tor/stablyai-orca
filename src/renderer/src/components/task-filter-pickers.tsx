@@ -85,12 +85,17 @@ export function SingleSelectList<O extends PickerOption>({
     !queryTooLarge &&
     !filtered.some((o) => o.key.toLowerCase() === trimmedQuery.toLowerCase())
   const fallback = loading
-    ? 'Loading…'
+    ? translate('auto.components.task.filter.pickers.96cc85e839', 'Loading…')
     : queryTooLarge
-      ? 'Search text is too large.'
+      ? translate('auto.components.task.filter.pickers.2c3b81720a', 'Search text is too large.')
       : showCustom
-        ? 'Press Enter to use the typed value.'
-        : (error ?? emptyText ?? 'No matches')
+        ? translate(
+            'auto.components.task.filter.pickers.96b30a41bc',
+            'Press Enter to use the typed value.'
+          )
+        : (error ??
+          emptyText ??
+          translate('auto.components.task.filter.pickers.8776bc66db', 'No matches'))
 
   return (
     <Command shouldFilter={false}>
@@ -171,10 +176,12 @@ export function MultiSelectList<O extends PickerOption>({
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const { queryTooLarge } = getTaskPickerQueryState(query)
   const fallback = loading
-    ? 'Loading…'
+    ? translate('auto.components.task.filter.pickers.96cc85e839', 'Loading…')
     : queryTooLarge
-      ? 'Search text is too large.'
-      : (error ?? emptyText ?? 'No matches')
+      ? translate('auto.components.task.filter.pickers.2c3b81720a', 'Search text is too large.')
+      : (error ??
+        emptyText ??
+        translate('auto.components.task.filter.pickers.8776bc66db', 'No matches'))
 
   const toggle = (key: string): void => {
     const next = new Set(selectedSet)
@@ -202,8 +209,9 @@ export function MultiSelectList<O extends PickerOption>({
             onSelect={() => onChange([])}
             className="gap-2 px-3 py-1.5 text-xs text-muted-foreground"
           >
-            {translate('auto.components.task.filter.pickers.2534e82b7d', 'Clear (')}
-            {selected.length})
+            {translate('auto.components.task.filter.pickers.f7690f6c74', 'Clear ({{value0}})', {
+              value0: selected.length
+            })}
           </CommandItem>
         ) : null}
         {filtered.map((opt) => {

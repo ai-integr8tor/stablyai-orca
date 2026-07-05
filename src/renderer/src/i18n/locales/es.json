@@ -12281,7 +12281,11 @@
           "pickers": {
             "783279c991": "Usar",
             "d58aef2697": "Limpiar",
-            "2534e82b7d": "Limpiar ("
+            "96cc85e839": "Cargando…",
+            "2c3b81720a": "El texto de búsqueda es demasiado grande.",
+            "96b30a41bc": "Pulsa Intro para usar el valor escrito.",
+            "8776bc66db": "Sin coincidencias",
+            "f7690f6c74": "Limpiar ({{value0}})"
           },
           "section": {
             "menu": {
