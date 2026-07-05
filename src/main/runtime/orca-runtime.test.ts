@@ -6195,6 +6195,47 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  it('reports no running agent from command-not-found wait text', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-1' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'repo terminal',
+          activeLeafId: leafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId,
+          paneRuntimeId: 1,
+          ptyId: 'pty-1'
+        }
+      ]
+    })
+    runtime.onPtyData('pty-1', 'zsh: command not found: codex\n', 123)
+
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(runtime.getTerminalAgentStatus(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      isRunningAgent: false,
+      status: null
+    })
+  })
+
   it('reports permission from blocked wait text over title-only working state', async () => {
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
@@ -8941,6 +8982,273 @@ describe('OrcaRuntimeService', () => {
       satisfied: false,
       status: 'running',
       blockedReason: 'codex-interactive-prompt'
+    })
+  })
+
+  it('returns a blocked wait result for the reported zsh Codex launch failure', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData('pty-bg', 'zsh: command not found: codex\n', Date.now())
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: false,
+      status: 'running',
+      blockedReason: 'agent-command-not-found'
+    })
+  })
+
+  it('returns a blocked wait result for the shell-order Codex launch failure', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData('pty-bg', 'codex: command not found\n', Date.now())
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: false,
+      status: 'running',
+      blockedReason: 'agent-command-not-found'
+    })
+  })
+
+  it('returns a blocked wait result for Bash line-prefixed Codex launch failure', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData('pty-bg', '/usr/bin/bash: line 1: codex: command not found\n', Date.now())
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: false,
+      status: 'running',
+      blockedReason: 'agent-command-not-found'
+    })
+  })
+
+  it('returns a blocked wait result for Bash-prefixed Codex launch failures', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      ['bash: codex: command not found\n', '-bash: codex: command not found\n'].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: false,
+      status: 'running',
+      blockedReason: 'agent-command-not-found'
+    })
+  })
+
+  it('returns a blocked wait result for the reported zsh Claude launch failure', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData('pty-bg', 'zsh: command not found: claude\n', Date.now())
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: false,
+      status: 'running',
+      blockedReason: 'agent-command-not-found'
+    })
+  })
+
+  it('keeps unrelated missing commands out of the blocked-launch path', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        ' >_ OpenAI Codex (v0.131.0)\n',
+        ' model:       gpt-5.5 high   /model to change\n',
+        ' directory:   ~/orca/workspaces/orca/cli-debug\n',
+        'foo: command not found\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
+    })
+  })
+
+  it('keeps suffix command names out of the blocked-launch path', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        ' >_ OpenAI Codex (v0.131.0)\n',
+        ' model:       gpt-5.5 high   /model to change\n',
+        ' directory:   ~/orca/workspaces/orca/cli-debug\n',
+        'zsh: command not found: codex-helper\n',
+        'myclaude: command not found\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
+    })
+  })
+
+  it('keeps stale command-not-found text behind a later Codex ready header', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        'zsh: command not found: codex\n',
+        ' >_ OpenAI Codex (v0.131.0)\n',
+        ' model:       gpt-5.5 high   /model to change\n',
+        ' directory:   ~/orca/workspaces/orca/cli-debug\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
+    })
+  })
+
+  it('keeps prose command-not-found mentions out of the blocked-launch path', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        ' >_ OpenAI Codex (v0.131.0)\n',
+        ' model:       gpt-5.5 high   /model to change\n',
+        ' directory:   ~/orca/workspaces/orca/cli-debug\n',
+        'note codex: command not found in the docs example\n',
+        'note command not found: claude can appear in prose\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
+    })
+  })
+
+  it('keeps colon-prefixed prose command-not-found mentions out of the blocked-launch path', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+    runtime.onPtyData(
+      'pty-bg',
+      [
+        ' >_ OpenAI Codex (v0.131.0)\n',
+        ' model:       gpt-5.5 high   /model to change\n',
+        ' directory:   ~/orca/workspaces/orca/cli-debug\n',
+        'error: command not found: codex\n',
+        'error: line 1: codex: command not found\n'
+      ].join(''),
+      Date.now()
+    )
+
+    await expect(
+      runtime.waitForTerminal(handle, { condition: 'tui-idle', timeoutMs: 1_000 })
+    ).resolves.toMatchObject({
+      handle,
+      condition: 'tui-idle',
+      satisfied: true,
+      status: 'running'
     })
   })
 

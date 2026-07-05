@@ -3,6 +3,7 @@ export type ActiveAgentNotesSendStatus =
   | 'empty'
   | 'no-active-terminal'
   | 'no-agent'
+  | 'agent-command-not-found'
   | 'permission'
   | 'status-unavailable'
   | 'not-ready'
@@ -27,6 +28,10 @@ export function activeAgentNotesSendFailureMessage(
         : 'Open the agent terminal in this worktree, then send the notes again.'
     case 'no-agent':
       return `The ${target} terminal is not a recognized agent session.`
+    case 'agent-command-not-found':
+      return options.explicitTarget
+        ? 'The selected agent CLI is not installed or was not found.'
+        : 'The active agent CLI is not installed or was not found.'
     case 'permission':
       return options.explicitTarget
         ? 'The selected agent needs permission.'

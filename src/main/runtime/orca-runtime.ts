@@ -8699,6 +8699,9 @@ export class OrcaRuntimeService {
     if (terminal.titleStatus === 'permission' && terminal.titleStatusIsLive) {
       return { handle, isRunningAgent: true, status: 'permission' }
     }
+    if (blockedByWaitText === 'agent-command-not-found' && !liveTitleClearsBlockedText) {
+      return { handle, isRunningAgent: false, status: null }
+    }
     if (
       blockedByWaitText &&
       !liveTitleClearsBlockedText &&
@@ -23837,6 +23840,76 @@ function isTerminalWaitWhitespace(value: string, index: number): boolean {
   return code === 32 || (code >= 9 && code <= 13)
 }
 
+// ponytail: keep this local to the direct TUI launch names Orca classifies;
+// unrelated missing commands stay outside the blocked-launch guard.
+const KNOWN_AGENT_COMMAND_NOT_FOUND_NAMES = ['codex', 'claude'] as const
+const KNOWN_COMMAND_NOT_FOUND_SHELL_PREFIXES = ['zsh', 'bash', 'sh', 'fish'] as const
+
+function isShellCommandBoundary(value: string, index: number): boolean {
+  return index < 0 || isTerminalWaitWhitespace(value, index)
+}
+
+function hasShellDiagnosticPrefix(value: string): boolean {
+  const prefix = value.trimEnd()
+  return (
+    prefix === '' ||
+    KNOWN_COMMAND_NOT_FOUND_SHELL_PREFIXES.some(
+      (shell) => prefix === `${shell}:` || prefix === `-${shell}:`
+    )
+  )
+}
+
+function hasShellOrderDiagnosticPrefix(value: string): boolean {
+  const prefix = value.trimEnd()
+  return (
+    prefix === '' ||
+    KNOWN_COMMAND_NOT_FOUND_SHELL_PREFIXES.some(
+      (shell) => prefix === `${shell}:` || prefix === `-${shell}:`
+    ) ||
+    /(^|[/\\])(bash|sh|zsh|fish): line [0-9]+:$/.test(prefix)
+  )
+}
+
+function findKnownAgentCommandNotFoundIndex(normalized: string): number | null {
+  let latestIndex: number | null = null
+  let lineStart = 0
+  for (let cursor = 0; cursor <= normalized.length; cursor += 1) {
+    if (cursor < normalized.length && normalized.charCodeAt(cursor) !== 10) {
+      continue
+    }
+    const line = normalized.slice(lineStart, cursor)
+    if (line.includes('command not found')) {
+      for (const command of KNOWN_AGENT_COMMAND_NOT_FOUND_NAMES) {
+        const zshIndex = line.lastIndexOf(`command not found: ${command}`)
+        const zshAfterCommandIndex = zshIndex + `command not found: ${command}`.length
+        if (
+          zshIndex !== -1 &&
+          hasShellDiagnosticPrefix(line.slice(0, zshIndex)) &&
+          (zshAfterCommandIndex >= line.length ||
+            isTerminalWaitWhitespace(line, zshAfterCommandIndex))
+        ) {
+          const absoluteIndex = lineStart + zshIndex
+          latestIndex =
+            latestIndex === null || absoluteIndex > latestIndex ? absoluteIndex : latestIndex
+          continue
+        }
+        const shellIndex = line.lastIndexOf(`${command}: command not found`)
+        if (
+          shellIndex !== -1 &&
+          hasShellOrderDiagnosticPrefix(line.slice(0, shellIndex)) &&
+          isShellCommandBoundary(line, shellIndex - 1)
+        ) {
+          const absoluteIndex = lineStart + shellIndex
+          latestIndex =
+            latestIndex === null || absoluteIndex > latestIndex ? absoluteIndex : latestIndex
+        }
+      }
+    }
+    lineStart = cursor + 1
+  }
+  return latestIndex
+}
+
 function findTerminalWaitBlockedSignal(
   normalized: string
 ): { reason: RuntimeTerminalWaitBlockedReason; index: number } | null {
@@ -23874,6 +23947,10 @@ function findTerminalWaitBlockedSignal(
       trustSegment.includes('repo'))
   ) {
     candidates.push({ reason: 'codex-trust-workspace', index: trustIndex })
+  }
+  const agentCommandNotFoundIndex = findKnownAgentCommandNotFoundIndex(normalized)
+  if (agentCommandNotFoundIndex !== null) {
+    candidates.push({ reason: 'agent-command-not-found', index: agentCommandNotFoundIndex })
   }
   const interactivePromptIndex = Math.max(
     normalized.lastIndexOf('press enter to confirm'),
