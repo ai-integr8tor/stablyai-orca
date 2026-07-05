@@ -2205,7 +2205,6 @@
         },
         "issue": {
           "filters": {
-            "1304128487": "{{value0}} equipos",
             "258800a4a9": "Estado",
             "44cd07445c": "Asignado",
             "37f757fa33": "Filtros",
@@ -2214,10 +2213,7 @@
             "f310257a06": "No se encontraron asignados.",
             "57858b245f": "Yo",
             "7f0c79f67e": "{{value0}} etiquetas",
-            "773151423c": "Equipo",
             "70c5e644e0": "Etiqueta",
-            "80dcc3a844": "Buscar equipos...",
-            "03934a1370": "No se encontraron equipos.",
             "5f1366aaa2": "Filtrar etiquetas...",
             "a0ac8ba2b5": "Ninguna etiqueta coincide.",
             "dc73d35dfb": "{{value0}} estados",

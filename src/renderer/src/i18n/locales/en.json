@@ -2205,7 +2205,6 @@
         },
         "issue": {
           "filters": {
-            "1304128487": "{{value0}} teams",
             "258800a4a9": "Status",
             "44cd07445c": "Assignee",
             "37f757fa33": "Filters",
@@ -2214,10 +2213,7 @@
             "f310257a06": "No assignees found.",
             "57858b245f": "Me",
             "7f0c79f67e": "{{value0}} labels",
-            "773151423c": "Team",
             "70c5e644e0": "Label",
-            "80dcc3a844": "Search teams...",
-            "03934a1370": "No teams found.",
             "5f1366aaa2": "Filter labels...",
             "a0ac8ba2b5": "No labels match.",
             "dc73d35dfb": "{{value0}} statuses",

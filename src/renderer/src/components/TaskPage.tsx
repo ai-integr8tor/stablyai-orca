@@ -91,10 +91,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import TaskProjectSourceCombobox from '@/components/task-project-source-combobox'
 import { LinearApiKeyDialog } from '@/components/linear-api-key-dialog'
-import {
-  LinearScopeSelector,
-  normalizeLinearScopeTeamSelection
-} from '@/components/linear-scope-selector'
+import { LinearScopeSelector } from '@/components/linear-scope-selector'
 import RepoBadgeLabel from '@/components/repo/RepoBadgeLabel'
 import IssueSourceIndicator, { sameGitHubOwnerRepo } from '@/components/github/IssueSourceIndicator'
 import IssueSourceSelector, { issueSourceChipClass } from '@/components/github/IssueSourceSelector'
@@ -7802,20 +7799,6 @@ export default function TaskPage(): React.JSX.Element {
     [updateSettings]
   )
 
-  // Why: the Filters popover shares team-selection semantics with the scope
-  // selector (empty -> keep current, all -> sticky-all persisted as null).
-  const handleLinearFilterTeamSelectionChange = useCallback(
-    (next: ReadonlySet<string>): void => {
-      const normalized = normalizeLinearScopeTeamSelection({
-        teams: linearTeamOptions,
-        currentSelectedTeamIds: linearTeamSelection,
-        nextSelectedTeamIds: next
-      })
-      handleLinearTeamSelectionChange(normalized.selectedTeamIds, normalized.persisted)
-    },
-    [handleLinearTeamSelectionChange, linearTeamOptions, linearTeamSelection]
-  )
-
   const handleLinearScopeOpen = useCallback((): void => {
     void checkLinearConnection(true)
     void listLinearTeams(selectedLinearWorkspaceId, { force: true })
@@ -10347,9 +10330,6 @@ export default function TaskPage(): React.JSX.Element {
                       statusOptions={linearStatusOptions}
                       statusSelection={linearStatusSelection}
                       onStatusSelectionChange={setLinearStatusSelection}
-                      teamOptions={linearTeamOptions}
-                      teamSelection={linearTeamSelection}
-                      onTeamSelectionChange={handleLinearFilterTeamSelectionChange}
                       assigneeOptions={linearAssigneeOptions}
                       assigneeSelection={linearAssigneeSelection}
                       onAssigneeSelectionChange={setLinearAssigneeSelection}

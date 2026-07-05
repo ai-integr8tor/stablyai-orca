@@ -3,7 +3,6 @@
 // other task providers instead of growing bespoke inline controls.
 import React, { useState } from 'react'
 import { ListFilter, UserRound } from 'lucide-react'
-import type { LinearTeam } from '../../../shared/types'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectList, type PickerOption } from '@/components/task-filter-pickers'
@@ -22,7 +21,9 @@ import {
 } from '@/components/linear-assignee-filter'
 import type { LinearStatusOption } from '@/components/linear-status-filter'
 
-type SectionKey = 'status' | 'team' | 'assignee' | 'label'
+// Why: no team section — the header scope selector already owns the team
+// dimension, and offering a second path to the same filter is confusing.
+type SectionKey = 'status' | 'assignee' | 'label'
 
 type LinearIssueFiltersProps = {
   // Why: status filters on workflow-state names from fetched rows (the STATUS
@@ -30,9 +31,6 @@ type LinearIssueFiltersProps = {
   statusOptions: LinearStatusOption[]
   statusSelection: ReadonlySet<string>
   onStatusSelectionChange: (next: ReadonlySet<string>) => void
-  teamOptions: LinearTeam[]
-  teamSelection: ReadonlySet<string>
-  onTeamSelectionChange: (next: ReadonlySet<string>) => void
   assigneeOptions: LinearAssigneeOption[]
   assigneeSelection: ReadonlySet<string>
   onAssigneeSelectionChange: (next: ReadonlySet<string>) => void
@@ -65,19 +63,6 @@ function assigneePickerOptions(
     ...options.filter(isViewer).map(toPickerOption),
     ...options.filter((option) => !isViewer(option)).map(toPickerOption)
   ]
-}
-
-function getTeamFilterValueLabel(
-  teamOptions: LinearTeam[],
-  teamSelection: ReadonlySet<string>
-): string {
-  return summarizeFilterSelection(
-    teamOptions.filter((team) => teamSelection.has(team.id)).map((team) => team.name),
-    (count) =>
-      translate('auto.components.linear.issue.filters.1304128487', '{{value0}} teams', {
-        value0: count
-      })
-  )
 }
 
 function getLabelFilterValueLabel(labelSelection: ReadonlySet<string>): string {
@@ -131,9 +116,6 @@ export function LinearIssueFilters({
   statusOptions,
   statusSelection,
   onStatusSelectionChange,
-  teamOptions,
-  teamSelection,
-  onTeamSelectionChange,
   assigneeOptions,
   assigneeSelection,
   onAssigneeSelectionChange,
@@ -146,16 +128,11 @@ export function LinearIssueFilters({
   const [openSection, setOpenSection] = useState<SectionKey | null>(null)
 
   const statusActive = statusSelection.size > 0
-  // Why: the scope selector treats "every team selected" as the sticky-all
-  // default, so only a proper subset counts as an active team filter.
-  const teamActive = teamSelection.size > 0 && teamSelection.size < teamOptions.length
   const assigneeActive = assigneeSelection.size > 0
   const labelActive = labelSelection.size > 0
-  const activeCount =
-    (statusActive ? 1 : 0) + (teamActive ? 1 : 0) + (assigneeActive ? 1 : 0) + (labelActive ? 1 : 0)
+  const activeCount = (statusActive ? 1 : 0) + (assigneeActive ? 1 : 0) + (labelActive ? 1 : 0)
 
   const statusValueLabel = statusActive ? getStatusFilterValueLabel(statusSelection) : null
-  const teamValueLabel = teamActive ? getTeamFilterValueLabel(teamOptions, teamSelection) : null
   const assigneeValueLabel = assigneeActive
     ? getLinearAssigneeTriggerLabel(assigneeOptions, assigneeSelection)
     : null
@@ -166,11 +143,6 @@ export function LinearIssueFilters({
       key: 'status',
       label: translate('auto.components.linear.issue.filters.258800a4a9', 'Status'),
       value: statusValueLabel
-    },
-    {
-      key: 'team',
-      label: translate('auto.components.linear.issue.filters.773151423c', 'Team'),
-      value: teamValueLabel
     },
     {
       key: 'assignee',
@@ -184,15 +156,8 @@ export function LinearIssueFilters({
     }
   ]
 
-  const clearTeams = (): void => {
-    // Why: "no team filter" means every team selected, mirroring the scope
-    // selector's sticky-all default rather than an empty set.
-    onTeamSelectionChange(new Set(teamOptions.map((team) => team.id)))
-  }
-
   const clearAll = (): void => {
     onStatusSelectionChange(new Set())
-    clearTeams()
     onAssigneeSelectionChange(new Set())
     onLabelSelectionChange(new Set())
     setOpenSection(null)
@@ -206,13 +171,6 @@ export function LinearIssueFilters({
           label={translate('auto.components.linear.issue.filters.258800a4a9', 'Status')}
           value={statusValueLabel}
           onClear={() => onStatusSelectionChange(new Set())}
-        />
-      ) : null}
-      {teamValueLabel ? (
-        <TaskFilterPill
-          label={translate('auto.components.linear.issue.filters.773151423c', 'Team')}
-          value={teamValueLabel}
-          onClear={clearTeams}
         />
       ) : null}
       {assigneeValueLabel ? (
@@ -291,27 +249,6 @@ export function LinearIssueFilters({
                   )}
                   renderOption={(opt) => <StatusOptionRow option={opt} />}
                   onChange={(next) => onStatusSelectionChange(new Set(next))}
-                />
-              ) : null}
-              {openSection === 'team' ? (
-                <MultiSelectList
-                  options={teamOptions.map((team) => ({
-                    key: team.id,
-                    primary: team.name,
-                    secondary: team.key
-                  }))}
-                  selected={[...teamSelection]}
-                  loading={false}
-                  error={null}
-                  searchPlaceholder={translate(
-                    'auto.components.linear.issue.filters.80dcc3a844',
-                    'Search teams...'
-                  )}
-                  emptyText={translate(
-                    'auto.components.linear.issue.filters.03934a1370',
-                    'No teams found.'
-                  )}
-                  onChange={(next) => onTeamSelectionChange(new Set(next))}
                 />
               ) : null}
               {openSection === 'assignee' ? (
