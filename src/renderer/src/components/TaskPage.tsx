@@ -10333,7 +10333,14 @@ export default function TaskPage(): React.JSX.Element {
                       assigneeOptions={linearAssigneeOptions}
                       assigneeSelection={linearAssigneeSelection}
                       onAssigneeSelectionChange={setLinearAssigneeSelection}
-                      viewerDisplayName={selectedLinearWorkspace?.displayName ?? null}
+                      viewerDisplayName={
+                        // Why: workspace displayName is the viewer's per-org
+                        // name, not the org label; fall back to the connection
+                        // viewer so "all workspaces" keeps the Me pin.
+                        selectedLinearWorkspace?.displayName ??
+                        linearStatus.viewer?.displayName ??
+                        null
+                      }
                       labelOptions={linearLabelOptions}
                       labelSelection={linearLabelSelection}
                       onLabelSelectionChange={setLinearLabelSelection}
