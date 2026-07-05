@@ -57,7 +57,7 @@
     "openWorktreePalette": "워크트리 팔레트 열기",
     "window": "창",
     "help": "도움말",
-    "paste": "Paste"
+    "paste": "붙여넣기"
   },
   "tray": {
     "openOrca": "Orca 열기",
@@ -652,7 +652,7 @@
         "devDescription": "Dev-only tools for exercising UI states.",
         "devBadge": "Dev",
         "devSearchNotificationPlayground": "Notification playground",
-        "devSearchNotificationPlaygroundDescription": "Trigger representative toast and notification UI states.",
+        "devSearchNotificationPlaygroundDescription": "대표적인 토스트 및 알림 UI 상태를 트리거합니다.",
         "devSearchKeywordDev": "dev",
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
@@ -876,7 +876,7 @@
           "moved": "moved this",
           "from": "from",
           "to": "to",
-          "activity": "Activity",
+          "activity": "활동",
           "noActivity": "No activity yet."
         },
         "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
@@ -1701,11 +1701,11 @@
         "useIssueNumber": "이슈 #{{value0}} 사용",
         "noMatchingIssuesLoaded": "일치하는 이슈를 불러오지 않았습니다.",
         "editReviewersWithCurrent": "리뷰어 편집: {{value0}}",
+        "f2b37f54a3": "생성됨",
         "0cdafc15af": "Linear 이슈 필터",
         "53efb4f234": "선택한 필터와 일치하는 이슈가 없습니다.",
         "ce2ea50dc9": "가져온 이슈 중 현재 필터와 일치하는 항목이 없습니다",
-        "95ef38ab0e": "팀 또는 담당자 필터를 조정하거나 새로고침해 보세요. 필터는 현재 가져온 이슈 목록에 적용됩니다.",
-        "f2b37f54a3": "생성됨"
+        "95ef38ab0e": "팀 또는 담당자 필터를 조정하거나 새로고침해 보세요. 필터는 현재 가져온 이슈 목록에 적용됩니다."
       },
       "Terminal": {
         "73768427cf": "닫기",
@@ -2019,7 +2019,7 @@
           "01f3f3d161": "작성자",
           "13b3ac0a84": "상태",
           "79c54552f7": "필터",
-          "19bb6f115f": "reviewed-by"
+          "19bb6f115f": "리뷰 완료"
         },
         "PRFilterSections": {
           "a00830d3f7": "사용자 없음",
@@ -2479,7 +2479,6 @@
             "0a917b591a": "붙여넣기",
             "f3eeb1de13": "복사",
             "c2f0b72b8d": "삽입",
-            "openLinkDefaultBrowser": "기본 브라우저에서 열기",
             "925f49f210": "창 확장",
             "df766809e0": "창 축소",
             "cff67afad1": "Copy Context"
@@ -4894,7 +4893,8 @@
           "d420c43729": "{{value1}}{{value2}}에서 {{value0}}개의 쿠키를 {{value3}}(으)로 가져왔습니다.",
           "b4c167764d": "파일에서 {{value0}}개의 쿠키를 {{value1}}에 가져왔습니다.",
           "a3f8c2d1e0b4": "{{value1}} ({{value2}})에서 {{value0}}개의 쿠키를 {{value3}}(으)로 가져왔습니다.",
-          "b4e9d3f2a1c5": "{{value1}}에서 {{value0}}개의 쿠키를 {{value2}}(으)로 가져왔습니다."
+          "b4e9d3f2a1c5": "{{value1}}에서 {{value0}}개의 쿠키를 {{value2}}(으)로 가져왔습니다.",
+          "c5a273a809": "{{value0}}에서"
         },
         "BrowserUseComputerUseNotice": {
           "15b5e680ba": "컴퓨터 사용 열기",
@@ -4918,7 +4918,7 @@
           "be6df68384": "파일에서…",
           "e44c5d681e": "에서",
           "67d9a53f47": "별도의 로그인을 위한 프로필 관리",
-          "112f70adc4": "마지막으로 가져온 위치",
+          "112f70adc4": "{{value0}}에서 마지막으로 가져옴",
           "72d4815523": "agents가 인증된 페이지에 접근할 수 있도록 기존 로그인을 Orca로 가져오세요. 기본 프로필로 가져옵니다.",
           "2eb906706c": "브라우저 쿠키 가져오기",
           "af8c83ed61": "agents가 로그인을 재사용할 수 있도록 Chrome, Edge 또는 기타 브라우저에서 쿠키를 가져옵니다.",
@@ -4940,7 +4940,8 @@
           "ad8cb0ee22": "경로 수정",
           "0289434ed6": "활성화됨",
           "8b3054dac7": "등록 중...",
-          "8f2675c2f3": "파일에서 {{value0}}개의 쿠키를 가져왔습니다."
+          "8f2675c2f3": "파일에서 {{value0}}개의 쿠키를 가져왔습니다.",
+          "5301857d88": "{{value0}}에서"
         },
         "BrowserUseSkillStep": {
           "0871b6998d": "agents가 Orca 브라우저에서 페이지를 탐색하고 확인할 수 있습니다.",
@@ -5314,7 +5315,7 @@
           "aefa1ecb59": "Git 사용자 이름이 구성되지 않았습니다.",
           "f35007e6e8": "git-username",
           "3d172725cc": "없음",
-          "1f32ba27a6": "Custom",
+          "1f32ba27a6": "사용자 정의",
           "a182c5125e": "Git 사용자 이름",
           "sourceControlGroupOrderTitle": "소스 제어 그룹 순서",
           "sourceControlGroupOrderDescription": "소스 제어에서 변경 사항, 스테이징된 변경 사항 또는 추적되지 않는 파일 중 무엇을 먼저 표시할지 선택합니다.",
@@ -8600,12 +8601,12 @@
           "07939d084e": "Reset {{value0}} to default",
           "9b02917027": "Reset to default",
           "a799f90f82": "Disable {{value0}}",
-          "25e6e76618": "Disable shortcut",
-          "035a822ef0": "Add shortcut",
+          "25e6e76618": "단축키 비활성화",
+          "035a822ef0": "단축키 추가",
           "a0e2ef0e61": "Add another shortcut for {{value0}}",
-          "245c83af24": "Add another shortcut",
+          "245c83af24": "다른 단축키 추가",
           "482a60225d": "Enable {{value0}}",
-          "6287677c37": "Enable",
+          "6287677c37": "활성화",
           "01481b964c": "Add shortcut for {{value0}}"
         },
         "ShortcutRecorderButton": {
@@ -8613,10 +8614,10 @@
           "3732775d74": "Add shortcut for {{value0}}",
           "88764af2c1": "Change shortcut for {{value0}}",
           "30feb099d6": "Change shortcut {{value0}} of {{value1}} for {{value2}}",
-          "5d982a2a1f": "Listening for shortcut",
-          "152e0bcd64": "Add shortcut",
-          "5bd56445da": "Change shortcut",
-          "f5ed5dcbf6": "Press keys…"
+          "5d982a2a1f": "단축키 대기 중",
+          "152e0bcd64": "단축키 추가",
+          "5bd56445da": "단축키 변경",
+          "f5ed5dcbf6": "키를 누르세요…"
         },
         "ShortcutRemoveButton": {
           "9e29aff18b": "{{value0}} 바로가기 {{value1}} 제거",
@@ -8665,21 +8666,21 @@
           "forceDeleteClicked": "Force Delete clicked",
           "devOnlyCallback": "Dev-only callback.",
           "infoToast": "Info toast",
-          "infoToastDescription": "Long informational copy with no explicit action.",
+          "infoToastDescription": "명시적 작업이 없는 긴 정보 메시지입니다.",
           "localCanaryBehind": "Local canary is behind origin/canary",
           "successToast": "Success toast",
-          "successToastDescription": "Short confirmation state.",
+          "successToastDescription": "짧은 확인 상태입니다.",
           "settingsSaved": "Settings saved",
-          "shortSuccessCopy": "Short success copy.",
+          "shortSuccessCopy": "짧은 성공 메시지입니다.",
           "errorToast": "Error toast",
-          "errorToastDescription": "Long error copy without recovery actions.",
+          "errorToastDescription": "복구 작업이 없는 긴 오류 메시지입니다.",
           "failedToSyncWorkspaceMetadata": "Failed to sync workspace metadata",
           "nativeActionToast": "Native action toast",
-          "nativeActionToastDescription": "Uses Sonner action and cancel slots.",
+          "nativeActionToastDescription": "Sonner 작업 및 취소 슬롯을 사용합니다.",
           "deleteFailureToast": "Delete failure toast",
-          "deleteFailureToastDescription": "Custom footer with View and Force Delete.",
+          "deleteFailureToastDescription": "보기 및 강제 삭제가 포함된 사용자 정의 바닥글입니다.",
           "behindBaseRefToast": "Behind base ref toast",
-          "behindBaseRefToastDescription": "Persistent prompt with an inline Settings link and footer action.",
+          "behindBaseRefToastDescription": "인라인 설정 링크와 바닥글 작업이 있는 영구 프롬프트입니다.",
           "notificationPlayground": "Notification playground",
           "notificationPlaygroundDescription": "Dev-only triggers for checking toast layout, recovery actions, and long-copy wrapping.",
           "devOnly": "Dev only"
@@ -9332,7 +9333,7 @@
                 "f5bc5c4cf1": "The hosting provider reports conflicts, but local Git did not reproduce them. Refresh the review or push the branch to recalculate mergeability.",
                 "5bc9bda2af": "Run from this worktree",
                 "e87fb3d929": "Copy mergeability refresh commands",
-                "1e53e45072": "Copied",
+                "1e53e45072": "복사됨",
                 "084c516efb": "Copy commands",
                 "5dc3af25c0": "댓글 선택",
                 "d7a2f9c401": "해결되지 않은 댓글 {{value0}}개 보내기",
@@ -9347,10 +9348,10 @@
                 "e8b4c1a903": "Resolved · {{value0}}",
                 "c3a8e5d710": "Needs review · {{value0}}",
                 "a7f0c7e8d1": "Queue",
-                "8a621a2c4f": "Grouped",
-                "b13f85d75c": "Timeline",
+                "8a621a2c4f": "그룹화",
+                "b13f85d75c": "타임라인",
                 "f5cf324efa": "Comment display options",
-                "5e6e5a13fa": "View",
+                "5e6e5a13fa": "보기",
                 "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
               },
               "empty": {
@@ -9528,7 +9529,7 @@
                   "d8a4c0e369": "{{value0}}을(를) 만들기 전에 인증하세요.",
                   "e9b5d1f470": "{{value0}}을(를) 만들기 전에 브랜치를 체크아웃하세요.",
                   "f0c6e2a581": "이 브랜치는 아직 {{value0}}을(를) 만들 준비가 되지 않았습니다.",
-                  "8f9a0b1c2d": "Nothing to commit. Branch is up to date.",
+                  "8f9a0b1c2d": "커밋할 항목이 없습니다. 브랜치가 최신 상태입니다.",
                   "h3i4j5k607": "이 브랜치에서 {{value0}}을(를) 만들 수 있는지 확인 중…"
                 }
               }
@@ -9820,10 +9821,6 @@
             "a84d5677ff": "OpenCode",
             "2528586aa7": "클라우디노"
           }
-        },
-        "PetOverlay": {
-          "de932b0e8f": "@keyframes pet-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }",
-          "4712d196c6": "@keyframes pet-{{value0}} { from { background-position: {{value1}}px {{value2}}px; } to { background-position: {{value3}}px {{value4}}px; } }"
         }
       },
       "onboarding": {
@@ -10352,7 +10349,7 @@
             "4b2fc4b80c": "사고 강도",
             "be8917699e": "모델",
             "4d9b6d84df": "지원되지 않습니다. Claude, Codex 또는 Custom을 선택하세요.",
-            "560d4feb00": "Custom",
+            "560d4feb00": "사용자 정의",
             "29d119fe95": "에이전트",
             "f9382b48a1": "AI author 활성화",
             "1c0cb4fabb": "AI 작성자",
@@ -10560,7 +10557,7 @@
             "ca2cfbf188": "Terminal을 아래로 분할",
             "e370fa8c2b": "Terminal을 오른쪽으로 분할",
             "b85eab49dd": "src/auth/session.ts",
-            "99f5224f1e": "Edit",
+            "99f5224f1e": "편집",
             "0d93c298a7": "src/auth 던지기",
             "17cfdc3344": "Grep",
             "9923847785": "Read",
@@ -11739,7 +11736,7 @@
             "4bb7424d6b": "Canceled",
             "6e776f9ef9": "Download failed",
             "756bfc25c9": "열기",
-            "09a9489aa5": "Show",
+            "09a9489aa5": "표시",
             "2a4c4b8e1f": "복사"
           },
           "BrowserToolbarMenu": {
@@ -12096,7 +12093,7 @@
         },
         "AutomationSetupDecisionField": {
           "5a7863909c": "새 워크스페이스마다 설정 실행",
-          "18f000ad4e": "Advanced",
+          "18f000ad4e": "고급",
           "874b72195b": "When this automation creates a workspace, prepare it the same way creating a worktree by hand does — run the project's setup and open its terminal tabs."
         }
       },
@@ -12285,9 +12282,6 @@
           }
         },
         "filter": {
-          "pill": {
-            "6b2c72c3ca": "{{value0}} 필터 제거"
-          },
           "pickers": {
             "783279c991": "사용",
             "d58aef2697": "지우기",
@@ -12298,6 +12292,9 @@
               "615d9351d4": "뒤로",
               "5a186cbca7": "모든 필터 지우기"
             }
+          },
+          "pill": {
+            "6b2c72c3ca": "{{value0}} 필터 제거"
           }
         }
       },
