@@ -1393,6 +1393,7 @@
         "73dfd4eb8d": "No volver a preguntar"
       },
       "TaskPage": {
+        "1852574621": "Completado",
         "513cddfa7a": "Verificando…",
         "ff69a30681": "Cancelar",
         "2abe22ef76": "Su token se cifra a través del llavero del sistema operativo y se almacena localmente.",
@@ -1699,7 +1700,12 @@
         "searchIssues": "Buscar issues",
         "useIssueNumber": "Usar issue #{{value0}}",
         "noMatchingIssuesLoaded": "No se cargaron issues coincidentes.",
-        "editReviewersWithCurrent": "Editar revisores: {{value0}}"
+        "editReviewersWithCurrent": "Editar revisores: {{value0}}",
+        "0cdafc15af": "Filtro de issues de Linear",
+        "53efb4f234": "Ningún issue coincide con el filtro seleccionado.",
+        "ce2ea50dc9": "Ningún issue obtenido coincide con los filtros actuales",
+        "95ef38ab0e": "Prueba a ajustar los filtros de equipo o de cesionario, o actualiza; los filtros se aplican al conjunto de issues obtenido actualmente.",
+        "f2b37f54a3": "Creado"
       },
       "Terminal": {
         "73768427cf": "Cerca",
@@ -2013,13 +2019,7 @@
           "01f3f3d161": "Autor",
           "13b3ac0a84": "Estado",
           "79c54552f7": "Filtros",
-          "8a2ffbf9b3": "Quitar filtro {{value0}}",
           "19bb6f115f": "revisado por"
-        },
-        "PRFilterPickers": {
-          "fdf387297c": "Claro (",
-          "472c12ae03": "Claro",
-          "2d1f58eda6": "Usar"
         },
         "PRFilterSections": {
           "a00830d3f7": "Sin usuarios",
@@ -2027,8 +2027,6 @@
           "94b42b0edf": "Revisión solicitada",
           "de26e2eb06": "Sin etiquetas",
           "458ea3602b": "Sin autores",
-          "b69fa4fa20": "Atrás",
-          "30ebb6ca44": "Limpiar todos los filtros",
           "8177eda37e": "Filtrar",
           "ea3416d646": "Cesionario",
           "b1d9fdea08": "Etiqueta",
@@ -2196,6 +2194,35 @@
             "89f6580dbf": "Equipos de búsqueda...",
             "b3488fad3c": "No se buscó ningún equipo. El acceso puede depender del alcance de la clave, la membresía de un equipo privado, los equipos archivados, los permisos o un error de recuperación.",
             "405b33c378": "Ningún equipo encontrado coincide con su búsqueda."
+          }
+        },
+        "assignee": {
+          "filter": {
+            "9adaa5d0f1": "No asignado",
+            "1c0424898b": "Cesionario",
+            "acb9d5a41c": "{{value0}} cesionarios"
+          }
+        },
+        "issue": {
+          "filters": {
+            "1304128487": "{{value0}} equipos",
+            "258800a4a9": "Estado",
+            "44cd07445c": "Cesionario",
+            "37f757fa33": "Filtros",
+            "8c1ea16bb6": "Filtrar issues",
+            "4c7efbb621": "Buscar cesionarios...",
+            "f310257a06": "No se encontraron cesionarios.",
+            "57858b245f": "Yo",
+            "7f0c79f67e": "{{value0}} etiquetas",
+            "773151423c": "Equipo",
+            "70c5e644e0": "Etiqueta",
+            "80dcc3a844": "Buscar equipos...",
+            "03934a1370": "No se encontraron equipos.",
+            "5f1366aaa2": "Filtrar etiquetas...",
+            "a0ac8ba2b5": "Ninguna etiqueta coincide.",
+            "dc73d35dfb": "{{value0}} estados",
+            "e732c0e0eb": "Filtrar estados...",
+            "078dab8258": "Ningún estado coincide."
           }
         }
       },
@@ -12254,6 +12281,22 @@
               "searchProjects": "Search projects...",
               "noMatches": "No projects match your search.",
               "chooseSource": "Elige el origen de tareas"
+            }
+          }
+        },
+        "filter": {
+          "pill": {
+            "6b2c72c3ca": "Quitar filtro {{value0}}"
+          },
+          "pickers": {
+            "783279c991": "Usar",
+            "d58aef2697": "Claro",
+            "2534e82b7d": "Claro ("
+          },
+          "section": {
+            "menu": {
+              "615d9351d4": "Atrás",
+              "5a186cbca7": "Limpiar todos los filtros"
             }
           }
         }

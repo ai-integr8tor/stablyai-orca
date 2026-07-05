@@ -28,6 +28,9 @@ export type SourceOption = {
 export type JiraPresetId = 'assigned' | 'reported' | 'all' | 'done'
 export type JiraPreset = { id: JiraPresetId; label: string }
 
+export type LinearPresetId = 'assigned' | 'created' | 'all' | 'completed'
+export type LinearPreset = { id: LinearPresetId; label: string }
+
 export type GitHubModeButton = { id: GitHubTaskKind | 'project'; label: string }
 
 export type LinearViewMode = 'list' | 'board'
@@ -138,6 +141,13 @@ export const getGitHubModeButtons = createLocalizedCatalog((): GitHubModeButton[
   { id: 'issues', label: translate('auto.components.TaskPage.dfc0c79bd8', 'Issues') },
   { id: 'prs', label: translate('auto.components.TaskPage.137e2a8a01', 'PRs') },
   { id: 'project', label: translate('auto.components.TaskPage.727069bee5', 'Projects') }
+])
+
+export const getLinearPresets = createLocalizedCatalog((): LinearPreset[] => [
+  { id: 'assigned', label: translate('auto.components.TaskPage.1301d376f1', 'Assigned') },
+  { id: 'created', label: translate('auto.components.TaskPage.f2b37f54a3', 'Created') },
+  { id: 'all', label: translate('auto.components.TaskPage.c2268a9982', 'All') },
+  { id: 'completed', label: translate('auto.components.TaskPage.1852574621', 'Completed') }
 ])
 
 export const getLinearModeOptions = createLocalizedCatalog(
