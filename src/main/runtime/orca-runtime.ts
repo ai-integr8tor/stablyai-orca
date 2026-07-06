@@ -620,6 +620,7 @@ import {
 } from '../../shared/constants'
 import { listRepoWorktrees } from '../repo-worktrees'
 import { createWorktreeLinkedPaths, removeWorktreeLinkedPaths } from '../ipc/worktree-symlinks'
+import { resolveWorktreeLinkedPaths } from '../ipc/worktree-include'
 import { deleteWorktreeHistoryDir } from '../terminal-history'
 import {
   cleanupUnusedWorktreePushTargetRemote,
@@ -13506,12 +13507,14 @@ export class OrcaRuntimeService {
       warnings: lineageWarnings
     } = this.recordCreatedWorktreeLineage(worktree, lineageResolution)
 
-    if (
-      settings.experimentalWorktreeSymlinks &&
-      repo.symlinkPaths &&
-      repo.symlinkPaths.length > 0
-    ) {
-      await createWorktreeLinkedPaths(repo.path, created.path, repo.symlinkPaths)
+    // Why: `experimentalWorktreeSymlinks` is the master "whether to link at
+    // all" switch; the linked set unions the per-repo `symlinkPaths` with the
+    // repo's version-controlled `.worktreeinclude` patterns.
+    if (settings.experimentalWorktreeSymlinks) {
+      const linkedPaths = await resolveWorktreeLinkedPaths(repo.path, repo.symlinkPaths ?? [])
+      if (linkedPaths.length > 0) {
+        await createWorktreeLinkedPaths(repo.path, created.path, linkedPaths)
+      }
     }
 
     let setup: CreateWorktreeResult['setup']
@@ -15438,8 +15441,12 @@ export class OrcaRuntimeService {
       }
 
       let shouldTearDownPtys = true
-      if (repo.symlinkPaths && repo.symlinkPaths.length > 0) {
-        await removeWorktreeLinkedPaths(canonicalWorktreePath, repo.symlinkPaths)
+      // Why: unlink before the clean check below — a symlink (e.g. to
+      // `node_modules`) looks untracked to git and would trip removal. Not
+      // flag-gated so links created while the flag was on still get cleaned.
+      const linkedPaths = await resolveWorktreeLinkedPaths(repo.path, repo.symlinkPaths ?? [])
+      if (linkedPaths.length > 0) {
+        await removeWorktreeLinkedPaths(canonicalWorktreePath, linkedPaths)
       }
       try {
         await (hasLocalWorktreeGitOptions
