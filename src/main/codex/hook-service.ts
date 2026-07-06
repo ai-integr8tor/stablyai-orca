@@ -1,19 +1,19 @@
 /* eslint-disable max-lines -- Why: getStatus + install + remove all share the managed-command and trust-key derivation. Splitting would hide that the three operations must agree on group index, event label, and command bytes. */
-import { existsSync, readFileSync, unlinkSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
 import {
   buildManagedCommandHook,
   createManagedCommandMatcher,
-  buildWindowsAgentHookPostCommand,
+  buildWindowsAgentHookCurlPostCommand,
   getSharedManagedScriptPath,
   hookDefinitionHasManagedCommand,
   MANAGED_HOOK_TIMEOUT_SECONDS,
   readHooksJson,
   removeManagedCommands,
   wrapPosixHookCommand,
-  wrapWindowsHookCommand,
+  wrapWindowsCmdHookCommand,
   writeHooksJson,
   writeManagedScript,
   type HookCommandConfig,
@@ -31,6 +31,7 @@ import {
   computeTrustedHash,
   escapeTomlString,
   getCodexCanonicalTrustPath,
+  normalizeHookTrustKeyForLookup,
   parseTrustKey,
   readHookTrustEntries,
   removeHookTrustEntries,
@@ -60,6 +61,12 @@ const CODEX_EVENTS = [
 
 function getConfigPath(): string {
   return join(getOrcaManagedCodexHomePath(), 'hooks.json')
+}
+
+function writeCodexHooksJson(configPath: string, hooks: Record<string, HookDefinition[]>): void {
+  // Why: Codex rejects unknown top-level hooks.json fields, so plugin manager
+  // bookkeeping such as `_managed` must not survive Orca's rewrite.
+  writeHooksJson(configPath, { hooks })
 }
 
 function getCodexConfigTomlPath(): string {
@@ -115,7 +122,7 @@ function getManagedScriptPath(): string {
 
 function getManagedCommand(scriptPath: string): string {
   return process.platform === 'win32'
-    ? wrapWindowsHookCommand(scriptPath)
+    ? wrapWindowsCmdHookCommand(scriptPath)
     : wrapPosixHookCommand(scriptPath)
 }
 
@@ -209,7 +216,10 @@ function removeStaleRuntimeHookTrustEntries(
   expectedEntries: readonly CodexTrustEntry[]
 ): void {
   const expectedHashes = new Map(
-    expectedEntries.map((entry) => [computeTrustKey(entry), computeTrustedHash(entry)])
+    expectedEntries.map((entry) => [
+      normalizeHookTrustKeyForLookup(computeTrustKey(entry)),
+      computeTrustedHash(entry)
+    ])
   )
   const canonicalRuntimeHooksPath = getCodexCanonicalTrustPath(runtimeHooksPath)
   const staleKeys: string[] = []
@@ -218,7 +228,7 @@ function removeStaleRuntimeHookTrustEntries(
     if (!parsed || getCodexCanonicalTrustPath(parsed.sourcePath) !== canonicalRuntimeHooksPath) {
       continue
     }
-    if (expectedHashes.get(key) === state.trustedHash) {
+    if (expectedHashes.get(normalizeHookTrustKeyForLookup(key)) === state.trustedHash) {
       continue
     }
     staleKeys.push(key)
@@ -454,6 +464,28 @@ function escapeRegex(value: string): string {
   return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function buildHookTrustHeaderKeyPattern(key: string): string {
+  const keyVariants = [key]
+  const parsed = parseTrustKey(key)
+  if (parsed && /^[A-Za-z]:[\\/]|^\\\\/.test(parsed.sourcePath)) {
+    const suffix = `:${parsed.eventLabel}:${parsed.groupIndex}:${parsed.handlerIndex}`
+    keyVariants.push(
+      `${parsed.sourcePath.replace(/\\/g, '/')}${suffix}`,
+      `${parsed.sourcePath.replace(/\//g, '\\')}${suffix}`
+    )
+  }
+  const alternatives = [...new Set(keyVariants)].flatMap((variant) => {
+    const quoted = [`"${escapeRegex(escapeTomlString(variant))}"`]
+    if (!variant.includes("'")) {
+      // Why: tolerate raw-backslash literal keys left by Codex/manual approval
+      // while Orca repairs mirrored runtime trust across both Windows variants.
+      quoted.push(`'${escapeRegex(variant)}'`)
+    }
+    return quoted
+  })
+  return `(?:${alternatives.join('|')})`
+}
+
 function applyMirroredRuntimeUserHookTrustStates(
   tomlPath: string,
   entries: readonly MirroredRuntimeUserHookTrustEntry[]
@@ -465,9 +497,10 @@ function applyMirroredRuntimeUserHookTrustStates(
   const existing = readFileSync(tomlPath, 'utf-8')
   let updated = existing
   for (const { entry, enabled } of entries) {
-    const escapedKey = escapeRegex(escapeTomlString(computeTrustKey(entry)))
+    const headerKeyPattern = buildHookTrustHeaderKeyPattern(computeTrustKey(entry))
     const pattern = new RegExp(
-      `(\\[hooks\\.state\\."${escapedKey}"\\]\\r?\\n[ \\t]*enabled[ \\t]*=[ \\t]*)(true|false)`
+      `(\\[hooks\\.state\\.${headerKeyPattern}\\]\\r?\\n[ \\t]*enabled[ \\t]*=[ \\t]*)(true|false)`,
+      'g'
     )
     updated = updated.replace(pattern, `$1${enabled}`)
   }
@@ -532,6 +565,8 @@ function cleanupLegacySystemManagedHooks(): void {
   // Why: Codex hooks moved to Orca's managed CODEX_HOME; old entries in
   // ~/.codex would keep external Codex sessions reporting into Orca.
   if (removedManagedHook) {
+    // Why: this is the user's system hooks file, not Orca's runtime copy.
+    // Remove only stale Orca hook entries and preserve other managers' metadata.
     writeHooksJson(legacyConfigPath, { ...config, hooks: nextHooks })
   }
   removeMatchingTrustEntries(getSystemCodexConfigTomlPath(), trustEntries)
@@ -620,9 +655,11 @@ function removeRuntimeManagedHookTrustEntries(configPath: string): void {
         // recognize (and clean up) its own managed trust entries.
         timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS
       }
-      const expectedHash = computeTrustedHash(expectedEntry)
-      const legacyHash = computeTrustedHash({ ...expectedEntry, timeoutSec: undefined })
-      if (state.trustedHash !== expectedHash && state.trustedHash !== legacyHash) {
+      const recognizedHashes = new Set([
+        computeTrustedHash(expectedEntry),
+        computeTrustedHash({ ...expectedEntry, timeoutSec: undefined })
+      ])
+      if (!state.trustedHash || !recognizedHashes.has(state.trustedHash)) {
         continue
       }
       ourKeys.push(key)
@@ -650,7 +687,7 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
       'if "%ORCA_AGENT_HOOK_PORT%"=="" exit /b 0',
       'if "%ORCA_AGENT_HOOK_TOKEN%"=="" exit /b 0',
       'if "%ORCA_PANE_KEY%"=="" exit /b 0',
-      buildWindowsAgentHookPostCommand('codex'),
+      buildWindowsAgentHookCurlPostCommand('codex'),
       'exit /b 0',
       ''
     ].join('\r\n')
@@ -675,7 +712,10 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
     // shell is not safe once a path contains quotes or newlines. Post the raw
     // hook payload plus metadata as form fields and let the receiver parse it.
     // Timeout caps best-effort hook posts if the local listener stalls.
-    'curl -sS -X POST "http://127.0.0.1:${ORCA_AGENT_HOOK_PORT}/hook/codex" \\',
+    // Why: pipe payload to curl's stdin (`payload@-`) instead of an inline
+    // `payload=$VALUE` arg, so tens-of-KB tool output stays off the curl
+    // command line (EDR command-line false positives). Wire body is identical.
+    'printf \'%s\' "$payload" | curl -sS -X POST "http://127.0.0.1:${ORCA_AGENT_HOOK_PORT}/hook/codex" \\',
     '  --connect-timeout 0.5 --max-time 1.5 \\',
     '  -H "Content-Type: application/x-www-form-urlencoded" \\',
     '  -H "X-Orca-Agent-Hook-Token: ${ORCA_AGENT_HOOK_TOKEN}" \\',
@@ -685,7 +725,7 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
     '  --data-urlencode "worktreeId=${ORCA_WORKTREE_ID}" \\',
     '  --data-urlencode "env=${ORCA_AGENT_HOOK_ENV}" \\',
     '  --data-urlencode "version=${ORCA_AGENT_HOOK_VERSION}" \\',
-    '  --data-urlencode "payload=${payload}" >/dev/null 2>&1 || true',
+    '  --data-urlencode "payload@-" >/dev/null 2>&1 || true',
     'exit 0',
     ''
   ].join('\n')
@@ -889,7 +929,7 @@ export class CodexHookService {
 
     config.hooks = nextHooks
     writeManagedScript(scriptPath, getManagedScript())
-    writeHooksJson(configPath, config)
+    writeCodexHooksJson(configPath, nextHooks)
     // Why: trust entries write last so a half-write can't leave a hash
     // pointing at a hook that doesn't exist. Surface failures — without this,
     // getStatus would report green for a hook Codex won't actually fire.
@@ -979,7 +1019,9 @@ export class CodexHookService {
       // Why: SSH remotes use POSIX `.sh` hook paths even when Orca itself is
       // running on Windows; never derive remote script syntax from local OS.
       await writeManagedScriptRemote(sftp, remoteScriptPath, getManagedScript('posix'))
-      await writeHooksJsonRemote(sftp, remoteConfigPath, config)
+      // Why: SSH installs edit the user's remote ~/.codex/hooks.json directly.
+      // Preserve non-Orca top-level metadata while replacing the hooks tree.
+      await writeHooksJsonRemote(sftp, remoteConfigPath, { ...config, hooks: nextHooks })
       try {
         const existingToml = (await readTextFileRemote(sftp, remoteTomlPath)) ?? ''
         const updatedToml = upsertHookTrustEntriesInContent(existingToml, trustEntries)
@@ -1035,7 +1077,7 @@ export class CodexHookService {
     const isManagedCommand = createManagedCommandMatcher(getManagedScriptFileName())
     const hookPlan = getRuntimeHooksWithSystemUserHooks(config.hooks, isManagedCommand)
     config.hooks = hookPlan.hooks
-    writeHooksJson(configPath, config)
+    writeCodexHooksJson(configPath, hookPlan.hooks)
 
     try {
       const tomlPath = getCodexConfigTomlPath()
@@ -1080,7 +1122,6 @@ export class CodexHookService {
     }
 
     const nextHooks = { ...config.hooks }
-    let removedManagedHooks = false
     // Why: same broad matcher as install(), so remove() also cleans up stale
     // entries from older builds even if the current scriptPath has moved.
     const isManagedCommand = createManagedCommandMatcher(getManagedScriptFileName())
@@ -1092,18 +1133,16 @@ export class CodexHookService {
         continue
       }
       const cleaned = removeManagedCommands(definitions, isManagedCommand)
-      if (JSON.stringify(cleaned) !== JSON.stringify(definitions)) {
-        removedManagedHooks = true
-      }
       if (cleaned.length === 0) {
         delete nextHooks[eventName]
       } else {
         nextHooks[eventName] = cleaned
       }
     }
-    if (configExists && removedManagedHooks) {
-      config.hooks = nextHooks
-      writeHooksJson(configPath, config)
+    if (configExists) {
+      // Why: remove() can be the only repair path for a parseable runtime file
+      // whose top-level plugin metadata makes Codex reject hooks.json.
+      writeCodexHooksJson(configPath, nextHooks)
     }
 
     // Why: also drop our trust entries so config.toml doesn't accumulate dead

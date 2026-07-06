@@ -78,29 +78,68 @@ describe('resolveWorkspaceFileByBasename', () => {
   })
 
   it('keys the cache by connection and forwards connectionId for SSH worktrees', async () => {
-    const remote = vi.fn(async () => ['y/remote.ts'])
-    const result = await resolveWorkspaceFileByBasename({
+    const listFiles = vi.fn(async ({ connectionId }: { connectionId?: string }) =>
+      connectionId === 'ssh-1' ? ['y/remote.ts'] : ['z/remote.ts']
+    )
+    const first = await resolveWorkspaceFileByBasename({
       basename: 'remote.ts',
       worktreePath: WT,
       connectionId: 'ssh-1',
-      listFiles: remote,
+      listFiles,
       now: 1
     })
-    expect(result).toBe('/Users/me/repo/y/remote.ts')
-    expect(remote).toHaveBeenCalledWith({ rootPath: WT, connectionId: 'ssh-1' })
+    const second = await resolveWorkspaceFileByBasename({
+      basename: 'remote.ts',
+      worktreePath: WT,
+      connectionId: 'ssh-2',
+      listFiles,
+      now: 1
+    })
+    const cachedFirst = await resolveWorkspaceFileByBasename({
+      basename: 'remote.ts',
+      worktreePath: WT,
+      connectionId: 'ssh-1',
+      listFiles,
+      now: 1
+    })
+    expect(first).toBe('/Users/me/repo/y/remote.ts')
+    expect(second).toBe('/Users/me/repo/z/remote.ts')
+    expect(cachedFirst).toBe(first)
+    expect(listFiles).toHaveBeenCalledTimes(2)
+    expect(listFiles).toHaveBeenNthCalledWith(1, { rootPath: WT, connectionId: 'ssh-1' })
+    expect(listFiles).toHaveBeenNthCalledWith(2, { rootPath: WT, connectionId: 'ssh-2' })
   })
 
-  it('returns null without throwing when listing fails', async () => {
+  it('caches failed listings within the TTL without throwing', async () => {
     const listFiles = vi.fn(async () => {
       throw new Error('listing unavailable')
     })
-    expect(
-      await resolveWorkspaceFileByBasename({
+    await expect(
+      resolveWorkspaceFileByBasename({
         basename: 'x.ts',
         worktreePath: WT,
         listFiles,
         now: 1
       })
-    ).toBeNull()
+    ).resolves.toBeNull()
+    await expect(
+      resolveWorkspaceFileByBasename({
+        basename: 'x.ts',
+        worktreePath: WT,
+        listFiles,
+        now: 2
+      })
+    ).resolves.toBeNull()
+    expect(listFiles).toHaveBeenCalledTimes(1)
+    await expect(
+      resolveWorkspaceFileByBasename({
+        basename: 'x.ts',
+        worktreePath: WT,
+        listFiles,
+        now: 20_000
+      })
+    ).resolves.toBeNull()
+    expect(listFiles).toHaveBeenCalledTimes(2)
   })
+
 })
