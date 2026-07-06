@@ -1084,6 +1084,28 @@ describe('fetchWorktrees', () => {
     expect(mockApi.worktrees.listDetected).not.toHaveBeenCalled()
   })
 
+  it('pins the list fetch to the local host when forceLocalOwner is set', async () => {
+    // Regression: a local `worktrees:changed` event for an unbound
+    // repo while a remote runtime is active must refresh against the local
+    // host, not the runtime — otherwise CLI-created local worktrees stay
+    // invisible in the sidebar until an app restart.
+    const store = createTestStore()
+    const local = makeWorktree({
+      id: 'repo1::/local/wt1',
+      repoId: 'repo1',
+      path: '/local/wt1',
+      branch: 'refs/heads/local'
+    })
+    store.setState({ settings: { activeRuntimeEnvironmentId: 'env-1' } as never })
+    mockApi.worktrees.listDetected.mockResolvedValueOnce(makeDetectedResult('repo1', [local]))
+
+    await store.getState().fetchWorktrees('repo1', { forceLocalOwner: true })
+
+    expect(store.getState().worktreesByRepo.repo1).toEqual([local])
+    expect(mockApi.worktrees.listDetected).toHaveBeenCalledTimes(1)
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
   it('fetches SSH repo worktrees through local IPC even when a runtime is focused', async () => {
     const store = createTestStore()
     const sshWorktree = makeWorktree({
@@ -1619,6 +1641,22 @@ describe('worktree lineage state', () => {
       timeoutMs: 15_000
     })
     expect(mockApi.worktrees.listLineage).not.toHaveBeenCalled()
+    expect(store.getState().worktreeLineageById).toEqual({ [lineage.worktreeId]: lineage })
+  })
+
+  it('pins lineage refresh to the local host when forceLocalOwner is set', async () => {
+    const store = createTestStore()
+    const lineage = makeLineage()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      worktreesByRepo: {}
+    } as Partial<AppState>)
+    mockApi.worktrees.listLineage.mockResolvedValue({ [lineage.worktreeId]: lineage })
+
+    await store.getState().fetchWorktreeLineage({ forceLocalOwner: true })
+
+    expect(mockApi.worktrees.listLineage).toHaveBeenCalledTimes(1)
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
     expect(store.getState().worktreeLineageById).toEqual({ [lineage.worktreeId]: lineage })
   })
 

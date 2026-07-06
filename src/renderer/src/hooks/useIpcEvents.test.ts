@@ -4242,7 +4242,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1')
+    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1', undefined)
     expect(fetchWorktreeLineage).toHaveBeenCalledTimes(1)
   })
 })
