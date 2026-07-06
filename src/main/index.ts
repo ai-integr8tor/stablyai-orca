@@ -2124,9 +2124,11 @@ app.on('will-quit', (e) => {
   starNag?.stop()
   automations?.stop()
   // Why: plugin hosts are forked children; dispose sends shutdown and
-  // escalates to SIGKILL so they cannot outlive the app.
+  // escalates to SIGKILL so they cannot outlive the app. The promise joins
+  // the allSettled barrier below — quitting before it resolves would let
+  // Electron exit first and orphan the hosts.
   setPluginServiceForRpc(null)
-  void pluginService?.dispose()
+  const pluginHostShutdown = pluginService?.dispose() ?? Promise.resolve()
   pluginService = null
   setUnreadDockBadgeCount(0)
   agentHookServer.stop()
@@ -2189,7 +2191,13 @@ app.on('will-quit', (e) => {
     // Why: normal quits preserve the detached daemon for warm reattach, but a
     // dev parent dying means the temp/dev profile has no owner left to reattach.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
-    Promise.allSettled([daemonTeardown, rpcStopAndClear, watcherShutdown, emulatorShutdown])
+    Promise.allSettled([
+      daemonTeardown,
+      rpcStopAndClear,
+      watcherShutdown,
+      emulatorShutdown,
+      pluginHostShutdown
+    ])
       .then(() => shutdownTelemetry())
       .then(() => shutdownObservability())
       .catch(() => {
