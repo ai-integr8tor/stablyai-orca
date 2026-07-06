@@ -32,6 +32,7 @@ import { createBrowserSlice } from './browser'
 import { createRateLimitSlice } from './rate-limits'
 import { createSshSlice } from './ssh'
 import { createAgentStatusSlice } from './agent-status'
+import { createPaneForegroundAgentSlice } from './pane-foreground-agent'
 import { createDiffCommentsSlice } from './diffComments'
 import { createTodosSlice } from './todos'
 import { createDetectedAgentsSlice } from './detected-agents'
@@ -78,6 +79,7 @@ export function createTestStore() {
     ...createRateLimitSlice(...a),
     ...createSshSlice(...a),
     ...createAgentStatusSlice(...a),
+    ...createPaneForegroundAgentSlice(...a),
     ...createDiffCommentsSlice(...a),
     ...createTodosSlice(...a),
     ...createDetectedAgentsSlice(...a),
