@@ -1169,6 +1169,15 @@ function createReposApi(): NonNullable<Partial<PreloadApi>['repos']> {
       invalidateRuntimeWorktreeCaches()
       return callRuntimeResult('repo.create', { parentPath, name, kind })
     },
+    convertToGit: async ({ path }) => {
+      invalidateRuntimeWorktreeCaches()
+      return callRuntimeResult('repo.convertToGit', { path })
+    },
+    convertRemoteToGit: async () => {
+      // Why: SSH relay conversion is owned by the desktop main process; paired
+      // web clients cannot run that local SSH IPC path.
+      throw new Error('Converting SSH-host folders is unavailable in paired web clients.')
+    },
     isGitAvailable: async () =>
       (await callRuntimeResult<{ available: boolean }>('repo.gitAvailable')).available,
     getDefaultCreateProjectParent: async () => {

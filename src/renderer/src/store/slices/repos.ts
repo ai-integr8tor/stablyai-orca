@@ -1181,6 +1181,11 @@ export type RepoSlice = {
   ) => Promise<ProjectHostSetupDeleteResult | null>
   setupProjectClone: (args: ProjectHostSetupCloneArgs) => Promise<ProjectHostSetupResult | null>
   addNonGitFolder: (path: string, options?: AddRepoPathRouteOptions) => Promise<Repo | null>
+  convertNonGitFolderToGit: (args: {
+    path: string
+    connectionId?: string
+    runtimeEnvironmentId?: string | null
+  }) => Promise<Repo | null>
   scanNestedRepos: (
     path: string,
     connectionId?: string,
@@ -2374,6 +2379,82 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         description: message,
         duration: ERROR_TOAST_DURATION
       })
+      return null
+    }
+  },
+
+  convertNonGitFolderToGit: async ({ path, connectionId, runtimeEnvironmentId }) => {
+    try {
+      const target = getActiveRuntimeTarget(
+        getAddRepoPathRouteSettings(
+          { runtimeEnvironmentId: runtimeEnvironmentId ?? null },
+          get().settings
+        )
+      )
+      let repo: Repo
+      if (connectionId) {
+        // SSH folder: convert on the host via the connection's providers.
+        const result = await window.api.repos.convertRemoteToGit({
+          connectionId,
+          remotePath: path
+        })
+        if ('error' in result) {
+          throw new Error(result.error)
+        }
+        repo = result.repo
+      } else if (target.kind === 'environment') {
+        // Non-local runtime target: the folder lives on the runtime host.
+        const result = await callRuntimeRpc<{ repo: Repo } | { error: string }>(
+          target,
+          'repo.convertToGit',
+          { path },
+          { timeoutMs: 60_000 }
+        )
+        if ('error' in result) {
+          throw new Error(result.error)
+        }
+        repo = result.repo
+      } else {
+        const result = await window.api.repos.convertToGit({ path })
+        if ('error' in result) {
+          throw new Error(result.error)
+        }
+        repo = result.repo
+      }
+      repo = repoWithFetchedOwner(repo, target)
+      set((s) => {
+        // Upsert: replace an existing entry in place so converting a path that
+        // was already known as a folder doesn't leave stale folder metadata.
+        const nextRepos = s.repos.some((r) => r.id === repo.id)
+          ? s.repos.map((r) => (r.id === repo.id ? repo : r))
+          : [...s.repos, repo]
+        return {
+          repos: nextRepos,
+          ...projectCompatibilityFromRepos(nextRepos),
+          folderWorkspacePathStatuses: {}
+        }
+      })
+      await markOnboardingProjectAdded('addedRepo')
+      toast.success(
+        translate('auto.store.slices.repos.24424c2102', 'Converted to a Git repository'),
+        {
+          description: repo.displayName
+        }
+      )
+      return repo
+    } catch (err) {
+      console.error('Failed to convert folder to git:', err)
+      const message = err instanceof Error ? err.message : String(err)
+      toast.error(
+        translate(
+          'auto.store.slices.repos.e6c1e9dba0',
+          'Failed to convert folder to a Git repository'
+        ),
+        {
+          description: message,
+          duration: ERROR_TOAST_DURATION
+        }
+      )
       return null
     }
   },

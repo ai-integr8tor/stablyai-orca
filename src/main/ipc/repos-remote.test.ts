@@ -145,7 +145,8 @@ vi.mock('./ssh', () => ({
   })
 }))
 
-import { registerRepoHandlers } from './repos'
+import { registerRepoHandlers, writeGitignoreExclusiveRemote } from './repos'
+import type { IFilesystemProvider } from '../providers/types'
 
 describe('projectGroups IPC validation', () => {
   const handlers = new Map<string, (_event: unknown, args: unknown) => unknown>()
@@ -2840,5 +2841,93 @@ describe('repos:searchBaseRefs SSH relay', () => {
     })
 
     expect(result).toEqual([])
+  })
+})
+
+// Why: the remote converter must mirror writeGitignoreExclusive — never clobber
+// a .gitignore that appears between the hasGitignore() probe and the write.
+// fs.writeFile takes no flags, so we go through a tmp file + renameNoClobber.
+// This block exercises the helper in isolation; the integration path runs it
+// from convertRemoteFolderToGitRepo via the injected writeGitignore callback.
+describe('writeGitignoreExclusiveRemote', () => {
+  const TMP = '/home/user/project/.orca-gitignore-123.tmp'
+  const GITIGNORE = '/home/user/project/.gitignore'
+  const CONTENT = '*.tmp\nnode_modules/\n'
+
+  type FakeFs = Pick<IFilesystemProvider, 'writeFile' | 'renameNoClobber' | 'deletePath'> & {
+    deletePath: { catch?: unknown }
+  }
+
+  function makeFs(overrides: Partial<FakeFs> = {}): IFilesystemProvider {
+    return {
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      renameNoClobber: vi.fn().mockResolvedValue(undefined),
+      deletePath: vi.fn().mockResolvedValue(undefined),
+      ...overrides
+    } as unknown as IFilesystemProvider
+  }
+
+  it('writes the tmp file then renameNoClobbers it into place without cleanup', async () => {
+    const fs = makeFs()
+
+    await writeGitignoreExclusiveRemote(fs, TMP, GITIGNORE, CONTENT)
+
+    expect(fs.writeFile).toHaveBeenCalledWith(TMP, CONTENT)
+    expect(fs.renameNoClobber).toHaveBeenCalledWith(TMP, GITIGNORE)
+    expect(fs.deletePath).not.toHaveBeenCalled()
+  })
+
+  it('respects an existing .gitignore that appears after hasGitignore() (EEXIST) and cleans up the tmp', async () => {
+    const eexist = Object.assign(new Error('exists'), { code: 'EEXIST' })
+    const fs = makeFs({ renameNoClobber: vi.fn().mockRejectedValue(eexist) })
+
+    await expect(
+      writeGitignoreExclusiveRemote(fs, TMP, GITIGNORE, CONTENT)
+    ).resolves.toBeUndefined()
+
+    expect(fs.writeFile).toHaveBeenCalledWith(TMP, CONTENT)
+    expect(fs.renameNoClobber).toHaveBeenCalledWith(TMP, GITIGNORE)
+    // Why: failed rename leaves the tmp behind on the host — best-effort delete.
+    expect(fs.deletePath).toHaveBeenCalledWith(TMP, false)
+  })
+
+  it('rethrows non-EEXIST errors (e.g. relay lacks safe rename) and still cleans up the tmp', async () => {
+    // Why: older relays without fs.renameNoClobber fail closed with a generic
+    // error rather than clobbering the target; the caller must surface it.
+    const unsafe = new Error(
+      'Remote safe rename is unavailable. Reconnect the SSH target and retry.'
+    )
+    const fs = makeFs({ renameNoClobber: vi.fn().mockRejectedValue(unsafe) })
+
+    await expect(writeGitignoreExclusiveRemote(fs, TMP, GITIGNORE, CONTENT)).rejects.toThrow(
+      'Remote safe rename is unavailable'
+    )
+
+    expect(fs.deletePath).toHaveBeenCalledWith(TMP, false)
+  })
+
+  it('cleans up the tmp file when writeFile fails and never calls rename', async () => {
+    const fs = makeFs({ writeFile: vi.fn().mockRejectedValue(new Error('disk full')) })
+
+    await expect(writeGitignoreExclusiveRemote(fs, TMP, GITIGNORE, CONTENT)).rejects.toThrow(
+      'disk full'
+    )
+
+    expect(fs.deletePath).toHaveBeenCalledWith(TMP, false)
+    expect(fs.renameNoClobber).not.toHaveBeenCalled()
+  })
+
+  it('rethrows the original error when tmp cleanup itself rejects', async () => {
+    // Why: deletePath is best-effort (.catch swallows cleanup failures), so a
+    // cleanup rejection must NOT mask the underlying write/rename error.
+    const boom = new Error('rename boom')
+    const fs = makeFs({
+      renameNoClobber: vi.fn().mockRejectedValue(boom),
+      deletePath: vi.fn().mockRejectedValue(new Error('cleanup failed'))
+    })
+
+    await expect(writeGitignoreExclusiveRemote(fs, TMP, GITIGNORE, CONTENT)).rejects.toThrow(
+      'rename boom'
+    )
   })
 })

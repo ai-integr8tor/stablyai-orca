@@ -45,7 +45,12 @@ import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-messag
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
-import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  convertStepLabel,
+  GIT_IDENTITY_NOT_CONFIGURED_MESSAGE,
+  initGitRepoInExistingFolder
+} from '../git/convert-folder-to-git'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import { OrchestrationDb } from './orchestration/db'
@@ -10287,6 +10292,81 @@ export class OrcaRuntimeService {
     this.invalidateResolvedWorktreeCache()
     this.notifyReposChanged()
     return { repo: this.store.getRepo(repo.id) ?? repo }
+  }
+
+  // Converts an existing non-git folder on this host into a git repo, then
+  // registers it as a git project — the runtime-target counterpart of the
+  // local `repos:convertToGit` IPC (orca#3839).
+  async convertRepoToGit(path: string): Promise<{ repo: Repo } | { error: string }> {
+    if (!this.store) {
+      throw new Error('runtime_unavailable')
+    }
+    // Don't trim: trailing spaces can be part of a real folder name, so trimming
+    // could touch the wrong path. Only reject empty / whitespace-only input.
+    const targetPath = path
+    if (targetPath.trim().length === 0) {
+      return { error: 'Folder path is required' }
+    }
+    if (!isAbsolute(targetPath)) {
+      return { error: 'Folder path must be an absolute path' }
+    }
+
+    if (!isGitRepo(targetPath)) {
+      const gitignorePath = join(targetPath, '.gitignore')
+      const outcome = await initGitRepoInExistingFolder({
+        exec: async (gitArgs) => {
+          await gitExecFileAsync(gitArgs, { cwd: targetPath })
+        },
+        hasGitignore: async () => {
+          try {
+            // Why: lstat doesn't follow symlinks, so a .gitignore symlink
+            // planted between calls can't pretend to exist (or point outside
+            // the folder) and suppress our exclusive-create write below.
+            await lstat(gitignorePath)
+            return true
+          } catch (err) {
+            const code =
+              err && typeof err === 'object' && 'code' in err
+                ? (err as NodeJS.ErrnoException).code
+                : undefined
+            // Why: only "missing" should be treated as "no .gitignore". A
+            // permission or I/O error must propagate so the user sees the real
+            // problem instead of a misleading write failure later.
+            if (code === 'ENOENT') {
+              return false
+            }
+            throw err
+          }
+        },
+        writeGitignore: async (content) => {
+          // Exclusive create so a .gitignore appearing between the check and this
+          // write is respected, not clobbered.
+          try {
+            await writeFile(gitignorePath, content, { encoding: 'utf8', flag: 'wx' })
+          } catch (err) {
+            const code =
+              err && typeof err === 'object' && 'code' in err
+                ? (err as NodeJS.ErrnoException).code
+                : undefined
+            if (code !== 'EEXIST') {
+              throw err
+            }
+          }
+        }
+      })
+      if (!outcome.ok) {
+        if (outcome.step !== 'init') {
+          await rm(join(targetPath, '.git'), { recursive: true, force: true }).catch(() => {})
+        }
+        if (outcome.isIdentityError) {
+          return { error: GIT_IDENTITY_NOT_CONFIGURED_MESSAGE }
+        }
+        return { error: `${convertStepLabel(outcome.step)}: ${outcome.message}` }
+      }
+    }
+
+    const repo = await this.addRepo(targetPath, 'git')
+    return { repo }
   }
 
   async cloneRepo(url: string, destination: string): Promise<Repo> {

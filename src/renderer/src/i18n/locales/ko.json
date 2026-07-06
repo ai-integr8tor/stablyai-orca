@@ -243,6 +243,8 @@
           "8bb3ad7935": "프로젝트가 추가됨",
           "a8e4b3af5b": "프로젝트가 이미 추가되었습니다.",
           "6d3318e813": "repos를 가져오지 못했습니다.",
+          "24424c2102": "Converted to a Git repository",
+          "e6c1e9dba0": "Failed to convert folder to a Git repository",
           "3be0f7df04": "선택한 런타임에서 폴더를 열 수 없습니다.",
           "15cf5319ec": "{{path}}이(가) {{hostName}}에서 확인되었지만 해당 호스트가 사용 가능한 폴더를 보고하지 않았습니다."
         },
@@ -3624,6 +3626,10 @@
           "05b33a17a9": "취소",
           "8fba4b8cbb": "이 폴더는 Git repos가 아닙니다. 편집기, terminal, 검색 기능은 제공되지만 Git 기반 기능은 사용할 수 없습니다.",
           "c49fb13492": "이 호스트에 폴더를 추가하지 못했습니다.",
+          "15b3ae7310": "This folder isn't a Git repository",
+          "eb079b3809": "Convert to Git Repository",
+          "1d9e5c8007": "Convert it to a Git repository to use worktrees, source control, and pull requests. Or open it as a plain folder with just the editor, terminal, and search.",
+          "2bef0e9e6d": "Converting runs git init, adds a .gitignore if one is missing, and makes an initial commit. It won't edit your existing files.",
           "9a766f33ac": "이 경로는 SSH 호스트에서 확인되었습니다.",
           "79fd02cf5f": "이 경로는 {{hostName}}에서 확인되었습니다.",
           "8851b77327": "이 경로는 로컬에서 확인되었습니다."

@@ -243,6 +243,8 @@
           "8bb3ad7935": "Project added",
           "a8e4b3af5b": "Project already added",
           "6d3318e813": "Failed to import repositories",
+          "24424c2102": "Converted to a Git repository",
+          "e6c1e9dba0": "Failed to convert folder to a Git repository",
           "3be0f7df04": "Cannot open folder on selected runtime",
           "15cf5319ec": "{{path}} was checked on {{hostName}}, but that host did not report a usable folder."
         },
@@ -3658,6 +3660,10 @@
           "05b33a17a9": "Cancel",
           "8fba4b8cbb": "This folder isn't a Git repository. You'll have the editor, terminal, and search, but Git-based features won't be available.",
           "c49fb13492": "Failed to add folder on this host",
+          "eb079b3809": "Convert to Git Repository",
+          "15b3ae7310": "This folder isn't a Git repository",
+          "1d9e5c8007": "Convert it to a Git repository to use worktrees, source control, and pull requests. Or open it as a plain folder with just the editor, terminal, and search.",
+          "2bef0e9e6d": "Converting runs git init, adds a .gitignore if one is missing, and makes an initial commit. It won't edit your existing files.",
           "9a766f33ac": "This path was checked on the SSH host.",
           "79fd02cf5f": "This path was checked on {{hostName}}.",
           "8851b77327": "This path was checked locally."

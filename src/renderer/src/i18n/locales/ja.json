@@ -243,6 +243,8 @@
           "8bb3ad7935": "プロジェクトを追加しました",
           "a8e4b3af5b": "プロジェクトはすでに追加されています",
           "6d3318e813": "repos のインポートに失敗しました",
+          "24424c2102": "Converted to a Git repository",
+          "e6c1e9dba0": "Failed to convert folder to a Git repository",
           "3be0f7df04": "選択したランタイムでフォルダーを開けません",
           "15cf5319ec": "{{path}} は {{hostName}} でチェックされましたが、そのホストは使用可能なフォルダーを報告しませんでした。"
         },
@@ -3624,6 +3626,10 @@
           "05b33a17a9": "キャンセル",
           "8fba4b8cbb": "このフォルダーは Git repos ではありません。エディター、terminal、検索は利用できますが、Git ベースの機能は利用できません。",
           "c49fb13492": "リモートフォルダーの追加に失敗しました",
+          "15b3ae7310": "This folder isn't a Git repository",
+          "eb079b3809": "Convert to Git Repository",
+          "1d9e5c8007": "Convert it to a Git repository to use worktrees, source control, and pull requests. Or open it as a plain folder with just the editor, terminal, and search.",
+          "2bef0e9e6d": "Converting runs git init, adds a .gitignore if one is missing, and makes an initial commit. It won't edit your existing files.",
           "9a766f33ac": "このパスは SSH ホストでチェックされました。",
           "79fd02cf5f": "このパスは {{hostName}} でチェックされました。",
           "8851b77327": "このパスはローカルでチェックされました。"

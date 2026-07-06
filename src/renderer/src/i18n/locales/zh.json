@@ -243,6 +243,8 @@
           "8bb3ad7935": "项目已添加",
           "a8e4b3af5b": "项目已添加过了",
           "6d3318e813": "导入存储库失败",
+          "24424c2102": "Converted to a Git repository",
+          "e6c1e9dba0": "Failed to convert folder to a Git repository",
           "3be0f7df04": "无法在所选运行时打开文件夹",
           "15cf5319ec": "已在 {{hostName}} 上检查 {{path}}，但该主机未报告可用文件夹。"
         },
@@ -3624,6 +3626,10 @@
           "05b33a17a9": "取消",
           "8fba4b8cbb": "此文件夹不是 Git 存储库。您将拥有编辑器、终端和搜索，但基于 Git 的功能将不可用。",
           "c49fb13492": "添加远程文件夹失败",
+          "15b3ae7310": "This folder isn't a Git repository",
+          "eb079b3809": "Convert to Git Repository",
+          "1d9e5c8007": "Convert it to a Git repository to use worktrees, source control, and pull requests. Or open it as a plain folder with just the editor, terminal, and search.",
+          "2bef0e9e6d": "Converting runs git init, adds a .gitignore if one is missing, and makes an initial commit. It won't edit your existing files.",
           "9a766f33ac": "已在 SSH 主机上检查此路径。",
           "79fd02cf5f": "已在 {{hostName}} 上检查此路径。",
           "8851b77327": "已在本机检查此路径。"
