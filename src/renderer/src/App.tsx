@@ -127,6 +127,7 @@ import {
 } from './startup/startup-diagnostics'
 import { shouldRenderPetOverlay } from './components/pet/pet-overlay-visibility'
 import { applyDocumentTheme } from './lib/document-theme'
+import { clearCustomUiThemeVariables } from '../../shared/custom-ui-themes'
 import { isEditableTarget } from './lib/editable-target'
 import { getSelectedTextForFileSearch } from './lib/file-search-selection'
 import { useShortcutLabel } from './hooks/useShortcutLabel'
@@ -377,6 +378,29 @@ function shouldMountUpdateCardForStatus(status: UpdateStatus): boolean {
     return status.userInitiated === true
   }
   return true
+}
+
+function applyCustomUiThemeStyleOverrides(active: boolean): void {
+  let styleEl = document.getElementById('custom-ui-theme-style-overrides') as HTMLStyleElement | null
+  if (active) {
+    if (!styleEl) {
+      styleEl = document.createElement('style')
+      styleEl.id = 'custom-ui-theme-style-overrides'
+      document.head.appendChild(styleEl)
+    }
+    styleEl.innerHTML = `
+      .dark .bg-secondary\\/70.text-muted-foreground,
+      .light .bg-secondary\\/70.text-muted-foreground {
+        background-color: var(--muted) !important;
+        color: var(--foreground) !important;
+        border-color: var(--border) !important;
+      }
+    `
+  } else {
+    if (styleEl) {
+      styleEl.remove()
+    }
+  }
 }
 
 function App(): React.JSX.Element {
@@ -1392,9 +1416,30 @@ function App(): React.JSX.Element {
   // Apply theme to document
   useEffect(() => {
     if (!settings) {
-      return
+      return undefined
     }
 
+    const activeThemeId = settings.activeUiTheme
+    if (activeThemeId && activeThemeId !== 'default' && settings.customUiThemes) {
+      const theme = settings.customUiThemes.find((t) => t.id === activeThemeId)
+      if (theme) {
+        clearCustomUiThemeVariables(document.documentElement)
+        Object.entries(theme.variables).forEach(([key, value]) => {
+          document.documentElement.style.setProperty(key, value)
+          if (key.startsWith('--sidebar')) {
+            const worktreeKey = key.replace('--sidebar', '--worktree-sidebar')
+            document.documentElement.style.setProperty(worktreeKey, value)
+          }
+        })
+        applyCustomUiThemeStyleOverrides(true)
+        applyDocumentTheme(theme.mode === 'dark' ? 'dark' : 'light')
+        return undefined
+      }
+    }
+
+    // Default/Fallback theme
+    clearCustomUiThemeVariables(document.documentElement)
+    applyCustomUiThemeStyleOverrides(false)
     if (settings.theme === 'dark') {
       applyDocumentTheme('dark')
       return undefined
