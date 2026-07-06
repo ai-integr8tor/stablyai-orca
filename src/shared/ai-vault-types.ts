@@ -1,5 +1,11 @@
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
+import {
+  commandSeparator,
+  quoteStartupArg,
+  type AgentStartupShell
+} from './tui-agent-startup-shell'
 import type { TuiAgent } from './types'
+import type { ExecutionHostId, ExecutionHostScope } from './execution-host'
 
 export const AI_VAULT_AGENTS = [
   'claude',
@@ -48,6 +54,8 @@ export type AiVaultSessionPreviewMessage = {
 
 export type AiVaultSession = {
   id: string
+  executionHostId: ExecutionHostId
+  executionHostPlatform?: NodeJS.Platform | null
   agent: AiVaultAgent
   sessionId: string
   title: string
@@ -66,6 +74,7 @@ export type AiVaultSession = {
 }
 
 export type AiVaultScanIssue = {
+  executionHostId?: ExecutionHostId
   agent: AiVaultAgent
   path: string
   message: string
@@ -74,6 +83,10 @@ export type AiVaultScanIssue = {
 export type AiVaultListArgs = {
   limit?: number
   force?: boolean
+  // Active workspace/project paths. The global result is recency-capped, so these
+  // guarantee a scoped view still surfaces its own (possibly older) sessions.
+  scopePaths?: readonly string[]
+  executionHostScope?: ExecutionHostScope
 }
 
 export type AiVaultListResult = {
@@ -93,11 +106,39 @@ export function buildAiVaultResumeCommand(args: {
   const { agent, sessionId, cwd, platform, commandOverride, codexHome } = args
   const baseCommand = commandOverride?.trim() || defaultAiVaultResumeCommandBase(agent)
   const sessionArg = quoteShellArg(sessionId, platform)
-  const resumeCommand = buildAgentResumeInvocation(agent, baseCommand, sessionArg, {
-    codexHome: codexHome?.trim() || null,
-    platform
-  })
+  const resumeCommand = buildAgentResumeInvocation(agent, baseCommand, sessionArg)
 
+  return buildAiVaultResumeShellCommand({ resumeCommand, cwd, platform, codexHome })
+}
+
+export function buildAiVaultResumeShellCommand(args: {
+  resumeCommand: string
+  cwd: string | null
+  platform: NodeJS.Platform
+  codexHome?: string | null
+  // Why: the QUEUED resume command is typed into the live tab shell, so its
+  // cd/env prefix must match that shell. The copy-to-clipboard string omits this
+  // and keeps the self-contained `cmd /d /s /c` wrapper (its documented purpose).
+  shell?: AgentStartupShell
+}): string {
+  const { cwd, platform, codexHome, shell } = args
+
+  // Why: on Windows the queued command must target the configured live shell
+  // (default PowerShell). PowerShell mis-parses the cmd `""`-doubled wrapper and
+  // reports "operable program or batch file", so only re-wrap with cmd when the
+  // live shell actually is cmd (or when no shell is given, i.e. the copy path).
+  if (platform === 'win32' && shell && shell !== 'cmd') {
+    return buildResumeShellCommandForShell({
+      resumeCommand: args.resumeCommand,
+      cwd,
+      codexHome: codexHome?.trim() || null,
+      shell
+    })
+  }
+
+  const resumeCommand = `${codexHomeEnvPrefix(codexHome?.trim() || null, platform)}${
+    args.resumeCommand
+  }`
   if (!cwd) {
     return resumeCommand
   }
@@ -108,6 +149,33 @@ export function buildAiVaultResumeCommand(args: {
   }
 
   return `cd ${quoteShellArg(cwd, platform)} && ${resumeCommand}`
+}
+
+function buildResumeShellCommandForShell(args: {
+  resumeCommand: string
+  cwd: string | null
+  codexHome: string | null
+  shell: Exclude<AgentStartupShell, 'cmd'>
+}): string {
+  const { cwd, codexHome, shell } = args
+  if (shell === 'posix') {
+    // Why: git-bash on a Windows host runs a POSIX shell, so reuse the same
+    // inline-env + `cd '<cwd>'` prefix as the non-Windows path.
+    const envPrefix = codexHome ? `CODEX_HOME=${quoteStartupArg(codexHome, shell)} ` : ''
+    const command = `${envPrefix}${args.resumeCommand}`
+    return cwd ? `cd ${quoteStartupArg(cwd, shell)} && ${command}` : command
+  }
+
+  const separator = commandSeparator(shell)
+  const segments: string[] = []
+  if (cwd) {
+    segments.push(`Set-Location -LiteralPath ${quoteStartupArg(cwd, shell)}`)
+  }
+  if (codexHome) {
+    segments.push(`$env:CODEX_HOME=${quoteStartupArg(codexHome, shell)}`)
+  }
+  segments.push(args.resumeCommand)
+  return segments.join(separator)
 }
 
 export function aiVaultAgentLabel(agent: AiVaultAgent): string {
@@ -130,12 +198,11 @@ function defaultAiVaultResumeCommandBase(agent: AiVaultAgent): string {
 function buildAgentResumeInvocation(
   agent: AiVaultAgent,
   baseCommand: string,
-  sessionArg: string,
-  options: { codexHome: string | null; platform: NodeJS.Platform }
+  sessionArg: string
 ): string {
   switch (agent) {
     case 'codex':
-      return `${codexHomeEnvPrefix(options.codexHome, options.platform)}${baseCommand} resume ${sessionArg}`
+      return `${baseCommand} resume ${sessionArg}`
     case 'rovo':
       return `${baseCommand} rovodev run --restore ${sessionArg}`
     case 'opencode':

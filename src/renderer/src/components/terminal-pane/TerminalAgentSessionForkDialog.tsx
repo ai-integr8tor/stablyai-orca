@@ -1,5 +1,5 @@
 import { Copy, GitFork, SquareTerminal } from 'lucide-react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -39,6 +39,7 @@ export function TerminalAgentSessionForkDialog({
   const [pending, setPending] = useState<PendingForkAction | null>(null)
   const pendingRef = useRef(false)
   const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(fork?.agent ?? null)
+  const agentPickerLabelId = useId()
   const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
@@ -163,7 +164,7 @@ export function TerminalAgentSessionForkDialog({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">
+          <p id={agentPickerLabelId} className="text-xs font-medium text-muted-foreground">
             {translate(
               'auto.components.terminal.pane.TerminalAgentSessionForkDialog.3d187cd60d',
               'Agent'
@@ -174,6 +175,7 @@ export function TerminalAgentSessionForkDialog({
             value={selectedAgent}
             onValueChange={setSelectedAgent}
             onOpenManageAgents={handleOpenManageAgents}
+            triggerAriaLabelledBy={agentPickerLabelId}
             triggerClassName="w-full"
           />
         </div>
