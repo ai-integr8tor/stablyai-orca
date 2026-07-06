@@ -52,7 +52,7 @@ describe('repo-specific worktree ownership layouts', () => {
         worktree: makeWorktree('/projects/a/worktrees/repo/feature'),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repoA)
       })
-    ).toBe('orca-managed')
+    ).toBe('external')
     expect(
       classifyWorktreeOwnership({
         repo: repoB,
@@ -77,7 +77,7 @@ describe('repo-specific worktree ownership layouts', () => {
         worktree: makeWorktree('C:\\projects\\App\\worktrees\\repo\\Feature'),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
-    ).toBe('orca-managed')
+    ).toBe('external')
   })
 
   it('classifies project-nested .worktrees paths as Orca-managed', () => {

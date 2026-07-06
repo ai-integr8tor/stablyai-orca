@@ -5,6 +5,7 @@ import {
   normalizeRuntimePathSeparators,
   relativePathInsideRoot
 } from './cross-platform-path'
+import { isExplicitlyImportedExternalWorktreePath } from './external-worktree-inbox'
 import type {
   DetectedWorktree,
   ExternalWorktreeVisibility,
@@ -53,7 +54,10 @@ export function classifyWorktreeOwnership(args: {
     return 'orca-managed'
   }
 
-  if (matchesStrongOrcaCreatePath(args.worktree.path, args.knownOrcaLayouts, args.repo)) {
+  if (
+    args.knownOrcaLayouts.some((layout) => layout.worktreeLocationMode === 'nested') &&
+    matchesStrongOrcaCreatePath(args.worktree.path, args.knownOrcaLayouts, args.repo)
+  ) {
     return 'orca-managed'
   }
 
@@ -62,6 +66,8 @@ export function classifyWorktreeOwnership(args: {
   }
 
   if (canClassifyAsExternal(args.worktree.path, args.knownOrcaLayouts)) {
+    // Why: a plain `git worktree add` can target Orca's nested workspace
+    // folder. Only metadata proves Orca created it.
     return 'external'
   }
 
@@ -85,7 +91,8 @@ export function toDetectedWorktree(args: {
     ownership,
     repo: args.repo,
     isLegacyRepoForVisibility,
-    isSelectedCheckout: selectedCheckout
+    isSelectedCheckout: selectedCheckout,
+    importedExternalWorktreePaths: args.repo.importedExternalWorktreePaths
   })
 
   return {
@@ -102,11 +109,19 @@ export function shouldShowWorktree(args: {
   repo: Repo
   isLegacyRepoForVisibility: boolean
   isSelectedCheckout: boolean
+  importedExternalWorktreePaths?: readonly string[] | undefined
 }): boolean {
   if (args.isSelectedCheckout) {
     return true
   }
   if (args.ownership === 'orca-managed') {
+    return true
+  }
+  if (
+    isExplicitlyImportedExternalWorktreePath(args.worktree.path, {
+      importedExternalWorktreePaths: args.importedExternalWorktreePaths
+    })
+  ) {
     return true
   }
   if (args.ownership === 'unknown-legacy' && args.isLegacyRepoForVisibility) {
@@ -124,6 +139,7 @@ export function areRuntimePathsEqual(leftPath: string, rightPath: string): boole
 function hasStrongOrcaMetadata(meta: WorktreeMeta | undefined): boolean {
   return Boolean(
     meta?.orcaCreatedAt ||
+    meta?.orcaCreationWorkspaceLayout ||
     meta?.createdAt ||
     meta?.createdWithAgent ||
     meta?.pushTarget ||
