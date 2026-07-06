@@ -2514,7 +2514,11 @@ export async function createLocalWorktree(
   // Gated on the experimental flag so disabling the feature globally skips the
   // work even when a repo still has paths configured.
   if (settings.experimentalWorktreeSymlinks) {
-    const linkedPaths = await resolveWorktreeLinkedPaths(repo.path, repo.symlinkPaths ?? [])
+    const linkedPaths = await resolveWorktreeLinkedPaths(
+      repo.path,
+      repo.symlinkPaths ?? [],
+      localWorktreeGitOptions
+    )
     if (linkedPaths.length > 0) {
       await timing.time('create_symlinks', async () => {
         await createWorktreeLinkedPaths(repo.path, created.path, linkedPaths)

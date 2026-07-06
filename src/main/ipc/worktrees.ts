@@ -1648,7 +1648,11 @@ export function registerWorktreeHandlers(
         // plus the repo's `.worktreeinclude` set) look untracked, so unlink
         // them before the clean check; regular APFS clone-copied files are left
         // for git to judge so we never delete user edits.
-        const linkedPaths = await resolveWorktreeLinkedPaths(repo.path, repo.symlinkPaths ?? [])
+        const linkedPaths = await resolveWorktreeLinkedPaths(
+          repo.path,
+          repo.symlinkPaths ?? [],
+          localWorktreeGitOptions
+        )
         if (linkedPaths.length > 0) {
           await removeWorktreeLinkedPaths(canonicalWorktreePath, linkedPaths)
         }
