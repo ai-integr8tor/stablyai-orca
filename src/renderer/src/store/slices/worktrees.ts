@@ -15,6 +15,7 @@ import type {
   RemoveWorktreeResult,
   WorktreeLineage,
   WorkspaceLineage,
+  GlobalSettings,
   ProjectHostSetup,
   WorktreeMeta
 } from '../../../../shared/types'
@@ -1823,6 +1824,38 @@ function buildWorktreeRenameState(
   }
 }
 
+function pruneLastOpenInTargetsForWorktrees(
+  settings: GlobalSettings | null,
+  worktreeIds: Iterable<string>
+): GlobalSettings | null {
+  if (!settings?.lastOpenInTargetIdByWorktree) {
+    return settings
+  }
+  let changed = false
+  const nextByWorktree = { ...settings.lastOpenInTargetIdByWorktree }
+  for (const worktreeId of worktreeIds) {
+    if (worktreeId in nextByWorktree) {
+      delete nextByWorktree[worktreeId]
+      changed = true
+    }
+  }
+  return changed ? { ...settings, lastOpenInTargetIdByWorktree: nextByWorktree } : settings
+}
+
+function persistPrunedLastOpenInTargetsForWorktrees(
+  getState: () => AppState,
+  settingsBeforePrune: GlobalSettings | null,
+  worktreeIds: Iterable<string>
+): void {
+  const prunedSettings = pruneLastOpenInTargetsForWorktrees(settingsBeforePrune, worktreeIds)
+  if (prunedSettings === settingsBeforePrune) {
+    return
+  }
+  void getState().updateSettings({
+    lastOpenInTargetIdByWorktree: prunedSettings?.lastOpenInTargetIdByWorktree ?? {}
+  })
+}
+
 function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<AppState> {
   const worktreeIdSet = new Set(worktreeIds)
   pruneHostedReviewLinkMutationGenerations(worktreeIdSet)
@@ -2164,7 +2197,8 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     activeFileId: activeFileCleared ? null : s.activeFileId,
     activeBrowserTabId: removedActive ? null : s.activeBrowserTabId,
     activeTabId: activeTabCleared ? null : s.activeTabId,
-    activeTabType: removedActive || activeFileCleared ? 'terminal' : s.activeTabType
+    activeTabType: removedActive || activeFileCleared ? 'terminal' : s.activeTabType,
+    settings: pruneLastOpenInTargetsForWorktrees(s.settings, worktreeIdSet)
   }
 }
 
@@ -2243,6 +2277,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         worktreeMatchesHost(worktree, hostId, currentMatchOptions)
       )
       if (areWorktreesEqual(currentForHost, worktrees)) {
+        const settingsBeforePrune = get().settings
+        const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+          get(),
+          repoId,
+          detected,
+          hostId
+        )
         set((s) => {
           const matchOptions = worktreeHostMatchOptions(s, repoId, hostId)
           const removedIds = getRemovedWorktreeIdsAfterAuthoritativeScan(
@@ -2285,6 +2326,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
           }
         })
+        persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
         await refreshRemoteWorktreeLineageBestEffort(settings, set)
         return detected.authoritative
       }
@@ -2312,6 +2354,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         return false
       }
 
+      const settingsBeforePrune = get().settings
+      const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+        get(),
+        repoId,
+        detected,
+        hostId
+      )
       set((s) => {
         // Why: hidden worktrees are not in worktreesByRepo. Purge decisions
         // must diff against the previous authoritative detected list so hiding
@@ -2342,6 +2391,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
         }
       })
+      persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
       await refreshRemoteWorktreeLineageBestEffort(settings, set)
       return detected.authoritative
     } catch (err) {
@@ -2370,6 +2420,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         const worktrees = sanitizeHostedReviewLinksForBranchClears(
           toVisibleWorktrees(detected, hostId, setup),
           get().worktreesByRepo[r.id]
+        )
+        const settingsBeforePrune = get().settings
+        const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+          get(),
+          r.id,
+          detected,
+          hostId
         )
         set((s) => {
           const matchOptions = worktreeHostMatchOptions(s, r.id, hostId)
@@ -2401,6 +2458,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
           }
         })
+        persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
       })
       return
     }
@@ -3173,6 +3231,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // await, and this covers every delete entry point (modal, card, SSH,
       // batch) rather than only the context menu.
       requestVirtualizedScrollAnchorRecord('[data-worktree-sidebar]')
+      const shouldPruneLastOpenInTarget = Boolean(
+        get().settings?.lastOpenInTargetIdByWorktree?.[worktreeId]
+      )
 
       set((s) => {
         const next = { ...s.worktreesByRepo }
@@ -3338,6 +3399,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                 return next
               })()
             : s.lastVisitedAtByWorktreeId
+        const nextSettings = pruneLastOpenInTargetsForWorktrees(s.settings, [worktreeId])
         return {
           worktreesByRepo: next,
           worktreeLineageById: nextLineage,
@@ -3425,9 +3487,15 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           activeTabType: removedActiveWorktree || activeFileCleared ? 'terminal' : s.activeTabType,
           everActivatedWorktreeIds: nextEverActivatedWorktreeIds,
           lastVisitedAtByWorktreeId: nextLastVisitedAtByWorktreeId,
+          settings: nextSettings,
           sortEpoch: s.sortEpoch + 1
         }
       })
+      if (shouldPruneLastOpenInTarget) {
+        void get().updateSettings({
+          lastOpenInTargetIdByWorktree: get().settings?.lastOpenInTargetIdByWorktree ?? {}
+        })
+      }
       get().removeWorkspaceSpaceWorktrees?.([worktreeId])
       // Why: PR/commit-message generation records are keyed by worktree and were
       // never evicted on removal — they leaked one record (title/body text) per
@@ -4640,7 +4708,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     if (purgeableWorktreeIds.length === 0) {
       return
     }
+    const settingsBeforePrune = get().settings
     set((s) => buildWorktreePurgeState(s, purgeableWorktreeIds))
+    persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, purgeableWorktreeIds)
   },
 
   migrateWorktreeIdentity: (oldWorktreeId: string, newWorktreeId: string) => {

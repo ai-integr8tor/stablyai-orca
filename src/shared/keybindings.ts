@@ -38,6 +38,7 @@ export type KeybindingActionId =
   | 'workspace.rename'
   | 'workspace.delete'
   | 'workspace.openBoard'
+  | 'workspace.openInLastApp'
   | 'workspace.selectByIndex'
   | 'voice.dictation'
   | 'view.tasks'
@@ -298,6 +299,26 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     // Why: make the command configurable without taking a global chord from
     // terminal/browser/editor users by default.
     defaultBindings: platformBindings([]),
+    allowInTerminal: true
+  },
+  {
+    id: 'workspace.openInLastApp',
+    title: 'Open Workspace in Last App',
+    group: 'Global',
+    scope: 'global',
+    searchKeywords: [
+      'shortcut',
+      'global',
+      'workspace',
+      'worktree',
+      'open in',
+      'last app',
+      'external editor',
+      'ide',
+      'finder',
+      'file manager'
+    ],
+    defaultBindings: platformBindings(['Mod+Alt+O']),
     allowInTerminal: true
   },
   {

@@ -10,6 +10,7 @@ import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { OPEN_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
+import { openFocusedWorktreeInLastOpenInTarget } from '@/components/sidebar/WorktreeOpenInMenu'
 import {
   BACKGROUND_MOUNT_TERMINAL_WORKTREE_EVENT,
   SPLIT_TERMINAL_PANE_EVENT,
@@ -91,6 +92,7 @@ import { collectLeafIdsInOrder } from '@/components/terminal-pane/layout-seriali
 import { track } from '@/lib/telemetry'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { buildWorkspaceSessionPayload } from '@/lib/workspace-session'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import type { RuntimeClientEvent } from '../../../shared/runtime-client-events'
 import type { AppState } from '../store/types'
@@ -1270,6 +1272,22 @@ export function useIpcEvents(): void {
           }
           store.setSidebarOpen(true)
           window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+        })
+      )
+    }
+
+    if (window.api.ui.onOpenWorkspaceInLastApp) {
+      unsubs.push(
+        window.api.ui.onOpenWorkspaceInLastApp(() => {
+          const store = useAppStore.getState()
+          if (store.activeView === 'settings') {
+            return
+          }
+          void openFocusedWorktreeInLastOpenInTarget(document.activeElement, {
+            fallbackWorktreeId: isFloatingWorkspacePanelFocused()
+              ? FLOATING_TERMINAL_WORKTREE_ID
+              : undefined
+          })
         })
       )
     }
