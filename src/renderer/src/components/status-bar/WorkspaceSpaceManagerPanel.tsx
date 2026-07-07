@@ -30,6 +30,8 @@ import type {
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
 import type { GitStatusResult, Repo, TerminalTab, Worktree } from '../../../../shared/types'
+import type { HostedReviewProvider } from '../../../../shared/hosted-review'
+import { formatHostedReviewLabel } from './hosted-review-label'
 import type {
   WorkspaceSpaceItem,
   WorkspaceSpaceWorktree
@@ -137,7 +139,15 @@ type WorkspaceDecisionInputs = {
   remoteStatusesByWorktree: Record<string, { hasUpstream: boolean; ahead: number; behind: number }>
   hostedReviewCache: Record<
     string,
-    { data?: { number: number; state: string; status: string; title: string } | null }
+    {
+      data?: {
+        provider: HostedReviewProvider
+        number: number
+        state: string
+        status: string
+        title: string
+      } | null
+    }
   >
   issueCache: Record<string, { data?: { number: number; title: string; state: string } | null }>
   linearIssueCache: Record<
@@ -151,10 +161,6 @@ type WorkspaceDecisionInputs = {
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`
-}
-
-function formatReviewState(state: string): string {
-  return state.charAt(0).toUpperCase() + state.slice(1)
 }
 
 function countLiveTerminals(
@@ -211,9 +217,7 @@ export function getWorkspaceDecisionDetails(
   const linkedPR = workspaceRecord?.linkedPR ?? null
   const reviewLabel =
     hostedReview !== undefined && hostedReview !== null
-      ? `PR #${hostedReview.number} ${formatReviewState(hostedReview.state)}${
-          hostedReview.status && hostedReview.status !== 'none' ? `, ${hostedReview.status}` : ''
-        }`
+      ? formatHostedReviewLabel(hostedReview)
       : linkedPR
         ? `PR #${linkedPR}`
         : null
