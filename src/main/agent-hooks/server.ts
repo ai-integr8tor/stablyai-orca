@@ -10,10 +10,10 @@
 //     events (see docs/design/agent-status-over-ssh.md §5)
 //   - the on-disk last-status cache (`last-status.json`) that survives
 //     Orca restart so retained dashboard rows reappear on relaunch
-import { createServer, type IncomingMessage, type ServerResponse } from 'http'
-import { createHash, randomBytes, randomUUID } from 'crypto'
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { track } from '../telemetry/client'
 import { getCohortAtEmit } from '../telemetry/cohort-classifier'
@@ -108,6 +108,7 @@ const LAST_STATUS_FILE_VERSION = 2
 // hook-server batching; quit-time uses flushStatusPersistSync() for the
 // guaranteed final flush.
 const STATUS_PERSIST_DEBOUNCE_MS = 250
+const TOOL_PROGRESS_HOOK_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure'])
 const AGENT_PROMPT_SENT_AGENT_KINDS = new Set<AgentKind>(AGENT_KIND_VALUES)
 
 // Why: bound the on-disk file's growth across many sessions. PTY-teardown
@@ -117,6 +118,12 @@ const AGENT_PROMPT_SENT_AGENT_KINDS = new Set<AgentKind>(AGENT_KIND_VALUES)
 // older entries have almost certainly been resolved or abandoned and should
 // not resurrect on hydrate.
 const HYDRATE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
+// Why: closed-tab suppression only needs to cover recently closed tabs — a
+// status event for a long-closed tab cannot arrive once its process/hooks are
+// gone. Bound the set so it can't grow one entry per tab close for the whole
+// session (it is otherwise only cleared at app quit).
+export const CLOSED_AGENT_STATUS_TAB_IDS_MAX = 1024
 
 type LastStatusFile = {
   version: number
@@ -255,6 +262,7 @@ function equivalentParsedAgentStatusPayload(
     a.agentType === b.agentType &&
     a.toolName === b.toolName &&
     a.toolInput === b.toolInput &&
+    a.interactivePrompt === b.interactivePrompt &&
     a.lastAssistantMessage === b.lastAssistantMessage &&
     a.interrupted === b.interrupted
   )
@@ -269,6 +277,18 @@ function trackEmptyPaneKeyHook(body: unknown): void {
     return
   }
   track('agent_hook_unattributed', { reason: 'empty_pane_key' })
+}
+
+function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boolean {
+  if (next.payload.state !== 'working') {
+    return false
+  }
+  if (next.payload.agentType !== 'claude') {
+    return false
+  }
+  // Why: a same-prompt retry is another UserPromptSubmit, while late Claude
+  // progress after Ctrl+C arrives as tool lifecycle work for the old turn.
+  return next.hookEventName !== undefined && TOOL_PROGRESS_HOOK_EVENTS.has(next.hookEventName)
 }
 
 function paneCacheKeyTabId(key: string): string | null {
@@ -582,7 +602,17 @@ export class AgentHookServer {
   }
 
   private markTabClosedForAgentStatus(tabId: string): void {
+    // Delete-then-add keeps recently closed tabs most-recent so eviction only
+    // sheds the oldest ids, which can no longer receive status events.
+    this.closedAgentStatusTabIds.delete(tabId)
     this.closedAgentStatusTabIds.add(tabId)
+    while (this.closedAgentStatusTabIds.size > CLOSED_AGENT_STATUS_TAB_IDS_MAX) {
+      const oldest = this.closedAgentStatusTabIds.keys().next().value
+      if (oldest === undefined) {
+        break
+      }
+      this.closedAgentStatusTabIds.delete(oldest)
+    }
   }
 
   private shouldSuppressClosedTabStatus(paneKey: string): boolean {
@@ -737,6 +767,7 @@ export class AgentHookServer {
       previous.payload.agentType === effectivePayload.payload.agentType &&
       previous.payload.prompt === effectivePayload.payload.prompt &&
       (effectivePayload.isReplay === true ||
+        isToolProgressWorkingAfterInterrupt(effectivePayload) ||
         (effectivePayload.hasExplicitPrompt !== true &&
           Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))
     ) {
