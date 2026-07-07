@@ -15,6 +15,16 @@ describe('resolveLeftSidebarStyleVariables', () => {
     expect(resolveLeftSidebarStyleVariables(settings(), true)).toBeUndefined()
   })
 
+  it('returns only active-workspace contrast variables for default sidebar contrast changes', () => {
+    const vars = resolveLeftSidebarStyleVariables(settings({ activeWorkspaceContrast: 3 }), true)
+
+    expect(vars).toEqual({
+      '--worktree-card-active-bg-mix': '26%',
+      '--worktree-card-active-dark-bg-mix': '19%',
+      '--worktree-card-active-border-mix': '78%'
+    })
+  })
+
   it('matches terminal background, foreground, and scoped text tokens', () => {
     const vars = resolveLeftSidebarStyleVariables(
       settings({

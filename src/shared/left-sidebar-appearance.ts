@@ -6,6 +6,8 @@ export const LEFT_SIDEBAR_APPEARANCE_MODES = ['default', 'match-terminal', 'tint
 export const DEFAULT_LEFT_SIDEBAR_TINT_COLOR = '#18181b'
 export const DEFAULT_LEFT_SIDEBAR_TINT_OPACITY = 0.08
 export const MAX_LEFT_SIDEBAR_TINT_OPACITY = 0.35
+export const DEFAULT_ACTIVE_WORKSPACE_CONTRAST = 1
+export const MAX_ACTIVE_WORKSPACE_CONTRAST = 3
 
 export function normalizeLeftSidebarAppearanceMode(value: unknown): LeftSidebarAppearanceMode {
   return LEFT_SIDEBAR_APPEARANCE_MODES.includes(value as LeftSidebarAppearanceMode)
@@ -29,4 +31,11 @@ export function normalizeLeftSidebarTintOpacity(value: unknown): number {
     return DEFAULT_LEFT_SIDEBAR_TINT_OPACITY
   }
   return Math.min(MAX_LEFT_SIDEBAR_TINT_OPACITY, Math.max(0, value))
+}
+
+export function normalizeActiveWorkspaceContrast(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_ACTIVE_WORKSPACE_CONTRAST
+  }
+  return Math.min(MAX_ACTIVE_WORKSPACE_CONTRAST, Math.max(1, Math.round(value)))
 }
