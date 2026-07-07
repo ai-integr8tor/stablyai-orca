@@ -15,6 +15,7 @@ import type {
   RemoveWorktreeResult,
   WorktreeLineage,
   WorkspaceLineage,
+  GlobalSettings,
   ProjectHostSetup,
   WorktreeMeta
 } from '../../../../shared/types'
@@ -1823,6 +1824,24 @@ function buildWorktreeRenameState(
   }
 }
 
+function pruneLastOpenInTargetsForWorktrees(
+  settings: GlobalSettings | null,
+  worktreeIds: Iterable<string>
+): GlobalSettings | null {
+  if (!settings?.lastOpenInTargetIdByWorktree) {
+    return settings
+  }
+  let changed = false
+  const nextByWorktree = { ...settings.lastOpenInTargetIdByWorktree }
+  for (const worktreeId of worktreeIds) {
+    if (worktreeId in nextByWorktree) {
+      delete nextByWorktree[worktreeId]
+      changed = true
+    }
+  }
+  return changed ? { ...settings, lastOpenInTargetIdByWorktree: nextByWorktree } : settings
+}
+
 function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<AppState> {
   const worktreeIdSet = new Set(worktreeIds)
   pruneHostedReviewLinkMutationGenerations(worktreeIdSet)
@@ -2164,7 +2183,8 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     activeFileId: activeFileCleared ? null : s.activeFileId,
     activeBrowserTabId: removedActive ? null : s.activeBrowserTabId,
     activeTabId: activeTabCleared ? null : s.activeTabId,
-    activeTabType: removedActive || activeFileCleared ? 'terminal' : s.activeTabType
+    activeTabType: removedActive || activeFileCleared ? 'terminal' : s.activeTabType,
+    settings: pruneLastOpenInTargetsForWorktrees(s.settings, worktreeIdSet)
   }
 }
 
@@ -3173,6 +3193,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // await, and this covers every delete entry point (modal, card, SSH,
       // batch) rather than only the context menu.
       requestVirtualizedScrollAnchorRecord('[data-worktree-sidebar]')
+      const shouldPruneLastOpenInTarget = Boolean(
+        get().settings?.lastOpenInTargetIdByWorktree?.[worktreeId]
+      )
 
       set((s) => {
         const next = { ...s.worktreesByRepo }
@@ -3338,6 +3361,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                 return next
               })()
             : s.lastVisitedAtByWorktreeId
+        const nextSettings = pruneLastOpenInTargetsForWorktrees(s.settings, [worktreeId])
         return {
           worktreesByRepo: next,
           worktreeLineageById: nextLineage,
@@ -3425,9 +3449,15 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           activeTabType: removedActiveWorktree || activeFileCleared ? 'terminal' : s.activeTabType,
           everActivatedWorktreeIds: nextEverActivatedWorktreeIds,
           lastVisitedAtByWorktreeId: nextLastVisitedAtByWorktreeId,
+          settings: nextSettings,
           sortEpoch: s.sortEpoch + 1
         }
       })
+      if (shouldPruneLastOpenInTarget) {
+        void get().updateSettings({
+          lastOpenInTargetIdByWorktree: get().settings?.lastOpenInTargetIdByWorktree ?? {}
+        })
+      }
       get().removeWorkspaceSpaceWorktrees?.([worktreeId])
       // Why: PR/commit-message generation records are keyed by worktree and were
       // never evicted on removal — they leaked one record (title/body text) per
