@@ -151,6 +151,12 @@ import { AutomationService } from './automations/service'
 import { createHeadlessAutomationOutputSnapshotBuffer } from './automations/headless-dispatch'
 import { buildHeadlessAutomationWorktreeCreateArgs } from './automations/headless-workspace-create'
 import { AgentAwakeService } from './agent-awake-service'
+import { PluginService } from './plugins/plugin-service'
+import { resolvePluginHostEntryPath } from './plugins/plugin-host-process'
+import { applyPluginEnablement } from './plugins/plugin-enablement'
+import { promptForPendingPlugins } from './plugins/plugin-first-run-consent'
+import { setPluginServiceForRpc } from './runtime/rpc/methods/plugins'
+import { normalizePluginIdList } from '../shared/plugins/plugin-extension-registry'
 import {
   getCrashBreadcrumbSnapshot,
   recordCoalescedCrashBreadcrumb,
@@ -215,6 +221,7 @@ let unsubscribeAgentAwakeStatusChanges: (() => void) | null = null
 let watcherShutdownPromise: Promise<void> | null = null
 let watcherShutdownDone = false
 let automations: AutomationService | null = null
+let pluginService: PluginService | null = null
 let keybindings: KeybindingService | null = null
 // Why: a reload/teardown intent set for one renderer must not leak to a later load.
 // The recovery reload re-fires did-finish-load, so its flag lets the local-PTY orphan
@@ -929,7 +936,8 @@ function openMainWindow(): BrowserWindow {
         isQuitting = true
         await preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
       }
-    }
+    },
+    pluginService ?? undefined
   )
   automations.setWebContents(window.webContents)
   automations.start()
@@ -1873,6 +1881,36 @@ app.whenReady().then(async () => {
     prepareForCodexLaunch: prepareCodexRuntimeHomeForLaunch,
     prepareForClaudeLaunch: (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target)
   })
+  pluginService = new PluginService({
+    userDataPath: app.getPath('userData'),
+    getDisabledPlugins: () => normalizePluginIdList(store?.getSettings().disabledPlugins),
+    getApprovedPlugins: () => normalizePluginIdList(store?.getSettings().approvedPlugins),
+    hostEntryPath: resolvePluginHostEntryPath(app.getAppPath(), app.isPackaged)
+  })
+  const applyEnablement = (pluginId: string, enabled: boolean) =>
+    applyPluginEnablement({ store: store!, pluginService: pluginService!, pluginId, enabled })
+  // Why: headless `orca serve` clients reach plugins through the runtime RPC
+  // methods, which resolve the service via this module-level setter.
+  setPluginServiceForRpc(pluginService, applyEnablement)
+  // Why: plugin host startup forks child processes; it must not block window
+  // startup, and a broken plugin surfaces via listPlugins() status instead.
+  void pluginService
+    .initialize()
+    .then(() => {
+      // Why: serve mode has no display for a consent dialog; pending plugins
+      // stay inert there until an explicit plugins.setEnabled RPC call.
+      if (isServeMode) {
+        return
+      }
+      return promptForPendingPlugins({
+        pluginService: pluginService!,
+        showMessageBox: (options) => dialog.showMessageBox(options),
+        applyEnablement
+      })
+    })
+    .catch((error) => {
+      console.warn('[plugins] failed to initialize plugin service:', error)
+    })
   starNag = new StarNagService(store, stats)
   starNag.start()
   starNag.registerIpcHandlers()
@@ -2198,6 +2236,13 @@ app.on('will-quit', (e) => {
   // agent_start events with no matching stops.
   starNag?.stop()
   automations?.stop()
+  // Why: plugin hosts are forked children; dispose sends shutdown and
+  // escalates to SIGKILL so they cannot outlive the app. The promise joins
+  // the allSettled barrier below — quitting before it resolves would let
+  // Electron exit first and orphan the hosts.
+  setPluginServiceForRpc(null)
+  const pluginHostShutdown = pluginService?.dispose() ?? Promise.resolve()
+  pluginService = null
   setUnreadDockBadgeCount(0)
   agentHookServer.stop()
   stats?.flush()
@@ -2259,7 +2304,13 @@ app.on('will-quit', (e) => {
     // Why: normal quits preserve the detached daemon for warm reattach, but a
     // dev parent dying means the temp/dev profile has no owner left to reattach.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
-    Promise.allSettled([daemonTeardown, rpcStopAndClear, watcherShutdown, emulatorShutdown])
+    Promise.allSettled([
+      daemonTeardown,
+      rpcStopAndClear,
+      watcherShutdown,
+      emulatorShutdown,
+      pluginHostShutdown
+    ])
       .then(() => shutdownTelemetry())
       .then(() => shutdownObservability())
       .catch(() => {

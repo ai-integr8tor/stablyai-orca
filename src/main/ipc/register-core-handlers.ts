@@ -45,6 +45,7 @@ import { registerTelemetryHandlers } from './telemetry'
 import { registerBrowserHandlers } from './browser'
 import { registerShellHandlers } from './shell'
 import { registerPetHandlers } from './pet'
+import { registerPluginHandlers } from './plugins'
 import { registerUIHandlers, setTrustedUIRendererWebContentsId } from './ui'
 import { registerEmulatorFrameStreamHandlers } from './emulator-frame-stream'
 import { registerEmulatorVideoStreamHandlers } from './emulator-video-stream'
@@ -69,6 +70,7 @@ import type { AutomationService } from '../automations/service'
 import type { AgentAwakeService } from '../agent-awake-service'
 import type { CrashReportStore } from '../crash-reporting/crash-report-store'
 import type { KeybindingService } from '../keybindings/keybinding-service'
+import type { PluginService } from '../plugins/plugin-service'
 
 let registered = false
 
@@ -93,7 +95,8 @@ export function registerCoreHandlers(
   agentAwakeService?: AgentAwakeService,
   crashReports?: CrashReportStore,
   keybindings?: KeybindingService,
-  lifecycleOptions: CoreHandlerLifecycleOptions = {}
+  lifecycleOptions: CoreHandlerLifecycleOptions = {},
+  pluginService?: PluginService
 ): void {
   // Why: on macOS the app can stay alive after all windows close, then
   // openMainWindow() is called again on 'activate'. ipcMain.handle() throws
@@ -149,6 +152,9 @@ export function registerCoreHandlers(
   }
   if (keybindings) {
     registerKeybindingHandlers(keybindings)
+  }
+  if (pluginService) {
+    registerPluginHandlers(store, pluginService, runtime)
   }
   registerTelemetryHandlers(store)
   registerBrowserHandlers()

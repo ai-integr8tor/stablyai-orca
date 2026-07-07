@@ -16,6 +16,7 @@ import type { TaskSourceContext } from '../shared/task-source-context'
 import type { ProjectExecutionRuntimeResolution } from '../shared/project-execution-runtime'
 import type { StartupCommandDelivery } from '../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../shared/agent-session-resume'
+import type { PluginPanelActionOutcome } from '../shared/plugins/plugin-panel-bridge'
 import type {
   LocalhostWorktreeLabelResult,
   LocalhostWorktreeLabelRoute
@@ -837,6 +838,27 @@ export type AppApi = {
   /** Opens a native directory picker and authorizes the selected directory
    *  for Floating Workspace markdown file creation. */
   pickFloatingWorkspaceDirectory: () => Promise<string | null>
+}
+
+/** Panel contribution as surfaced by the main-process plugin host. */
+export type PluginHostPanel = {
+  id: string
+  title: string
+  /** Lucide icon name declared in the plugin manifest. */
+  icon?: string
+  tabKey: `plugin:${string}`
+}
+
+/** `pending` = discovered but not yet user-approved; the plugin never ran. */
+export type PluginHostStatus = 'active' | 'pending' | 'disabled' | 'error'
+
+export type PluginHostListEntry = {
+  pluginId: string
+  name: string
+  version: string
+  status: PluginHostStatus
+  error?: string
+  panels: PluginHostPanel[]
 }
 
 export type PreloadApi = {
@@ -2897,6 +2919,31 @@ export type PreloadApi = {
   }
   gitBash: {
     isAvailable: () => Promise<boolean>
+  }
+  plugins: {
+    list: () => Promise<PluginHostListEntry[]>
+    setEnabled: (args: { pluginId: string; enabled: boolean }) => Promise<PluginHostListEntry[]>
+    /** Returns the panel's HTML entry contents, or null when the plugin or
+     *  panel is missing/disabled. Rendered only inside a sandboxed iframe. */
+    readPanelEntry: (args: {
+      pluginId: string
+      panelId: string
+    }) => Promise<{ html: string } | null>
+    invokeCodeProvider: (args: {
+      pluginId: string
+      /** Required to reach the second+ provider of a multi-provider plugin. */
+      providerId?: string
+      method: string
+      args?: unknown[]
+    }) => Promise<unknown>
+    /** Relays a sandboxed panel's bridge request to main, which enforces the
+     *  plugin's manifest permissions before executing. */
+    panelAction: (args: {
+      pluginId: string
+      panelId?: string
+      action: string
+      params?: unknown
+    }) => Promise<PluginPanelActionOutcome>
   }
   agentStatus: {
     /** Listen for agent status updates forwarded from native hook receivers. */

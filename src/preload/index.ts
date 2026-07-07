@@ -12,6 +12,7 @@ import type { TerminalPaneSplitSource } from '../shared/feature-education-teleme
 import type { ProjectExecutionRuntimeResolution } from '../shared/project-execution-runtime'
 import type { StartupCommandDelivery } from '../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../shared/agent-session-resume'
+import type { PluginPanelActionOutcome } from '../shared/plugins/plugin-panel-bridge'
 import type {
   BaseRefSearchResult,
   BaseRefDefaultResult,
@@ -198,7 +199,7 @@ import type {
   ReactErrorBoundaryReportArgs,
   ReactErrorBoundaryReportResult
 } from '../shared/crash-reporting'
-import type { PreloadApi } from './api-types'
+import type { PluginHostListEntry, PreloadApi } from './api-types'
 
 type NativeFileDropCallback = (data: NativeFileDropPayload) => void
 
@@ -503,6 +504,28 @@ const api = {
   gitBash: {
     isAvailable: (): Promise<boolean> => ipcRenderer.invoke('gitBash:isAvailable')
   },
+
+  plugins: {
+    list: (): Promise<PluginHostListEntry[]> => ipcRenderer.invoke('plugins:list'),
+    setEnabled: (args: { pluginId: string; enabled: boolean }): Promise<PluginHostListEntry[]> =>
+      ipcRenderer.invoke('plugins:setEnabled', args),
+    readPanelEntry: (args: {
+      pluginId: string
+      panelId: string
+    }): Promise<{ html: string } | null> => ipcRenderer.invoke('plugins:readPanelEntry', args),
+    invokeCodeProvider: (args: {
+      pluginId: string
+      providerId?: string
+      method: string
+      args?: unknown[]
+    }): Promise<unknown> => ipcRenderer.invoke('plugins:invokeCodeProvider', args),
+    panelAction: (args: {
+      pluginId: string
+      panelId?: string
+      action: string
+      params?: unknown
+    }): Promise<PluginPanelActionOutcome> => ipcRenderer.invoke('plugins:panelAction', args)
+  } satisfies PreloadApi['plugins'],
 
   repos: {
     list: () => ipcRenderer.invoke('repos:list'),
