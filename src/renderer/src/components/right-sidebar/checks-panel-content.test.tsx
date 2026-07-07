@@ -370,6 +370,30 @@ describe('PRCommentsList', () => {
     expect(markup).not.toContain('Top-level release note.')
   })
 
+  it('disables empty feedback scope when only top-level comments exist', () => {
+    const comments: PRComment[] = [
+      {
+        id: 1,
+        author: 'alice',
+        authorAvatarUrl: '',
+        body: 'Top-level release note.',
+        createdAt: '2026-05-14T00:00:00Z',
+        url: 'https://github.com/acme/widgets/pull/42#issuecomment-1'
+      }
+    ]
+
+    const markup = renderWithTooltips(
+      React.createElement(PRCommentsList, {
+        comments,
+        commentsLoading: false
+      })
+    )
+
+    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*disabled=""[^>]*>.*Feedback/)
+    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>.*All/)
+    expect(markup).toContain('Top-level release note.')
+  })
+
   it('renders a more-actions menu on conversation comments', () => {
     const comments: PRComment[] = [
       {
