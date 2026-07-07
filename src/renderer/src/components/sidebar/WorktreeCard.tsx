@@ -103,6 +103,7 @@ type WorktreeCardProps = {
   selectedWorktrees?: readonly Worktree[]
   hideRepoBadge?: boolean
   hostContextLabel?: string
+  projectDirectoryName?: string
   inPinnedSection?: boolean
   activationRowKey?: string
   renameRowKey?: string
@@ -155,7 +156,7 @@ function isWebClient(): boolean {
   return Boolean((window as unknown as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__)
 }
 
-function getDirectoryName(folderPath: string): string {
+export function getDirectoryName(folderPath: string): string {
   const normalized = folderPath.replace(/[\\/]+$/, '')
   const parts = normalized.split(/[\\/]+/)
   return parts.at(-1) || normalized || folderPath
@@ -210,6 +211,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   nativeDragEnabled = true,
   hideRepoBadge,
   hostContextLabel,
+  projectDirectoryName,
   inPinnedSection = false,
   activationRowKey,
   renameRowKey,
@@ -1172,6 +1174,9 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const showRepoBadgeInMetaRow =
     !showRepoIdentityInTitle && !!repo && !hideRepoBadge && !showPinnedRepoIcon
   const showHostContextBadge = !compactCards && !!hostContextLabel
+  const normalizedProjectDirectoryName = projectDirectoryName?.trim() ?? ''
+  const showProjectDirectoryBadge =
+    !compactCards && normalizedProjectDirectoryName.length > 0 && !isFolder
   const showDetachedHeadInMetaRow = !compactCards && !isFolder && detachedHeadDisplay !== null
   const showBranch =
     !isFolder &&
@@ -1196,6 +1201,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const hasDetailedMetaRowContent = Boolean(
     (showRepoBadgeInMetaRow && repo) ||
     showHostContextBadge ||
+    showProjectDirectoryBadge ||
     folderMetaRowContent ||
     showBranch ||
     showIdentityInNewCard ||
@@ -1651,6 +1657,19 @@ const WorktreeCard = React.memo(function WorktreeCard({
                   className="h-[16px] max-w-[7rem] shrink-0 rounded border border-border bg-accent px-1.5 text-[10px] font-medium leading-none text-muted-foreground dark:bg-accent/80 dark:border-border/50"
                 >
                   <span className="truncate">{hostContextLabel}</span>
+                </Badge>
+              )}
+              {showProjectDirectoryBadge && (
+                <Badge
+                  variant="secondary"
+                  className="h-[16px] max-w-[7rem] shrink-0 rounded border border-border bg-accent px-1.5 text-[10px] font-medium leading-none text-muted-foreground dark:bg-accent/80 dark:border-border/50"
+                  aria-label={translate(
+                    'auto.components.sidebar.WorktreeCard.projectFolderLabel',
+                    'Project folder {{value0}}',
+                    { value0: normalizedProjectDirectoryName }
+                  )}
+                >
+                  <span className="truncate">{normalizedProjectDirectoryName}</span>
                 </Badge>
               )}
 

@@ -228,4 +228,19 @@ describe('WorktreeCard affiliate list mode', () => {
 
     expect(container.querySelector('[data-testid="inline-agents"]')).not.toBeNull()
   })
+  it('shows the project directory badge when board cards provide it', () => {
+    act(() => {
+      root.render(
+        <WorktreeCard
+          worktree={makeWorktree()}
+          repo={makeRepo()}
+          isActive={false}
+          projectDirectoryName="customer-api"
+        />
+      )
+    })
+
+    expect(container.textContent).toContain('customer-api')
+    expect(container.querySelector('[aria-label="Project folder customer-api"]')).not.toBeNull()
+  })
 })

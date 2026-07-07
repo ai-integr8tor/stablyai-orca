@@ -3991,7 +3991,8 @@
           "runtimeHostProject": "Project on Orca server",
           "automationCreated": "Created by automation",
           "branchIdentity": "Branch",
-          "branchFolderPathIdentity": "Branch or folder path"
+          "branchFolderPathIdentity": "Branch or folder path",
+          "projectFolderLabel": "Project folder {{value0}}"
         },
         "WorktreeCardAgents": {
           "1b0a156717": "Agents"

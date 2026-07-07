@@ -3949,7 +3949,8 @@
           "runtimeHostProject": "Orca サーバー上のプロジェクト",
           "automationCreated": "自動化により作成",
           "branchIdentity": "ブランチ",
-          "branchFolderPathIdentity": "ブランチまたはフォルダパス"
+          "branchFolderPathIdentity": "ブランチまたはフォルダパス",
+          "projectFolderLabel": "Project folder {{value0}}"
         },
         "WorktreeCardAgents": {
           "1b0a156717": "エージェント"
