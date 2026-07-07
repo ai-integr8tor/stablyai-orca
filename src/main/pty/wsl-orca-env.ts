@@ -30,7 +30,8 @@ export function addOrcaWslInteropEnv(env: Record<string, string>): void {
     'ORCA_AGENT_HOOK_VERSION/u',
     'ORCA_AGENT_HOOK_ENDPOINT/p',
     'ORCA_OMP_SOURCE_AGENT_DIR/p',
-    'ORCA_OMP_STATUS_EXTENSION/p'
+    'ORCA_OMP_STATUS_EXTENSION/p',
+    'ORCA_OMP_FRESH_SESSION_DIR/p'
   ]
   for (const entry of passthroughEntries) {
     const variableName = entry.split('/')[0]

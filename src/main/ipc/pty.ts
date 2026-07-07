@@ -109,6 +109,7 @@ import {
 } from '../project-groups/folder-workspace-path-status'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { resolveLocalProjectRuntimeForWorktreeId } from '../local-project-runtime-resolution'
+import { applyOmpFreshSessionDirEnv } from '../pty/omp-fresh-session-dir'
 
 // ─── Provider Registry ──────────────────────────────────────────────
 // Routes PTY operations by connectionId. null = local provider.
@@ -2912,6 +2913,7 @@ export function registerPtyHandlers(
             networkProxySettings: getSettings?.()
           })
           promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
+          applyOmpFreshSessionDirEnv(env, { worktreeId: args.worktreeId, cwd: args.cwd })
         } catch (err) {
           // Why: buildPtyHostEnv has filesystem side-effects (Pi/OMP managed
           // extension installation). If it throws before we reach provider.spawn,

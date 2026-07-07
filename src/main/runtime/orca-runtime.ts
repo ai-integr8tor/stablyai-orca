@@ -48,6 +48,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
+import { applyOmpFreshSessionDirEnv } from '../pty/omp-fresh-session-dir'
 import { OrchestrationDb } from './orchestration/db'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
@@ -17204,6 +17205,7 @@ export class OrcaRuntimeService {
       ORCA_TAB_ID: tabId,
       ORCA_WORKTREE_ID: scope.id
     }
+    applyOmpFreshSessionDirEnv(env, { worktreeId: scope.id, cwd: scope.path })
     if (!scope.folderWorkspace) {
       return env
     }
