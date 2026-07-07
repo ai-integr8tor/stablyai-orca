@@ -25,6 +25,57 @@ describe('resolveLeftSidebarStyleVariables', () => {
     })
   })
 
+  it('returns the mid-step active-workspace contrast variables', () => {
+    const vars = resolveLeftSidebarStyleVariables(settings({ activeWorkspaceContrast: 2 }), true)
+
+    expect(vars).toEqual({
+      '--worktree-card-active-bg-mix': '18%',
+      '--worktree-card-active-dark-bg-mix': '15%',
+      '--worktree-card-active-border-mix': '60%'
+    })
+  })
+
+  it('merges active-workspace contrast variables into matched terminal surfaces', () => {
+    const vars = resolveLeftSidebarStyleVariables(
+      settings({
+        leftSidebarAppearanceMode: 'match-terminal',
+        activeWorkspaceContrast: 2,
+        terminalColorOverrides: {
+          background: '#101820',
+          foreground: '#f0f4f8'
+        }
+      }),
+      true
+    )
+
+    expect(vars).toMatchObject({
+      '--worktree-sidebar': '#101820',
+      '--sidebar-foreground': '#f0f4f8',
+      '--worktree-card-active-bg-mix': '18%',
+      '--worktree-card-active-dark-bg-mix': '15%',
+      '--worktree-card-active-border-mix': '60%'
+    })
+  })
+
+  it('merges active-workspace contrast variables into tinted surfaces', () => {
+    const vars = resolveLeftSidebarStyleVariables(
+      settings({
+        leftSidebarAppearanceMode: 'tinted',
+        activeWorkspaceContrast: 3,
+        leftSidebarTintColor: '336699',
+        leftSidebarTintOpacity: 0.125
+      }),
+      true
+    )
+
+    expect(vars).toMatchObject({
+      '--worktree-sidebar': 'color-mix(in srgb, #336699 12.5%, var(--background))',
+      '--worktree-card-active-bg-mix': '26%',
+      '--worktree-card-active-dark-bg-mix': '19%',
+      '--worktree-card-active-border-mix': '78%'
+    })
+  })
+
   it('matches terminal background, foreground, and scoped text tokens', () => {
     const vars = resolveLeftSidebarStyleVariables(
       settings({
