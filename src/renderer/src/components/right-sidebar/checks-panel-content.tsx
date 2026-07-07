@@ -63,6 +63,13 @@ import {
   type PRCommentAudienceFilter
 } from '@/lib/pr-comment-audience'
 import {
+  filterPRCommentsByScope,
+  getPrCommentScopeFilters,
+  getPRCommentScopeCounts,
+  getPRCommentScopeEmptyLabel,
+  type PRCommentScopeFilter
+} from '@/lib/pr-comment-scope'
+import {
   getPRCommentGroupId,
   getPRCommentGroupRoot,
   groupPRComments,
@@ -2190,13 +2197,20 @@ export function PRCommentsList({
   onDeleteComment?: (comment: PRComment) => void | Promise<void>
 }): React.JSX.Element {
   const presentation = React.useMemo(() => getPRCommentPresentationClasses(), [])
+  const [scopeFilter, setScopeFilter] = useState<PRCommentScopeFilter>('feedback')
   const [commentFilter, setCommentFilter] = useState<PRCommentAudienceFilter>('all')
   const [displayMode, setDisplayMode] = useState<PRCommentsListDisplayMode>('triage')
   const [replyingGroupId, setReplyingGroupId] = useState<string | null>(null)
   const [isAddingComment, setIsAddingComment] = useState(false)
   const addCommentSurfaceRef = useRef<HTMLDivElement>(null)
   const shouldScrollAddCommentRef = useRef(false)
-  const commentCounts = React.useMemo(() => getPRCommentAudienceCounts(comments), [comments])
+  const scopeCounts = React.useMemo(() => getPRCommentScopeCounts(comments), [comments])
+  const effectiveScopeFilter =
+    scopeFilter === 'feedback' && scopeCounts.feedback === 0 ? 'all' : scopeFilter
+  const scopedComments = React.useMemo(
+    () => filterPRCommentsByScope(comments, effectiveScopeFilter),
+    [comments, effectiveScopeFilter]
+  )
   const {
     isSelectingForAI,
     selectedGroupIds,
@@ -2206,10 +2220,14 @@ export function PRCommentsList({
     addGroupToSelection,
     clearSelection,
     toggleGroupSelection
-  } = usePRCommentsListSelection(comments, selectionContextKey)
+  } = usePRCommentsListSelection(scopedComments, selectionContextKey)
+  const commentCounts = React.useMemo(
+    () => getPRCommentAudienceCounts(scopedComments),
+    [scopedComments]
+  )
   const visibleComments = React.useMemo(
-    () => filterPRCommentsByAudience(comments, commentFilter),
-    [commentFilter, comments]
+    () => filterPRCommentsByAudience(scopedComments, commentFilter),
+    [commentFilter, scopedComments]
   )
   const groups = React.useMemo(() => groupPRComments(visibleComments), [visibleComments])
   const triageGroups = React.useMemo(() => partitionPRCommentGroupsForTriage(groups), [groups])
@@ -2542,6 +2560,28 @@ export function PRCommentsList({
         </div>
         {comments.length > 0 && (
           <div className={presentation.audienceTabs}>
+            {getPrCommentScopeFilters().map((filter) => {
+              const isActive = effectiveScopeFilter === filter.value
+              return (
+                <button
+                  key={filter.value}
+                  type="button"
+                  className={cn(
+                    presentation.audienceTab,
+                    isActive && presentation.audienceTabActive
+                  )}
+                  aria-pressed={isActive}
+                  onClick={() => setScopeFilter(filter.value)}
+                >
+                  <span>{filter.label}</span>
+                  <span className="tabular-nums">{scopeCounts[filter.value]}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {comments.length > 0 && (
+          <div className={cn(presentation.audienceTabs, 'mt-1')}>
             {getPrCommentAudienceFilters().map((filter) => {
               const isActive = commentFilter === filter.value
               return (
@@ -2590,7 +2630,9 @@ export function PRCommentsList({
         )
       ) : visibleComments.length === 0 ? (
         <div className="flex items-center justify-center py-5 text-[11px] text-muted-foreground">
-          {getPRCommentAudienceEmptyLabel(commentFilter)}
+          {scopedComments.length === 0
+            ? getPRCommentScopeEmptyLabel(effectiveScopeFilter)
+            : getPRCommentAudienceEmptyLabel(commentFilter)}
         </div>
       ) : (
         <div className={presentation.list}>
