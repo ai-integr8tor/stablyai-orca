@@ -330,6 +330,15 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     // entirely. See agent-trust-presets.ts for the file layout.
     preflightTrust: 'copilot'
   },
+  bob: {
+    detectCmd: 'bob',
+    launchCmd: 'bob',
+    expectedProcess: 'bob',
+    // Why: Bob's `--prompt` and positional prompts are one-shot modes.
+    // `--prompt-interactive` executes the initial prompt and keeps the hosted
+    // shell alive for follow-up work.
+    promptInjectionMode: 'flag-prompt-interactive'
+  },
   grok: {
     detectCmd: 'grok',
     launchCmd: 'grok',
