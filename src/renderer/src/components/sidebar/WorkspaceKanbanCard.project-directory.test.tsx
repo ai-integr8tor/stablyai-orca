@@ -1,17 +1,17 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Repo, Worktree } from '../../../../shared/types'
+import type * as WorktreeCardModule from './WorktreeCard'
 import WorkspaceKanbanCard from './WorkspaceKanbanCard'
 import WorktreeCard from './WorktreeCard'
 
-vi.mock('./WorktreeCard', () => ({
-  default: vi.fn(() => null),
-  getDirectoryName: (folderPath: string): string => {
-    const normalized = folderPath.replace(/[\\/]+$/, '')
-    const parts = normalized.split(/[\\/]+/)
-    return parts.at(-1) || normalized || folderPath
+vi.mock('./WorktreeCard', async () => {
+  const actual = await vi.importActual<typeof WorktreeCardModule>('./WorktreeCard')
+  return {
+    ...actual,
+    default: vi.fn(() => null)
   }
-}))
+})
 
 function makeWorktree(): Worktree {
   return {

@@ -135,6 +135,8 @@ type WorktreeCardProps = {
 
 const EMPTY_WORKSPACE_PORTS = []
 const HOSTED_REVIEW_CARD_REFRESH_INTERVAL_MS = 60_000
+const SECONDARY_META_BADGE_CLASS_NAME =
+  'h-[16px] max-w-[7rem] shrink-0 rounded border border-border bg-accent px-1.5 text-[10px] font-medium leading-none text-muted-foreground dark:bg-accent/80 dark:border-border/50'
 
 export function shouldBeginWorktreeRename(
   request: WorktreeRenameRequest | null,
@@ -1652,17 +1654,14 @@ const WorktreeCard = React.memo(function WorktreeCard({
               )}
 
               {showHostContextBadge && (
-                <Badge
-                  variant="secondary"
-                  className="h-[16px] max-w-[7rem] shrink-0 rounded border border-border bg-accent px-1.5 text-[10px] font-medium leading-none text-muted-foreground dark:bg-accent/80 dark:border-border/50"
-                >
+                <Badge variant="secondary" className={SECONDARY_META_BADGE_CLASS_NAME}>
                   <span className="truncate">{hostContextLabel}</span>
                 </Badge>
               )}
               {showProjectDirectoryBadge && (
                 <Badge
                   variant="secondary"
-                  className="h-[16px] max-w-[7rem] shrink-0 rounded border border-border bg-accent px-1.5 text-[10px] font-medium leading-none text-muted-foreground dark:bg-accent/80 dark:border-border/50"
+                  className={SECONDARY_META_BADGE_CLASS_NAME}
                   aria-label={translate(
                     'auto.components.sidebar.WorktreeCard.projectFolderLabel',
                     'Project folder {{value0}}',
