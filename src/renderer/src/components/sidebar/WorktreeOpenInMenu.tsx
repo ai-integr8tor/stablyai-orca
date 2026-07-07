@@ -13,13 +13,14 @@ import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/loc
 import { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
 import { OpenInApplicationIcon } from '@/lib/open-in-app-catalog'
 import type { ShellOpenLocalPathFailureReason } from '../../../../shared/shell-open-types'
-import type { OpenInApplication } from '../../../../shared/types'
+import type { GlobalSettings, OpenInApplication, Worktree } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
 export { getLocalFileManagerLabel } from '@/lib/local-file-manager-label'
 
 type WorktreeOpenInMenuItemsProps = {
   worktreePath: string
+  worktreeId?: string
   connectionId?: string | null
   disabled?: boolean
   labelPrefix?: string
@@ -32,6 +33,8 @@ type OpenInMenuEntry = {
   command?: string
 }
 
+export const FILE_MANAGER_OPEN_IN_TARGET_ID = 'file-manager'
+
 export function getWorktreeOpenInEntries(
   openInApplications: OpenInApplication[],
   fileManagerLabel: string
@@ -43,8 +46,118 @@ export function getWorktreeOpenInEntries(
       target: 'external-editor' as const,
       command: application.command
     })),
-    { id: 'file-manager', label: fileManagerLabel, target: 'file-manager' }
+    { id: FILE_MANAGER_OPEN_IN_TARGET_ID, label: fileManagerLabel, target: 'file-manager' }
   ]
+}
+
+export function getLastOpenInTargetId(args: {
+  settings: Pick<GlobalSettings, 'lastOpenInTargetId' | 'lastOpenInTargetIdByWorktree'> | null
+  worktreeId?: string | null
+}): string | null {
+  const worktreeTargetId = args.worktreeId
+    ? args.settings?.lastOpenInTargetIdByWorktree?.[args.worktreeId]
+    : null
+  return worktreeTargetId ?? args.settings?.lastOpenInTargetId ?? null
+}
+
+export function getDefaultWorktreeOpenInEntry(args: {
+  entries: OpenInMenuEntry[]
+  settings: Pick<GlobalSettings, 'lastOpenInTargetId' | 'lastOpenInTargetIdByWorktree'> | null
+  worktreeId?: string | null
+}): OpenInMenuEntry | null {
+  const targetId = getLastOpenInTargetId({ settings: args.settings, worktreeId: args.worktreeId })
+  return (
+    (targetId ? args.entries.find((entry) => entry.id === targetId) : undefined) ??
+    args.entries.find((entry) => entry.target === 'external-editor') ??
+    args.entries.find((entry) => entry.target === 'file-manager') ??
+    null
+  )
+}
+
+export function getFocusedWorktreeId(target: EventTarget | null | undefined): string | null {
+  const maybeElement = target as { closest?: (selector: string) => Element | null } | null
+  const worktreeElement = maybeElement?.closest?.('[data-worktree-id]')
+  return worktreeElement?.getAttribute('data-worktree-id') ?? null
+}
+
+function rememberOpenInTarget(worktreeId: string | undefined, targetId: string | undefined): void {
+  if (!worktreeId || !targetId) {
+    return
+  }
+
+  const store = useAppStore.getState()
+  const currentByWorktree = store.settings?.lastOpenInTargetIdByWorktree ?? {}
+  void store.updateSettings({
+    lastOpenInTargetId: targetId,
+    lastOpenInTargetIdByWorktree: {
+      ...currentByWorktree,
+      [worktreeId]: targetId
+    }
+  })
+}
+
+function getWorktreeForOpenInShortcut(worktreeId: string | null): Worktree | null {
+  if (!worktreeId) {
+    return null
+  }
+  const store = useAppStore.getState()
+  const known = store.getKnownWorktreeById(worktreeId)
+  if (known && 'repoId' in known) {
+    return known as Worktree
+  }
+  return store.allWorktrees().find((worktree) => worktree.id === worktreeId) ?? null
+}
+
+function getConnectionIdForWorktree(worktree: Pick<Worktree, 'repoId'>): string | null {
+  const store = useAppStore.getState()
+  return store.repos.find((repo) => repo.id === worktree.repoId)?.connectionId ?? null
+}
+
+export async function openWorktreeInLastOpenInTarget(args: {
+  worktreeId: string
+  worktreePath: string
+  connectionId?: string | null
+}): Promise<void> {
+  const store = useAppStore.getState()
+  const entries = getWorktreeOpenInEntries(
+    store.settings?.openInApplications ?? [],
+    getLocalFileManagerLabel()
+  )
+  const entry = getDefaultWorktreeOpenInEntry({
+    entries,
+    settings: store.settings,
+    worktreeId: args.worktreeId
+  })
+  if (!entry) {
+    return
+  }
+
+  await openWorktreePath({
+    target: entry.target,
+    worktreePath: args.worktreePath,
+    connectionId: args.connectionId,
+    command: entry.command,
+    worktreeId: args.worktreeId,
+    openInTargetId: entry.id
+  })
+}
+
+export async function openFocusedWorktreeInLastOpenInTarget(
+  target: EventTarget | null | undefined
+): Promise<boolean> {
+  const store = useAppStore.getState()
+  const worktreeId = getFocusedWorktreeId(target) ?? store.activeWorktreeId
+  const worktree = getWorktreeForOpenInShortcut(worktreeId)
+  if (!worktree) {
+    return false
+  }
+
+  await openWorktreeInLastOpenInTarget({
+    worktreeId: worktree.id,
+    worktreePath: worktree.path,
+    connectionId: getConnectionIdForWorktree(worktree)
+  })
+  return true
 }
 
 function showOpenFailureToast(reason: ShellOpenLocalPathFailureReason): void {
@@ -105,7 +218,11 @@ export async function openWorktreePath(args: {
   worktreePath: string
   connectionId?: string | null
   command?: string
+  worktreeId?: string
+  openInTargetId?: string
 }): Promise<void> {
+  rememberOpenInTarget(args.worktreeId, args.openInTargetId)
+
   if (
     isLocalPathOpenBlocked(useAppStore.getState().settings, {
       connectionId: args.connectionId ?? null
@@ -141,6 +258,7 @@ function useOpenInWorktreePath({
 
 export function WorktreeOpenInMenuItems({
   worktreePath,
+  worktreeId,
   connectionId,
   disabled,
   labelPrefix = ''
@@ -157,6 +275,7 @@ export function WorktreeOpenInMenuItems({
           key={entry.id}
           onClick={stopMenuPropagation}
           onSelect={() => {
+            rememberOpenInTarget(worktreeId, entry.id)
             void openInWorktreePath(entry.target, entry.command)
           }}
           disabled={disabled}
@@ -178,6 +297,7 @@ export function WorktreeOpenInMenuItems({
 
 export function WorktreeOpenInSubMenu({
   worktreePath,
+  worktreeId,
   connectionId,
   disabled
 }: WorktreeOpenInMenuItemsProps): React.JSX.Element {
@@ -194,6 +314,7 @@ export function WorktreeOpenInSubMenu({
       >
         <WorktreeOpenInMenuItems
           worktreePath={worktreePath}
+          worktreeId={worktreeId}
           connectionId={connectionId}
           disabled={disabled}
         />

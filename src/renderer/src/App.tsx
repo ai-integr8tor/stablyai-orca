@@ -77,6 +77,7 @@ import {
 import { createFloatingWorkspaceTourInteractionSnapshot } from '@/lib/floating-workspace-tour-interaction-snapshot'
 import { requestScrollToCurrentWorkspaceRevealAndRename } from '@/lib/scroll-to-current-workspace-status'
 import { OPEN_WORKSPACE_BOARD_EVENT } from './components/sidebar/useWorkspaceBoardPanel'
+import { openFocusedWorktreeInLastOpenInTarget } from './components/sidebar/WorktreeOpenInMenu'
 import { WorkspacePortScanner } from './components/ports/WorkspacePortScanner'
 import { CrashReportDialog } from './components/crash-report/CrashReportDialog'
 import NewWorkspaceComposerModal from './components/NewWorkspaceComposerModal'
@@ -1768,6 +1769,13 @@ function App(): React.JSX.Element {
         const store = useAppStore.getState()
         store.setSidebarOpen(true)
         window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+        return
+      }
+
+      if (matchShortcut('workspace.openInLastApp') && activeView !== 'settings') {
+        input.preventDefault()
+        notifyTerminalCapture('workspace.openInLastApp')
+        void openFocusedWorktreeInLastOpenInTarget(input.target)
         return
       }
 

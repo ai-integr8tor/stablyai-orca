@@ -69,10 +69,14 @@ export function SourceControlEntryContextMenu({
         target,
         worktreePath: absolutePath,
         connectionId,
-        command
+        command,
+        worktreeId: currentWorktreeId,
+        openInTargetId: openInEntries.find(
+          (entry) => entry.target === target && entry.command === command
+        )?.id
       })
     },
-    [absolutePath, connectionId]
+    [absolutePath, connectionId, currentWorktreeId, openInEntries]
   )
 
   return (

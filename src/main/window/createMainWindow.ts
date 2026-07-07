@@ -777,6 +777,9 @@ export function createMainWindow(
       case 'openWorkspaceBoard':
         mainWindow.webContents.send('ui:openWorkspaceBoard')
         return
+      case 'openWorkspaceInLastApp':
+        mainWindow.webContents.send('ui:openWorkspaceInLastApp')
+        return
       case 'openTasks':
         mainWindow.webContents.send('ui:openTasks')
         return

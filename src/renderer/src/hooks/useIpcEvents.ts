@@ -10,6 +10,7 @@ import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { OPEN_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
+import { openFocusedWorktreeInLastOpenInTarget } from '@/components/sidebar/WorktreeOpenInMenu'
 import {
   BACKGROUND_MOUNT_TERMINAL_WORKTREE_EVENT,
   SPLIT_TERMINAL_PANE_EVENT,
@@ -1270,6 +1271,18 @@ export function useIpcEvents(): void {
           }
           store.setSidebarOpen(true)
           window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+        })
+      )
+    }
+
+    if (window.api.ui.onOpenWorkspaceInLastApp) {
+      unsubs.push(
+        window.api.ui.onOpenWorkspaceInLastApp(() => {
+          const store = useAppStore.getState()
+          if (store.activeView === 'settings') {
+            return
+          }
+          void openFocusedWorktreeInLastOpenInTarget(document.activeElement)
         })
       )
     }
