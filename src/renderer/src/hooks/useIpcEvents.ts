@@ -92,6 +92,7 @@ import { collectLeafIdsInOrder } from '@/components/terminal-pane/layout-seriali
 import { track } from '@/lib/telemetry'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { buildWorkspaceSessionPayload } from '@/lib/workspace-session'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import type { RuntimeClientEvent } from '../../../shared/runtime-client-events'
 import type { AppState } from '../store/types'
@@ -1282,7 +1283,11 @@ export function useIpcEvents(): void {
           if (store.activeView === 'settings') {
             return
           }
-          void openFocusedWorktreeInLastOpenInTarget(document.activeElement)
+          void openFocusedWorktreeInLastOpenInTarget(document.activeElement, {
+            fallbackWorktreeId: isFloatingWorkspacePanelFocused()
+              ? FLOATING_TERMINAL_WORKTREE_ID
+              : undefined
+          })
         })
       )
     }

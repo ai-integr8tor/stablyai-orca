@@ -143,10 +143,12 @@ export async function openWorktreeInLastOpenInTarget(args: {
 }
 
 export async function openFocusedWorktreeInLastOpenInTarget(
-  target: EventTarget | null | undefined
+  target: EventTarget | null | undefined,
+  options: { fallbackWorktreeId?: string | null } = {}
 ): Promise<boolean> {
   const store = useAppStore.getState()
-  const worktreeId = getFocusedWorktreeId(target) ?? store.activeWorktreeId
+  const worktreeId =
+    getFocusedWorktreeId(target) ?? options.fallbackWorktreeId ?? store.activeWorktreeId
   const worktree = getWorktreeForOpenInShortcut(worktreeId)
   if (!worktree) {
     return false

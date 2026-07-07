@@ -1842,6 +1842,20 @@ function pruneLastOpenInTargetsForWorktrees(
   return changed ? { ...settings, lastOpenInTargetIdByWorktree: nextByWorktree } : settings
 }
 
+function persistPrunedLastOpenInTargetsForWorktrees(
+  getState: () => AppState,
+  settingsBeforePrune: GlobalSettings | null,
+  worktreeIds: Iterable<string>
+): void {
+  const prunedSettings = pruneLastOpenInTargetsForWorktrees(settingsBeforePrune, worktreeIds)
+  if (prunedSettings === settingsBeforePrune) {
+    return
+  }
+  void getState().updateSettings({
+    lastOpenInTargetIdByWorktree: prunedSettings?.lastOpenInTargetIdByWorktree ?? {}
+  })
+}
+
 function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<AppState> {
   const worktreeIdSet = new Set(worktreeIds)
   pruneHostedReviewLinkMutationGenerations(worktreeIdSet)
@@ -2263,6 +2277,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         worktreeMatchesHost(worktree, hostId, currentMatchOptions)
       )
       if (areWorktreesEqual(currentForHost, worktrees)) {
+        const settingsBeforePrune = get().settings
+        const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+          get(),
+          repoId,
+          detected,
+          hostId
+        )
         set((s) => {
           const matchOptions = worktreeHostMatchOptions(s, repoId, hostId)
           const removedIds = getRemovedWorktreeIdsAfterAuthoritativeScan(
@@ -2305,6 +2326,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
           }
         })
+        persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
         await refreshRemoteWorktreeLineageBestEffort(settings, set)
         return detected.authoritative
       }
@@ -2332,6 +2354,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         return false
       }
 
+      const settingsBeforePrune = get().settings
+      const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+        get(),
+        repoId,
+        detected,
+        hostId
+      )
       set((s) => {
         // Why: hidden worktrees are not in worktreesByRepo. Purge decisions
         // must diff against the previous authoritative detected list so hiding
@@ -2362,6 +2391,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
         }
       })
+      persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
       await refreshRemoteWorktreeLineageBestEffort(settings, set)
       return detected.authoritative
     } catch (err) {
@@ -2390,6 +2420,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         const worktrees = sanitizeHostedReviewLinksForBranchClears(
           toVisibleWorktrees(detected, hostId, setup),
           get().worktreesByRepo[r.id]
+        )
+        const settingsBeforePrune = get().settings
+        const removedIdsForSettings = getRemovedWorktreeIdsAfterAuthoritativeScan(
+          get(),
+          r.id,
+          detected,
+          hostId
         )
         set((s) => {
           const matchOptions = worktreeHostMatchOptions(s, r.id, hostId)
@@ -2421,6 +2458,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
           }
         })
+        persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, removedIdsForSettings)
       })
       return
     }
@@ -4670,7 +4708,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     if (purgeableWorktreeIds.length === 0) {
       return
     }
+    const settingsBeforePrune = get().settings
     set((s) => buildWorktreePurgeState(s, purgeableWorktreeIds))
+    persistPrunedLastOpenInTargetsForWorktrees(get, settingsBeforePrune, purgeableWorktreeIds)
   },
 
   migrateWorktreeIdentity: (oldWorktreeId: string, newWorktreeId: string) => {

@@ -145,6 +145,7 @@ import { selectFloatingVisibleTabCount } from './store/selectors'
 import { selectActiveTerminalChromeState } from './store/active-terminal-chrome-selector'
 import type { VirtualizedScrollAnchor } from './hooks/useVirtualizedScrollAnchor'
 import type { RemoteWorkspacePatchResult } from '../../shared/remote-workspace-types'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../shared/constants'
 import type { OnboardingState, UpdateStatus } from '../../shared/types'
 import {
   getFeatureTipsAppOpenDecision,
@@ -1775,7 +1776,9 @@ function App(): React.JSX.Element {
       if (matchShortcut('workspace.openInLastApp') && activeView !== 'settings') {
         input.preventDefault()
         notifyTerminalCapture('workspace.openInLastApp')
-        void openFocusedWorktreeInLastOpenInTarget(input.target)
+        void openFocusedWorktreeInLastOpenInTarget(input.target, {
+          fallbackWorktreeId: floatingWorkspaceFocused ? FLOATING_TERMINAL_WORKTREE_ID : undefined
+        })
         return
       }
 

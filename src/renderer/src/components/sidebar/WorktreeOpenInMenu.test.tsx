@@ -260,6 +260,23 @@ describe('WorktreeOpenInMenu', () => {
     expect(getFocusedWorktreeId(target as unknown as EventTarget)).toBe('wt-focused')
   })
 
+  it('does not fall back to the active workspace when an explicit fallback id is unknown', async () => {
+    mockState.settings = {
+      activeRuntimeEnvironmentId: null,
+      openInApplications: [{ id: 'zed', label: 'Zed', command: 'zed' }]
+    }
+    mockState.activeWorktreeId = 'wt-1'
+    mockState.repos = [{ id: 'repo-1', connectionId: null }]
+    mockState.worktrees = [{ id: 'wt-1', repoId: 'repo-1', path: '/tmp/workspace' }]
+
+    const opened = await openFocusedWorktreeInLastOpenInTarget(null, {
+      fallbackWorktreeId: 'global-floating-terminal'
+    })
+
+    expect(opened).toBe(false)
+    expect(openInExternalEditorMock).not.toHaveBeenCalled()
+  })
+
   it('opens settings at the Open In Apps section', () => {
     openOpenInAppsSettings()
 
