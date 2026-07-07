@@ -67,8 +67,9 @@ __orca_omp_has_session_selector() {
 }
 
 __orca_omp() {
+  local __orca_subcommand="\${1:-}"
   local __orca_use_extension=1
-  __orca_omp_should_skip_extension "\${1:-}" && __orca_use_extension=0
+  __orca_omp_should_skip_extension "$__orca_subcommand" && __orca_use_extension=0
   if [[ "\${${ORCA_OMP_FORCE_NEW_SESSION_ENV}:-}" == "1" ]]; then
     unset ${ORCA_OMP_FORCE_NEW_SESSION_ENV}
     if [[ $__orca_use_extension -eq 1 ]] && ! __orca_omp_has_session_selector "$@"; then
@@ -77,7 +78,12 @@ __orca_omp() {
         local __orca_agent_dir="\${ORCA_OMP_SOURCE_AGENT_DIR:-\${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}}"
         __orca_session_dir="$__orca_agent_dir/sessions"
       fi
-      set -- --session-dir "$__orca_session_dir" "$@"
+      if [[ "$__orca_subcommand" == "launch" ]]; then
+        shift
+        set -- launch --session-dir "$__orca_session_dir" "$@"
+      else
+        set -- --session-dir "$__orca_session_dir" "$@"
+      fi
     fi
   fi
   if [[ $__orca_use_extension -eq 1 && -n "\${ORCA_OMP_STATUS_EXTENSION:-}" && -f "\${ORCA_OMP_STATUS_EXTENSION}" ]]; then
@@ -123,7 +129,8 @@ function Global:__OrcaOmpHasSessionSelector {
 
 if ($env:ORCA_OMP_STATUS_EXTENSION) {
     function Global:omp {
-        $orcaUseExtension = -not (__OrcaOmpShouldSkipExtension -Name ([string]($args[0])))
+        $orcaSubcommand = [string]($args[0])
+        $orcaUseExtension = -not (__OrcaOmpShouldSkipExtension -Name $orcaSubcommand)
         $orcaStatus = 0
         $orcaArgs = @($args)
         if ($env:${ORCA_OMP_FORCE_NEW_SESSION_ENV} -eq "1") {
@@ -140,7 +147,11 @@ if ($env:ORCA_OMP_STATUS_EXTENSION) {
                     }
                     $orcaSessionDir = Join-Path $orcaAgentDir "sessions"
                 }
-                $orcaArgs = @("--session-dir", $orcaSessionDir) + $orcaArgs
+                if ($orcaSubcommand -eq "launch") {
+                    $orcaArgs = @("launch", "--session-dir", $orcaSessionDir) + @($orcaArgs | Select-Object -Skip 1)
+                } else {
+                    $orcaArgs = @("--session-dir", $orcaSessionDir) + $orcaArgs
+                }
             }
         }
         $orcaCommand = Get-Command omp -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1

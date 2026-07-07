@@ -2177,6 +2177,7 @@ export function registerPtyHandlers(
           networkProxySettings: getSettings?.()
         })
         promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
+        applyOmpFreshSessionDirEnv(env, { worktreeId: args.worktreeId, cwd })
       }
 
       const authEnvToDelete = claudeAuth?.stripAuthEnv
@@ -2913,7 +2914,7 @@ export function registerPtyHandlers(
             networkProxySettings: getSettings?.()
           })
           promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
-          applyOmpFreshSessionDirEnv(env, { worktreeId: args.worktreeId, cwd: args.cwd })
+          applyOmpFreshSessionDirEnv(env, { worktreeId: args.worktreeId, cwd })
         } catch (err) {
           // Why: buildPtyHostEnv has filesystem side-effects (Pi/OMP managed
           // extension installation). If it throws before we reach provider.spawn,

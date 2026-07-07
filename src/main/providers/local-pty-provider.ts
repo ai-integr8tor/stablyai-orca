@@ -532,7 +532,7 @@ export class LocalPtyProvider implements IPtyProvider {
     if (args.env?.TERM) {
       finalEnv.TERM = args.env.TERM
     }
-    applyOmpFreshSessionDirEnv(finalEnv, { worktreeId: args.worktreeId, cwd: args.cwd })
+    applyOmpFreshSessionDirEnv(finalEnv, { worktreeId: args.worktreeId, cwd })
     if (process.platform === 'win32') {
       const codexHomeWslInfo = finalEnv.CODEX_HOME ? parseWslPath(finalEnv.CODEX_HOME) : null
       if (pathWin32.basename(shellPath).toLowerCase() === 'wsl.exe') {

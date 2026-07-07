@@ -232,6 +232,52 @@ exit 0
     }
   )
 
+  itWithBash('preserves omp launch dispatch when forcing a fresh session directory', async () => {
+    const tempDir = makeTempDir()
+    const binDir = join(tempDir, 'bin')
+    const sourceDir = join(tempDir, 'source-omp-agent')
+    const freshSessionDir = join(tempDir, 'fresh-omp-sessions')
+    const extensionDir = join(sourceDir, 'extensions')
+    mkdirSync(binDir)
+    mkdirSync(extensionDir, { recursive: true })
+    const statusExtension = join(extensionDir, 'orca-agent-status.ts')
+    writeFileSync(statusExtension, 'export default {}')
+    writeFakeOmp(binDir)
+
+    const captureFile = join(tempDir, 'fresh-launch-capture')
+    await runInteractiveBashPty({
+      cwd: tempDir,
+      rcfileContent: getPosixOmpShellWrapper(),
+      env: {
+        ...process.env,
+        HOME: tempDir,
+        PATH: `${binDir}:${process.env.PATH ?? ''}`,
+        PI_CODING_AGENT_DIR: '',
+        ORCA_PI_CODING_AGENT_DIR: '',
+        ORCA_OMP_CODING_AGENT_DIR: '',
+        ORCA_OMP_SOURCE_AGENT_DIR: sourceDir,
+        ORCA_OMP_STATUS_EXTENSION: statusExtension,
+        ORCA_FAKE_OMP_DEFAULT_DIR: sourceDir,
+        ORCA_CAPTURE_FILE: captureFile,
+        [ORCA_OMP_FORCE_NEW_SESSION_ENV]: '1',
+        [ORCA_OMP_FRESH_SESSION_DIR_ENV]: freshSessionDir,
+        TERM: process.env.TERM || 'xterm-256color'
+      },
+      input: `omp launch codex
+exit 0
+`
+    })
+
+    expect(readCapturedArgs(captureFile)).toEqual([
+      'launch',
+      '--extension',
+      statusExtension,
+      '--session-dir',
+      freshSessionDir,
+      'codex'
+    ])
+  })
+
   itWithBash.each([
     {
       name: '--resume',

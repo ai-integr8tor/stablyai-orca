@@ -43,6 +43,24 @@ describe('applyOmpFreshSessionDirEnv', () => {
     )
   })
 
+  it('keeps omitted scope in the explicit unknown-worktree fallback bucket', () => {
+    const sourceAgentDir = join(tmpdir(), 'orca-omp-source-agent')
+    const firstEnv = {
+      ORCA_OMP_SOURCE_AGENT_DIR: sourceAgentDir,
+      [ORCA_OMP_FORCE_NEW_SESSION_ENV]: '1'
+    }
+    const secondEnv = {
+      ORCA_OMP_SOURCE_AGENT_DIR: sourceAgentDir,
+      [ORCA_OMP_FORCE_NEW_SESSION_ENV]: '1'
+    }
+
+    applyOmpFreshSessionDirEnv(firstEnv, {})
+    applyOmpFreshSessionDirEnv(secondEnv, { worktreeId: '', cwd: '' })
+
+    expect(firstEnv[ORCA_OMP_FRESH_SESSION_DIR_ENV]).toBe(secondEnv[ORCA_OMP_FRESH_SESSION_DIR_ENV])
+    expect(firstEnv[ORCA_OMP_FRESH_SESSION_DIR_ENV]?.split(sep).at(-1)).toMatch(/^[0-9a-f]{16}$/)
+  })
+
   it('keeps an explicit fresh session directory instead of replacing it', () => {
     const explicitFreshSessionDir = join(tmpdir(), 'explicit-omp-sessions')
     const env = {
