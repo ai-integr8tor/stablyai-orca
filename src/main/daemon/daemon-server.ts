@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { writeFileSync, chmodSync, unlinkSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
+import { timingSafeTokenCompare } from '../../shared/timing-safe-token-compare'
 import { encodeNdjson, createNdjsonParser } from './ndjson'
 import { TerminalHost } from './terminal-host'
 import { DaemonStreamDataBatcher } from './daemon-stream-data-batcher'
@@ -150,7 +151,7 @@ export class DaemonServer {
       return
     }
 
-    if (hello.token !== this.token) {
+    if (!timingSafeTokenCompare(this.token, String(hello.token ?? ''))) {
       socket.write(encodeNdjson({ type: 'hello', ok: false, error: 'Invalid token' }))
       socket.destroy()
       return
