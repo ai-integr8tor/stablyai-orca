@@ -76,6 +76,21 @@ describe('resolveLeftSidebarStyleVariables', () => {
     })
   })
 
+  it('clamps out-of-range active-workspace contrast before resolving variables', () => {
+    const highVars = resolveLeftSidebarStyleVariables(
+      settings({ activeWorkspaceContrast: 99 }),
+      true
+    )
+    const lowVars = resolveLeftSidebarStyleVariables(settings({ activeWorkspaceContrast: 0 }), true)
+
+    expect(highVars).toEqual({
+      '--worktree-card-active-bg-mix': '26%',
+      '--worktree-card-active-dark-bg-mix': '19%',
+      '--worktree-card-active-border-mix': '78%'
+    })
+    expect(lowVars).toBeUndefined()
+  })
+
   it('matches terminal background, foreground, and scoped text tokens', () => {
     const vars = resolveLeftSidebarStyleVariables(
       settings({
