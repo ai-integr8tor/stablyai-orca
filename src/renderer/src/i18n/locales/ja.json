@@ -29,6 +29,11 @@
         "sshToggleDescription": "設定済み SSH ホストとリモート Orca ホストがある場合に表示します。",
         "resourceUsageToggleDescription": "リソースマネージャーを表示します。これをクリックすると、CPU、メモリ、セッション、デーモン コントロール、およびワークスペース ディスク スキャンが行われます。",
         "portsToggleDescription": "ライブワークスペースポートを表示します。ワークスペーススコープのポートと外部リスナーの場合はこれをクリックします。"
+      },
+      "customUiTheme": {
+        "title": "カスタムUIテーマ",
+        "description": "ライト/ダークプリセット以外のシェルテーマをカスタマイズする",
+        "activeLabel": "有効なテーマ"
       }
     }
   },
@@ -8780,6 +8785,17 @@
           "reviewFirst": "Review first",
           "singular": "Global saves won't change 1 repository with its own recipe.",
           "tooltipTitle": "Repository overrides"
+        },
+        "AppearanceInterfaceSection": {
+          "defaultTheme": "デフォルト",
+          "customThemesList": "カスタムテーマ",
+          "deleteTheme": "テーマを削除",
+          "importTheme": "テーマのインポート",
+          "themeNamePlaceholder": "テーマ名 (例: Claude)",
+          "fallbackThemeName": "カスタムテーマ",
+          "importErrorDescription": "変数を解析できませんでした。:root または .dark ブロックが含まれているか、ShadcnテーマJSONと一致していることを確認してください。",
+          "importButton": "インポート",
+          "textareaPlaceholder": "CSSテーマコード（Tweakcnの出力）またはShadcnテーマのJSONを貼り付けてください..."
         }
       },
       "right": {

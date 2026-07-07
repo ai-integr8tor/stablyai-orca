@@ -29,6 +29,11 @@
         "sshToggleDescription": "当有可用的 SSH 和远程 Orca 主机时显示它们。",
         "resourceUsageToggleDescription": "显示资源管理器。点击可查看 CPU、内存、会话、守护进程控制和工作区磁盘扫描。",
         "portsToggleDescription": "显示实时工作区端口。单击它可获取工作区范围的端口和外部侦听器。"
+      },
+      "customUiTheme": {
+        "title": "自定义 UI 主题",
+        "description": "在浅色/深色预设之外自定义外壳主题",
+        "activeLabel": "活动主题"
       }
     }
   },
@@ -8780,6 +8785,17 @@
           "reviewFirst": "Review first",
           "singular": "Global saves won't change 1 repository with its own recipe.",
           "tooltipTitle": "Repository overrides"
+        },
+        "AppearanceInterfaceSection": {
+          "defaultTheme": "默认",
+          "customThemesList": "自定义主题",
+          "deleteTheme": "删除主题",
+          "importTheme": "导入主题",
+          "themeNamePlaceholder": "主题名称 (例如 Claude)",
+          "fallbackThemeName": "自定义主题",
+          "importErrorDescription": "无法解析任何变量。请确保其包含 :root 或 .dark 块，或与 Shadcn 主题 JSON 匹配。",
+          "importButton": "导入",
+          "textareaPlaceholder": "粘贴 CSS 主题代码 (Tweakcn 输出) 或 Shadcn 主题 JSON..."
         }
       },
       "right": {

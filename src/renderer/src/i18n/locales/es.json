@@ -29,6 +29,11 @@
         "sshToggleDescription": "Muestra hosts SSH configurados y hosts remotos de Orca cuando haya alguno disponible.",
         "resourceUsageToggleDescription": "Muestra el Administrador de recursos. Haz clic para ver CPU, memoria, sesiones, controles del servicio en segundo plano y análisis de disco de los espacios de trabajo.",
         "portsToggleDescription": "Muestra los puertos activos de los espacios de trabajo. Haz clic para ver los puertos de cada espacio de trabajo y los puertos externos."
+      },
+      "customUiTheme": {
+        "title": "Tema de interfaz personalizada",
+        "description": "Personaliza el tema del shell más allá de los ajustes preestablecidos claros y oscuros",
+        "activeLabel": "Tema activo"
       }
     }
   },
@@ -8780,6 +8785,17 @@
           "reviewFirst": "Revisar primero",
           "singular": "Los guardados globales no cambiarán 1 repositorio con su propia receta.",
           "tooltipTitle": "Anulaciones del repositorio"
+        },
+        "AppearanceInterfaceSection": {
+          "defaultTheme": "Predeterminado",
+          "customThemesList": "Temas personalizados",
+          "deleteTheme": "Eliminar tema",
+          "importTheme": "Importar tema",
+          "themeNamePlaceholder": "Nombre del tema (ej. Claude)",
+          "fallbackThemeName": "Tema personalizado",
+          "importErrorDescription": "No se pudieron analizar las variables. Asegúrate de que tenga bloques :root o .dark, o coincida con el JSON de tema de Shadcn.",
+          "importButton": "Importar",
+          "textareaPlaceholder": "Pega el código de tema CSS (salida de Tweakcn) o el JSON de tema de Shadcn..."
         }
       },
       "right": {

@@ -128,6 +128,10 @@ import {
 } from './startup/startup-diagnostics'
 import { shouldRenderPetOverlay } from './components/pet/pet-overlay-visibility'
 import { applyDocumentTheme } from './lib/document-theme'
+import {
+  applyCustomUiThemeVariables,
+  clearCustomUiThemeVariables
+} from '../../shared/custom-ui-themes'
 import { isEditableTarget } from './lib/editable-target'
 import { getSelectedTextForFileSearch } from './lib/file-search-selection'
 import { useShortcutLabel } from './hooks/useShortcutLabel'
@@ -1421,16 +1425,33 @@ function App(): React.JSX.Element {
     acknowledgedAgentsByPaneKey
   ])
 
+  const settingsTheme = settings?.theme
+  const activeUiTheme = settings?.activeUiTheme
+  const customUiThemes = settings?.customUiThemes
+
   // Apply theme to document
   useEffect(() => {
-    if (!settings) {
-      return
+    if (!settingsTheme) {
+      return undefined
     }
 
-    if (settings.theme === 'dark') {
+    if (activeUiTheme && activeUiTheme !== 'default' && customUiThemes) {
+      const theme = customUiThemes.find((t) => t.id === activeUiTheme)
+      if (theme) {
+        applyCustomUiThemeVariables(theme, document.documentElement)
+        document.documentElement.classList.add('custom-ui-theme-active')
+        applyDocumentTheme(theme.mode === 'dark' ? 'dark' : 'light')
+        return undefined
+      }
+    }
+
+    // Default/Fallback theme
+    clearCustomUiThemeVariables(document.documentElement)
+    document.documentElement.classList.remove('custom-ui-theme-active')
+    if (settingsTheme === 'dark') {
       applyDocumentTheme('dark')
       return undefined
-    } else if (settings.theme === 'light') {
+    } else if (settingsTheme === 'light') {
       applyDocumentTheme('light')
       return undefined
     } else {
@@ -1446,7 +1467,7 @@ function App(): React.JSX.Element {
       mq.addEventListener('change', handler)
       return () => mq.removeEventListener('change', handler)
     }
-  }, [settings])
+  }, [settingsTheme, activeUiTheme, customUiThemes])
 
   useEffect(() => {
     document.documentElement.style.setProperty(
