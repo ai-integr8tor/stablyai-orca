@@ -17,6 +17,10 @@ import type { LocalGitExecOptions, OwnerRepo } from './gh-utils'
 // prettier-ignore
 import { ghExecFileAsync, acquire, release, getIssueOwnerRepo, resolveIssueSource, classifyGhError, classifyListIssuesError, ghRepoExecOptions, githubRepoContext } from './gh-utils'
 
+const GITHUB_CREATE_ISSUE_BODY_MAX_LENGTH = 65_536
+const CREATE_THEN_PATCH_BODY_PLACEHOLDER =
+  'Orca is creating this issue, then updating the description because the body exceeds GitHub create limits.'
+
 // Why: distinguishes a successful-empty listing from a failed fetch. The
 // previous `catch { return [] }` conflated a 403 on a private upstream with an
 // empty backlog. Callers decide how to surface `error`.
@@ -188,7 +192,9 @@ export async function createIssue(
       '--raw-field',
       `title=${trimmedTitle}`,
       '--raw-field',
-      `body=${body}`
+      // Why: GitHub rejects oversized bodies on issue creation but accepts
+      // the same body via issue update, so create first and patch below.
+      `body=${shouldPatchBodyAfterCreate(body) ? CREATE_THEN_PATCH_BODY_PLACEHOLDER : body}`
     ]
     for (const label of fields?.labels ?? []) {
       args.push('--raw-field', `labels[]=${label}`)
@@ -202,6 +208,29 @@ export async function createIssue(
     if (typeof data.number !== 'number') {
       return { ok: false, error: 'Unexpected response from GitHub' }
     }
+    if (shouldPatchBodyAfterCreate(body)) {
+      const issueUrl = String(data.html_url ?? data.url ?? '')
+      try {
+        await ghExecFileAsync(
+          [
+            'api',
+            '-X',
+            'PATCH',
+            `repos/${ownerRepo.owner}/${ownerRepo.repo}/issues/${data.number}`,
+            '--raw-field',
+            `body=${body}`
+          ],
+          ghOptions
+        )
+      } catch (patchErr) {
+        const patchMessage = patchErr instanceof Error ? patchErr.message : String(patchErr)
+        const issueTarget = issueUrl ? ` #${data.number} (${issueUrl})` : ` #${data.number}`
+        return {
+          ok: false,
+          error: `Created issue${issueTarget}, but failed to save the full description: ${patchMessage}`
+        }
+      }
+    }
     return {
       ok: true,
       number: data.number,
@@ -213,6 +242,10 @@ export async function createIssue(
   } finally {
     release()
   }
+}
+
+function shouldPatchBodyAfterCreate(body: string): boolean {
+  return body.length > GITHUB_CREATE_ISSUE_BODY_MAX_LENGTH
 }
 
 /**

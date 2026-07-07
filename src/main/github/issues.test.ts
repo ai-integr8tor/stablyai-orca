@@ -239,6 +239,63 @@ describe('issue source operations', () => {
     )
   })
 
+  it('creates then patches issues when body exceeds GitHub create limits', async () => {
+    const largeBody = 'A'.repeat(65_537)
+    getIssueOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
+    ghExecFileAsyncMock
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          number: 926,
+          html_url: 'https://github.com/stablyai/orca/issues/926'
+        })
+      })
+      .mockResolvedValueOnce({ stdout: '' })
+
+    await expect(createIssue('/repo-root', 'New issue', largeBody)).resolves.toEqual({
+      ok: true,
+      number: 926,
+      url: 'https://github.com/stablyai/orca/issues/926'
+    })
+    expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
+      1,
+      [
+        'api',
+        '-X',
+        'POST',
+        'repos/stablyai/orca/issues',
+        '--raw-field',
+        'title=New issue',
+        '--raw-field',
+        'body=Orca is creating this issue, then updating the description because the body exceeds GitHub create limits.'
+      ],
+      { cwd: '/repo-root' }
+    )
+    expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
+      2,
+      ['api', '-X', 'PATCH', 'repos/stablyai/orca/issues/926', '--raw-field', `body=${largeBody}`],
+      { cwd: '/repo-root' }
+    )
+  })
+
+  it('reports the created issue when patching a large create body fails', async () => {
+    const largeBody = 'A'.repeat(65_537)
+    getIssueOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
+    ghExecFileAsyncMock
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          number: 927,
+          html_url: 'https://github.com/stablyai/orca/issues/927'
+        })
+      })
+      .mockRejectedValueOnce(new Error('HTTP 500: update failed'))
+
+    await expect(createIssue('/repo-root', 'New issue', largeBody)).resolves.toEqual({
+      ok: false,
+      error:
+        'Created issue #927 (https://github.com/stablyai/orca/issues/927), but failed to save the full description: HTTP 500: update failed'
+    })
+  })
+
   it('updates issue body through the REST issue endpoint', async () => {
     getIssueOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
     ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' })
