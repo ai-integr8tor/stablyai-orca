@@ -5593,7 +5593,7 @@ function GHEditSection({
     })
   )
   const repoOwnerSettings = useAppStore(
-    useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repoId ?? item.repoId ?? null))
   )
   const sourceSettings = useMemo(
     () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
