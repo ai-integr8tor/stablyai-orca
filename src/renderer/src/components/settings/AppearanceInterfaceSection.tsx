@@ -1,7 +1,8 @@
+import { useRef, useState } from 'react'
 import type React from 'react'
 
 import type { GlobalSettings } from '../../../../shared/types'
-import { parseCssTheme, parseJsonTheme } from '../../../../shared/custom-ui-themes'
+import { parseTheme } from '../../../../shared/custom-ui-themes'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Input } from '../ui/input'
 import { Trash2 } from 'lucide-react'
@@ -52,6 +53,9 @@ export function AppearanceInterfaceSection({
   isDesktopWindows,
   forceVisiblePrimary = false
 }: AppearanceInterfaceSectionProps): React.JSX.Element {
+  const nameRef = useRef<HTMLInputElement>(null)
+  const cssRef = useRef<HTMLTextAreaElement>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const searchQuery = useAppStore((state) => state.settingsSearchQuery)
   const isSearching = normalizeSettingsSearchQuery(searchQuery).length > 0
   const zoomInKeyCombos = useShortcutKeyComboDetails('zoom.in')
@@ -109,7 +113,10 @@ export function AppearanceInterfaceSection({
 
       <SearchableSetting
         title={translate('settings.appearance.customUiTheme.title', 'Custom UI Theme')}
-        description={translate('settings.appearance.customUiTheme.description', 'Customize the shell theme beyond light/dark presets')}
+        description={translate(
+          'settings.appearance.customUiTheme.description',
+          'Customize the shell theme beyond light/dark presets'
+        )}
         keywords={['custom', 'theme', 'color', 'tweakcn', 'shadcn', 'import']}
         forceVisible={forceVisiblePrimary}
       >
@@ -137,7 +144,9 @@ export function AppearanceInterfaceSection({
                         onClick={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
-                          const remaining = (settings.customUiThemes || []).filter((theme) => theme.id !== t.id)
+                          const remaining = (settings.customUiThemes || []).filter(
+                            (theme) => theme.id !== t.id
+                          )
                           const activeIsDeleted = settings.activeUiTheme === t.id
                           updateSettings({
                             activeUiTheme: activeIsDeleted ? 'default' : settings.activeUiTheme,
@@ -161,29 +170,28 @@ export function AppearanceInterfaceSection({
             <h4 className="text-xs font-semibold">Import Theme</h4>
             <div className="flex gap-2">
               <Input
+                ref={nameRef}
                 type="text"
                 placeholder="Theme Name (e.g. Claude)"
-                id="custom-theme-name-input"
                 className="flex-1 h-8 text-xs bg-transparent dark:bg-input/30"
               />
               <button
                 type="button"
                 onClick={() => {
-                  const nameInput = document.getElementById('custom-theme-name-input') as HTMLInputElement | null
-                  const areaInput = document.getElementById('custom-theme-css-input') as HTMLTextAreaElement | null
-                  const name = nameInput?.value?.trim() || 'Custom Theme'
-                  const content = areaInput?.value?.trim() || ''
+                  const name = nameRef.current?.value?.trim() || 'Custom Theme'
+                  const content = cssRef.current?.value?.trim() || ''
 
                   if (!content) {
                     return
                   }
 
-                  const importedThemes = content.startsWith('{')
-                    ? parseJsonTheme(content)
-                    : parseCssTheme(name, content)
+                  setImportError(null)
+                  const importedThemes = parseTheme(name, content)
 
                   if (importedThemes.length === 0) {
-                    alert('Could not parse any variables. Make sure it has :root or .dark blocks, or matches Shadcn theme JSON.')
+                    setImportError(
+                      'Could not parse any variables. Make sure it has :root or .dark blocks, or matches Shadcn theme JSON.'
+                    )
                     return
                   }
 
@@ -197,8 +205,8 @@ export function AppearanceInterfaceSection({
                     settings.theme === 'dark' ||
                     (settings.theme === 'system' &&
                       window.matchMedia('(prefers-color-scheme: dark)').matches)
-                  const matchingFlavor = importedThemes.find(
-                    (t) => (isCurrentlyDark ? t.mode === 'dark' : t.mode === 'light')
+                  const matchingFlavor = importedThemes.find((t) =>
+                    isCurrentlyDark ? t.mode === 'dark' : t.mode === 'light'
                   )
                   const toSelect = matchingFlavor || importedThemes[0]
 
@@ -207,11 +215,11 @@ export function AppearanceInterfaceSection({
                     activeUiTheme: toSelect.id
                   })
 
-                  if (nameInput) {
-                    nameInput.value = ''
+                  if (nameRef.current) {
+                    nameRef.current.value = ''
                   }
-                  if (areaInput) {
-                    areaInput.value = ''
+                  if (cssRef.current) {
+                    cssRef.current.value = ''
                   }
                 }}
                 className="bg-primary text-primary-foreground px-3 py-1 rounded text-xs font-medium h-8 cursor-pointer"
@@ -219,10 +227,12 @@ export function AppearanceInterfaceSection({
                 Import
               </button>
             </div>
+            {importError ? <p className="text-xs text-destructive">{importError}</p> : null}
             <textarea
-              id="custom-theme-css-input"
+              ref={cssRef}
               placeholder="Paste CSS theme code (Tweakcn output) or Shadcn theme JSON..."
               className="w-full min-w-0 appearance-none rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm transition-[color,box-shadow] outline-hidden placeholder:text-muted-foreground/60 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 h-16 font-mono resize-none"
+              onChange={() => setImportError(null)}
             />
           </div>
         </div>

@@ -127,7 +127,10 @@ import {
 } from './startup/startup-diagnostics'
 import { shouldRenderPetOverlay } from './components/pet/pet-overlay-visibility'
 import { applyDocumentTheme } from './lib/document-theme'
-import { clearCustomUiThemeVariables } from '../../shared/custom-ui-themes'
+import {
+  applyCustomUiThemeVariables,
+  clearCustomUiThemeVariables
+} from '../../shared/custom-ui-themes'
 import { isEditableTarget } from './lib/editable-target'
 import { getSelectedTextForFileSearch } from './lib/file-search-selection'
 import { useShortcutLabel } from './hooks/useShortcutLabel'
@@ -378,29 +381,6 @@ function shouldMountUpdateCardForStatus(status: UpdateStatus): boolean {
     return status.userInitiated === true
   }
   return true
-}
-
-function applyCustomUiThemeStyleOverrides(active: boolean): void {
-  let styleEl = document.getElementById('custom-ui-theme-style-overrides') as HTMLStyleElement | null
-  if (active) {
-    if (!styleEl) {
-      styleEl = document.createElement('style')
-      styleEl.id = 'custom-ui-theme-style-overrides'
-      document.head.appendChild(styleEl)
-    }
-    styleEl.innerHTML = `
-      .dark .bg-secondary\\/70.text-muted-foreground,
-      .light .bg-secondary\\/70.text-muted-foreground {
-        background-color: var(--muted) !important;
-        color: var(--foreground) !important;
-        border-color: var(--border) !important;
-      }
-    `
-  } else {
-    if (styleEl) {
-      styleEl.remove()
-    }
-  }
 }
 
 function App(): React.JSX.Element {
@@ -1413,25 +1393,21 @@ function App(): React.JSX.Element {
     acknowledgedAgentsByPaneKey
   ])
 
+  const settingsTheme = settings?.theme
+  const activeUiTheme = settings?.activeUiTheme
+  const customUiThemes = settings?.customUiThemes
+
   // Apply theme to document
   useEffect(() => {
-    if (!settings) {
+    if (!settingsTheme) {
       return undefined
     }
 
-    const activeThemeId = settings.activeUiTheme
-    if (activeThemeId && activeThemeId !== 'default' && settings.customUiThemes) {
-      const theme = settings.customUiThemes.find((t) => t.id === activeThemeId)
+    if (activeUiTheme && activeUiTheme !== 'default' && customUiThemes) {
+      const theme = customUiThemes.find((t) => t.id === activeUiTheme)
       if (theme) {
-        clearCustomUiThemeVariables(document.documentElement)
-        Object.entries(theme.variables).forEach(([key, value]) => {
-          document.documentElement.style.setProperty(key, value)
-          if (key.startsWith('--sidebar')) {
-            const worktreeKey = key.replace('--sidebar', '--worktree-sidebar')
-            document.documentElement.style.setProperty(worktreeKey, value)
-          }
-        })
-        applyCustomUiThemeStyleOverrides(true)
+        applyCustomUiThemeVariables(theme, document.documentElement)
+        document.documentElement.classList.add('custom-ui-theme-active')
         applyDocumentTheme(theme.mode === 'dark' ? 'dark' : 'light')
         return undefined
       }
@@ -1439,11 +1415,11 @@ function App(): React.JSX.Element {
 
     // Default/Fallback theme
     clearCustomUiThemeVariables(document.documentElement)
-    applyCustomUiThemeStyleOverrides(false)
-    if (settings.theme === 'dark') {
+    document.documentElement.classList.remove('custom-ui-theme-active')
+    if (settingsTheme === 'dark') {
       applyDocumentTheme('dark')
       return undefined
-    } else if (settings.theme === 'light') {
+    } else if (settingsTheme === 'light') {
       applyDocumentTheme('light')
       return undefined
     } else {
@@ -1459,7 +1435,7 @@ function App(): React.JSX.Element {
       mq.addEventListener('change', handler)
       return () => mq.removeEventListener('change', handler)
     }
-  }, [settings])
+  }, [settingsTheme, activeUiTheme, customUiThemes])
 
   useEffect(() => {
     document.documentElement.style.setProperty(
