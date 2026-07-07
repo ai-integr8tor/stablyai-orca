@@ -171,7 +171,8 @@ import {
   canUseGitHubRepoContext,
   getGitHubMutationRoutingSettings,
   getGitHubRuntimeRepoId,
-  getGitHubSourceRuntimeHost
+  getGitHubSourceRuntimeHost,
+  resolveGitHubSourceSettings
 } from '@/lib/github-source-runtime-context'
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
 import {
@@ -546,13 +547,7 @@ function PRAssigneesPanel({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const { isPending, run } = useImmediateMutation()
@@ -781,13 +776,7 @@ function PRReviewersPanel({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const reviewerInputRef = useRef<HTMLInputElement | null>(null)
@@ -3237,13 +3226,7 @@ function ConversationTab({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const repoAssignees = useRepoAssignees(repoPath, item.repoId, sourceSettings)
@@ -5820,13 +5803,7 @@ function GHEditSection({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const { isPending, run } = useImmediateMutation()
