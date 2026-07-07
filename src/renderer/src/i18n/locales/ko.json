@@ -29,6 +29,11 @@
         "sshToggleDescription": "사용 가능한 SSH 및 원격 Orca 호스트가 있으면 표시합니다.",
         "resourceUsageToggleDescription": "리소스 관리자를 표시합니다. 클릭하면 CPU, 메모리, 세션, 데몬 제어, 워크스페이스 디스크 스캔을 볼 수 있습니다.",
         "portsToggleDescription": "라이브 워크스페이스 포트를 표시합니다. 워크스페이스 범위 포트 및 외부 수신기를 보려면 클릭하세요."
+      },
+      "customUiTheme": {
+        "title": "사용자 정의 UI 테마",
+        "description": "밝은/어두운 사전 설정 이외의 쉘 테마 사용자 정의",
+        "activeLabel": "활성 테마"
       }
     }
   },
@@ -8774,6 +8779,17 @@
           "reviewFirst": "Review first",
           "singular": "Global saves won't change 1 repository with its own recipe.",
           "tooltipTitle": "Repository overrides"
+        },
+        "AppearanceInterfaceSection": {
+          "defaultTheme": "기본값",
+          "customThemesList": "사용자 정의 테마",
+          "deleteTheme": "테마 삭제",
+          "importTheme": "테마 가져오기",
+          "themeNamePlaceholder": "테마 이름 (예: Claude)",
+          "fallbackThemeName": "사용자 정의 테마",
+          "importErrorDescription": "변수를 파싱할 수 없습니다. :root 또는 .dark 블록이 포함되어 있거나 Shadcn 테마 JSON과 일치하는지 확인하세요.",
+          "importButton": "가져오기",
+          "textareaPlaceholder": "CSS 테마 코드(Tweakcn 출력) 또는 Shadcn 테마 JSON을 붙여넣으세요..."
         }
       },
       "right": {

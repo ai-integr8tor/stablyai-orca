@@ -1,11 +1,8 @@
-import { useRef, useState } from 'react'
 import type React from 'react'
 
 import type { GlobalSettings } from '../../../../shared/types'
-import { parseTheme } from '../../../../shared/custom-ui-themes'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { Input } from '../ui/input'
-import { Trash2 } from 'lucide-react'
+import { CustomUiThemeManager } from './CustomUiThemeManager'
 import { UIZoomControl } from './UIZoomControl'
 import { SearchableSetting } from './SearchableSetting'
 import { AppearanceAdvancedDisclosure } from './AppearanceAdvancedDisclosure'
@@ -53,9 +50,6 @@ export function AppearanceInterfaceSection({
   isDesktopWindows,
   forceVisiblePrimary = false
 }: AppearanceInterfaceSectionProps): React.JSX.Element {
-  const nameRef = useRef<HTMLInputElement>(null)
-  const cssRef = useRef<HTMLTextAreaElement>(null)
-  const [importError, setImportError] = useState<string | null>(null)
   const searchQuery = useAppStore((state) => state.settingsSearchQuery)
   const isSearching = normalizeSettingsSearchQuery(searchQuery).length > 0
   const zoomInKeyCombos = useShortcutKeyComboDetails('zoom.in')
@@ -120,122 +114,7 @@ export function AppearanceInterfaceSection({
         keywords={['custom', 'theme', 'color', 'tweakcn', 'shadcn', 'import']}
         forceVisible={forceVisiblePrimary}
       >
-        <div className="space-y-3 py-2">
-          {/* Active Theme Selector */}
-          <SettingsRow
-            label={translate('settings.appearance.customUiTheme.activeLabel', 'Active Theme')}
-            control={
-              <Select
-                value={settings.activeUiTheme || 'default'}
-                onValueChange={(val) => updateSettings({ activeUiTheme: val })}
-              >
-                <SelectTrigger size="sm" className="min-w-[200px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Default</SelectItem>
-                  {(settings.customUiThemes || []).map((t) => (
-                    <SelectItem key={t.id} value={t.id} className="relative pr-12">
-                      <span>{t.name}</span>
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onPointerUp={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          const remaining = (settings.customUiThemes || []).filter(
-                            (theme) => theme.id !== t.id
-                          )
-                          const activeIsDeleted = settings.activeUiTheme === t.id
-                          updateSettings({
-                            activeUiTheme: activeIsDeleted ? 'default' : settings.activeUiTheme,
-                            customUiThemes: remaining
-                          })
-                        }}
-                        className="absolute right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive p-0.5 rounded-sm hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
-                        title="Delete theme"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            }
-          />
-
-          {/* Import New Theme Form */}
-          <div className="mt-3 border-t border-border/40 pt-3 space-y-2">
-            <h4 className="text-xs font-semibold">Import Theme</h4>
-            <div className="flex gap-2">
-              <Input
-                ref={nameRef}
-                type="text"
-                placeholder="Theme Name (e.g. Claude)"
-                className="flex-1 h-8 text-xs bg-transparent dark:bg-input/30"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const name = nameRef.current?.value?.trim() || 'Custom Theme'
-                  const content = cssRef.current?.value?.trim() || ''
-
-                  if (!content) {
-                    return
-                  }
-
-                  setImportError(null)
-                  const importedThemes = parseTheme(name, content)
-
-                  if (importedThemes.length === 0) {
-                    setImportError(
-                      'Could not parse any variables. Make sure it has :root or .dark blocks, or matches Shadcn theme JSON.'
-                    )
-                    return
-                  }
-
-                  const prevThemes = settings.customUiThemes || []
-                  const filtered = prevThemes.filter(
-                    (pt) => !importedThemes.some((it) => it.id === pt.id)
-                  )
-                  const nextThemes = [...filtered, ...importedThemes]
-
-                  const isCurrentlyDark =
-                    settings.theme === 'dark' ||
-                    (settings.theme === 'system' &&
-                      window.matchMedia('(prefers-color-scheme: dark)').matches)
-                  const matchingFlavor = importedThemes.find((t) =>
-                    isCurrentlyDark ? t.mode === 'dark' : t.mode === 'light'
-                  )
-                  const toSelect = matchingFlavor || importedThemes[0]
-
-                  updateSettings({
-                    customUiThemes: nextThemes,
-                    activeUiTheme: toSelect.id
-                  })
-
-                  if (nameRef.current) {
-                    nameRef.current.value = ''
-                  }
-                  if (cssRef.current) {
-                    cssRef.current.value = ''
-                  }
-                }}
-                className="bg-primary text-primary-foreground px-3 py-1 rounded text-xs font-medium h-8 cursor-pointer"
-              >
-                Import
-              </button>
-            </div>
-            {importError ? <p className="text-xs text-destructive">{importError}</p> : null}
-            <textarea
-              ref={cssRef}
-              placeholder="Paste CSS theme code (Tweakcn output) or Shadcn theme JSON..."
-              className="w-full min-w-0 appearance-none rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm transition-[color,box-shadow] outline-hidden placeholder:text-muted-foreground/60 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 h-16 font-mono resize-none"
-              onChange={() => setImportError(null)}
-            />
-          </div>
-        </div>
+        <CustomUiThemeManager settings={settings} updateSettings={updateSettings} />
       </SearchableSetting>
 
       <SearchableSetting
