@@ -52,6 +52,7 @@ import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { piTitlebarExtensionService } from '../pi/titlebar-extension-service'
 import { detectPiAgentKindFromCommand, type PiAgentKind } from '../../shared/pi-agent-kind'
+import { isTuiAgentEnabled } from '../../shared/tui-agent-selection'
 import { isPwshAvailable } from '../pwsh'
 import { LocalPtyProvider } from '../providers/local-pty-provider'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../providers/types'
@@ -559,6 +560,10 @@ export type BuildPtyHostEnvOptions = {
    *  hook relay ensure + guest endpoint repoint; only read when isWsl. */
   wslDistro?: string | null
   agentStatusHooksEnabled: boolean
+  /** Per-user disabled agents from Settings > Agents. Used to avoid installing
+   *  managed Pi/OMP extensions (writing orca-*.ts files into ~/.pi or ~/.omp)
+   *  for agents the user has explicitly disabled. */
+  disabledTuiAgents?: readonly unknown[] | null
   networkProxySettings?: NetworkProxySettings
 }
 
@@ -936,13 +941,18 @@ export function buildPtyHostEnv(
   if (opts.agentStatusHooksEnabled) {
     clearPiAgentShadowEnv(baseEnv, 'pi')
     clearPiAgentShadowEnv(baseEnv, 'omp')
-    if (piAgentKind === 'pi') {
+    // Why: only install Orca-managed extensions (writing orca-*.ts files into
+    // the agent's ~/.pi/agent/extensions or ~/.omp/...) for agents the user
+    // has enabled in Settings > Agents. Respecting disabledTuiAgents prevents
+    // polluting the config dir of agents the user explicitly turned off
+    // (see bug #7814).
+    if (piAgentKind === 'pi' && isTuiAgentEnabled('pi', opts.disabledTuiAgents)) {
       const piEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingPiAgentDir, 'pi')
       Object.assign(baseEnv, piEnv)
       exposePiManagedExtensionEnv(baseEnv, 'pi', piEnv)
     }
 
-    if (shouldPrepareOmpShadow) {
+    if (shouldPrepareOmpShadow && isTuiAgentEnabled('omp', opts.disabledTuiAgents)) {
       const ompEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingOmpAgentDir, 'omp')
       Object.assign(baseEnv, ompEnv)
       exposePiManagedExtensionEnv(baseEnv, 'omp', ompEnv)
@@ -1552,6 +1562,7 @@ export function registerPtyHandlers(
           isWsl: ctx?.isWsl,
           wslDistro: ctx?.wslDistro ?? null,
           agentStatusHooksEnabled: isAgentStatusHooksEnabled(getSettings?.()),
+          disabledTuiAgents: getSettings?.()?.disabledTuiAgents,
           networkProxySettings: getSettings?.()
         })
         // Why: agents need their own terminal handle at process start so they
@@ -3035,6 +3046,7 @@ export function registerPtyHandlers(
           isWsl: shouldSkipCodexHomeEnvForWindowsShell(daemonShellOverride, cwd),
           wslDistro: codexSelectionTarget.runtime === 'wsl' ? codexSelectionTarget.wslDistro : null,
           agentStatusHooksEnabled: isAgentStatusHooksEnabled(getSettings?.()),
+          disabledTuiAgents: getSettings?.()?.disabledTuiAgents,
           networkProxySettings: getSettings?.()
         })
         promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
@@ -3893,6 +3905,7 @@ export function registerPtyHandlers(
             wslDistro:
               codexSelectionTarget.runtime === 'wsl' ? codexSelectionTarget.wslDistro : null,
             agentStatusHooksEnabled: isAgentStatusHooksEnabled(getSettings?.()),
+            disabledTuiAgents: getSettings?.()?.disabledTuiAgents,
             networkProxySettings: getSettings?.()
           })
           promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
