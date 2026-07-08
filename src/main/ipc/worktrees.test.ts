@@ -2780,7 +2780,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/improve-dashboard',
+          path: '/remote/repo-improve-dashboard',
           head: 'abc123',
           branch: 'refs/heads/improve-dashboard',
           isBare: false,
@@ -2809,7 +2809,7 @@ describe('registerWorktreeHandlers', () => {
     })
 
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-ssh::/remote/improve-dashboard',
+      'repo-ssh::/remote/repo-improve-dashboard',
       expect.objectContaining({
         linkedIssue: 123,
         linkedPR: 456,
@@ -2867,7 +2867,7 @@ describe('registerWorktreeHandlers', () => {
         ])
         .mockResolvedValueOnce([
           {
-            path: '/remote/improve-dashboard',
+            path: '/remote/repo-improve-dashboard',
             head: 'abc123',
             branch: 'refs/heads/improve-dashboard',
             isBare: false,
@@ -2964,7 +2964,7 @@ describe('registerWorktreeHandlers', () => {
         ])
         .mockResolvedValueOnce([
           {
-            path: '/remote/improve-dashboard',
+            path: '/remote/repo-improve-dashboard',
             head: 'abc123',
             branch: 'refs/heads/improve-dashboard',
             isBare: false,
@@ -3071,7 +3071,7 @@ describe('registerWorktreeHandlers', () => {
             isMainWorktree: true
           },
           {
-            path: '/remote/improve-dashboard',
+            path: '/remote/repo-improve-dashboard',
             head: 'abc123',
             branch: 'refs/heads/improve-dashboard',
             isBare: false,
@@ -3182,7 +3182,7 @@ describe('registerWorktreeHandlers', () => {
         ])
         .mockResolvedValueOnce([
           {
-            path: '/remote/improve-dashboard',
+            path: '/remote/repo-improve-dashboard',
             head: 'abc123',
             branch: 'refs/heads/improve-dashboard',
             isBare: false,
@@ -3234,7 +3234,7 @@ describe('registerWorktreeHandlers', () => {
         }
         if (args[0] === 'rev-parse' && args[1] === '--git-path') {
           return {
-            stdout: '/remote/repo/.git/worktrees/improve-dashboard/orca/setup-runner.sh\n',
+            stdout: '/remote/repo/.git/worktrees/repo-improve-dashboard/orca/setup-runner.sh\n',
             stderr: ''
           }
         }
@@ -3247,7 +3247,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/improve-dashboard',
+          path: '/remote/repo-improve-dashboard',
           head: 'abc123',
           branch: 'refs/heads/improve-dashboard',
           isBare: false,
@@ -3284,25 +3284,26 @@ describe('registerWorktreeHandlers', () => {
     })
 
     expect(fsProvider.readFile).toHaveBeenCalledWith('/remote/repo/orca.yaml')
-    expect(fsProvider.readFile).toHaveBeenCalledWith('/remote/improve-dashboard/orca.yaml')
+    expect(fsProvider.readFile).toHaveBeenCalledWith('/remote/repo-improve-dashboard/orca.yaml')
     expect(provider.exec).toHaveBeenCalledWith(
       ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
-      '/remote/improve-dashboard'
+      '/remote/repo-improve-dashboard'
     )
     expect(fsProvider.createDir).toHaveBeenCalledWith(
-      '/remote/repo/.git/worktrees/improve-dashboard/orca'
+      '/remote/repo/.git/worktrees/repo-improve-dashboard/orca'
     )
     expect(fsProvider.writeFile).toHaveBeenCalledWith(
-      '/remote/repo/.git/worktrees/improve-dashboard/orca/setup-runner.sh',
+      '/remote/repo/.git/worktrees/repo-improve-dashboard/orca/setup-runner.sh',
       '#!/usr/bin/env bash\nset -e\npnpm install\n'
     )
     expect(result).toEqual(
       expect.objectContaining({
         setup: {
-          runnerScriptPath: '/remote/repo/.git/worktrees/improve-dashboard/orca/setup-runner.sh',
+          runnerScriptPath:
+            '/remote/repo/.git/worktrees/repo-improve-dashboard/orca/setup-runner.sh',
           envVars: expect.objectContaining({
             ORCA_ROOT_PATH: '/remote/repo',
-            ORCA_WORKTREE_PATH: '/remote/improve-dashboard'
+            ORCA_WORKTREE_PATH: '/remote/repo-improve-dashboard'
           })
         }
       })
@@ -3331,7 +3332,7 @@ describe('registerWorktreeHandlers', () => {
       removeWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/sparse-dashboard',
+          path: '/remote/repo-sparse-dashboard',
           head: 'abc123',
           branch: 'refs/heads/sparse-dashboard',
           isBare: false,
@@ -3372,23 +3373,23 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'sparse-dashboard',
-      '/remote/sparse-dashboard',
+      '/remote/repo-sparse-dashboard',
       { base: 'origin/main', noCheckout: true }
     )
     expect(provider.exec).toHaveBeenCalledWith(
       ['sparse-checkout', 'init', '--cone'],
-      '/remote/sparse-dashboard'
+      '/remote/repo-sparse-dashboard'
     )
     expect(provider.exec).toHaveBeenCalledWith(
       ['sparse-checkout', 'set', '--', 'apps/mobile', 'packages/shared'],
-      '/remote/sparse-dashboard'
+      '/remote/repo-sparse-dashboard'
     )
     expect(provider.exec).toHaveBeenCalledWith(
       ['checkout', 'sparse-dashboard'],
-      '/remote/sparse-dashboard'
+      '/remote/repo-sparse-dashboard'
     )
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-ssh::/remote/sparse-dashboard',
+      'repo-ssh::/remote/repo-sparse-dashboard',
       expect.objectContaining({
         sparseDirectories: ['apps/mobile', 'packages/shared'],
         baseRef: 'refs/remotes/origin/main',
@@ -3454,7 +3455,7 @@ describe('registerWorktreeHandlers', () => {
         ])
         .mockResolvedValueOnce([
           {
-            path: '/remote/fix-title-2',
+            path: '/remote/repo-fix-title-2',
             head: 'abc123',
             branch: 'refs/heads/feature/fix',
             isBare: false,
@@ -3464,7 +3465,7 @@ describe('registerWorktreeHandlers', () => {
     }
     const fsProvider = {
       stat: vi.fn().mockImplementation(async (pathValue: string) => {
-        if (pathValue === '/remote/fix-title') {
+        if (pathValue === '/remote/repo-fix-title') {
           return { size: 0, type: 'directory', mtime: 0 }
         }
         const error = new Error('missing') as Error & { code: string }
@@ -3493,11 +3494,11 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'feature/fix',
-      '/remote/fix-title-2',
+      '/remote/repo-fix-title-2',
       { checkoutExistingBranch: true }
     )
     expect(mux.request).toHaveBeenCalledWith('session.registerRoot', {
-      rootPath: '/remote/fix-title-2'
+      rootPath: '/remote/repo-fix-title-2'
     })
   })
 
@@ -3535,7 +3536,7 @@ describe('registerWorktreeHandlers', () => {
       removeWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/feature-something-2',
+          path: '/remote/repo-feature-something-2',
           head: 'abc123',
           branch: 'refs/heads/feature/something-2',
           isBare: false,
@@ -3561,7 +3562,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'feature/something-2',
-      '/remote/feature-something-2',
+      '/remote/repo-feature-something-2',
       { base: 'origin/main' }
     )
   })
@@ -3597,7 +3598,7 @@ describe('registerWorktreeHandlers', () => {
       removeWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/feature-something-2',
+          path: '/remote/repo-feature-something-2',
           head: 'abc123',
           branch: 'refs/heads/feature/something-2',
           isBare: false,
@@ -3623,7 +3624,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'feature/something-2',
-      '/remote/feature-something-2',
+      '/remote/repo-feature-something-2',
       { base: 'origin/main' }
     )
   })
@@ -3676,9 +3677,9 @@ describe('registerWorktreeHandlers', () => {
 
     expect(provider.exec).toHaveBeenCalledWith(
       ['config', '--local', '--unset-all', 'branch.sparse-dashboard.base'],
-      '/remote/sparse-dashboard'
+      '/remote/repo-sparse-dashboard'
     )
-    expect(provider.removeWorktree).toHaveBeenCalledWith('/remote/sparse-dashboard', true, {
+    expect(provider.removeWorktree).toHaveBeenCalledWith('/remote/repo-sparse-dashboard', true, {
       deleteBranch: true,
       forceBranchDelete: true
     })
@@ -3772,7 +3773,7 @@ describe('registerWorktreeHandlers', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           {
-            path: '/remote/improve-dashboard',
+            path: '/remote/repo-improve-dashboard',
             head: 'abc123',
             branch: 'refs/heads/improve-dashboard',
             isBare: false,
@@ -3805,7 +3806,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'improve-dashboard',
-      '/remote/improve-dashboard',
+      '/remote/repo-improve-dashboard',
       {
         base: 'origin/main'
       }
@@ -3843,7 +3844,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/local-branch-base',
+          path: '/remote/repo-local-branch-base',
           head: 'develop-sha',
           branch: 'refs/heads/local-branch-base',
           isBare: false,
@@ -3877,7 +3878,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'local-branch-base',
-      '/remote/local-branch-base',
+      '/remote/repo-local-branch-base',
       {
         base: 'develop'
       }
@@ -3921,7 +3922,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/slash-local-base',
+          path: '/remote/repo-slash-local-base',
           head: 'team-feature-sha',
           branch: 'refs/heads/slash-local-base',
           isBare: false,
@@ -3959,7 +3960,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'slash-local-base',
-      '/remote/slash-local-base',
+      '/remote/repo-slash-local-base',
       {
         base: 'team/feature'
       }
@@ -3990,7 +3991,7 @@ describe('registerWorktreeHandlers', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           {
-            path: '/remote/first-worktree',
+            path: '/remote/repo-first-worktree',
             head: 'abc123',
             branch: 'refs/heads/first-worktree',
             isBare: false,
@@ -4000,7 +4001,7 @@ describe('registerWorktreeHandlers', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([
           {
-            path: '/remote/second-worktree',
+            path: '/remote/repo-second-worktree',
             head: 'def456',
             branch: 'refs/heads/second-worktree',
             isBare: false,
@@ -4068,7 +4069,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/fix-title',
+          path: '/remote/repo-fix-title',
           head: sha,
           branch: 'refs/heads/feature/fix',
           isBare: false,
@@ -4098,7 +4099,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'feature/fix',
-      '/remote/fix-title',
+      '/remote/repo-fix-title',
       { base: sha }
     )
   })
@@ -4128,7 +4129,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/prefetched-worktree',
+          path: '/remote/repo-prefetched-worktree',
           head: 'abc123',
           branch: 'refs/heads/prefetched-worktree',
           isBare: false,
@@ -4204,7 +4205,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/prefetched-worktree',
+          path: '/remote/repo-prefetched-worktree',
           head: 'abc123',
           branch: 'refs/heads/prefetched-worktree',
           isBare: false,
@@ -4240,7 +4241,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'prefetched-worktree',
-      '/remote/prefetched-worktree',
+      '/remote/repo-prefetched-worktree',
       {
         base: 'origin/main'
       }
@@ -4280,7 +4281,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/slash-local-base',
+          path: '/remote/repo-slash-local-base',
           head: 'team-feature-sha',
           branch: 'refs/heads/slash-local-base',
           isBare: false,
@@ -4315,7 +4316,7 @@ describe('registerWorktreeHandlers', () => {
     expect(provider.addWorktree).toHaveBeenCalledWith(
       '/remote/repo',
       'slash-local-base',
-      '/remote/slash-local-base',
+      '/remote/repo-slash-local-base',
       {
         base: 'team/feature'
       }
@@ -4347,7 +4348,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/prefetched-worktree',
+          path: '/remote/repo-prefetched-worktree',
           head: 'abc123',
           branch: 'refs/heads/prefetched-worktree',
           isBare: false,
@@ -4413,7 +4414,7 @@ describe('registerWorktreeHandlers', () => {
       addWorktree: vi.fn().mockResolvedValue(undefined),
       listWorktrees: vi.fn().mockResolvedValue([
         {
-          path: '/remote/local-base-worktree',
+          path: '/remote/repo-local-base-worktree',
           head: 'abc123',
           branch: 'refs/heads/local-base-worktree',
           isBare: false,
