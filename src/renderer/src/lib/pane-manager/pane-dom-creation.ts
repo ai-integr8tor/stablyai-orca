@@ -142,6 +142,7 @@ export function createPaneDOM(
     webLinksAddon,
     webglAddon: null,
     ligaturesAddon: null,
+    imageAddon: null,
     panePointerDownHandler,
     paneMouseEnterHandler,
     paneDragCleanup,

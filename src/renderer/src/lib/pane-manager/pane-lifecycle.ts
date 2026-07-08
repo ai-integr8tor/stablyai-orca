@@ -4,6 +4,7 @@
 // Tracking upstream: https://github.com/xtermjs/xterm.js/issues/5822 and
 // https://github.com/xtermjs/xterm.js/pull/5828 — drop the patch once that lands.
 import { LigaturesAddon } from '@xterm/addon-ligatures'
+import { ImageAddon } from '@xterm/addon-image'
 
 import type { ManagedPaneInternal } from './pane-manager-types'
 import { safeFit } from './pane-tree-ops'
@@ -52,6 +53,19 @@ export function openTerminal(pane: ManagedPaneInternal): void {
   terminal.loadAddon(serializeAddon)
   terminal.loadAddon(unicode11Addon)
   terminal.loadAddon(webLinksAddon)
+  // Why: enables inline image rendering via SIXEL, iTerm2 IIP, and Kitty TGP.
+  // Storage limited to 64MB (half default) since Orca may have many panes.
+  const imageAddon = new ImageAddon({
+    enableSizeReports: true,
+    sixelSupport: true,
+    sixelScrolling: true,
+    iipSupport: true,
+    kittySupport: true,
+    storageLimit: 64,
+    showPlaceholder: true
+  })
+  terminal.loadAddon(imageAddon)
+  pane.imageAddon = imageAddon
   attachTerminalMouseWheelMultiplier(terminal, {
     getTuiMouseWheelMultiplier: terminalTuiScrollSensitivity
   })
@@ -236,6 +250,11 @@ export function disposePane(
   }
   try {
     pane.ligaturesAddon?.dispose()
+  } catch {
+    /* ignore */
+  }
+  try {
+    pane.imageAddon?.dispose()
   } catch {
     /* ignore */
   }

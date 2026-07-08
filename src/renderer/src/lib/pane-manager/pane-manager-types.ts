@@ -7,6 +7,7 @@ import type { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { WebLinksAddon } from '@xterm/addon-web-links'
 import type { WebglAddon } from '@xterm/addon-webgl'
 import type { SerializeAddon } from '@xterm/addon-serialize'
+import type { ImageAddon } from '@xterm/addon-image'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { TerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
@@ -142,6 +143,8 @@ export type ManagedPaneInternal = {
   // so the addon instance only exists while the feature is active. A null
   // value means "currently disabled".
   ligaturesAddon: LigaturesAddon | null
+  // Why nullable: image addon is loaded in openTerminal; null means not yet attached.
+  imageAddon: ImageAddon | null
   fitResizeObserver: ResizeObserver | null
   // Stored so disposePane() can cancel the first post-open fit if a pane closes before paint.
   pendingInitialFitRafId?: number | null

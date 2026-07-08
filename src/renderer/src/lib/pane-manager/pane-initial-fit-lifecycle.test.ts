@@ -30,6 +30,7 @@ function createPane(pendingInitialFitRafId: number | null): ManagedPaneInternal 
     webLinksAddon: { dispose: vi.fn() } as never,
     webglAddon: null,
     ligaturesAddon: null,
+    imageAddon: null,
     compositionHandler: null,
     pendingSplitScrollState: null,
     pendingSplitScrollBufferDisposable: null,
