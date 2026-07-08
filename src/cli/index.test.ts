@@ -3034,6 +3034,28 @@ describe('orca cli worktree awareness', () => {
     expect(logSpy.mock.calls[0][0]).toContain('"stopped": 3')
   })
 
+  it('stops all local daemon sessions with human-readable output', async () => {
+    stopAllLocalDaemonSessionsMock.mockResolvedValueOnce({ stopped: 3, remaining: 0 })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['terminal', 'stop', '--all'], '/tmp/repo')
+
+    expect(stopAllLocalDaemonSessionsMock).toHaveBeenCalledWith('/tmp/orca-user-data')
+    expect(callMock).not.toHaveBeenCalled()
+    expect(logSpy.mock.calls[0][0]).toBe('Stopped 3 terminals.')
+  })
+
+  it('reports remaining local daemon sessions when not all could be stopped', async () => {
+    stopAllLocalDaemonSessionsMock.mockResolvedValueOnce({ stopped: 2, remaining: 1 })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['terminal', 'stop', '--all'], '/tmp/repo')
+
+    expect(stopAllLocalDaemonSessionsMock).toHaveBeenCalledWith('/tmp/orca-user-data')
+    expect(callMock).not.toHaveBeenCalled()
+    expect(logSpy.mock.calls[0][0]).toBe('Stopped 2 terminals; 1 still running.')
+  })
+
   it('rejects terminal stop with both all and worktree', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const priorExitCode = process.exitCode
