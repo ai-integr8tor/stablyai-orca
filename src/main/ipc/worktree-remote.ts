@@ -96,6 +96,7 @@ import {
 } from './worktree-push-target-setup'
 import { isENOENT, registerWorktreeRootsForRepo } from './filesystem-auth'
 import { createWorktreeLinkedPaths } from './worktree-symlinks'
+import { resolveWorktreeLinkedPaths } from './worktree-include'
 import { normalizeSparseDirectories } from './sparse-checkout-directories'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
 import type { IFilesystemProvider } from '../providers/types'
@@ -1883,7 +1884,8 @@ export async function createRemoteWorktree(
   // remote (SSH) worktrees. Creating symlinks on the remote host would
   // require a new relay method and authorization surface; the feature is
   // local-only until that protocol work is in scope. Remote repos with
-  // `symlinkPaths` configured have them silently ignored here.
+  // `symlinkPaths` (or a `.worktreeinclude` file) have both silently ignored
+  // here — reading and git-ignore-checking the file also needs to run remotely.
 
   let setup: CreateWorktreeResult['setup']
   let defaultTabs: CreateWorktreeResult['defaultTabs']
@@ -2505,16 +2507,23 @@ export async function createLocalWorktree(
     ...gitWorktrees.map((worktree) => worktree.path)
   ])
 
-  // Why: materialize user-configured paths from the primary checkout into the
-  // new worktree before any setup script runs, so scripts that reuse shared
-  // state (e.g. `node_modules`, `.env`) see those paths already in place.
-  // Gated on the experimental flag so disabling the feature globally skips
-  // the work even when a repo still has paths configured.
-  const symlinkPaths = repo.symlinkPaths ?? []
-  if (settings.experimentalWorktreeSymlinks && symlinkPaths.length > 0) {
-    await timing.time('create_symlinks', async () => {
-      await createWorktreeLinkedPaths(repo.path, created.path, symlinkPaths)
-    })
+  // Why: materialize linked paths from the primary checkout into the new
+  // worktree before any setup script runs, so scripts that reuse shared state
+  // (e.g. `node_modules`, `.env`) see those paths already in place. The set
+  // unions per-repo `symlinkPaths` with the repo's `.worktreeinclude` patterns.
+  // Gated on the experimental flag so disabling the feature globally skips the
+  // work even when a repo still has paths configured.
+  if (settings.experimentalWorktreeSymlinks) {
+    const linkedPaths = await resolveWorktreeLinkedPaths(
+      repo.path,
+      repo.symlinkPaths ?? [],
+      localWorktreeGitOptions
+    )
+    if (linkedPaths.length > 0) {
+      await timing.time('create_symlinks', async () => {
+        await createWorktreeLinkedPaths(repo.path, created.path, linkedPaths)
+      })
+    }
   }
 
   // Why: the worktree's own `orca.yaml` (at the tip of the base branch) is

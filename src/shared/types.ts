@@ -275,7 +275,9 @@ export type Repo = {
    *  newly created worktrees of this repo. Consumed only when the global
    *  `experimentalWorktreeSymlinks` flag is on — the per-repo list is the
    *  "what to link", the global flag is the "whether to link at all" switch.
-   *  Undefined/empty means no symlinks are created for this repo. */
+   *  Unioned at link time with the repo's version-controlled `.worktreeinclude`
+   *  patterns (gitignored matches only). Undefined/empty means this list
+   *  contributes nothing, but `.worktreeinclude` may still add paths. */
   symlinkPaths?: string[]
   /** Durable sidebar-only repo organization. Execution remains repo-scoped. */
   projectGroupId?: string | null
@@ -2887,11 +2889,12 @@ export type GlobalSettings = {
   /** Legacy persisted key from the Experimental rollout. New writes use
    *  compactWorktreeCards. */
   experimentalCompactWorktreeCards?: boolean
-  /** Experimental: when creating a worktree, automatically symlink a
-   *  user-configured set of files/folders from the primary checkout (e.g.
-   *  `.env`, `node_modules`) into the new worktree. Opt-in while the
-   *  configuration surface and edge cases (conflicts with existing paths,
-   *  cleanup on worktree delete) are still being worked out. */
+  /** Experimental: when creating a worktree, automatically symlink a set of
+   *  files/folders from the primary checkout (e.g. `.env`, `node_modules`) into
+   *  the new worktree. The set comes from per-repo `symlinkPaths` plus the
+   *  repo's version-controlled `.worktreeinclude` (gitignored matches only).
+   *  Opt-in while the configuration surface and edge cases (conflicts with
+   *  existing paths, cleanup on worktree delete) are still being worked out. */
   experimentalWorktreeSymlinks: boolean
 
   /** Active non-local runtime environment for client-routed RPC. `null`

@@ -183,7 +183,8 @@ export function buildSourceControlManualReviewUrl(input: ManualReviewUrlInput): 
       })
     case 'gitea':
       return `${baseRepo.webBaseUrl}/compare/${encodeCompareRef(baseBranch)}...${encodeCompareRef(headBranch)}`
-    default:
+    // No hosted provider resolved (unknown host) → no compare/PR URL.
+    case null:
       return null
   }
 }
