@@ -141,16 +141,15 @@ export class WebSocketTransport implements RpcTransport {
       return
     }
 
-    // Why: when the preferred port is occupied (e.g. another Orca instance is
-    // already running), fall back to an OS-assigned port so mobile pairing
-    // still works. The QR code reads resolvedPort after start, so it will
-    // advertise the correct port regardless.
+    // Why: when the preferred port is occupied or reserved by Windows, fall
+    // back to an OS-assigned port so mobile pairing still works. The QR code
+    // reads resolvedPort after start, so it advertises the correct port.
     let port = this.port
     try {
       await this.tryListen(port)
     } catch (error: unknown) {
-      if (isEAddressInUse(error) && port !== 0) {
-        console.warn(`[ws-transport] Port ${port} is in use, falling back to OS-assigned port`)
+      if (isPortListenFallbackError(error) && port !== 0) {
+        console.warn(`[ws-transport] Port ${port} unavailable, falling back to OS-assigned port`)
         port = 0
         await this.tryListen(port)
       } else {
@@ -364,6 +363,10 @@ export class WebSocketTransport implements RpcTransport {
   }
 }
 
-function isEAddressInUse(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE'
+function isPortListenFallbackError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error.code === 'EADDRINUSE' || error.code === 'EACCES')
+  )
 }
