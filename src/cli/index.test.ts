@@ -8,6 +8,7 @@ const {
   getDefaultUserDataPathMock,
   addEnvironmentFromPairingCodeMock,
   listEnvironmentsMock,
+  stopAllLocalDaemonSessionsMock,
   spawnMock
 } = vi.hoisted(() => ({
   callMock: vi.fn(),
@@ -15,6 +16,7 @@ const {
   getDefaultUserDataPathMock: vi.fn(() => '/tmp/orca-user-data'),
   addEnvironmentFromPairingCodeMock: vi.fn(),
   listEnvironmentsMock: vi.fn(),
+  stopAllLocalDaemonSessionsMock: vi.fn(),
   spawnMock: vi.fn()
 }))
 
@@ -24,6 +26,7 @@ vi.mock('./runtime-client', () => {
     call = callMock
     getCliStatus = vi.fn()
     openOrca = vi.fn()
+    getLocalUserDataPath = vi.fn(() => '/tmp/orca-user-data')
 
     constructor(
       _userDataPath?: string,
@@ -79,6 +82,10 @@ vi.mock('./runtime/environments', () => ({
   listEnvironments: listEnvironmentsMock,
   removeEnvironment: vi.fn(),
   resolveEnvironment: vi.fn()
+}))
+
+vi.mock('./runtime/local-daemon-sessions', () => ({
+  stopAllLocalDaemonSessions: stopAllLocalDaemonSessionsMock
 }))
 
 vi.mock('child_process', async () => {
@@ -314,6 +321,8 @@ describe('orca cli worktree awareness', () => {
     getDefaultUserDataPathMock.mockClear()
     addEnvironmentFromPairingCodeMock.mockReset()
     listEnvironmentsMock.mockReset()
+    stopAllLocalDaemonSessionsMock.mockReset()
+    stopAllLocalDaemonSessionsMock.mockResolvedValue({ stopped: 0, remaining: 0 })
     spawnMock.mockClear()
     addEnvironmentFromPairingCodeMock.mockReturnValue({
       id: 'env-1',
@@ -3012,6 +3021,47 @@ describe('orca cli worktree awareness', () => {
       worktree: 'id:repo::/tmp/repo/feature',
       limit: undefined
     })
+  })
+
+  it('stops all local daemon sessions without calling the runtime', async () => {
+    stopAllLocalDaemonSessionsMock.mockResolvedValueOnce({ stopped: 3, remaining: 0 })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['terminal', 'stop', '--all', '--json'], '/tmp/repo')
+
+    expect(stopAllLocalDaemonSessionsMock).toHaveBeenCalledWith('/tmp/orca-user-data')
+    expect(callMock).not.toHaveBeenCalled()
+    expect(logSpy.mock.calls[0][0]).toContain('"stopped": 3')
+  })
+
+  it('rejects terminal stop with both all and worktree', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const priorExitCode = process.exitCode
+
+    await main(['terminal', 'stop', '--all', '--worktree', 'active'], '/tmp/repo')
+
+    expect(stopAllLocalDaemonSessionsMock).not.toHaveBeenCalled()
+    expect(callMock).not.toHaveBeenCalled()
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('Use either --all or --worktree')
+    expect(process.exitCode).toBe(1)
+
+    process.exitCode = priorExitCode
+  })
+
+  it('rejects remote terminal stop all', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const priorExitCode = process.exitCode
+
+    await main(['terminal', 'stop', '--all', '--pairing-code', 'remote-runtime'], '/tmp/repo')
+
+    expect(stopAllLocalDaemonSessionsMock).not.toHaveBeenCalled()
+    expect(callMock).not.toHaveBeenCalled()
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain(
+      '--all stops local daemon sessions'
+    )
+    expect(process.exitCode).toBe(1)
+
+    process.exitCode = priorExitCode
   })
 
   it('rejects implicit remote terminal create instead of resolving from client cwd', async () => {
