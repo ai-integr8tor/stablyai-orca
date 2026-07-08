@@ -2433,7 +2433,12 @@
             "619b5a35d2": "최상위 워크스페이스 포크를 만들고 캡처된 컨텍스트로 새 agent 탭을 시작합니다.",
             "64e292e8e3": "포크 Agent 세션",
             "9d25de2920": "포크 만들기",
-            "2b10412cfc": "만드는 중..."
+            "2b10412cfc": "만드는 중...",
+            "0f91a549fe": "Start a fresh agent with this session's context.",
+            "c730579670": "The new agent receives a bounded transcript as an editable draft.",
+            "3d187cd60d": "Agent",
+            "c040642db4": "Opening...",
+            "4256baaae3": "Fork in this worktree"
           },
           "TerminalContextMenu": {
             "b4cdd9314e": "화면 지우기",
@@ -2506,6 +2511,7 @@
                   "f867385bb5": "이 포크의 소스 워크스페이스를 찾을 수 없습니다.",
                   "046e8d853c": "포크할 terminal 컨텍스트가 없습니다.",
                   "c00421d320": "포크 컨텍스트가 복사되었습니다. agent를 실행하고 붙여넣어 포크를 시작합니다.",
+                  "1e709b950c": "Session fork opened in a new tab",
                   "f62b40e2c7": "복사할 terminal 컨텍스트가 없습니다",
                   "373a3103e7": "컨텍스트가 복사되었습니다",
                   "3fc568a49d": "컨텍스트를 복사하지 못했습니다."

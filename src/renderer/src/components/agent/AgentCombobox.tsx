@@ -46,6 +46,7 @@ type AgentComboboxProps = {
    *  each list item (including Blank Terminal) gets a context menu. */
   onSetDefault?: (agent: DefaultAgentPreference) => void
   triggerClassName?: string
+  triggerAriaLabelledBy?: string
   /** When set, pressing Enter on the closed combobox trigger invokes this
    *  instead of opening the popover — lets the parent form treat the Agent
    *  field as the last keyboard-submit step. */
@@ -120,6 +121,7 @@ export default function AgentCombobox({
   defaultAgent,
   onSetDefault,
   triggerClassName,
+  triggerAriaLabelledBy,
   onTriggerEnter,
   allowNarrowTrigger = false
 }: AgentComboboxProps): React.JSX.Element {
@@ -270,6 +272,7 @@ export default function AgentCombobox({
             variant="outline"
             role="combobox"
             aria-expanded={open}
+            aria-labelledby={triggerAriaLabelledBy}
             onKeyDown={handleTriggerKeyDown}
             className={cn(
               // Why: callers sometimes pass `min-w-0` for grid layouts, but

@@ -2433,7 +2433,12 @@
             "619b5a35d2": "创建一个顶级工作区分支并使用捕获的上下文启动一个新的智能体选项卡。",
             "64e292e8e3": "分叉智能体会话",
             "9d25de2920": "创建分叉",
-            "2b10412cfc": "创建中..."
+            "2b10412cfc": "创建中...",
+            "0f91a549fe": "Start a fresh agent with this session's context.",
+            "c730579670": "The new agent receives a bounded transcript as an editable draft.",
+            "3d187cd60d": "Agent",
+            "c040642db4": "Opening...",
+            "4256baaae3": "Fork in this worktree"
           },
           "TerminalContextMenu": {
             "b4cdd9314e": "清晰的屏幕",
@@ -2506,6 +2511,7 @@
                   "f867385bb5": "找不到此 fork 的源工作区。",
                   "046e8d853c": "没有要 fork 的终端上下文",
                   "c00421d320": "已复制分叉上下文。启动智能体并粘贴它以启动分叉。",
+                  "1e709b950c": "Session fork opened in a new tab",
                   "f62b40e2c7": "没有可复制的终端上下文",
                   "373a3103e7": "已复制上下文",
                   "3fc568a49d": "无法复制上下文。"
