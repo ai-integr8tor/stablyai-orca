@@ -1,10 +1,12 @@
 /* eslint-disable max-lines -- Why: this module keeps local and SSH directory-walk
    semantics paired so reclaimable-byte, symlink, and partial-failure behavior cannot drift. */
 import { lstat, readdir } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { platform } from 'node:process'
 import type { Dirent } from 'node:fs'
+import type { Readable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import type { Store } from './persistence'
 import { isFolderRepo } from '../shared/repo-kind'
 import type { GitWorktreeInfo, Repo, Worktree } from '../shared/types'
@@ -28,8 +30,7 @@ import { mergeWorktree } from './ipc/worktree-logic'
 const WORKTREE_SCAN_CONCURRENCY = 3
 const LOCAL_FS_CONCURRENCY = 48
 const REMOTE_FS_CONCURRENCY = 10
-const DU_TIMEOUT_MS = 120_000
-const DU_MAX_BUFFER_BYTES = 16 * 1024 * 1024
+const DU_STDERR_MAX_CHARS = 64 * 1024
 
 type AsyncLimiter = <T>(task: () => Promise<T>) => Promise<T>
 
@@ -39,7 +40,6 @@ type ScanStats = {
   kind: WorkspaceSpaceItemKind
   sizeBytes: number
   skippedEntryCount: number
-  children?: ScanStats[]
 }
 
 type WorktreeListResult =
@@ -169,54 +169,66 @@ function normalizeLocalDuPath(pathValue: string): string {
   return trimmed.length > 0 ? trimmed : pathValue
 }
 
-function parseDuDepthOneOutput(stdout: string): Map<string, number> {
-  const sizes = new Map<string, number>()
-  for (const line of stdout.split('\n')) {
-    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line
-    if (!normalizedLine) {
-      continue
-    }
-    const match = /^(\d+)\s+(.+)$/.exec(normalizedLine)
-    if (!match) {
-      continue
-    }
-    sizes.set(normalizeLocalDuPath(match[2]), Number(match[1]) * 1024)
+function parseDuDepthOneLine(line: string): [string, number] | null {
+  const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line
+  if (!normalizedLine) {
+    return null
   }
-  return sizes
+  const match = /^(\d+)\s+(.+)$/.exec(normalizedLine)
+  if (!match) {
+    return null
+  }
+  return [normalizeLocalDuPath(match[2]), Number(match[1]) * 1024]
+}
+
+function consumeDuOutputChunk(
+  sizes: Map<string, number>,
+  bufferedLine: string,
+  chunkText: string
+): string {
+  const lines = `${bufferedLine}${chunkText}`.split('\n')
+  const nextBufferedLine = lines.pop() ?? ''
+  for (const line of lines) {
+    const parsed = parseDuDepthOneLine(line)
+    if (parsed) {
+      sizes.set(parsed[0], parsed[1])
+    }
+  }
+  return nextBufferedLine
 }
 
 async function readLocalDuDepthOne(
   rootPath: string,
   signal?: AbortSignal
 ): Promise<Map<string, number>> {
-  const stdout = await new Promise<string>((resolve, reject) => {
+  return new Promise<Map<string, number>>((resolve, reject) => {
     let settled = false
-    let child: ReturnType<typeof execFile> | undefined
+    let child: ChildProcessByStdio<null, Readable, Readable> | undefined
     let onAbort: (() => void) | null = null
-    let timer: ReturnType<typeof setTimeout> | null = null
+    let bufferedLine = ''
+    let stderr = ''
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
+    const sizes = new Map<string, number>()
+    const appendStderr = (chunkText: string): void => {
+      if (stderr.length < DU_STDERR_MAX_CHARS) {
+        stderr = `${stderr}${chunkText}`.slice(0, DU_STDERR_MAX_CHARS)
+      }
+    }
     const settle = (callback: () => void): void => {
       if (settled) {
         return
       }
       settled = true
-      if (timer) {
-        clearTimeout(timer)
-      }
       if (onAbort) {
         signal?.removeEventListener('abort', onAbort)
       }
       callback()
     }
-    timer = setTimeout(() => {
-      settle(() => {
-        child?.kill()
-        reject(new Error(`du timed out after ${DU_TIMEOUT_MS}ms`))
-      })
-    }, DU_TIMEOUT_MS)
     onAbort = () => {
       settle(() => {
         child?.kill()
-        reject(new Error('Workspace space scan cancelled'))
+        reject(new WorkspaceSpaceScanCancelledError())
       })
     }
     signal?.addEventListener('abort', onAbort, { once: true })
@@ -225,31 +237,42 @@ async function readLocalDuDepthOne(
       return
     }
 
-    // Why: execFile's timeout only signals `du`; a wedged child that never
-    // calls back must not block the Space scan or its portable fallback.
     try {
-      child = execFile(
-        'du',
-        ['-k', '-d', '1', rootPath],
-        {
-          encoding: 'utf8',
-          maxBuffer: DU_MAX_BUFFER_BYTES,
-          signal,
-          timeout: DU_TIMEOUT_MS
-        },
-        (error, stdout) => {
-          if (error) {
-            settle(() => reject(error))
-            return
-          }
-          settle(() => resolve(String(stdout)))
-        }
-      )
+      // Why: large worktrees can produce more top-level du rows than
+      // execFile's fixed buffer allows; stream rows so accuracy has no cap.
+      child = spawn('du', ['-k', '-d', '1', rootPath], { stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (error) {
       settle(() => reject(error))
+      return
     }
+    child.stdout.on('data', (chunk) => {
+      bufferedLine = consumeDuOutputChunk(sizes, bufferedLine, stdoutDecoder.write(chunk))
+    })
+    child.stderr.on('data', (chunk) => {
+      appendStderr(stderrDecoder.write(chunk))
+    })
+    child.once('error', (error) => {
+      settle(() => reject(error))
+    })
+    child.once('close', (code) => {
+      settle(() => {
+        const decodedTail = stdoutDecoder.end()
+        if (decodedTail) {
+          bufferedLine = consumeDuOutputChunk(sizes, bufferedLine, decodedTail)
+        }
+        appendStderr(stderrDecoder.end())
+        const parsed = parseDuDepthOneLine(bufferedLine)
+        if (parsed) {
+          sizes.set(parsed[0], parsed[1])
+        }
+        if (code === 0) {
+          resolve(sizes)
+          return
+        }
+        reject(new Error(stderr.trim() || `du exited with code ${code ?? 'null'}`))
+      })
+    })
   })
-  return parseDuDepthOneOutput(stdout)
 }
 
 function classifyError(error: unknown): {
@@ -431,8 +454,7 @@ async function scanLocalEntry(
     path: entryPath,
     kind: 'directory',
     sizeBytes,
-    skippedEntryCount,
-    children: childStats.filter((child): child is ScanStats => child !== null)
+    skippedEntryCount
   }
 }
 
@@ -530,8 +552,7 @@ async function scanRemoteEntry(
     path: entryPath,
     kind: 'directory',
     sizeBytes,
-    skippedEntryCount,
-    children: childStats.filter((child): child is ScanStats => child !== null)
+    skippedEntryCount
   }
 }
 
@@ -591,7 +612,7 @@ async function scanLocalWorktreeWithDu(
       limit,
       signal
     )
-    const compact = compactWorkspaceSpaceItems((root.children ?? []).map(toWorkspaceSpaceItem))
+    const compact = compactWorkspaceSpaceItems([])
     return {
       ...createBaseWorktreeRow(repo, worktree, scannedAt),
       status: 'ok',
@@ -653,20 +674,74 @@ async function scanLocalWorktreeWithNode(
 ): Promise<WorkspaceSpaceWorktree> {
   try {
     const limit = createAsyncLimiter(LOCAL_FS_CONCURRENCY, signal)
-    const root = await scanLocalEntry(
-      worktree.path,
-      basenameFilesystemPath(worktree.path),
-      limit,
-      signal
+    const rootStats = await lstat(worktree.path)
+    throwIfAborted(signal)
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+      const root = await scanLocalEntry(
+        worktree.path,
+        basenameFilesystemPath(worktree.path),
+        limit,
+        signal
+      )
+      const compact = compactWorkspaceSpaceItems([])
+      return {
+        ...createBaseWorktreeRow(repo, worktree, scannedAt),
+        status: 'ok',
+        error: null,
+        sizeBytes: root.sizeBytes,
+        reclaimableBytes: worktree.isMainWorktree ? 0 : root.sizeBytes,
+        skippedEntryCount: root.skippedEntryCount,
+        ...compact
+      }
+    }
+
+    let entries: Dirent[]
+    try {
+      entries = await readdir(worktree.path, { withFileTypes: true })
+    } catch {
+      const compact = compactWorkspaceSpaceItems([])
+      return {
+        ...createBaseWorktreeRow(repo, worktree, scannedAt),
+        status: 'ok',
+        error: null,
+        sizeBytes: rootStats.size,
+        reclaimableBytes: worktree.isMainWorktree ? 0 : rootStats.size,
+        skippedEntryCount: 1,
+        ...compact
+      }
+    }
+
+    const rootChildStats = await Promise.all(
+      entries.map(async (entry): Promise<ScanStats | null> => {
+        try {
+          return await scanLocalEntry(
+            joinFilesystemPath(worktree.path, entry.name),
+            entry.name,
+            limit,
+            signal
+          )
+        } catch (error) {
+          if (error instanceof WorkspaceSpaceScanCancelledError) {
+            throw error
+          }
+          return null
+        }
+      })
     )
-    const compact = compactWorkspaceSpaceItems((root.children ?? []).map(toWorkspaceSpaceItem))
+    const childStats = rootChildStats.filter((child): child is ScanStats => child !== null)
+    const sizeBytes = rootStats.size + childStats.reduce((sum, child) => sum + child.sizeBytes, 0)
+    const skippedEntryCount =
+      childStats.reduce((sum, child) => sum + child.skippedEntryCount, 0) +
+      rootChildStats.length -
+      childStats.length
+    const compact = compactWorkspaceSpaceItems(childStats.map(toWorkspaceSpaceItem))
     return {
       ...createBaseWorktreeRow(repo, worktree, scannedAt),
       status: 'ok',
       error: null,
-      sizeBytes: root.sizeBytes,
-      reclaimableBytes: worktree.isMainWorktree ? 0 : root.sizeBytes,
-      skippedEntryCount: root.skippedEntryCount,
+      sizeBytes,
+      reclaimableBytes: worktree.isMainWorktree ? 0 : sizeBytes,
+      skippedEntryCount,
       ...compact
     }
   } catch (error) {
@@ -734,17 +809,69 @@ async function scanRemoteWorktree(
     }
 
     const limit = createAsyncLimiter(REMOTE_FS_CONCURRENCY, signal)
-    const root = await scanRemoteEntry(
-      worktree.path,
-      basenameFilesystemPath(worktree.path),
-      provider,
-      limit,
-      signal
+    const rootStats = await limit(() => provider.stat(worktree.path))
+    throwIfAborted(signal)
+    if (rootStats.type !== 'directory') {
+      const root = await scanRemoteEntry(
+        worktree.path,
+        basenameFilesystemPath(worktree.path),
+        provider,
+        limit,
+        signal
+      )
+      const compact = compactWorkspaceSpaceItems([])
+      return createScannedWorktreeRow(repo, worktree, scannedAt, {
+        sizeBytes: root.sizeBytes,
+        skippedEntryCount: root.skippedEntryCount,
+        ...compact
+      })
+    }
+
+    let entries
+    try {
+      entries = await limit(() => provider.readDir(worktree.path))
+      throwIfAborted(signal)
+    } catch (error) {
+      if (error instanceof WorkspaceSpaceScanCancelledError) {
+        throw error
+      }
+      const compact = compactWorkspaceSpaceItems([])
+      return createScannedWorktreeRow(repo, worktree, scannedAt, {
+        sizeBytes: rootStats.size,
+        skippedEntryCount: 1,
+        ...compact
+      })
+    }
+
+    const rootChildStats = await Promise.all(
+      entries.map(async (entry): Promise<ScanStats | null> => {
+        try {
+          return await scanRemoteEntry(
+            joinFilesystemPath(worktree.path, entry.name),
+            entry.name,
+            provider,
+            limit,
+            signal,
+            entry.isSymlink
+          )
+        } catch (error) {
+          if (error instanceof WorkspaceSpaceScanCancelledError) {
+            throw error
+          }
+          return null
+        }
+      })
     )
-    const compact = compactWorkspaceSpaceItems((root.children ?? []).map(toWorkspaceSpaceItem))
+    const childStats = rootChildStats.filter((child): child is ScanStats => child !== null)
+    const sizeBytes = rootStats.size + childStats.reduce((sum, child) => sum + child.sizeBytes, 0)
+    const skippedEntryCount =
+      childStats.reduce((sum, child) => sum + child.skippedEntryCount, 0) +
+      rootChildStats.length -
+      childStats.length
+    const compact = compactWorkspaceSpaceItems(childStats.map(toWorkspaceSpaceItem))
     return createScannedWorktreeRow(repo, worktree, scannedAt, {
-      sizeBytes: root.sizeBytes,
-      skippedEntryCount: root.skippedEntryCount,
+      sizeBytes,
+      skippedEntryCount,
       ...compact
     })
   } catch (error) {

@@ -25,7 +25,7 @@ export type MultiplexerTransport = {
 type PendingRequest = {
   resolve: (result: unknown) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  timer: ReturnType<typeof setTimeout> | null
   cleanup: () => void
 }
 
@@ -160,7 +160,7 @@ export class SshChannelMultiplexer {
   async request(
     method: string,
     params?: Record<string, unknown>,
-    options?: { signal?: AbortSignal; timeoutMs?: number }
+    options?: { signal?: AbortSignal; timeoutMs?: number | null }
   ): Promise<unknown> {
     if (this.disposed) {
       throw new Error('Multiplexer disposed')
@@ -178,12 +178,14 @@ export class SshChannelMultiplexer {
       method,
       ...(params !== undefined ? { params } : {})
     }
-    const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS
+    const timeoutMs = options?.timeoutMs === undefined ? REQUEST_TIMEOUT_MS : options.timeoutMs
 
     return new Promise((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout>
+      let timer: ReturnType<typeof setTimeout> | null = null
       const cleanup = (): void => {
-        clearTimeout(timer)
+        if (timer) {
+          clearTimeout(timer)
+        }
         if (options?.signal) {
           options.signal.removeEventListener('abort', onAbort)
         }
@@ -202,17 +204,19 @@ export class SshChannelMultiplexer {
         error.name = 'AbortError'
         pending.reject(error)
       }
-      timer = setTimeout(() => {
-        const pending = this.pendingRequests.get(id)
-        if (pending) {
-          pending.cleanup()
-          // Why: request timeouts should stop relay-side long-running work,
-          // not just detach the client from the eventual response.
-          this.notify('rpc.cancel', { id })
-        }
-        this.pendingRequests.delete(id)
-        reject(new Error(`Request "${method}" timed out after ${timeoutMs}ms`))
-      }, timeoutMs)
+      if (timeoutMs !== null) {
+        timer = setTimeout(() => {
+          const pending = this.pendingRequests.get(id)
+          if (pending) {
+            pending.cleanup()
+            // Why: request timeouts should stop relay-side long-running work,
+            // not just detach the client from the eventual response.
+            this.notify('rpc.cancel', { id })
+          }
+          this.pendingRequests.delete(id)
+          reject(new Error(`Request "${method}" timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+      }
 
       if (options?.signal) {
         options.signal.addEventListener('abort', onAbort, { once: true })
