@@ -5256,6 +5256,11 @@
           "273e7e81fe": "Configuraciones",
           "1f744a72f4": "configuración"
         },
+        "BranchPrefixFeedback": {
+          "6c40c0908f": "El prefijo no puede contener espacios ni caracteres especiales como ~ ^ : ? * [ \\",
+          "64d70b156a": "Las ramas se llamarán {{example}}",
+          "808f9a726e": "No se aplicará ningún prefijo"
+        },
         "GitPane": {
           "d2eede4c54": "Agregue la atribución de Orca a commits, PR y problemas.",
           "e02ea23a32": "Atribución de Orca",
