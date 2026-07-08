@@ -71,28 +71,37 @@ function createMockRuntime(): CoordinatorRuntime & {
 function insertWorkerDone(
   db: OrchestrationDb,
   params: {
-    taskId: string
+    taskId?: string
     to?: string
     from?: string
     dispatchId?: string
     filesModified?: string[]
+    payload?: Record<string, unknown>
   }
 ): void {
-  const dispatch = db.getDispatchContext(params.taskId)
+  const dispatch = params.taskId ? db.getDispatchContext(params.taskId) : undefined
   const dispatchId = params.dispatchId ?? dispatch?.id
-  if (!dispatchId) {
-    throw new Error(`No dispatch for task ${params.taskId}`)
+  if (!params.payload) {
+    if (!params.taskId) {
+      throw new Error('No taskId for worker_done')
+    }
+    if (!dispatchId) {
+      throw new Error(`No dispatch for task ${params.taskId}`)
+    }
   }
+  const payload =
+    params.payload ??
+    ({
+      taskId: params.taskId,
+      dispatchId,
+      ...(params.filesModified ? { filesModified: params.filesModified } : {})
+    } as Record<string, unknown>)
   db.insertMessage({
     from: params.from ?? dispatch?.assignee_handle ?? 'term_unknown',
     to: params.to ?? 'coord',
     subject: 'Done',
     type: 'worker_done',
-    payload: JSON.stringify({
-      taskId: params.taskId,
-      dispatchId,
-      ...(params.filesModified ? { filesModified: params.filesModified } : {})
-    })
+    payload: JSON.stringify(payload)
   })
 }
 
@@ -204,6 +213,137 @@ describe('Coordinator', () => {
 
     expect(result.status).toBe('completed')
     expect(result.completedTasks.filter((id) => id === task.id)).toHaveLength(1)
+  })
+
+  it('completes worker_done without taskId or dispatchId from the active worker terminal', async () => {
+    db = new OrchestrationDb(':memory:')
+    const logs: string[] = []
+
+    const task = db.createTask({ spec: 'null-id completion' })
+    const dispatch = db.createDispatchContext(task.id, 'term_a')
+    const msg = db.insertMessage({
+      from: 'term_a',
+      to: 'coord',
+      subject: 'Done',
+      type: 'worker_done',
+      payload: JSON.stringify({})
+    })
+
+    const result = reconcileLifecycleMessage(db, msg, (m) => logs.push(m))
+
+    expect(result).toEqual({ action: 'completed', taskId: task.id, dispatchId: dispatch.id })
+    expect(db.getTask(task.id)?.status).toBe('completed')
+    expect(db.getDispatchContextById(dispatch.id)?.status).toBe('completed')
+    expect(logs.some((m) => m.includes('has no active dispatch'))).toBe(false)
+  })
+
+  it('ignores malformed worker_done payload instead of falling back to the active dispatch', async () => {
+    db = new OrchestrationDb(':memory:')
+    const logs: string[] = []
+
+    const task = db.createTask({ spec: 'malformed payload guard' })
+    const dispatch = db.createDispatchContext(task.id, 'term_a')
+    const msg = db.insertMessage({
+      from: 'term_a',
+      to: 'coord',
+      subject: 'Done',
+      type: 'worker_done',
+      payload: '{bad json'
+    })
+
+    const result = reconcileLifecycleMessage(db, msg, (m) => logs.push(m))
+
+    expect(result).toEqual({ action: 'ignored' })
+    expect(db.getTask(task.id)?.status).toBe('dispatched')
+    expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+    expect(logs.some((m) => m.includes('invalid payload'))).toBe(true)
+  })
+
+  it.each(['pending', 'ready', 'blocked'] as const)(
+    'ignores null-id worker_done when the sender has no active dispatch - %s',
+    async (variant) => {
+      db = new OrchestrationDb(':memory:')
+      const logs: string[] = []
+
+      const task =
+        variant === 'pending'
+          ? db.createTask({ spec: 'pending null-id guard', deps: ['dep_task'] })
+          : db.createTask({ spec: `${variant} null-id guard` })
+      if (variant === 'blocked') {
+        db.updateTaskStatus(task.id, 'blocked')
+      }
+      const otherTask = db.createTask({ spec: 'other terminal work' })
+      const otherDispatch = db.createDispatchContext(otherTask.id, 'term_b')
+
+      const msg = db.insertMessage({
+        from: 'term_a',
+        to: 'coord',
+        subject: 'Done',
+        type: 'worker_done',
+        payload: JSON.stringify({})
+      })
+
+      const result = reconcileLifecycleMessage(db, msg, (m) => logs.push(m))
+
+      expect(result).toEqual({ action: 'ignored' })
+      expect(db.getTask(task.id)?.status).toBe(variant)
+      expect(db.getTask(otherTask.id)?.status).toBe('dispatched')
+      expect(db.getDispatchContextById(otherDispatch.id)?.status).toBe('dispatched')
+      expect(logs.some((m) => m.includes('has no active dispatch'))).toBe(true)
+    }
+  )
+
+  it.each(['taskId', 'dispatchId'] as const)(
+    'ignores null-id fallback when supplied ids conflict with the active dispatch - %s',
+    async (field) => {
+      db = new OrchestrationDb(':memory:')
+      const logs: string[] = []
+
+      const task = db.createTask({ spec: 'active worker' })
+      const dispatch = db.createDispatchContext(task.id, 'term_a')
+      const otherTask = db.createTask({ spec: 'alternate worker' })
+      const otherDispatch = db.createDispatchContext(otherTask.id, 'term_b')
+      const payload =
+        field === 'taskId'
+          ? { taskId: otherTask.id }
+          : { dispatchId: otherDispatch.id }
+
+      const msg = db.insertMessage({
+        from: 'term_a',
+        to: 'coord',
+        subject: 'Done',
+        type: 'worker_done',
+        payload: JSON.stringify(payload)
+      })
+
+      const result = reconcileLifecycleMessage(db, msg, (m) => logs.push(m))
+
+      expect(result).toEqual({ action: 'ignored' })
+      expect(db.getTask(task.id)?.status).toBe('dispatched')
+      expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+      expect(logs.some((m) => m.includes('does not match active'))).toBe(true)
+    }
+  )
+
+  it('treats already-completed worker_done as completed', async () => {
+    db = new OrchestrationDb(':memory:')
+
+    const task = db.createTask({ spec: 'already completed' })
+    const dispatch = db.createDispatchContext(task.id, 'term_a')
+    db.updateTaskStatus(task.id, 'completed', JSON.stringify({ completedBy: 'term_a' }))
+    const msg = db.insertMessage({
+      from: 'term_a',
+      to: 'coord',
+      subject: 'Done',
+      type: 'worker_done',
+      payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+    })
+
+    const result = reconcileLifecycleMessage(db, msg)
+
+    expect(result).toEqual({ action: 'completed', taskId: task.id, dispatchId: dispatch.id })
+    expect(db.getTask(task.id)?.status).toBe('completed')
+    expect(db.getDispatchContextById(dispatch.id)?.status).toBe('completed')
   })
 
   it('creates a terminal when none are available', async () => {

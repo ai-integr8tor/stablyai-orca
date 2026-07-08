@@ -582,7 +582,7 @@ describe('orchestration RPC methods', () => {
       expect(db.getUnreadMessages('term_coord', ['worker_done'])).toHaveLength(1)
     })
 
-    it('does not complete worker_done missing taskId or dispatchId', async () => {
+    it('completes worker_done missing taskId or dispatchId from the active worker terminal', async () => {
       setup()
       const { task, dispatch } = createDispatchedTask()
       insertWorkerDone({ dispatchId: dispatch.id })
@@ -594,8 +594,8 @@ describe('orchestration RPC methods', () => {
       })) as { count: number }
 
       expect(result.count).toBe(2)
-      expect(db.getTask(task.id)?.status).toBe('dispatched')
-      expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+      expect(db.getTask(task.id)?.status).toBe('completed')
+      expect(db.getDispatchContextById(dispatch.id)?.status).toBe('completed')
     })
 
     it('does not complete worker_done from a terminal that does not own the dispatch', async () => {

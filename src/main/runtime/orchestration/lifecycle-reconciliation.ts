@@ -10,7 +10,10 @@ type LogFn = (msg: string) => void
 
 const noopLog: LogFn = () => {}
 
-function parseObjectPayload(msg: MessageRow, onInvalidJson: () => void): Record<string, unknown> {
+function parseObjectPayload(
+  msg: MessageRow,
+  onInvalidJson: () => void
+): Record<string, unknown> | undefined {
   if (!msg.payload) {
     return {}
   }
@@ -20,7 +23,7 @@ function parseObjectPayload(msg: MessageRow, onInvalidJson: () => void): Record<
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
   } catch {
     onInvalidJson()
-    return {}
+    return undefined
   }
 }
 
@@ -57,6 +60,9 @@ function reconcileHeartbeatMessage(
   const payload = parseObjectPayload(msg, () => {
     onLog(`Heartbeat from ${msg.from_handle} has invalid JSON payload; ignored`)
   })
+  if (!payload) {
+    return { action: 'ignored' }
+  }
   const dispatchId = payload.dispatchId
   if (typeof dispatchId !== 'string' || dispatchId.length === 0) {
     onLog(`Heartbeat from ${msg.from_handle} missing dispatchId; ignored`)
@@ -79,17 +85,44 @@ function reconcileWorkerDoneMessage(
   const payload = parseObjectPayload(msg, () => {
     onLog(`Warning: invalid payload in worker_done from ${msg.from_handle}`)
   })
-
-  const taskId = payload.taskId
-  if (typeof taskId !== 'string' || taskId.length === 0) {
-    onLog(`Warning: worker_done without taskId from ${msg.from_handle}`)
+  if (!payload) {
     return { action: 'ignored' }
   }
 
-  const dispatchId = payload.dispatchId
-  if (typeof dispatchId !== 'string' || dispatchId.length === 0) {
-    onLog(`Warning: worker_done without dispatchId from ${msg.from_handle}`)
-    return { action: 'ignored' }
+  const payloadTaskId = typeof payload.taskId === 'string' && payload.taskId.length > 0
+    ? payload.taskId
+    : undefined
+  const payloadDispatchId =
+    typeof payload.dispatchId === 'string' && payload.dispatchId.length > 0
+      ? payload.dispatchId
+      : undefined
+
+  let taskId: string
+  let dispatchId: string
+  // Why: terminal-owned worker_done can arrive without ids, so recover them from the sender's active dispatch and keep the existing ownership checks.
+  if (!payloadTaskId || !payloadDispatchId) {
+    const active = db.getActiveDispatchForTerminal(msg.from_handle)
+    if (!active) {
+      onLog(`Warning: worker_done from ${msg.from_handle} has no active dispatch; ignored`)
+      return { action: 'ignored' }
+    }
+    if (payloadTaskId && payloadTaskId !== active.task_id) {
+      onLog(
+        `Warning: worker_done taskId ${payloadTaskId} does not match active task ${active.task_id} for ${msg.from_handle}`
+      )
+      return { action: 'ignored' }
+    }
+    if (payloadDispatchId && payloadDispatchId !== active.id) {
+      onLog(
+        `Warning: worker_done dispatchId ${payloadDispatchId} does not match active dispatch ${active.id} for ${msg.from_handle}`
+      )
+      return { action: 'ignored' }
+    }
+    taskId = active.task_id
+    dispatchId = active.id
+  } else {
+    taskId = payloadTaskId
+    dispatchId = payloadDispatchId
   }
 
   const task = db.getTask(taskId)
