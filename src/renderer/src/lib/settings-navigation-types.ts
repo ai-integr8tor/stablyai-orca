@@ -30,6 +30,7 @@ export type SettingsNavTarget =
   | 'experimental'
   | 'agents'
   | 'orchestration'
+  | 'skills'
   | 'servers'
   | 'mobile'
   | 'mobile-emulator'

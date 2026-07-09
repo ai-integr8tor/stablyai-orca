@@ -679,6 +679,9 @@
         "f70ac54d38": "AI Provider Accounts",
         "4121f7a0a2": "Manage AI agents, set a default, and customize commands.",
         "b49abbd2f7": "Agents",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source.",
         "dev": "Dev Tools",
         "devDescription": "Dev-only tools for exercising UI states.",
         "devBadge": "Dev",
@@ -3466,6 +3469,7 @@
           "426be2aac6": "Codex",
           "39b6998ddb": "All providers",
           "a68dee6a32": "Search skills",
+          "0f54d1b7f8": "Manage",
           "e46e162e2e": "from",
           "b088e0785d": "Beta",
           "f43ad6edf3": "Skills",
@@ -3480,7 +3484,13 @@
           "6a62a0168c": "No matches",
           "cd7893fbc1": "Scanning skills",
           "35b9a724a0": "Available",
-          "0c74e7ff34": "Local"
+          "0c74e7ff34": "Local",
+          "5f8ad7efc1": "Unknown",
+          "6e4ef57af8": "Just now",
+          "c2a6a5dd13": "1 file",
+          "a421c52a18": "{{count}} files",
+          "c16750a08a": "{{count}} locations",
+          "42884b773d": "Filter by source"
         }
       },
       "sidebar": {
@@ -3864,6 +3874,7 @@
           "5687ab246a": "GitHub",
           "5f83d86d92": "Changelog",
           "cdc87f897e": "Docs",
+          "1a2f3b9d44": "Skills",
           "e565171a7c": "Keyboard Shortcuts",
           "4cf5b868d7": "Send Feedback",
           "a428c25998": "Settings",
@@ -6291,6 +6302,8 @@
           "23c6874fdf": "AI Capabilities",
           "2309068a6f": "destructive",
           "65358016ea": "Discard",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source.",
           "dev": "Dev Tools",
           "devDescription": "Dev-only tools for exercising UI states."
         },
@@ -8706,6 +8719,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "Remove {{value0}} shortcut {{value1}}",
           "2a9588b1c2": "Remove this binding"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         },
         "BrowserLocalhostWorktreeLabelsSetting": {
           "8ac8c3ad19": "Localhost Worktree Labels",

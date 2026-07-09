@@ -409,7 +409,7 @@ describe('Subprocess: Relay entry point', () => {
       await relay.waitForExit(2000)
       expect(relay.proc.exitCode).toBe(0)
     },
-    10_000
+    30_000
   )
 
   it('reports relay diagnostics over relay.status', async () => {

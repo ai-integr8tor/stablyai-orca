@@ -679,6 +679,9 @@
         "f70ac54d38": "AI プロバイダー アカウント",
         "4121f7a0a2": "AI agents を管理し、デフォルトを設定し、コマンドをカスタマイズします。",
         "b49abbd2f7": "エージェント",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source.",
         "dev": "Dev Tools",
         "devDescription": "Dev-only tools for exercising UI states.",
         "devBadge": "Dev",
@@ -3466,6 +3469,7 @@
           "426be2aac6": "Codex",
           "39b6998ddb": "すべてのプロバイダー",
           "a68dee6a32": "スキルを検索",
+          "0f54d1b7f8": "管理",
           "e46e162e2e": "から",
           "b088e0785d": "ベータ",
           "f43ad6edf3": "スキル",
@@ -3480,7 +3484,13 @@
           "6a62a0168c": "一致なし",
           "cd7893fbc1": "スキャンスキル",
           "35b9a724a0": "利用可能",
-          "0c74e7ff34": "ローカル"
+          "0c74e7ff34": "ローカル",
+          "5f8ad7efc1": "不明",
+          "6e4ef57af8": "たった今",
+          "c2a6a5dd13": "1 ファイル",
+          "a421c52a18": "{{count}} ファイル",
+          "c16750a08a": "{{count}} か所",
+          "42884b773d": "ソースで絞り込み"
         }
       },
       "sidebar": {
@@ -3830,6 +3840,7 @@
           "5687ab246a": "GitHub",
           "5f83d86d92": "変更履歴",
           "cdc87f897e": "ドキュメント",
+          "1a2f3b9d44": "スキル",
           "e565171a7c": "キーボードショートカット",
           "4cf5b868d7": "フィードバックを送信する",
           "a428c25998": "設定",
@@ -6276,6 +6287,8 @@
           "23c6874fdf": "AI 機能",
           "2309068a6f": "破壊的な",
           "65358016ea": "破棄",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source.",
           "dev": "Dev Tools",
           "devDescription": "Dev-only tools for exercising UI states."
         },
@@ -8706,6 +8719,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "{{value0}} ショートカット {{value1}} を削除",
           "2a9588b1c2": "Remove this binding"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         },
         "BrowserLocalhostWorktreeLabelsSetting": {
           "8ac8c3ad19": "ローカルホストのワークツリーのラベル",

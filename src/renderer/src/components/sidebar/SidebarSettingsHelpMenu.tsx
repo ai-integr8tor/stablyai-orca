@@ -152,6 +152,11 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
     openSettingsPage()
   }
 
+  const openSkillsSettings = (): void => {
+    openSettingsTarget({ pane: 'skills', repoId: null })
+    openSettingsPage()
+  }
+
   const handleCheckForUpdatesPointerDown = (event: React.PointerEvent): void => {
     updateCheckModifiersRef.current = {
       ctrlKey: event.ctrlKey,
@@ -235,6 +240,10 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
               )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={openSkillsSettings}>
+              <BookOpen className="size-3.5" />
+              {translate('auto.components.sidebar.SidebarSettingsHelpMenu.1a2f3b9d44', 'Skills')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
               <MessageSquareText className="size-3.5" />
               {translate(

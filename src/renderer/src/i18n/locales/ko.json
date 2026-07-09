@@ -679,6 +679,9 @@
         "f70ac54d38": "AI 제공업체 계정",
         "4121f7a0a2": "AI agents를 관리하고, 기본값을 설정하고, 명령을 사용자 정의하세요.",
         "b49abbd2f7": "에이전트",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source.",
         "dev": "Dev Tools",
         "devDescription": "Dev-only tools for exercising UI states.",
         "devBadge": "Dev",
@@ -3466,6 +3469,7 @@
           "426be2aac6": "Codex",
           "39b6998ddb": "모든 제공업체",
           "a68dee6a32": "스킬 검색",
+          "0f54d1b7f8": "관리",
           "e46e162e2e": "~에서",
           "b088e0785d": "베타",
           "f43ad6edf3": "스킬",
@@ -3480,7 +3484,13 @@
           "6a62a0168c": "일치하는 항목 없음",
           "cd7893fbc1": "스킬 스캔 중",
           "35b9a724a0": "사용 가능",
-          "0c74e7ff34": "로컬"
+          "0c74e7ff34": "로컬",
+          "5f8ad7efc1": "알 수 없음",
+          "6e4ef57af8": "방금 전",
+          "c2a6a5dd13": "파일 1개",
+          "a421c52a18": "파일 {{count}}개",
+          "c16750a08a": "위치 {{count}}개",
+          "42884b773d": "소스로 필터링"
         }
       },
       "sidebar": {
@@ -3830,6 +3840,7 @@
           "5687ab246a": "GitHub",
           "5f83d86d92": "변경 내역",
           "cdc87f897e": "문서",
+          "1a2f3b9d44": "스킬",
           "e565171a7c": "키보드 단축키",
           "4cf5b868d7": "피드백 보내기",
           "a428c25998": "설정",
@@ -6239,6 +6250,8 @@
           "23c6874fdf": "AI 기능",
           "2309068a6f": "파괴적",
           "65358016ea": "버리기",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source.",
           "dev": "Dev Tools",
           "devDescription": "Dev-only tools for exercising UI states."
         },
@@ -8706,6 +8719,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "{{value0}} 바로가기 {{value1}} 제거",
           "2a9588b1c2": "Remove this binding"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         },
         "BrowserLocalhostWorktreeLabelsSetting": {
           "8ac8c3ad19": "로컬호스트 작업 트리 레이블",

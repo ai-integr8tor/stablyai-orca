@@ -9,6 +9,7 @@ import {
   Bell,
   Blocks,
   Bot,
+  BookOpen,
   Bug,
   Cable,
   FlaskConical,
@@ -55,6 +56,7 @@ import { getQuickCommandsPaneSearchEntries } from '@/components/settings/quick-c
 import { getBrowserPaneCombinedSearchEntries } from '@/components/settings/browser-pane-search'
 import { getNotificationsPaneSearchEntries } from '@/components/settings/notifications-search'
 import { getOrchestrationPaneSearchEntries } from '@/components/settings/orchestration-search'
+import { getSkillsPaneSearchEntries } from '@/components/settings/skills-search'
 import {
   getRuntimeEnvironmentsSearchEntry,
   getWebRuntimeEnvironmentsSearchEntry
@@ -172,8 +174,23 @@ export function buildSettingsNavigationMetadata({
       searchEntries: getOrchestrationPaneSearchEntries(),
       group: 'capabilities'
     },
+    // Why: skill discovery scans local skill directories via window.api.skills,
+    // which the web client cannot do — gate it like the other desktop-only panes
+    // so web users don't navigate into a dead Skills pane.
     ...(showDesktopOnlySettings
       ? [
+          {
+            id: 'skills',
+            title: translate('auto.hooks.useSettingsNavigationMetadata.skillsTitle', 'Skills'),
+            description: translate(
+              'auto.hooks.useSettingsNavigationMetadata.skillsDescription',
+              'Browse local agent skills by provider and source.'
+            ),
+            icon: BookOpen,
+            searchEntries: getSkillsPaneSearchEntries(),
+            group: 'capabilities',
+            badge: translate('auto.hooks.useSettingsNavigationMetadata.skillsBeta', 'Beta')
+          },
           {
             id: 'computer-use',
             title: translate('auto.hooks.useSettingsNavigationMetadata.b35e92364b', 'Computer Use'),

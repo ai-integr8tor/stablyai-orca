@@ -1433,16 +1433,11 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set((state) => ({
       activeView: state.previousViewBeforeSpace
     })),
-  openSkillsPage: () =>
-    set((state) => ({
-      activeView: 'skills',
-      previousViewBeforeSkills:
-        state.activeView === 'skills' ? state.previousViewBeforeSkills : state.activeView
-    })),
-  closeSkillsPage: () =>
-    set((state) => ({
-      activeView: state.previousViewBeforeSkills
-    })),
+  openSkillsPage: () => {
+    get().openSettingsTarget({ pane: 'skills', repoId: null })
+    get().openSettingsPage()
+  },
+  closeSkillsPage: () => get().closeSettingsPage(),
   openMobilePage: () =>
     set((state) => ({
       activeView: 'mobile',

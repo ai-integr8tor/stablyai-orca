@@ -26,10 +26,11 @@ function ids(
 
 describe('settings navigation metadata', () => {
   it('puts AI capability panes at the top on desktop', () => {
-    expect(ids().slice(0, 10)).toEqual([
+    expect(ids().slice(0, 11)).toEqual([
       'agents',
       'accounts',
       'orchestration',
+      'skills',
       'computer-use',
       'voice',
       'setup-guide',
@@ -66,6 +67,7 @@ describe('settings navigation metadata', () => {
   it('keeps desktop-only Settings panes out of web metadata', () => {
     const webIds = ids({ isWebClient: true })
 
+    expect(webIds).not.toContain('skills')
     expect(webIds).not.toContain('browser')
     expect(webIds).not.toContain('ssh')
     expect(webIds).not.toContain('mobile')
@@ -86,6 +88,24 @@ describe('settings navigation metadata', () => {
 
     expect(sections.find((section) => section.id === 'computer-use')?.badge).toBeUndefined()
     expect(sections.find((section) => section.id === 'voice')?.badge).toBeUndefined()
+  })
+
+  it('registers Skills as a searchable AI capability with the BookOpen icon', () => {
+    const sections = buildSettingsNavigationMetadata({
+      isMac: true,
+      isWindows: false,
+      isWebClient: false,
+      repos: [repo]
+    })
+    const skills = sections.find((section) => section.id === 'skills')
+
+    expect(skills).toMatchObject({
+      title: 'Skills',
+      group: 'capabilities',
+      badge: 'Beta'
+    })
+    expect(skills?.icon.displayName ?? skills?.icon.name).toBe('BookOpen')
+    expect(skills?.searchEntries[0]?.keywords).toContain('skills gallery')
   })
 
   it('places per-workspace environments under Experimental instead of as a beta sidebar item', () => {

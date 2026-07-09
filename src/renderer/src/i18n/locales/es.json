@@ -679,6 +679,9 @@
         "f70ac54d38": "Cuentas de proveedores de IA",
         "4121f7a0a2": "Administra agentes de IA, define uno predeterminado y personaliza comandos.",
         "b49abbd2f7": "Agentes",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source.",
         "dev": "Dev Tools",
         "devDescription": "Herramientas solo para dev para probar estados de UI.",
         "devBadge": "Dev",
@@ -3466,6 +3469,7 @@
           "426be2aac6": "Codex",
           "39b6998ddb": "Todos los proveedores",
           "a68dee6a32": "Buscar skills",
+          "0f54d1b7f8": "Gestionar",
           "e46e162e2e": "de",
           "b088e0785d": "Beta",
           "f43ad6edf3": "Skills",
@@ -3480,7 +3484,13 @@
           "6a62a0168c": "No hay coincidencias",
           "cd7893fbc1": "Escaneando skills",
           "35b9a724a0": "Disponible",
-          "0c74e7ff34": "Local"
+          "0c74e7ff34": "Local",
+          "5f8ad7efc1": "Desconocido",
+          "6e4ef57af8": "Ahora mismo",
+          "c2a6a5dd13": "1 archivo",
+          "a421c52a18": "{{count}} archivos",
+          "c16750a08a": "{{count}} ubicaciones",
+          "42884b773d": "Filtrar por fuente"
         }
       },
       "sidebar": {
@@ -3849,6 +3859,7 @@
           "5687ab246a": "GitHub",
           "5f83d86d92": "Changelog",
           "cdc87f897e": "Documentación",
+          "1a2f3b9d44": "Habilidades",
           "e565171a7c": "Atajos de teclado",
           "4cf5b868d7": "Enviar comentarios",
           "a428c25998": "Ajustes",
@@ -6254,6 +6265,8 @@
           "23c6874fdf": "Capacidades de IA",
           "2309068a6f": "destructivo",
           "65358016ea": "Desechar",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source.",
           "dev": "Herramientas de desarrollo",
           "devDescription": "Herramientas solo de desarrollo para probar estados de la UI."
         },
@@ -8704,6 +8717,14 @@
           "f5ed5dcbf6": "Pulsa teclas…"
         },
         "ShortcutRemoveButton": {
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
+        },
           "9e29aff18b": "Eliminar atajo {{value1}} de {{value0}}",
           "2a9588b1c2": "Eliminar esta combinación"
         },

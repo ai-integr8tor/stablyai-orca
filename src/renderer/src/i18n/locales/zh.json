@@ -679,6 +679,9 @@
         "f70ac54d38": "AI 提供商账户",
         "4121f7a0a2": "管理 AI 智能体、设置默认值并自定义命令。",
         "b49abbd2f7": "智能体",
+        "skillsBeta": "Beta",
+        "skillsTitle": "Skills",
+        "skillsDescription": "Browse local agent skills by provider and source.",
         "dev": "开发工具",
         "devDescription": "仅用于调试 UI 状态的开发工具。",
         "devBadge": "Dev",
@@ -3466,6 +3469,7 @@
           "426be2aac6": "Codex",
           "39b6998ddb": "所有提供商",
           "a68dee6a32": "搜索技能",
+          "0f54d1b7f8": "管理",
           "e46e162e2e": "从",
           "b088e0785d": "测试版",
           "f43ad6edf3": "技能",
@@ -3480,7 +3484,13 @@
           "6a62a0168c": "没有匹配项",
           "cd7893fbc1": "正在扫描技能",
           "35b9a724a0": "可用的",
-          "0c74e7ff34": "当地的"
+          "0c74e7ff34": "当地的",
+          "5f8ad7efc1": "未知",
+          "6e4ef57af8": "刚刚",
+          "c2a6a5dd13": "1 个文件",
+          "a421c52a18": "{{count}} 个文件",
+          "c16750a08a": "{{count}} 个位置",
+          "42884b773d": "按来源筛选"
         }
       },
       "sidebar": {
@@ -3830,6 +3840,7 @@
           "5687ab246a": "GitHub",
           "5f83d86d92": "变更日志",
           "cdc87f897e": "文档",
+          "1a2f3b9d44": "技能",
           "e565171a7c": "键盘快捷键",
           "4cf5b868d7": "发送反馈",
           "a428c25998": "设置",
@@ -6239,6 +6250,8 @@
           "23c6874fdf": "AI 能力",
           "2309068a6f": "destructive",
           "65358016ea": "放弃",
+          "skillsTitle": "Skills",
+          "skillsDescription": "Browse local agent skills by provider and source.",
           "dev": "开发工具",
           "devDescription": "仅用于调试 UI 状态的开发工具。"
         },
@@ -8706,6 +8719,14 @@
         "ShortcutRemoveButton": {
           "9e29aff18b": "移除 {{value0}} 快捷键 {{value1}}",
           "2a9588b1c2": "移除此绑定"
+        },
+        "skillsSearch": {
+          "title": "Skills",
+          "description": "Browse local Codex, Claude, Agent Skills, bundled, repository, and plugin skills.",
+          "keywordGallery": "skills gallery",
+          "keywordCodex": "codex skills",
+          "keywordClaude": "claude skills",
+          "keywordPlugins": "plugin skills"
         },
         "BrowserLocalhostWorktreeLabelsSetting": {
           "8ac8c3ad19": "本地主机工作区标签",

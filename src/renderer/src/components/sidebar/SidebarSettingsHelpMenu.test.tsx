@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
     coreDoneCount: 2,
     coreTotal: 5,
     stepDone: {}
-  }
+  },
+  menuItems: [] as { label: string; onSelect?: (event?: Event) => void }[]
 }))
 
 let updateStatus = { state: 'idle' } as const
@@ -70,17 +71,32 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
     onPointerDown?: (event: React.PointerEvent<HTMLButtonElement>) => void
     onSelect?: (event: Event) => void
     title?: string
-  }) => (
-    <button
-      data-testid="menu-item"
-      disabled={disabled}
-      onClick={() => onSelect?.(new Event('menu.itemSelect'))}
-      onPointerDown={onPointerDown}
-      title={title}
-    >
-      {children}
-    </button>
-  ),
+  }) => {
+    const textFromNode = (node: ReactNode): string => {
+      if (typeof node === 'string' || typeof node === 'number') {
+        return String(node)
+      }
+      if (Array.isArray(node)) {
+        return node.map(textFromNode).join('')
+      }
+      if (node && typeof node === 'object' && 'props' in node) {
+        return textFromNode((node as { props?: { children?: ReactNode } }).props?.children)
+      }
+      return ''
+    }
+    mocks.menuItems.push({ label: textFromNode(children), onSelect })
+    return (
+      <button
+        data-testid="menu-item"
+        disabled={disabled}
+        onClick={() => onSelect?.(new Event('menu.itemSelect'))}
+        onPointerDown={onPointerDown}
+        title={title}
+      >
+        {children}
+      </button>
+    )
+  },
   DropdownMenuSeparator: () => <hr />,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>
 }))
@@ -168,6 +184,7 @@ describe('SidebarSettingsHelpMenu', () => {
       coreTotal: 5,
       stepDone: {}
     }
+    mocks.menuItems.length = 0
   })
 
   afterEach(() => {
@@ -203,6 +220,15 @@ describe('SidebarSettingsHelpMenu', () => {
   it('renders Keyboard Shortcuts menu item', () => {
     const html = renderToStaticMarkup(<SidebarSettingsHelpMenu />)
     expect(html).toContain('Keyboard Shortcuts')
+  })
+
+  it('opens the skills section in Settings from the help menu', () => {
+    renderToStaticMarkup(<SidebarSettingsHelpMenu />)
+    const skillsItem = mocks.menuItems.find((item) => item.label === 'Skills')
+    expect(skillsItem).toBeDefined()
+    skillsItem?.onSelect?.()
+    expect(mocks.openSettingsTarget).toHaveBeenCalledWith({ pane: 'skills', repoId: null })
+    expect(mocks.openSettingsPage).toHaveBeenCalledTimes(1)
   })
 
   it('renders Milestones with progress when setup is incomplete', () => {
