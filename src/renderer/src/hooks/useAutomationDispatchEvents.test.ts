@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockLaunchAgentBackgroundSession = vi.fn()
 const mockLaunchWorktreeBackgroundTerminals = vi.fn()
-const mockSubmitPromptToAgentTab = vi.fn()
+const mockSubmitPromptToAgentPty = vi.fn()
 const mockFindReusableAutomationSession = vi.fn()
 const mockObserveExistingAutomationSession = vi.fn()
 const mockCreateWorktree = vi.fn()
@@ -101,7 +101,7 @@ vi.mock('@/lib/launch-worktree-background-terminals', () => ({
 }))
 
 vi.mock('@/lib/agent-paste-draft', () => ({
-  submitPromptToAgentTab: mockSubmitPromptToAgentTab
+  submitPromptToAgentPty: mockSubmitPromptToAgentPty
 }))
 
 vi.mock('@/lib/automation-session-reuse', () => ({
@@ -174,46 +174,24 @@ describe('useAutomationDispatchEvents setup launch', () => {
     })
   })
 
-  it('starts setup terminal launch without waiting before launching the automation agent', async () => {
-    const order: string[] = []
-    let finishSetupLaunch: (() => void) | null = null
-    mockLaunchWorktreeBackgroundTerminals.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSetupLaunch = () => {
-            order.push('setup')
-            resolve()
-          }
-        })
-    )
-    mockLaunchAgentBackgroundSession.mockImplementation(async () => {
-      order.push('agent')
-      return { tabId: 'agent-tab', ptyId: 'agent-pty', startupPlan: {} }
-    })
-
+  it('passes new-run setup into the agent launcher so startup is gated', async () => {
     await registerAndDispatch()
 
     expect(mockCreateWorktree).toHaveBeenCalled()
     expect(mockCreateWorktree.mock.calls[0][3]).toBe('run')
-    expect(mockLaunchWorktreeBackgroundTerminals).toHaveBeenCalledWith({
-      worktreeId: 'wt-created',
-      setup: setupLaunch,
-      defaultTabs: undefined
-    })
+    expect(mockLaunchWorktreeBackgroundTerminals).not.toHaveBeenCalled()
     expect(state.setActiveView).not.toHaveBeenCalled()
     expect(state.setActiveWorktree).not.toHaveBeenCalled()
     expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
       expect.objectContaining({
         worktreeId: 'wt-created',
-        prompt: 'run this'
+        prompt: 'run this',
+        preAgentWorktreeSetup: {
+          setup: setupLaunch,
+          defaultTabs: undefined
+        }
       })
     )
-    expect(order).toEqual(['agent'])
-    expect(finishSetupLaunch).not.toBeNull()
-    const completeSetupLaunch = finishSetupLaunch as unknown as () => void
-    completeSetupLaunch()
-    await Promise.resolve()
-    expect(order).toEqual(['agent', 'setup'])
     expect(mockMarkDispatchResult).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'run-1',
@@ -224,7 +202,7 @@ describe('useAutomationDispatchEvents setup launch', () => {
     )
   })
 
-  it('launches setup and default tabs without activating the created worktree', async () => {
+  it('passes setup and default tabs into the setup-gated agent launcher', async () => {
     const defaultTabs = {
       tabs: [{ title: 'Dev', command: 'pnpm dev' }],
       runCommands: true
@@ -237,17 +215,37 @@ describe('useAutomationDispatchEvents setup launch', () => {
 
     await registerAndDispatch()
 
-    expect(mockLaunchWorktreeBackgroundTerminals).toHaveBeenCalledWith({
-      worktreeId: 'wt-created',
-      setup: setupLaunch,
-      defaultTabs
-    })
+    expect(mockLaunchWorktreeBackgroundTerminals).not.toHaveBeenCalled()
     expect(state.setActiveView).not.toHaveBeenCalled()
     expect(state.setActiveWorktree).not.toHaveBeenCalled()
     expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
       expect.objectContaining({
         worktreeId: 'wt-created',
-        prompt: 'run this'
+        prompt: 'run this',
+        preAgentWorktreeSetup: { setup: setupLaunch, defaultTabs }
+      })
+    )
+  })
+
+  it('launches default tabs best-effort when there is no setup to gate the agent', async () => {
+    const defaultTabs = {
+      tabs: [{ title: 'Dev', command: 'pnpm dev' }],
+      runCommands: true
+    }
+    mockCreateWorktree.mockResolvedValue({
+      worktree: createdWorktree,
+      defaultTabs
+    })
+
+    await registerAndDispatch()
+
+    expect(mockLaunchWorktreeBackgroundTerminals).toHaveBeenCalledWith({
+      worktreeId: 'wt-created',
+      defaultTabs
+    })
+    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        preAgentWorktreeSetup: expect.anything()
       })
     )
   })
@@ -259,28 +257,27 @@ describe('useAutomationDispatchEvents setup launch', () => {
     expect(mockLaunchAgentBackgroundSession).toHaveBeenCalled()
   })
 
-  it('keeps launching the agent when background setup terminal launch fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mockLaunchWorktreeBackgroundTerminals.mockRejectedValue(new Error('tab launch failed'))
+  it('marks the dispatch failed when setup-gated agent launch fails', async () => {
+    mockLaunchAgentBackgroundSession.mockRejectedValue(new Error('setup spawn failed'))
 
-    try {
-      await registerAndDispatch()
-    } finally {
-      warnSpy.mockRestore()
-    }
+    await registerAndDispatch()
 
     expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
       expect.objectContaining({
         worktreeId: 'wt-created',
-        prompt: 'run this'
+        prompt: 'run this',
+        preAgentWorktreeSetup: {
+          setup: setupLaunch,
+          defaultTabs: undefined
+        }
       })
     )
     expect(mockMarkDispatchResult).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'run-1',
-        status: 'dispatched',
+        status: 'dispatch_failed',
         workspaceId: 'wt-created',
-        terminalSessionId: 'agent-tab'
+        error: 'setup spawn failed'
       })
     )
   })

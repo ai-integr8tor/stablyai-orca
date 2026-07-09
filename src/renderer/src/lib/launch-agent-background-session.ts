@@ -37,6 +37,10 @@ import { createAgentStatusOscProcessor } from '../../../shared/agent-status-osc'
 import type { RuntimeTerminalCreate } from '../../../shared/runtime-types'
 import { createSshBackgroundStartupDelivery } from '@/lib/ssh-background-startup-delivery'
 import { shouldUseShellReadyStartupDelivery } from '../../../shared/codex-startup-delivery'
+import {
+  sequenceBackgroundAgentStartupAfterSetup,
+  SETUP_GATED_AGENT_READY_TIMEOUT_MS
+} from '@/lib/background-agent-setup-sequence'
 
 export async function launchAgentBackgroundSession(
   args: LaunchAgentBackgroundSessionArgs
@@ -104,6 +108,21 @@ export async function launchAgentBackgroundSession(
   if (!startupPlan) {
     return null
   }
+  // Route by the worktree's owner host, not the focused runtime.
+  const runtimeTarget = getActiveRuntimeTarget(
+    getSettingsForWorktreeRuntimeOwner(store, worktreeId)
+  )
+
+  let didSequencePreAgentSetup = false
+  if (args.preAgentWorktreeSetup && runtimeTarget.kind !== 'environment') {
+    startupPlan = await sequenceBackgroundAgentStartupAfterSetup({
+      worktreeId,
+      startupPlan,
+      launchPlatform,
+      preAgentWorktreeSetup: args.preAgentWorktreeSetup
+    })
+    didSequencePreAgentSetup = true
+  }
 
   // Why: automation runs should start without revealing the workspace.
   // Spawn the PTY immediately, then attach an inactive tab to the live session.
@@ -156,10 +175,6 @@ export async function launchAgentBackgroundSession(
       }),
     write: (ptyId, data) => window.api.pty.write(ptyId, data)
   })
-  // Route by the worktree's owner host, not the focused runtime.
-  const runtimeTarget = getActiveRuntimeTarget(
-    getSettingsForWorktreeRuntimeOwner(store, worktreeId)
-  )
   let ptyId = ''
   try {
     if (runtimeTarget.kind === 'environment') {
@@ -304,6 +319,7 @@ export async function launchAgentBackgroundSession(
       content: pasteDraftAfterLaunch,
       agent,
       submit: true,
+      ...(didSequencePreAgentSetup ? { timeoutMs: SETUP_GATED_AGENT_READY_TIMEOUT_MS } : {}),
       onTimeout: () => showAutomationPromptNotSentToast(agent)
     })
   }

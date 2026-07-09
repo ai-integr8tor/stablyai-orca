@@ -239,6 +239,27 @@ describe('launchWorktreeBackgroundTerminals', () => {
     )
   })
 
+  it('uses a prebuilt setup command when the launch was sequenced with agent startup', async () => {
+    const { launchWorktreeBackgroundTerminals } =
+      await import('./launch-worktree-background-terminals')
+
+    await launchWorktreeBackgroundTerminals({
+      worktreeId: 'wt-1',
+      setup: {
+        ...setupLaunch,
+        command: "bash -lc 'sequenced setup marker'"
+      }
+    })
+
+    expect(mockSpawn).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        command: "bash -lc 'sequenced setup marker'",
+        tabId: 'tab-2'
+      })
+    )
+  })
+
   it('still attempts setup when a default tab fails to spawn', async () => {
     const spawnError = new Error('pty unavailable')
     mockSpawn

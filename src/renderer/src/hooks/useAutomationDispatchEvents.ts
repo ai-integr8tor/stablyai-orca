@@ -235,15 +235,14 @@ export function useAutomationDispatchEvents(): void {
           }
           dispatchWorkspaceId = worktree.id
           dispatchWorkspaceDisplayName = worktree.displayName
-          if (createResult?.setup || createResult?.defaultTabs) {
+          if (!createResult?.setup && createResult?.defaultTabs) {
             void launchWorktreeBackgroundTerminals({
               worktreeId: worktree.id,
-              setup: createResult.setup,
               defaultTabs: createResult.defaultTabs
             }).catch((error) => {
-              // Why: setup/defaultTabs match normal worktree creation: they are
-              // best-effort terminal work and must not block the automation agent.
-              console.warn('[automations] Failed to launch workspace setup/default tabs:', error)
+              // Why: default tabs match normal worktree creation, but are not
+              // prerequisites for starting the automation agent.
+              console.warn('[automations] Failed to launch workspace default tabs:', error)
             })
           }
 
@@ -430,6 +429,14 @@ export function useAutomationDispatchEvents(): void {
             prompt: automation.prompt,
             launchSource: 'unknown',
             title: run.title,
+            ...(createResult?.setup
+              ? {
+                  preAgentWorktreeSetup: {
+                    setup: createResult.setup,
+                    defaultTabs: createResult.defaultTabs
+                  }
+                }
+              : {}),
             onData: (chunk) => {
               outputSnapshotBuffer.append(chunk)
             },

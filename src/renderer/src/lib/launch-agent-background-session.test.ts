@@ -20,6 +20,7 @@ const mockSubscribeToPtyExit = vi.fn()
 const mockPasteDraftWhenAgentReady = vi.fn()
 const mockMarkTrusted = vi.fn()
 const mockDispatchEvent = vi.fn()
+const mockLaunchWorktreeBackgroundTerminals = vi.fn()
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 function expectStablePaneSpawn(): string {
@@ -88,6 +89,10 @@ vi.mock('@/lib/agent-paste-draft', () => ({
   pasteDraftWhenAgentReady: mockPasteDraftWhenAgentReady
 }))
 
+vi.mock('@/lib/launch-worktree-background-terminals', () => ({
+  launchWorktreeBackgroundTerminals: mockLaunchWorktreeBackgroundTerminals
+}))
+
 vi.mock('@/components/terminal-pane/pty-dispatcher', () => ({
   registerEagerPtyBuffer: mockRegisterEagerPtyBuffer,
   subscribeToPtyExit: mockSubscribeToPtyExit
@@ -128,6 +133,7 @@ describe('launchAgentBackgroundSession', () => {
     }
     mockCreateTab.mockReturnValue({ id: 'tab-1', title: 'Terminal 1' })
     mockSpawn.mockResolvedValue({ id: 'pty-1' })
+    mockLaunchWorktreeBackgroundTerminals.mockResolvedValue(undefined)
     mockRuntimeEnvironmentCall.mockResolvedValue({
       ok: true,
       result: { terminal: { handle: 'terminal-1', worktreeId: 'wt-1', title: null } }
@@ -223,6 +229,83 @@ describe('launchAgentBackgroundSession', () => {
     expect(mockSubscribeToPtyData).toHaveBeenCalledWith('pty-1', expect.any(Function))
     expect(mockSubscribeToPtyExit).toHaveBeenCalledWith('pty-1', expect.any(Function))
     expect(result).toMatchObject({ tabId: 'tab-1', paneKey, ptyId: 'pty-1' })
+  })
+
+  it('launches setup terminals before spawning a setup-gated automation agent', async () => {
+    const order: string[] = []
+    const defaultTabs = {
+      runCommands: true,
+      tabs: [{ title: 'Dev', command: 'pnpm dev' }]
+    }
+    const setup = {
+      runnerScriptPath: '/tmp/setup.sh',
+      envVars: { ORCA_WORKTREE_PATH: '/repo/worktree' }
+    }
+    mockLaunchWorktreeBackgroundTerminals.mockImplementation(async () => {
+      order.push('setup')
+    })
+    mockSpawn.mockImplementation(async () => {
+      order.push('agent')
+      return { id: 'pty-1' }
+    })
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    await launchAgentBackgroundSession({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      prompt: 'run the automation',
+      preAgentWorktreeSetup: { setup, defaultTabs }
+    })
+
+    expect(order).toEqual(['setup', 'agent'])
+    const setupLaunch = mockLaunchWorktreeBackgroundTerminals.mock.calls[0]?.[0]
+    expect(setupLaunch).toMatchObject({
+      worktreeId: 'wt-1',
+      defaultTabs,
+      setup: expect.objectContaining({
+        runnerScriptPath: '/tmp/setup.sh',
+        envVars: { ORCA_WORKTREE_PATH: '/repo/worktree' }
+      })
+    })
+    expect(setupLaunch.setup.command).toContain('bash /tmp/setup.sh')
+    expect(setupLaunch.setup.command).toContain('/tmp/setup.sh.')
+    expect(setupLaunch.setup.command).toContain('.done')
+    const spawnArgs = mockSpawn.mock.calls[0]?.[0]
+    expect(spawnArgs.command).toContain('Waiting for setup to finish before starting agent')
+    expect(spawnArgs.command).toContain('/tmp/setup.sh.')
+    expect(spawnArgs.env).toEqual(
+      expect.objectContaining({
+        ORCA_SEQUENCED_STARTUP_COMMAND:
+          "claude '--dangerously-skip-permissions' 'run the automation'"
+      })
+    )
+    expect(spawnArgs.launchConfig).toEqual({
+      agentCommand: "claude '--dangerously-skip-permissions'",
+      agentArgs: '--dangerously-skip-permissions',
+      agentEnv: {}
+    })
+  })
+
+  it('does not launch the agent when setup terminal creation fails', async () => {
+    mockLaunchWorktreeBackgroundTerminals.mockRejectedValueOnce(new Error('setup spawn failed'))
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    await expect(
+      launchAgentBackgroundSession({
+        agent: 'claude',
+        worktreeId: 'wt-1',
+        prompt: 'run the automation',
+        preAgentWorktreeSetup: {
+          setup: {
+            runnerScriptPath: '/tmp/setup.sh',
+            envVars: { ORCA_WORKTREE_PATH: '/repo/worktree' }
+          }
+        }
+      })
+    ).rejects.toThrow('setup spawn failed')
+
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(mockCreateTab).not.toHaveBeenCalled()
   })
 
   it('records effective launch config returned by local PTY spawn', async () => {
@@ -626,5 +709,27 @@ describe('launchAgentBackgroundSession', () => {
       paneKey: `tab-1:${leafId}`,
       ptyId: 'remote:env-1@@terminal-1'
     })
+  })
+
+  it('does not add renderer-side setup gates for runtime-owned worktrees', async () => {
+    state.settings = { agentCmdOverrides: {}, activeRuntimeEnvironmentId: 'env-1' }
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    await launchAgentBackgroundSession({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      prompt: 'run the automation',
+      preAgentWorktreeSetup: {
+        setup: {
+          runnerScriptPath: '/tmp/setup.sh',
+          envVars: { ORCA_WORKTREE_PATH: '/repo/worktree' }
+        }
+      }
+    })
+
+    expect(mockLaunchWorktreeBackgroundTerminals).not.toHaveBeenCalled()
+    expect(mockRuntimeEnvironmentCall.mock.calls[0]?.[0]?.params.command).toBe(
+      "claude '--dangerously-skip-permissions' 'run the automation'"
+    )
   })
 })
