@@ -3965,7 +3965,8 @@
           "runtimeHostProject": "Orca 서버의 프로젝트",
           "automationCreated": "자동화로 생성됨",
           "branchIdentity": "브랜치",
-          "branchFolderPathIdentity": "브랜치 또는 폴더 경로"
+          "branchFolderPathIdentity": "브랜치 또는 폴더 경로",
+          "projectFolderLabel": "Project folder {{value0}}"
         },
         "WorktreeCardAgents": {
           "1b0a156717": "에이전트"

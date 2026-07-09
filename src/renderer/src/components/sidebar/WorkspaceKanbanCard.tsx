@@ -2,7 +2,7 @@ import React from 'react'
 import { Pin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import type { Repo, Worktree } from '../../../../shared/types'
-import WorktreeCard from './WorktreeCard'
+import WorktreeCard, { getDirectoryName } from './WorktreeCard'
 import { translate } from '@/i18n/i18n'
 
 type WorkspaceKanbanCardProps = {
@@ -33,6 +33,7 @@ function WorkspaceKanbanCard({
 }: WorkspaceKanbanCardProps): React.JSX.Element {
   const contextWorktrees =
     isSelected && selectedWorktrees && selectedWorktrees.length > 0 ? selectedWorktrees : undefined
+  const projectDirectoryName = repo ? getDirectoryName(repo.path) : undefined
 
   return (
     <div
@@ -57,6 +58,7 @@ function WorkspaceKanbanCard({
         isActive={isActive}
         isMultiSelected={isSelected}
         selectedWorktrees={contextWorktrees}
+        projectDirectoryName={projectDirectoryName}
         nativeDragEnabled={nativeDragEnabled}
         onActivate={onActivate}
         onSelectionGesture={onSelectionGesture}
