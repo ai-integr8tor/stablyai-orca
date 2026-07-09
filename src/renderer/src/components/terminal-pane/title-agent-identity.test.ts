@@ -11,4 +11,10 @@ describe('titleHasExplicitAgentIdentity', () => {
     expect(titleHasExplicitAgentIdentity('C:\\work\\devin.exe\\ready')).toBe(false)
     expect(titleHasExplicitAgentIdentity('devin-fixtures ready')).toBe(false)
   })
+
+  it('recognizes AtomCode status titles after the session name replaces the product name', () => {
+    expect(titleHasExplicitAgentIdentity('🟡 fix the login race')).toBe(true)
+    expect(titleHasExplicitAgentIdentity('🟢 fix the login race')).toBe(true)
+    expect(titleHasExplicitAgentIdentity('🔴 fix the login race')).toBe(true)
+  })
 })

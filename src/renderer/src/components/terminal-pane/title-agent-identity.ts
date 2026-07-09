@@ -3,6 +3,7 @@ import {
   isGeminiTerminalTitle,
   isPiTerminalTitle
 } from '../../../../shared/agent-detection'
+import { isAtomCodeTerminalTitle } from '../../../../shared/terminal-title-agent-type'
 import {
   AGY_AGENT_NAME_RE,
   DROID_AGENT_NAME_RE,
@@ -21,6 +22,7 @@ export function titleHasExplicitAgentIdentity(title: string): boolean {
     title.startsWith('. ') ||
     title.startsWith('* ') ||
     title.startsWith('\u2733') ||
+    isAtomCodeTerminalTitle(title) ||
     isGeminiTerminalTitle(title) ||
     isPiTerminalTitle(title)
   ) {

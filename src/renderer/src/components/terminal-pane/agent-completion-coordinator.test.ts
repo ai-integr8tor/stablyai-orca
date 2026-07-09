@@ -301,6 +301,32 @@ describe('agent completion coordinator', () => {
     expect(dispatchCompletion).toHaveBeenCalledWith('codex done')
   })
 
+  it('attributes AtomCode native title completion after the session is renamed', async () => {
+    let foregroundProcess: string | null = 'atomcode'
+    const dispatchCompletion = vi.fn()
+    const coordinator = createAgentCompletionCoordinator({
+      paneKey: 'tab-1:leaf-1',
+      getPtyId: () => 'pty-1',
+      getSettings: () => null,
+      inspectProcess: vi.fn(async () => processResult(foregroundProcess)),
+      dispatchCompletion,
+      isLive: () => true
+    })
+
+    coordinator.startProcessTracking()
+    vi.advanceTimersByTime(2_000)
+    await flushAsyncTicks()
+
+    coordinator.observeTitle('🟡 fix the login race')
+    coordinator.observeTitle('🟢 fix the login race')
+    foregroundProcess = null
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks()
+
+    expect(dispatchCompletion).toHaveBeenCalledTimes(1)
+    expect(dispatchCompletion).toHaveBeenCalledWith('🟢 fix the login race')
+  })
+
   it('does not dispatch a cwd title after an explicit agent working title if the shell owns the pane', async () => {
     const dispatchCompletion = vi.fn()
     const coordinator = createAgentCompletionCoordinator({

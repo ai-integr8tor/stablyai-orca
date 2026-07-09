@@ -21,6 +21,7 @@ import {
   titleHasExplicitAgentIdentity,
   titleIsInconclusiveNativeDroidTitle
 } from './title-agent-identity'
+import { isAtomCodeTerminalTitle } from '../../../../shared/terminal-title-agent-type'
 
 type CompletionSource = 'hook' | 'title' | 'process-exit'
 type CompletionIdentitySource = 'hook' | 'title' | 'process-exit'
@@ -221,6 +222,9 @@ export function createAgentCompletionCoordinator(
   }
 
   function titleCompletionAgentIdentity(title: string): string | null {
+    if (isAtomCodeTerminalTitle(title)) {
+      return 'atomcode'
+    }
     const normalized = title.toLowerCase()
     if (/\bcodex\b/.test(normalized)) {
       return 'codex'
