@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Server,
@@ -52,6 +53,18 @@ import {
   getRuntimeEnvironmentsSearchEntry,
   getWebRuntimeEnvironmentsSearchEntry
 } from './runtime-environments-search'
+import {
+  getPreferredPublicRuntimeEndpoint,
+  getRuntimeEndpointTransportKind
+} from '../../../../shared/runtime-environment-endpoint-display'
+import {
+  getRuntimeEndpointTransportLabel,
+  getRuntimeServerEndpointDisplay
+} from './runtime-server-endpoint-labels'
+import {
+  RuntimeServerEditDialog,
+  type RuntimeServerEditSaveArgs
+} from './RuntimeServerEditDialog'
 import { unwrapRuntimeRpcResult } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
@@ -261,11 +274,14 @@ export function RuntimeEnvironmentsPane({
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
   const [pendingSwitchValue, setPendingSwitchValue] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<PublicKnownRuntimeEnvironment | null>(null)
+  const [pendingEdit, setPendingEdit] = useState<PublicKnownRuntimeEnvironment | null>(null)
   const [addServerFormOpen, setAddServerFormOpen] = useState(false)
   const [shareServerFormOpen, setShareServerFormOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [switchError, setSwitchError] = useState<string | null>(null)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const [name, setName] = useState('')
   const [pairingCode, setPairingCode] = useState('')
   const mountedRef = useMountedRef()
@@ -274,6 +290,7 @@ export function RuntimeEnvironmentsPane({
     (allowLocalRuntime ? LOCAL_RUNTIME_VALUE : NO_RUNTIME_VALUE)
   const isBusy =
     isSaving ||
+    isEditing ||
     connectingId !== null ||
     switchingValue !== null ||
     removingId !== null ||
@@ -532,6 +549,96 @@ export function RuntimeEnvironmentsPane({
     } finally {
       if (mountedRef.current) {
         setRemovingId(null)
+      }
+    }
+  }
+
+  const saveEditedEnvironment = async (args: RuntimeServerEditSaveArgs): Promise<void> => {
+    const environment = pendingEdit
+    if (!environment) {
+      return
+    }
+    const nextName = args.name.trim()
+    if (!nextName) {
+      setEditError(
+        translate(
+          'auto.components.settings.RuntimeEnvironmentsPane.editNameRequired',
+          'Server name is required.'
+        )
+      )
+      return
+    }
+    const renameNeeded = nextName !== environment.name
+    const rePairNeeded = args.pairingCode != null && args.pairingCode.length > 0
+    if (!renameNeeded && !rePairNeeded) {
+      setPendingEdit(null)
+      setEditError(null)
+      return
+    }
+    const duplicate = environments.find(
+      (entry) =>
+        entry.id !== environment.id && entry.name.trim().toLowerCase() === nextName.toLowerCase()
+    )
+    if (duplicate) {
+      setEditError(
+        translate(
+          'auto.components.settings.RuntimeEnvironmentsPane.5ef712f407',
+          'A server named "{{value0}}" already exists.',
+          { value0: duplicate.name }
+        )
+      )
+      return
+    }
+
+    setIsEditing(true)
+    setEditError(null)
+    try {
+      let latest = environment
+      if (renameNeeded) {
+        const renamed = await window.api.runtimeEnvironments.rename({
+          selector: environment.id,
+          name: nextName
+        })
+        latest = renamed.environment
+      }
+      if (rePairNeeded && args.pairingCode) {
+        const updated = await window.api.runtimeEnvironments.updateFromPairingCode({
+          selector: latest.id,
+          pairingCode: args.pairingCode
+        })
+        latest = updated.environment
+      }
+      await loadEnvironments()
+      if (mountedRef.current) {
+        toast.success(
+          rePairNeeded
+            ? translate(
+                'auto.components.settings.RuntimeEnvironmentsPane.editServerUpdatedConnection',
+                'Updated {{value0}}. Reconnect if you changed the address.',
+                { value0: latest.name }
+              )
+            : translate(
+                'auto.components.settings.RuntimeEnvironmentsPane.editServerRenamed',
+                'Renamed server to {{value0}}.',
+                { value0: latest.name }
+              )
+        )
+        setPendingEdit(null)
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setEditError(
+          error instanceof Error
+            ? error.message
+            : translate(
+                'auto.components.settings.RuntimeEnvironmentsPane.editServerFailed',
+                'Failed to update server.'
+              )
+        )
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsEditing(false)
       }
     }
   }
@@ -875,6 +982,10 @@ export function RuntimeEnvironmentsPane({
                     const connectionState = getRuntimeServerConnectionState(details)
                     // A connected host exposes Disconnect; otherwise Connect.
                     const isReachable = connectionState === 'connected'
+                    const endpoint = getPreferredPublicRuntimeEndpoint(environment)
+                    const transportLabel = getRuntimeEndpointTransportLabel(
+                      getRuntimeEndpointTransportKind(endpoint)
+                    )
                     const actionBusy =
                       connectingId === environment.id ||
                       switchingValue === environment.id ||
@@ -901,7 +1012,15 @@ export function RuntimeEnvironmentsPane({
                               <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
                             ) : null}
                           </div>
-                          <p className="truncate text-xs text-muted-foreground">
+                          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="shrink-0 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium">
+                              {transportLabel}
+                            </span>
+                            <span className="min-w-0 truncate font-mono">
+                              {getRuntimeServerEndpointDisplay(endpoint)}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
                             {isActive
                               ? translate(
                                   'auto.components.settings.RuntimeEnvironmentsPane.activeServerRowHelp',
@@ -962,6 +1081,24 @@ export function RuntimeEnvironmentsPane({
                               )}
                             </Button>
                           )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditError(null)
+                              setPendingEdit(environment)
+                            }}
+                            className="size-7"
+                            disabled={isBusy}
+                            aria-label={translate(
+                              'auto.components.settings.RuntimeEnvironmentsPane.editServerAria',
+                              'Edit {{value0}}',
+                              { value0: environment.name }
+                            )}
+                          >
+                            <Pencil className="size-3" />
+                          </Button>
                           <Button
                             type="button"
                             variant="ghost"
@@ -1108,6 +1245,10 @@ export function RuntimeEnvironmentsPane({
                   <div className="space-y-1 rounded-lg border border-border/50 bg-card/30 p-2">
                     {environments.map((environment) => {
                       const details = detailsByEnvironmentId[environment.id]
+                      const endpoint = getPreferredPublicRuntimeEndpoint(environment)
+                      const transportLabel = getRuntimeEndpointTransportLabel(
+                        getRuntimeEndpointTransportKind(endpoint)
+                      )
                       return (
                         <div
                           key={environment.id}
@@ -1117,12 +1258,13 @@ export function RuntimeEnvironmentsPane({
                             {environment.name}
                           </div>
                           <div className="min-w-0 space-y-0.5">
-                            <div className="truncate font-mono">
-                              {environment.endpoints[0]?.endpoint ??
-                                translate(
-                                  'auto.components.settings.RuntimeEnvironmentsPane.6ef71985da',
-                                  'No endpoint'
-                                )}
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="shrink-0 rounded bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium">
+                                {transportLabel}
+                              </span>
+                              <span className="min-w-0 truncate font-mono">
+                                {getRuntimeServerEndpointDisplay(endpoint)}
+                              </span>
                             </div>
                             {details?.runtimeStatus ? (
                               <div className="truncate">
@@ -1329,13 +1471,19 @@ export function RuntimeEnvironmentsPane({
           {pendingRemove ? (
             <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs">
               <div className="truncate font-medium">{pendingRemove.name}</div>
-              <div className="mt-0.5 truncate font-mono text-muted-foreground">
-                {pendingRemove.endpoints[0]?.endpoint ??
-                  translate(
-                    'auto.components.settings.RuntimeEnvironmentsPane.6ef71985da',
-                    'No endpoint'
-                  )}
-              </div>
+              {(() => {
+                const endpoint = getPreferredPublicRuntimeEndpoint(pendingRemove)
+                return (
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                      {getRuntimeEndpointTransportLabel(getRuntimeEndpointTransportKind(endpoint))}
+                    </span>
+                    <span className="min-w-0 truncate font-mono">
+                      {getRuntimeServerEndpointDisplay(endpoint)}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
           ) : null}
           {removeError ? <p className="text-sm text-destructive">{removeError}</p> : null}
@@ -1371,6 +1519,20 @@ export function RuntimeEnvironmentsPane({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RuntimeServerEditDialog
+        environment={pendingEdit}
+        open={pendingEdit !== null}
+        saving={isEditing}
+        error={editError}
+        onOpenChange={(open) => {
+          if (!open && !isEditing) {
+            setEditError(null)
+            setPendingEdit(null)
+          }
+        }}
+        onSave={saveEditedEnvironment}
+      />
     </SearchableSetting>
   )
 }

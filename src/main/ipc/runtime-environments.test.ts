@@ -121,6 +121,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(handleMock.mock.calls.map((call) => call[0])).toEqual([
       'runtimeEnvironments:list',
       'runtimeEnvironments:addFromPairingCode',
+      'runtimeEnvironments:rename',
+      'runtimeEnvironments:updateFromPairingCode',
       'runtimeEnvironments:resolve',
       'runtimeEnvironments:remove',
       'runtimeEnvironments:disconnect',
@@ -140,6 +142,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(removeHandlerMock.mock.calls.map((call) => call[0])).toEqual([
       'runtimeEnvironments:list',
       'runtimeEnvironments:addFromPairingCode',
+      'runtimeEnvironments:rename',
+      'runtimeEnvironments:updateFromPairingCode',
       'runtimeEnvironments:resolve',
       'runtimeEnvironments:remove',
       'runtimeEnvironments:disconnect',
@@ -215,6 +219,45 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
     const list = handler<undefined, { id: string; name: string }[]>('runtimeEnvironments:list')
     expect(await list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
+  })
+
+  it('renames a saved server and re-pairs its connection without changing id', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string; endpoints: { endpoint: string }[] } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const added = await add(null, {
+      name: 'desk',
+      pairingCode: pairingCode('ws://192.168.1.10:6768')
+    })
+
+    const rename = handler<
+      { selector: string; name: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:rename')
+    expect(await rename(null, { selector: added.environment.id, name: 'lab' })).toMatchObject({
+      environment: { id: added.environment.id, name: 'lab' }
+    })
+
+    const update = handler<
+      { selector: string; pairingCode: string },
+      { environment: { id: string; name: string; endpoints: { endpoint: string }[] } }
+    >('runtimeEnvironments:updateFromPairingCode')
+    const updated = await update(null, {
+      selector: added.environment.id,
+      pairingCode: pairingCode('ws://100.64.0.5:6768')
+    })
+    expect(updated).toMatchObject({
+      environment: {
+        id: added.environment.id,
+        name: 'lab',
+        endpoints: [{ endpoint: 'ws://100.64.0.5:6768' }]
+      }
+    })
+    expect(JSON.stringify(updated)).not.toContain('device-token')
+    expect(closeRemoteRuntimeRequestConnectionMock).toHaveBeenCalledWith(added.environment.id)
   })
 
   it('marks environments owned by ephemeral VM runtimes in the public list', async () => {
