@@ -61,10 +61,7 @@ import {
   getRuntimeEndpointTransportLabel,
   getRuntimeServerEndpointDisplay
 } from './runtime-server-endpoint-labels'
-import {
-  RuntimeServerEditDialog,
-  type RuntimeServerEditSaveArgs
-} from './RuntimeServerEditDialog'
+import { RuntimeServerEditDialog, type RuntimeServerEditSaveArgs } from './RuntimeServerEditDialog'
 import { unwrapRuntimeRpcResult } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
@@ -626,6 +623,9 @@ export function RuntimeEnvironmentsPane({
         setPendingEdit(null)
       }
     } catch (error) {
+      // Why: rename may have succeeded before re-pair failed; reload so the UI
+      // reflects partial backend changes instead of a stale server name.
+      await loadEnvironments()
       if (mountedRef.current) {
         setEditError(
           error instanceof Error
