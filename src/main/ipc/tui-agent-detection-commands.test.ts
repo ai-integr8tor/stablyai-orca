@@ -6,6 +6,21 @@ import {
 } from './tui-agent-detection-commands'
 
 describe('tui agent detection commands', () => {
+  it('detects AtomCode as a first-class TUI agent command', () => {
+    const commands = KNOWN_TUI_AGENT_DETECTION_COMMANDS.filter((command) => command.id === 'atomcode')
+
+    expect(commands).toEqual([
+      {
+        id: 'atomcode',
+        cmd: 'atomcode'
+      }
+    ])
+    expect(getTuiAgentDetectionProbeCommands(commands, 'linux')).toEqual(['atomcode'])
+    expect(resolveDetectedTuiAgentIds(commands, new Set(['atomcode']), 'linux')).toEqual([
+      'atomcode'
+    ])
+  })
+
   it('requires Claude before reporting Claude Agent Teams', () => {
     const commands = KNOWN_TUI_AGENT_DETECTION_COMMANDS.filter(
       (command) => command.id === 'claude-agent-teams'
