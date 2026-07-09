@@ -63,6 +63,16 @@ export function createPtySizeReassertion(options: PtySizeReassertionOptions): Pt
       if (pending) {
         return
       }
+      const latestTarget = options.getTerminalDimensions()
+      if (!dimensionsAreUsable(latestTarget)) {
+        return
+      }
+      if (!dimensionsMatch(target, latestTarget)) {
+        // Why: tab reveal can refit xterm while the applied-size IPC is in flight;
+        // re-measure instead of rolling the PTY back to the pre-reveal grid.
+        pending = true
+        return
+      }
       if (dimensionsMatch(actual, target)) {
         return
       }

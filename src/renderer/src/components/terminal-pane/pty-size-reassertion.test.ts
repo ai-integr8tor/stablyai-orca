@@ -70,7 +70,7 @@ describe('createPtySizeReassertion', () => {
     reassertion.request()
     await flushAsyncTicks()
 
-    expect(calls).toEqual(['fit', 'measure', 'read-applied'])
+    expect(calls).toEqual(['fit', 'measure', 'read-applied', 'measure'])
   })
 
   it('does not duplicate the resize when fit already triggered xterm onResize', async () => {
@@ -215,6 +215,41 @@ describe('createPtySizeReassertion', () => {
     expect(forwardResize).toHaveBeenCalledTimes(1)
     expect(forwardResize).toHaveBeenCalledWith(120, 40)
     expect(forwardResize).not.toHaveBeenCalledWith(100, 40)
+  })
+
+  it('re-measures when xterm changes while the applied-size read is in flight', async () => {
+    let target = { cols: 80, rows: 24 }
+    let resolveFirst: (value: { cols: number; rows: number }) => void = () => {}
+    const getAppliedSize = vi
+      .fn<() => Promise<{ cols: number; rows: number } | null>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+      .mockResolvedValue({ cols: 80, rows: 24 })
+    const forwardResize = vi.fn()
+    const reassertion = createPtySizeReassertion({
+      isDisposed: () => false,
+      getPtyId: () => 'pty-1',
+      isRemotePtyId: () => false,
+      shouldSuppressDesktopResize: () => false,
+      fit: vi.fn(),
+      getTerminalDimensions: () => target,
+      getAppliedSize,
+      forwardResize
+    })
+
+    reassertion.request({ fit: false })
+    target = { cols: 145, rows: 78 }
+    resolveFirst({ cols: 145, rows: 78 })
+    await flushAsyncTicks()
+
+    expect(getAppliedSize).toHaveBeenCalledTimes(2)
+    expect(forwardResize).toHaveBeenCalledTimes(1)
+    expect(forwardResize).toHaveBeenCalledWith(145, 78)
+    expect(forwardResize).not.toHaveBeenCalledWith(80, 24)
   })
 
   it('forwards once when applied-size readback fails', async () => {
