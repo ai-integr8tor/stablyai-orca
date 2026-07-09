@@ -57,6 +57,28 @@ describe('sanitizeRepoIcon', () => {
       src: 'data:image/png;base64,aGVsbG8=',
       source: 'file'
     })
+    expect(
+      sanitizeRepoIcon({
+        type: 'image',
+        src: 'data:image/webp;base64,aGVsbG8=',
+        source: 'file'
+      })
+    ).toEqual({
+      type: 'image',
+      src: 'data:image/webp;base64,aGVsbG8=',
+      source: 'file'
+    })
+    expect(
+      sanitizeRepoIcon({
+        type: 'image',
+        src: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+        source: 'file'
+      })
+    ).toEqual({
+      type: 'image',
+      src: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+      source: 'file'
+    })
   })
 
   it('keeps null as an explicit reset', () => {
@@ -81,7 +103,7 @@ describe('sanitizeRepoIcon', () => {
     expect(
       sanitizeRepoIcon({
         type: 'image',
-        src: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+        src: 'data:image/gif;base64,aGVsbG8=',
         source: 'upload'
       })
     ).toBeUndefined()
