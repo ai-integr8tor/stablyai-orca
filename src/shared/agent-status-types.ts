@@ -22,6 +22,7 @@ export type WellKnownAgentType =
   | 'amp'
   | 'opencode'
   | 'mimo-code'
+  | 'atomcode'
   | 'cursor'
   | 'copilot'
   | 'aider'

@@ -2339,6 +2339,7 @@ export type TuiAgent =
   | 'autohand' // Autohand Code CLI
   | 'opencode' // OpenCode
   | 'mimo-code'
+  | 'atomcode' // AtomCode
   | 'pi' // Pi (pi.dev)
   | 'omp' // OMP (omp.sh)
   | 'gemini' // Gemini CLI

@@ -19,6 +19,32 @@ export const GEMINI_SILENT_WORKING = '\u23F2' // ⏲
 export const GEMINI_IDLE = '\u25C7' // ◇
 export const GEMINI_PERMISSION = '\u270B' // ✋
 
+const ATOMCODE_IDLE = '\u{1F7E2}' // 🟢
+const ATOMCODE_WORKING = '\u{1F7E1}' // 🟡
+const ATOMCODE_PERMISSION = '\u{1F534}' // 🔴
+
+export type AtomCodeTerminalTitleStatus = 'idle' | 'working' | 'permission'
+
+export function getAtomCodeTerminalTitleStatus(title: string): AtomCodeTerminalTitleStatus | null {
+  const trimmed = title.trimStart()
+  // Why: AtomCode keeps the task name in its OSC title, so the status glyph
+  // is the stable product signal even after "atomcode v…" is renamed away.
+  if (trimmed === ATOMCODE_PERMISSION || trimmed.startsWith(`${ATOMCODE_PERMISSION} `)) {
+    return 'permission'
+  }
+  if (trimmed === ATOMCODE_WORKING || trimmed.startsWith(`${ATOMCODE_WORKING} `)) {
+    return 'working'
+  }
+  if (trimmed === ATOMCODE_IDLE || trimmed.startsWith(`${ATOMCODE_IDLE} `)) {
+    return 'idle'
+  }
+  return null
+}
+
+export function isAtomCodeTerminalTitle(title: string): boolean {
+  return getAtomCodeTerminalTitleStatus(title) !== null
+}
+
 export function containsBrailleSpinner(title: string): boolean {
   for (const char of title) {
     const codePoint = char.codePointAt(0)
@@ -115,6 +141,9 @@ export function getAgentLabel(title: string): string | null {
   ) {
     return 'Claude Code'
   }
+  if (isAtomCodeTerminalTitle(title)) {
+    return 'AtomCode'
+  }
   if (isGeminiTerminalTitle(title)) {
     return 'Gemini CLI'
   }
@@ -157,6 +186,9 @@ export function getAgentLabel(title: string): string | null {
   }
   if (titleHasAgentName(title, 'mimo')) {
     return 'MiMo Code'
+  }
+  if (titleHasAgentName(title, 'atomcode')) {
+    return 'AtomCode'
   }
   if (titleHasAgentName(title, 'aider')) {
     return 'Aider'
@@ -203,6 +235,7 @@ const TITLE_LABEL_TO_AGENT: Partial<Record<string, TuiAgent>> = {
   Antigravity: 'antigravity',
   OpenCode: 'opencode',
   'MiMo Code': 'mimo-code',
+  AtomCode: 'atomcode',
   Aider: 'aider',
   Cursor: 'cursor',
   Droid: 'droid',

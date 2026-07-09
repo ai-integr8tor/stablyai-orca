@@ -25,6 +25,19 @@ describe('agent process recognition', () => {
     expect(isExpectedAgentProcess('/usr/local/bin/openclaude', 'claude')).toBe(false)
   })
 
+  it('recognizes interactive AtomCode but filters its headless prompt modes', () => {
+    expect(recognizeAgentProcess('/usr/local/bin/atomcode')).toEqual({
+      agent: 'atomcode',
+      processName: 'atomcode'
+    })
+    expect(recognizeAgentProcessFromCommandLine('atomcode')).toEqual({
+      agent: 'atomcode',
+      processName: 'atomcode'
+    })
+    expect(recognizeAgentProcessFromCommandLine('atomcode -p "summarize this repo"')).toBeNull()
+    expect(recognizeAgentProcessFromCommandLine('atomcode --prompt-file /tmp/task.txt')).toBeNull()
+  })
+
   it('matches expected agents from platform-specific foreground process paths', () => {
     expect(recognizeAgentProcess('claude')).toEqual({
       agent: 'claude',

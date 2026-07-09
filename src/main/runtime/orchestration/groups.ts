@@ -1,4 +1,5 @@
 import type { RuntimeTerminalSummary } from '../../../shared/runtime-types'
+import { isAtomCodeTerminalTitle } from '../../../shared/terminal-title-agent-type'
 
 // Why: group addresses enable broadcast messaging to logical groups of agents.
 // Resolution is done at send-time: one message record per recipient, same thread_id,
@@ -10,6 +11,7 @@ const AGENT_NAME_GROUPS = [
   'codex',
   'opencode',
   'mimo',
+  'atomcode',
   'gemini',
   'droid'
 ] as const
@@ -29,6 +31,9 @@ function escapeRegExp(value: string): string {
 }
 
 function titleMatchesAgentNameGroup(title: string, agentName: string): boolean {
+  if (agentName === 'atomcode' && isAtomCodeTerminalTitle(title)) {
+    return true
+  }
   const tokenRe = new RegExp(`(?<![\\w./\\\\-])${escapeRegExp(agentName)}(?![\\w./\\\\-])`, 'i')
   return tokenRe.test(title)
 }

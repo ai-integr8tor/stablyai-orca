@@ -84,6 +84,28 @@ describe('MiMo title detection', () => {
   )
 })
 
+describe('AtomCode title detection', () => {
+  it.each([
+    ['🟢 atomcode v4.25.9', 'idle'],
+    ['🟡 fix the login race', 'working'],
+    ['🟡 compare Gemini and Codex', 'working'],
+    ['🔴 approve the migration', 'permission'],
+    ['AtomCode', 'idle'],
+    ['atomcode working', 'working']
+  ] as const)('classifies %s', (title, expectedStatus) => {
+    expect(getAgentLabel(title)).toBe('AtomCode')
+    expect(detectAgentStatusFromTitle(title)).toBe(expectedStatus)
+  })
+
+  it.each(['~/atomcode/working', 'atomcode-fixtures ready'])(
+    'does not classify path or hyphen false positive %s',
+    (title) => {
+      expect(getAgentLabel(title)).toBeNull()
+      expect(detectAgentStatusFromTitle(title)).toBeNull()
+    }
+  )
+})
+
 describe('Pi-compatible title detection', () => {
   it.each([
     ['\u280b OMP', 'OMP', 'working'],

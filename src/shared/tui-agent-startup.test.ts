@@ -475,6 +475,29 @@ describe('tui agent startup plans', () => {
     })
   })
 
+  it('launches AtomCode TUI before injecting the prompt', () => {
+    const plan = buildAgentStartupPlan({
+      agent: 'atomcode',
+      prompt: 'fix the tests',
+      cmdOverrides: {},
+      agentArgs: resolveTuiAgentLaunchArgs('atomcode', null),
+      platform: 'linux'
+    })
+
+    expect(plan).toEqual({
+      agent: 'atomcode',
+      launchCommand: "atomcode '--dangerously-skip-permissions'",
+      expectedProcess: 'atomcode',
+      followupPrompt: 'fix the tests',
+      launchConfig: {
+        agentCommand: "atomcode '--dangerously-skip-permissions'",
+        agentArgs: '--dangerously-skip-permissions',
+        agentEnv: {}
+      }
+    })
+    expect(plan?.launchCommand).not.toContain('--prompt')
+  })
+
   it('excludes transient draft prompt env from launch config', () => {
     const plan = buildAgentDraftLaunchPlan({
       agent: 'pi',

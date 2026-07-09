@@ -109,7 +109,8 @@ const AGENT_PROCESS_NAMES = new Set([
   'gemini',
   'gemini-cli',
   'goose',
-  'opencode'
+  'opencode',
+  'atomcode'
 ])
 
 export const createWorkspaceCleanupSlice: StateCreator<AppState, [], [], WorkspaceCleanupSlice> = (

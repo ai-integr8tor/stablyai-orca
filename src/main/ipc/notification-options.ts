@@ -11,6 +11,7 @@ const AGENT_TYPE_LABELS: Readonly<Record<string, string>> = {
   gemini: 'Gemini',
   antigravity: 'Antigravity',
   opencode: 'OpenCode',
+  atomcode: 'AtomCode',
   cursor: 'Cursor',
   aider: 'Aider',
   pi: 'Pi',

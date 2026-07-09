@@ -12,6 +12,7 @@ import {
   GEMINI_PERMISSION,
   GEMINI_SILENT_WORKING,
   GEMINI_WORKING,
+  getAtomCodeTerminalTitleStatus,
   isClaudeManagementTitle,
   isPiTerminalTitle
 } from './terminal-title-agent-type'
@@ -148,6 +149,11 @@ export function detectAgentStatusFromTitle(title: string): AgentStatus | null {
   // or a tighter match worth classifying.
   if (title.trim().toLowerCase() === CURSOR_NATIVE_TITLE_LOWER) {
     return null
+  }
+
+  const atomCodeStatus = getAtomCodeTerminalTitleStatus(title)
+  if (atomCodeStatus) {
+    return atomCodeStatus
   }
 
   // Gemini CLI symbols are the most specific and should take precedence.

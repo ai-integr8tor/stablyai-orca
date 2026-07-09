@@ -143,6 +143,14 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     // validated); the quiet-window fallback bounds the risk if it differs.
     draftPasteReadySignal: 'render-cursor-after-bracketed-paste'
   },
+  atomcode: {
+    detectCmd: 'atomcode',
+    launchCmd: 'atomcode',
+    expectedProcess: 'atomcode',
+    // Why: AtomCode's --prompt/-p mode is a one-shot headless command. Launch
+    // the persistent TUI first, then inject the task into its composer.
+    promptInjectionMode: 'stdin-after-start'
+  },
   pi: {
     detectCmd: 'pi',
     launchCmd: 'pi',
