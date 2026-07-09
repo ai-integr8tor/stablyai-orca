@@ -39,4 +39,29 @@ describe('RuntimeHostStatusRow', () => {
     expect(markup).toContain('Connected')
     expect(markup).toContain('Disconnect')
   })
+
+  it('renders Tailscale and Direct connection addresses when provided', () => {
+    const tailscale = renderToStaticMarkup(
+      <RuntimeHostStatusRow
+        label="Mac Mini"
+        state="connected"
+        endpoint="ws://100.64.0.5:6768"
+        onDisconnect={async () => {}}
+      />
+    )
+    expect(tailscale).toContain('Tailscale')
+    expect(tailscale).toContain('ws://100.64.0.5:6768')
+    expect(tailscale).not.toContain('Remote Server')
+
+    const direct = renderToStaticMarkup(
+      <RuntimeHostStatusRow
+        label="Lab"
+        state="disconnected"
+        endpoint="ws://192.168.1.10:6768"
+        onConnect={async () => {}}
+      />
+    )
+    expect(direct).toContain('Direct')
+    expect(direct).toContain('ws://192.168.1.10:6768')
+  })
 })

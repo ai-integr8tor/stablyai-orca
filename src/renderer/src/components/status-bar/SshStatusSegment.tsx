@@ -17,6 +17,7 @@ import {
   toRuntimeExecutionHostId
 } from '../../../../shared/execution-host'
 import { isUserManagedRuntimeEnvironment } from '../../../../shared/runtime-environments'
+import { getPreferredPublicRuntimeEndpoint } from '../../../../shared/runtime-environment-endpoint-display'
 import { RuntimeHostStatusRow, type RuntimeHostConnectionState } from './RuntimeHostStatusRow'
 import { SshTargetStatusRow } from './SshTargetStatusRow'
 import type { RemoteRuntimeSharedConnectionDiagnostics } from '../../../../shared/remote-runtime-shared-control-types'
@@ -192,6 +193,7 @@ export function SshStatusSegment({
       return {
         id: environment.id,
         label: override || environment.name || environment.id,
+        endpoint: getPreferredPublicRuntimeEndpoint(environment),
         hasStatus: Boolean(statusEntry),
         online: Boolean(statusEntry?.status),
         active: settings?.activeRuntimeEnvironmentId === environment.id,
@@ -353,6 +355,7 @@ export function SshStatusSegment({
             key={host.id}
             label={host.label}
             state={host.state}
+            endpoint={host.endpoint}
             detail={runtimeHostConnectionDetail(host.remoteControl)}
             onConnect={() => connectRuntimeHost(host.id)}
             onDisconnect={() => disconnectRuntimeHost(host.id, host.active)}
@@ -372,6 +375,7 @@ export function SshStatusSegment({
             key={host.id}
             label={host.label}
             state={host.state}
+            endpoint={host.endpoint}
             detail={runtimeHostConnectionDetail(host.remoteControl)}
             onConnect={() => connectRuntimeHost(host.id)}
             onDisconnect={() => disconnectRuntimeHost(host.id, host.active)}

@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { translate } from '@/i18n/i18n'
-import { useMountedRef } from '@/hooks/useMountedRef'
+import { translate } from '../../i18n/i18n'
+import { useMountedRef } from '../../hooks/useMountedRef'
+import { getRuntimeEndpointTransportKind } from '../../../../shared/runtime-environment-endpoint-display'
 
 export type RuntimeHostConnectionState = 'connected' | 'checking' | 'reconnecting' | 'disconnected'
 
@@ -59,18 +60,35 @@ export function RuntimeHostStatusRow({
   label,
   state,
   detail,
+  endpoint,
   onConnect,
   onDisconnect
 }: {
   label: string
   state: RuntimeHostConnectionState
   detail?: string
+  /** Preferred WebSocket endpoint for this paired Remote Orca Server. */
+  endpoint?: string | null
   onConnect?: () => Promise<void>
   onDisconnect?: () => Promise<void>
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const mountedRef = useMountedRef()
   const actionLabel = runtimeActionLabel(state)
+  const hasEndpoint = Boolean(endpoint?.trim())
+  const transportLabel =
+    getRuntimeEndpointTransportKind(endpoint) === 'tailscale'
+      ? translate(
+          'auto.components.settings.RuntimeEnvironmentsPane.endpointTransportTailscale',
+          'Tailscale'
+        )
+      : translate(
+          'auto.components.settings.RuntimeEnvironmentsPane.endpointTransportDirect',
+          'Direct'
+        )
+  const endpointDisplay =
+    endpoint?.trim() ||
+    translate('auto.components.settings.RuntimeEnvironmentsPane.6ef71985da', 'No endpoint')
 
   const handleAction = useCallback(async () => {
     const action = state === 'connected' ? onDisconnect : onConnect
@@ -92,14 +110,26 @@ export function RuntimeHostStatusRow({
       <span className={`size-1.5 shrink-0 rounded-full ${runtimeDotColor(state)}`} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-medium">{label}</div>
+        {hasEndpoint ? (
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted/80 px-1 py-px text-[9px] font-medium">
+              {transportLabel}
+            </span>
+            <span className="min-w-0 truncate font-mono">{endpointDisplay}</span>
+          </div>
+        ) : null}
         <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span>
-            {translate(
-              'auto.components.status.bar.SshStatusSegment.remote_server',
-              'Remote Server'
-            )}
-          </span>
-          <span aria-hidden="true">·</span>
+          {!hasEndpoint ? (
+            <>
+              <span>
+                {translate(
+                  'auto.components.status.bar.SshStatusSegment.remote_server',
+                  'Remote Server'
+                )}
+              </span>
+              <span aria-hidden="true">·</span>
+            </>
+          ) : null}
           <span className={`inline-flex min-w-0 items-center gap-1 ${runtimeStatusTone(state)}`}>
             {state === 'checking' || state === 'reconnecting' ? (
               <Loader2 className="size-2.5 shrink-0 animate-spin" />
