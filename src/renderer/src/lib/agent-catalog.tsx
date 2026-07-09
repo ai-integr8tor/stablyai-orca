@@ -101,7 +101,7 @@ export const getAgentCatalog = createLocalizedCatalog((): AgentCatalogEntry[] =>
     label: translate('auto.lib.agent.catalog.atomcode_label', 'AtomCode'),
     cmd: 'atomcode',
     faviconDomain: 'atomcode.atomgit.com',
-    homepageUrl: 'https://atomcode.atomgit.com/docs/zh/index.html'
+    homepageUrl: 'https://atomcode.atomgit.com/docs/en/index.html'
   },
   {
     id: 'ante',
