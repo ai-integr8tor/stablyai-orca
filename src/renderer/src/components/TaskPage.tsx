@@ -98,6 +98,24 @@ import IssueSourceSelector, { issueSourceChipClass } from '@/components/github/I
 import { LinearPriorityIcon } from '@/components/linear-priority-icon'
 import { reconcileLinearTeamSelection } from '@/components/task-page-linear-team-selection'
 import {
+  collectLinearAssigneeOptions,
+  issueMatchesLinearAssigneeSelection,
+  reconcileLinearAssigneeSelection
+} from '@/components/linear-assignee-filter'
+import { LinearIssueFilters } from '@/components/linear-issue-filters'
+import {
+  collectLinearLabelOptions,
+  issueMatchesLinearLabelSelection,
+  reconcileLinearLabelSelection
+} from '@/components/linear-label-filter'
+import {
+  collectLinearStatusOptions,
+  issueMatchesLinearStatusSelection,
+  reconcileLinearStatusSelection
+} from '@/components/linear-status-filter'
+import { TaskPresetButtons } from '@/components/task-preset-buttons'
+import { useReconciledFilterSelection } from '@/hooks/useReconciledFilterSelection'
+import {
   getTaskSourceAvailabilityNotice,
   getTaskSourceContextSummary
 } from './task-source-context-summary'
@@ -316,6 +334,7 @@ import {
   getLinearGroupOptions,
   getLinearModeOptions,
   getLinearOrderOptions,
+  getLinearPresets,
   getLinearPriorityLabel,
   getLinearViewOptions,
   getSourceOptions,
@@ -328,6 +347,7 @@ import {
   type LinearGroupBy,
   type LinearMode,
   type LinearOrderBy,
+  type LinearPresetId,
   type LinearViewMode
 } from '@/components/task-page-localized-options'
 
@@ -3210,6 +3230,7 @@ export default function TaskPage(): React.JSX.Element {
   const sourceOptions = getSourceOptions()
   const githubModeButtons = getGitHubModeButtons()
   const linearModeOptions = getLinearModeOptions()
+  const linearPresets = getLinearPresets()
   const jiraPresets = getJiraPresets()
   const gitLabIssueFilters = getGitLabIssueFilters()
   const gitLabMRFilters = getGitLabMRFilters()
@@ -4355,6 +4376,7 @@ export default function TaskPage(): React.JSX.Element {
   const [linearError, setLinearError] = useState<string | null>(null)
   const [linearSearchInput, setLinearSearchInput] = useState('')
   const [appliedLinearSearch, setAppliedLinearSearch] = useState('')
+  const [activeLinearPreset, setActiveLinearPreset] = useState<LinearPresetId>('all')
   const [linearViewMode, setLinearViewMode] = useState<LinearViewMode>('list')
   const [linearGroupBy, setLinearGroupBy] = useState<LinearGroupBy>('none')
   const [linearOrderBy, setLinearOrderBy] = useState<LinearOrderBy>('priority')
@@ -4571,6 +4593,7 @@ export default function TaskPage(): React.JSX.Element {
 
     const linearQuery = taskResumeState?.linearQuery ?? ''
     setLinearMode(taskResumeState?.linearMode ?? 'issues')
+    setActiveLinearPreset(taskResumeState?.linearPreset ?? 'all')
     setLinearSearchInput(linearQuery)
     setAppliedLinearSearch(linearQuery)
 
@@ -5100,17 +5123,57 @@ export default function TaskPage(): React.JSX.Element {
     )
   }, [linearTeamOptions, defaultLinearTeamSelection])
 
+  // Why: assignee/label/status options come from fetched rows. Preset or
+  // workspace switches can drop every selected id, which must fall back to
+  // "all" instead of an always-empty list.
+  const linearAssigneeOptions = useMemo(
+    () => collectLinearAssigneeOptions(displayedLinearIssues),
+    [displayedLinearIssues]
+  )
+  const [linearAssigneeSelection, setLinearAssigneeSelection] = useReconciledFilterSelection(
+    linearAssigneeOptions,
+    reconcileLinearAssigneeSelection
+  )
+
+  const linearLabelOptions = useMemo(
+    () => collectLinearLabelOptions(displayedLinearIssues),
+    [displayedLinearIssues]
+  )
+  const [linearLabelSelection, setLinearLabelSelection] = useReconciledFilterSelection(
+    linearLabelOptions,
+    reconcileLinearLabelSelection
+  )
+
+  const linearStatusOptions = useMemo(
+    () => collectLinearStatusOptions(displayedLinearIssues),
+    [displayedLinearIssues]
+  )
+  const [linearStatusSelection, setLinearStatusSelection] = useReconciledFilterSelection(
+    linearStatusOptions,
+    reconcileLinearStatusSelection
+  )
+
   const filteredLinearIssues = useMemo(() => {
     if (activeLinearIssueContextLabel) {
       return displayedLinearIssues
     }
     // Why: team options can be derived after issue rows render. Treat an
     // empty selection as "all" until reconciliation has a concrete team set.
-    if (displayedLinearIssues.length > 0 && linearTeamSelection.size === 0) {
-      return displayedLinearIssues
-    }
-    return displayedLinearIssues.filter((issue) => linearTeamSelection.has(issue.team.id))
-  }, [activeLinearIssueContextLabel, displayedLinearIssues, linearTeamSelection])
+    return displayedLinearIssues.filter(
+      (issue) =>
+        (linearTeamSelection.size === 0 || linearTeamSelection.has(issue.team.id)) &&
+        issueMatchesLinearAssigneeSelection(issue, linearAssigneeSelection) &&
+        issueMatchesLinearLabelSelection(issue, linearLabelSelection) &&
+        issueMatchesLinearStatusSelection(issue, linearStatusSelection)
+    )
+  }, [
+    activeLinearIssueContextLabel,
+    displayedLinearIssues,
+    linearAssigneeSelection,
+    linearLabelSelection,
+    linearStatusSelection,
+    linearTeamSelection
+  ])
 
   const orderedLinearIssues = useMemo(
     () => [...filteredLinearIssues].sort((a, b) => compareLinearIssues(a, b, linearOrderBy)),
@@ -7170,6 +7233,7 @@ export default function TaskPage(): React.JSX.Element {
     setLinearIssueLoadingTargetPage(null)
   }, [
     appliedLinearSearch,
+    activeLinearPreset,
     linearMode,
     selectedLinearCustomView?.id,
     selectedLinearProject?.id,
@@ -7178,8 +7242,8 @@ export default function TaskPage(): React.JSX.Element {
   ])
 
   // Why: fetch Linear issues when the tab is active and the account is
-  // connected. An empty search falls back to `listLinearIssues` (assigned
-  // issues) so the default view shows the user's own work.
+  // connected. An empty search falls back to `listLinearIssues` with the
+  // active preset (assigned/created/all/completed).
   useEffect(() => {
     if (!taskResumeApplied) {
       return
@@ -7202,7 +7266,7 @@ export default function TaskPage(): React.JSX.Element {
     const readArgs =
       trimmed.length > 0
         ? ({ kind: 'search', query: trimmed, limit: LINEAR_ITEM_LIMIT } as const)
-        : ({ kind: 'list', filter: 'all', limit: effectiveLinearIssueLimit } as const)
+        : ({ kind: 'list', filter: activeLinearPreset, limit: effectiveLinearIssueLimit } as const)
     const cachedResult = getCachedLinearIssues(readArgs, { sourceContext: linearTaskSourceContext })
     if (readArgs.kind === 'search') {
       setLinearIssuesHasMore(false)
@@ -7220,7 +7284,7 @@ export default function TaskPage(): React.JSX.Element {
     const requestSignature =
       trimmed.length > 0
         ? `${selectedLinearWorkspaceId ?? 'default'}::search::${trimmed}::${LINEAR_ITEM_LIMIT}`
-        : `${selectedLinearWorkspaceId ?? 'default'}::list::all::${effectiveLinearIssueLimit}`
+        : `${selectedLinearWorkspaceId ?? 'default'}::list::${activeLinearPreset}::${effectiveLinearIssueLimit}`
     const previousRequest = lastLinearRequestRef.current
     const forceRefresh =
       linearRefreshNonce > 0 &&
@@ -7309,6 +7373,7 @@ export default function TaskPage(): React.JSX.Element {
     linearConnected,
     selectedLinearWorkspaceId,
     appliedLinearSearch,
+    activeLinearPreset,
     linearIssueLimit,
     linearRefreshNonce,
     taskResumeApplied,
@@ -8593,59 +8658,76 @@ export default function TaskPage(): React.JSX.Element {
                     </div>
 
                     {linearMode === 'issues' ? (
-                      <div className="mt-3 flex min-w-0 items-center gap-3">
-                        <div className="relative min-w-0 flex-1 basis-64">
-                          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            value={linearSearchInput}
-                            onChange={(e) => setLinearSearchInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                if (
-                                  shouldSuppressEnterSubmit(
-                                    {
-                                      isComposing: e.nativeEvent.isComposing,
-                                      shiftKey: e.shiftKey
-                                    },
-                                    false
-                                  )
-                                ) {
-                                  return
+                      <>
+                        <TaskPresetButtons
+                          className="mt-3"
+                          presets={linearPresets}
+                          activeId={appliedLinearSearch.trim() ? null : activeLinearPreset}
+                          onSelect={(presetId) => {
+                            setLinearSearchInput('')
+                            setAppliedLinearSearch('')
+                            setActiveLinearPreset(presetId)
+                            setTaskResumeState({ linearPreset: presetId, linearQuery: '' })
+                          }}
+                          ariaLabel={translate(
+                            'auto.components.TaskPage.0cdafc15af',
+                            'Linear issue filter'
+                          )}
+                        />
+                        <div className="mt-3 flex items-center gap-3">
+                          <div className="relative min-w-0 flex-1">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={linearSearchInput}
+                              onChange={(e) => setLinearSearchInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (
+                                    shouldSuppressEnterSubmit(
+                                      {
+                                        isComposing: e.nativeEvent.isComposing,
+                                        shiftKey: e.shiftKey
+                                      },
+                                      false
+                                    )
+                                  ) {
+                                    return
+                                  }
+                                  e.preventDefault()
+                                  const trimmed = linearSearchInput.trim()
+                                  setLinearSearchInput(trimmed)
+                                  setAppliedLinearSearch(trimmed)
+                                  setTaskResumeState({ linearQuery: trimmed, linearMode: 'issues' })
+                                  setLinearRefreshNonce((n) => n + 1)
                                 }
-                                e.preventDefault()
-                                const trimmed = linearSearchInput.trim()
-                                setLinearSearchInput(trimmed)
-                                setAppliedLinearSearch(trimmed)
-                                setTaskResumeState({ linearQuery: trimmed, linearMode: 'issues' })
-                                setLinearRefreshNonce((n) => n + 1)
-                              }
-                            }}
-                            placeholder={translate(
-                              'auto.components.TaskPage.eec0c5c079',
-                              'Search Linear issues...'
-                            )}
-                            className="h-8 rounded-md border-border/50 bg-background pl-8 pr-8 text-xs"
-                          />
-                          {linearSearchInput ? (
-                            <button
-                              type="button"
-                              aria-label={translate(
-                                'auto.components.TaskPage.b797bdd7c3',
-                                'Clear search'
-                              )}
-                              onClick={() => {
-                                setLinearSearchInput('')
-                                setAppliedLinearSearch('')
-                                setTaskResumeState({ linearQuery: '', linearMode: 'issues' })
-                                setLinearRefreshNonce((n) => n + 1)
                               }}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
-                            >
-                              <X className="size-4" />
-                            </button>
-                          ) : null}
+                              placeholder={translate(
+                                'auto.components.TaskPage.eec0c5c079',
+                                'Search Linear issues...'
+                              )}
+                              className="h-8 rounded-md border-border/50 bg-background pl-8 pr-8 text-xs"
+                            />
+                            {linearSearchInput ? (
+                              <button
+                                type="button"
+                                aria-label={translate(
+                                  'auto.components.TaskPage.b797bdd7c3',
+                                  'Clear search'
+                                )}
+                                onClick={() => {
+                                  setLinearSearchInput('')
+                                  setAppliedLinearSearch('')
+                                  setTaskResumeState({ linearQuery: '', linearMode: 'issues' })
+                                  setLinearRefreshNonce((n) => n + 1)
+                                }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
+                              >
+                                <X className="size-4" />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
+                      </>
                     ) : linearMode === 'projects' && !selectedLinearProject ? (
                       <div className="mt-3 flex min-w-0 items-center gap-3">
                         <div className="relative min-w-0 flex-1 basis-64">
@@ -8683,32 +8765,17 @@ export default function TaskPage(): React.JSX.Element {
                 ) : taskSource === 'jira' && jiraConnected ? (
                   <div className="rounded-md rounded-b-none border border-border/50 bg-muted/50 px-3 pt-2 pb-0 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex flex-wrap gap-2">
-                        {jiraPresets.map((preset) => {
-                          const active = !jiraSearchInput && activeJiraPreset === preset.id
-                          return (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              onClick={() => {
-                                setJiraSearchInput('')
-                                setAppliedJiraSearch('')
-                                setActiveJiraPreset(preset.id)
-                                setTaskResumeState({ jiraPreset: preset.id, jiraQuery: '' })
-                                setJiraRefreshNonce((n) => n + 1)
-                              }}
-                              className={cn(
-                                'rounded-md border px-2 py-1 text-xs transition',
-                                active
-                                  ? 'border-border/50 bg-foreground/90 text-background backdrop-blur-md'
-                                  : 'border-border/50 bg-transparent text-foreground hover:bg-muted/50'
-                              )}
-                            >
-                              {preset.label}
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <TaskPresetButtons
+                        presets={jiraPresets}
+                        activeId={jiraSearchInput ? null : activeJiraPreset}
+                        onSelect={(presetId) => {
+                          setJiraSearchInput('')
+                          setAppliedJiraSearch('')
+                          setActiveJiraPreset(presetId)
+                          setTaskResumeState({ jiraPreset: presetId, jiraQuery: '' })
+                          setJiraRefreshNonce((n) => n + 1)
+                        }}
+                      />
                       <div className="flex shrink-0 items-center gap-2">
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -10340,6 +10407,27 @@ export default function TaskPage(): React.JSX.Element {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {!activeLinearIssueContextLabel ? (
+                    <LinearIssueFilters
+                      statusOptions={linearStatusOptions}
+                      statusSelection={linearStatusSelection}
+                      onStatusSelectionChange={setLinearStatusSelection}
+                      assigneeOptions={linearAssigneeOptions}
+                      assigneeSelection={linearAssigneeSelection}
+                      onAssigneeSelectionChange={setLinearAssigneeSelection}
+                      viewerDisplayName={
+                        // Why: workspace displayName is the viewer's per-org
+                        // name, not the org label; fall back to the connection
+                        // viewer so "all workspaces" keeps the Me pin.
+                        selectedLinearWorkspace?.displayName ??
+                        linearStatus.viewer?.displayName ??
+                        null
+                      }
+                      labelOptions={linearLabelOptions}
+                      labelSelection={linearLabelSelection}
+                      onLabelSelectionChange={setLinearLabelSelection}
+                    />
+                  ) : null}
                   <div
                     className="hidden items-center rounded-md border border-border/50 bg-background/70 p-0.5 md:flex"
                     aria-label={translate(
@@ -10548,8 +10636,8 @@ export default function TaskPage(): React.JSX.Element {
                               'Try a different search query.'
                             )
                           : translate(
-                              'auto.components.TaskPage.d079be2dc8',
-                              'No assigned issues. Try searching for something.'
+                              'auto.components.TaskPage.53efb4f234',
+                              'No issues match the selected filter.'
                             )}
                     </p>
                   </div>
@@ -10561,14 +10649,14 @@ export default function TaskPage(): React.JSX.Element {
                   <div className="px-4 py-10 text-center">
                     <p className="text-sm font-medium text-foreground">
                       {translate(
-                        'auto.components.TaskPage.618107fab3',
-                        'No fetched issues match the selected teams'
+                        'auto.components.TaskPage.ce2ea50dc9',
+                        'No fetched issues match the current filters'
                       )}
                     </p>
                     <p className="mt-2 text-sm text-muted-foreground">
                       {translate(
-                        'auto.components.TaskPage.592a55611b',
-                        'Try selecting more teams or refreshing; team filters apply to the current fetched issue set.'
+                        'auto.components.TaskPage.95ef38ab0e',
+                        'Try adjusting the team or assignee filters, or refresh; filters apply to the current fetched issue set.'
                       )}
                     </p>
                   </div>

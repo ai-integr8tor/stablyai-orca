@@ -1424,6 +1424,7 @@
         "73dfd4eb8d": "Don't ask again"
       },
       "TaskPage": {
+        "1852574621": "Completed",
         "513cddfa7a": "Verifying…",
         "ff69a30681": "Cancel",
         "2abe22ef76": "Your token is encrypted via the OS keychain and stored locally.",
@@ -1730,7 +1731,12 @@
         "searchIssues": "Search issues",
         "useIssueNumber": "Use issue #{{value0}}",
         "noMatchingIssuesLoaded": "No matching issues loaded.",
-        "editReviewersWithCurrent": "Edit reviewers: {{value0}}"
+        "editReviewersWithCurrent": "Edit reviewers: {{value0}}",
+        "0cdafc15af": "Linear issue filter",
+        "53efb4f234": "No issues match the selected filter.",
+        "ce2ea50dc9": "No fetched issues match the current filters",
+        "95ef38ab0e": "Try adjusting the team or assignee filters, or refresh; filters apply to the current fetched issue set.",
+        "f2b37f54a3": "Created"
       },
       "Terminal": {
         "73768427cf": "Close",
@@ -2044,13 +2050,7 @@
           "01f3f3d161": "Author",
           "13b3ac0a84": "Status",
           "79c54552f7": "Filters",
-          "8a2ffbf9b3": "Remove {{value0}} filter",
           "19bb6f115f": "reviewed-by"
-        },
-        "PRFilterPickers": {
-          "fdf387297c": "Clear (",
-          "472c12ae03": "Clear",
-          "2d1f58eda6": "Use"
         },
         "PRFilterSections": {
           "a00830d3f7": "No users",
@@ -2058,8 +2058,6 @@
           "94b42b0edf": "Review requested",
           "de26e2eb06": "No labels",
           "458ea3602b": "No authors",
-          "b69fa4fa20": "Back",
-          "30ebb6ca44": "Clear all filters",
           "8177eda37e": "Filter",
           "ea3416d646": "Assignee",
           "b1d9fdea08": "Label",
@@ -2227,6 +2225,31 @@
             "89f6580dbf": "Search teams...",
             "b3488fad3c": "No teams were fetched. Access can depend on key scope, private-team membership, archived teams, permissions, or a fetch failure.",
             "405b33c378": "No fetched teams match your search."
+          }
+        },
+        "assignee": {
+          "filter": {
+            "9adaa5d0f1": "Unassigned",
+            "1c0424898b": "Assignee",
+            "acb9d5a41c": "{{value0}} assignees"
+          }
+        },
+        "issue": {
+          "filters": {
+            "258800a4a9": "Status",
+            "44cd07445c": "Assignee",
+            "37f757fa33": "Filters",
+            "8c1ea16bb6": "Filter issues",
+            "4c7efbb621": "Search assignees...",
+            "f310257a06": "No assignees found.",
+            "57858b245f": "Me",
+            "7f0c79f67e": "{{value0}} labels",
+            "70c5e644e0": "Label",
+            "5f1366aaa2": "Filter labels...",
+            "a0ac8ba2b5": "No labels match.",
+            "dc73d35dfb": "{{value0}} statuses",
+            "e732c0e0eb": "Filter statuses...",
+            "078dab8258": "No statuses match."
           }
         }
       },
@@ -12475,6 +12498,26 @@
               "searchProjects": "Search projects...",
               "noMatches": "No projects match your search.",
               "chooseSource": "Choose task source"
+            }
+          }
+        },
+        "filter": {
+          "pill": {
+            "6b2c72c3ca": "Remove {{value0}} filter"
+          },
+          "pickers": {
+            "783279c991": "Use",
+            "d58aef2697": "Clear",
+            "96cc85e839": "Loading…",
+            "2c3b81720a": "Search text is too large.",
+            "96b30a41bc": "Press Enter to use the typed value.",
+            "8776bc66db": "No matches",
+            "f7690f6c74": "Clear ({{value0}})"
+          },
+          "section": {
+            "menu": {
+              "615d9351d4": "Back",
+              "5a186cbca7": "Clear all filters"
             }
           }
         }
