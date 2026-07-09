@@ -1183,7 +1183,8 @@
         "noRunTargets": "此项目还没有可用的运行目标。",
         "perWorkspaceEnvHint": "通过环境模板按需创建环境",
         "branchName": "分支名称",
-        "branchNamePlaceholder": "feature/my-branch"
+        "branchNamePlaceholder": "feature/my-branch",
+        "baseBranch": "Base branch"
       },
       "NewWorkspaceComposerModal": {
         "createWorktree": "创建工作树",
@@ -12491,6 +12492,16 @@
       "nativeChat": {
         "contextMenu": {
           "copy": "复制"
+        }
+      },
+      "newWorkspace": {
+        "BaseBranchPicker": {
+          "defaultBranch": "{{value0}} (default)",
+          "projectDefault": "Project default",
+          "branchFrom": "Branch from",
+          "searchBranches": "Search repo branches...",
+          "searchingBranches": "Searching branches...",
+          "noBranchesFound": "No branches found."
         }
       }
     },
