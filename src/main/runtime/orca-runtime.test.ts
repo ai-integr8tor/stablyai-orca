@@ -13478,6 +13478,78 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  it('delivers only once after a background PTY is adopted by a renderer leaf', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        spawn,
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+
+      // Preallocated/background synthetic handle, then renderer adoption of the same PTY.
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'grok',
+        title: 'reviewer'
+      })
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'adopted once' })
+
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, {
+        tabs: [
+          {
+            tabId: 'tab-bg',
+            worktreeId: TEST_WORKTREE_ID,
+            title: 'Grok',
+            activeLeafId: 'pane-bg',
+            layout: null
+          }
+        ],
+        leaves: [
+          {
+            tabId: 'tab-bg',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: 'pane-bg',
+            paneRuntimeId: 1,
+            ptyId: 'pty-bg',
+            paneTitle: null
+          }
+        ]
+      })
+
+      // Align both retained PTY and adopted leaf on working, then emit idle.
+      // Without adoption-aware dedupe, PTY + leaf idle paths each inject once.
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 101)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 102)
+      await vi.advanceTimersByTimeAsync(500)
+
+      const payloadWrites = write.mock.calls.filter(
+        ([ptyId, text]) =>
+          ptyId === 'pty-bg' && typeof text === 'string' && text.includes('Subject: adopted once')
+      )
+      const enterWrites = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text === '\r'
+      )
+      expect(payloadWrites).toHaveLength(1)
+      expect(enterWrites).toHaveLength(1)
+
+      const unread = db.getUnreadMessages(handle)
+      expect(unread).toHaveLength(1)
+      expect(unread[0].read).toBe(0)
+      expect(unread[0].delivered_at).not.toBeNull()
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('adopts preallocated ORCA_TERMINAL_HANDLE as a valid runtime handle', async () => {
     const runtime = new OrcaRuntimeService(store)
     const handle = runtime.preAllocateHandleForPty('pty-1')
