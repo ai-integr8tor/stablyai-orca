@@ -1915,6 +1915,11 @@ export type PreloadApi = {
       query?: string
       siteId?: string
     }) => Promise<JiraUser[]>
+    listAssignableUsersForCreate: (args: {
+      projectKeyOrId: string
+      query?: string
+      siteId?: string
+    }) => Promise<JiraUser[]>
     listTransitions: (args: { key: string; siteId?: string }) => Promise<JiraTransition[]>
   }
   starNag: {

@@ -12461,6 +12461,17 @@
             "d785c42b8b": "使用 Jira Cloud 站点 URL、Atlassian 邮箱和 API token 来浏览议题。",
             "8388bdea2b": "连接 Jira 站点"
           }
+        },
+        "create": {
+          "user": {
+            "picker": {
+              "select": "选择 {{value0}}",
+              "search": "搜索用户...",
+              "loading": "正在搜索…",
+              "empty": "未找到用户。",
+              "prompt": "输入以搜索用户。"
+            }
+          }
         }
       },
       "rightSidebar": {

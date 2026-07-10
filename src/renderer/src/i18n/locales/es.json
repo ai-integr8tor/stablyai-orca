@@ -12461,6 +12461,17 @@
             "d785c42b8b": "Usa una URL de Jira Cloud, email de Atlassian y token API para explorar issues.",
             "8388bdea2b": "Conectar sitio de Jira"
           }
+        },
+        "create": {
+          "user": {
+            "picker": {
+              "select": "Seleccionar {{value0}}",
+              "search": "Buscar usuarios...",
+              "loading": "Buscando…",
+              "empty": "No se encontraron usuarios.",
+              "prompt": "Escribe para buscar usuarios."
+            }
+          }
         }
       },
       "rightSidebar": {
