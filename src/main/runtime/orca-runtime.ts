@@ -21940,9 +21940,8 @@ export class OrcaRuntimeService {
     })
   }
 
-  // Why: background CLI PTYs use synthetic handles (pty:<id>) and never mint a
-  // renderer leaf. Reuse the retained handleByPtyId identity — do not issue a
-  // fresh handle during delivery, or the message target would diverge.
+  // Why: background PTYs start with synthetic handles; delivery must reuse the retained
+  // handle identity so the message target survives later renderer adoption.
   private deliverPendingMessagesToPty(pty: RuntimePtyWorktreeRecord): void {
     const handle = this.handleByPtyId.get(pty.ptyId) ?? this.findHandleForPtyRecord(pty.ptyId)
     if (!handle) {
