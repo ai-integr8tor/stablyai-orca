@@ -212,6 +212,9 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
   }
 
   const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
+  // Why: promptless OMP launches still carry one-shot fresh-session env and a
+  // concrete session-dir argv; host shorthand would let OMP auto-resume.
+  const shouldSendConcreteStartup = hasPrompt || agent === 'omp'
   if (isWebRuntimeSessionActive(runtimeEnvironmentId) && pasteDraftAfterLaunch === null) {
     // Why: paired web tabs are host-owned and return tabId: null on success.
     // Local-only agent tabs cannot be closed because close routes through
@@ -222,7 +225,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       environmentId: runtimeEnvironmentId,
       targetGroupId: groupId,
       activate: true,
-      ...(hasPrompt
+      ...(shouldSendConcreteStartup
         ? {
             command: startupPlan.launchCommand,
             ...(startupPlan.env ? { env: startupPlan.env } : {}),

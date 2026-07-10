@@ -25,6 +25,7 @@ describe('addOrcaWslInteropEnv', () => {
       ORCA_TERMINAL_HANDLE: 'term_wsl',
       ORCA_USER_DATA_PATH: 'C:\\Users\\jin\\AppData\\Roaming\\Orca',
       ORCA_OMP_STATUS_EXTENSION: 'C:\\Users\\jin\\.omp\\agent\\extensions\\orca-agent-status.ts',
+      ORCA_OMP_FRESH_SESSION_DIR: 'C:\\Users\\jin\\.omp\\agent\\sessions\\orca-worktrees\\abc',
       ORCA_PANE_KEY: 'tab-1:leaf-1',
       ORCA_TAB_ID: 'tab-1',
       ORCA_WORKTREE_ID: 'repo::\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
@@ -39,6 +40,7 @@ describe('addOrcaWslInteropEnv', () => {
     expect(env.WSLENV).toContain('ORCA_TERMINAL_HANDLE/u')
     expect(env.WSLENV).toContain('ORCA_USER_DATA_PATH/p')
     expect(env.WSLENV).toContain('ORCA_OMP_STATUS_EXTENSION/p')
+    expect(env.WSLENV).toContain('ORCA_OMP_FRESH_SESSION_DIR/p')
     expect(env.WSLENV).toContain('ORCA_PANE_KEY/u')
     expect(env.WSLENV).toContain('ORCA_TAB_ID/u')
     expect(env.WSLENV).toContain('ORCA_WORKTREE_ID/u')

@@ -178,6 +178,10 @@ import { LocalPtyProvider } from '../providers/local-pty-provider'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV } from '../../shared/setup-agent-sequencing'
 import {
+  ORCA_OMP_FORCE_NEW_SESSION_ENV,
+  ORCA_OMP_FRESH_SESSION_DIR_ENV
+} from '../../shared/omp-fresh-session-env'
+import {
   registerPtyHandlers,
   registerSshPtyProvider,
   clearProviderPtyState,
@@ -1460,6 +1464,23 @@ describe('registerPtyHandlers', () => {
         expect(env.ORCA_OMP_SOURCE_AGENT_DIR).toBe('/user/.omp/agent')
         expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
         expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBeUndefined()
+      })
+      it('fills the fresh OMP session dir on the daemon host spawn path', async () => {
+        const sourceAgentDir = join('/user', '.omp', 'agent')
+        const env = await daemonSpawnAndGetEnv(
+          {
+            ORCA_OMP_SOURCE_AGENT_DIR: sourceAgentDir,
+            [ORCA_OMP_FORCE_NEW_SESSION_ENV]: '1'
+          },
+          undefined,
+          undefined,
+          undefined,
+          { command: 'omp', cwd: join('/repo', 'worktree-a') }
+        )
+
+        expect(env[ORCA_OMP_FRESH_SESSION_DIR_ENV]).toContain(
+          join(sourceAgentDir, 'sessions', 'orca-worktrees')
+        )
       })
 
       it('uses sequenced startup env as the daemon OMP launch hint when command is a wrapper', async () => {

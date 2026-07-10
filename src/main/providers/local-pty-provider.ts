@@ -56,6 +56,8 @@ import { getAgentForegroundContextPaths } from './agent-foreground-context-paths
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
 import { shouldUseShellReadyStartupDelivery } from '../../shared/codex-startup-delivery'
 import { assertSafeAgentStartupCwd, resolveSafePtyDefaultCwd } from './pty-default-cwd'
+import { applyOmpFreshSessionDirEnv } from '../pty/omp-fresh-session-dir'
+import { ORCA_OMP_FRESH_SESSION_DIR_ENV } from '../../shared/omp-fresh-session-env'
 
 const PANE_IDENTITY_ENV_KEYS = [
   'ORCA_PANE_KEY',
@@ -530,9 +532,15 @@ export class LocalPtyProvider implements IPtyProvider {
     if (args.env?.TERM) {
       finalEnv.TERM = args.env.TERM
     }
+    applyOmpFreshSessionDirEnv(finalEnv, { worktreeId: args.worktreeId, cwd })
     if (process.platform === 'win32') {
       const codexHomeWslInfo = finalEnv.CODEX_HOME ? parseWslPath(finalEnv.CODEX_HOME) : null
       if (pathWin32.basename(shellPath).toLowerCase() === 'wsl.exe') {
+        if (finalEnv[ORCA_OMP_FRESH_SESSION_DIR_ENV]) {
+          // Why: the concrete OMP command references this host path after WSL starts.
+          // WSLENV's /p flag converts it to a Linux path before `omp` reads argv.
+          addWslEnvKeys(finalEnv, [`${ORCA_OMP_FRESH_SESSION_DIR_ENV}/p`])
+        }
         if (codexHomeWslInfo) {
           if (launchWslDistro && launchWslDistro !== codexHomeWslInfo.distro) {
             delete finalEnv.CODEX_HOME
