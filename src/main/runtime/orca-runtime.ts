@@ -21948,9 +21948,7 @@ export class OrcaRuntimeService {
     if (!handle) {
       return
     }
-    // Why: after renderer adoption the same handle is also on a leaf, and
-    // onPtyData dual-fires PTY + leaf idle paths. Only the leaf path may inject
-    // for that shared handle — and only when THIS handle is the leaf owner.
+    // Why: an adopted same-handle leaf owns delivery so PTY+leaf idle paths do not double-inject.
     // A different-handle leaf on the same ptyId must not suppress PTY delivery.
     const leafOwnsSameHandle = this.getLeavesForPty(pty.ptyId).some(
       (leaf) => this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId)) === handle
