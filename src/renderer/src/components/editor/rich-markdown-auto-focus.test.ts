@@ -47,4 +47,47 @@ describe('autoFocusRichEditor', () => {
 
     expect(focus).toHaveBeenCalledWith('start', { scrollIntoView: false })
   })
+
+  it('takes focus from the Explorer file row that opened the document', () => {
+    let pendingFrame: FrameRequestCallback = () => {
+      throw new Error('expected focus frame to be scheduled')
+    }
+    const focus = vi.fn()
+    const activeElement = {
+      closest: vi.fn().mockReturnValue({})
+    }
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      pendingFrame = callback
+      return 7
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    vi.stubGlobal('document', { activeElement, body: {} })
+
+    autoFocusRichEditor(createEditor(focus), null)
+    pendingFrame(0)
+
+    expect(activeElement.closest).toHaveBeenCalledWith('[data-file-explorer-row]')
+    expect(focus).toHaveBeenCalledWith('start', { scrollIntoView: false })
+  })
+
+  it('does not steal focus from other controls outside the editor', () => {
+    let pendingFrame: FrameRequestCallback = () => {
+      throw new Error('expected focus frame to be scheduled')
+    }
+    const focus = vi.fn()
+    const activeElement = {
+      closest: vi.fn().mockReturnValue(null)
+    }
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      pendingFrame = callback
+      return 7
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    vi.stubGlobal('document', { activeElement, body: {} })
+
+    autoFocusRichEditor(createEditor(focus), null)
+    pendingFrame(0)
+
+    expect(focus).not.toHaveBeenCalled()
+  })
 })

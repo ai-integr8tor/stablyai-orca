@@ -12,13 +12,15 @@ export function autoFocusRichEditor(nextEditor: Editor, rootEl: HTMLElement | nu
     if (nextEditor.isDestroyed) {
       return
     }
-    // Why: don't steal focus if something outside the editor root is already
-    // focused (modal, rename dialog, sidebar search input, etc.). Only
-    // auto-focus when focus is nowhere or already inside the editor.
+    // Why: Explorer file-row activation hands focus to the opened editor, matching Monaco.
+    // Other controls retain focus so lazy mounts cannot disrupt fields or dialogs.
     const active = document.activeElement
-    const isNeutralFocus =
-      active === null || active === document.body || (rootEl?.contains(active) ?? false)
-    if (!isNeutralFocus) {
+    const canTakeFocus =
+      active === null ||
+      active === document.body ||
+      (rootEl?.contains(active) ?? false) ||
+      Boolean(active?.closest('[data-file-explorer-row]'))
+    if (!canTakeFocus) {
       return
     }
     // Why: pass 'start' (not null) to resolve to a proper TextSelection at
