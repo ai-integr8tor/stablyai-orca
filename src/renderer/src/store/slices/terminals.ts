@@ -83,6 +83,7 @@ import {
   removeSleepingRecordsReplacedByManualWorktreeSleep,
   type AgentStatusWorktreeShutdownReason
 } from './agent-status'
+import { reconcileWorkspaceSessionWorktreeIds } from '@/lib/workspace-session-worktree-id-reconciliation'
 
 function getNextTerminalOrdinal(tabs: TerminalTab[]): number {
   const usedOrdinals = new Set<number>()
@@ -2877,12 +2878,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     return data
   },
 
-  hydrateWorkspaceSession: (session, options) => {
+  hydrateWorkspaceSession: (persistedSession, options) => {
     set((s) => {
       const runtimeSessionPlaceholders = buildRuntimeSessionPlaceholders({
         repos: s.repos,
         runtimeHostIdByWorkspaceSessionKey: options?.runtimeHostIdByWorkspaceSessionKey ?? {},
         worktreesByRepo: s.worktreesByRepo
+      })
+      const session = reconcileWorkspaceSessionWorktreeIds({
+        session: persistedSession,
+        repos: runtimeSessionPlaceholders.repos,
+        worktreesByRepo: runtimeSessionPlaceholders.worktreesByRepo,
+        runtimeHostIdByWorkspaceSessionKey: options?.runtimeHostIdByWorkspaceSessionKey ?? {}
       })
       const validWorktreeIds = new Set(
         Object.values(runtimeSessionPlaceholders.worktreesByRepo)
