@@ -11,6 +11,7 @@ import {
 } from '../../../shared/protocol-version'
 
 const detectRemoteAgents = vi.fn()
+const detectAgents = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
 const initialAppState = useAppStore.getInitialState()
 const roots: Root[] = []
@@ -41,6 +42,7 @@ async function renderProbe(target: AgentDetectionTarget): Promise<Root> {
 
 beforeEach(() => {
   useAppStore.setState(initialAppState, true)
+  detectAgents.mockReset()
   detectRemoteAgents.mockReset().mockResolvedValue([])
   runtimeEnvironmentCall.mockReset().mockImplementation(({ method }: { method: string }) => {
     const result =
@@ -64,7 +66,7 @@ beforeEach(() => {
     })
   })
   globalThis.window.api = {
-    preflight: { detectRemoteAgents },
+    preflight: { detectAgents, detectRemoteAgents },
     runtimeEnvironments: { call: runtimeEnvironmentCall }
   } as unknown as Window['api']
 })
@@ -76,6 +78,22 @@ afterEach(async () => {
     })
   }
   roots.length = 0
+})
+
+describe('useDetectedAgents (local context call site)', () => {
+  it('routes an explicit local preflight context to its keyed cache', async () => {
+    detectAgents.mockResolvedValue(['claude'])
+
+    await renderProbe({
+      kind: 'local',
+      localPreflightContext: { wslDistro: 'Ubuntu' },
+      localPreflightContextKey: 'wsl:Ubuntu'
+    })
+
+    expect(detectAgents).toHaveBeenCalledWith({ wslDistro: 'Ubuntu' })
+    expect(useAppStore.getState().localDetectedAgentIds['wsl:Ubuntu']).toEqual(['claude'])
+    expect(useAppStore.getState().detectedAgentIds).toBeNull()
+  })
 })
 
 describe('useDetectedAgents (ssh call site)', () => {

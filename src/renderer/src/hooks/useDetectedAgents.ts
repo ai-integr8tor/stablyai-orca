@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../shared/types'
+import type { LocalPreflightContext } from '@/lib/local-preflight-context'
 
 export type UseDetectedAgentsResult = {
   /** Null while detection is in flight on first load. */
@@ -14,7 +15,11 @@ export type UseDetectedAgentsResult = {
 }
 
 export type AgentDetectionTarget =
-  | { kind: 'local' }
+  | {
+      kind: 'local'
+      localPreflightContext?: NonNullable<LocalPreflightContext>
+      localPreflightContextKey?: string
+    }
   | { kind: 'ssh'; connectionId: string }
   | { kind: 'runtime'; environmentId: string }
 
@@ -62,6 +67,8 @@ export function useDetectedAgents(
       : target?.kind === 'runtime'
         ? target.environmentId
         : null
+  const localContext = target?.kind === 'local' ? target.localPreflightContext : undefined
+  const localContextKey = target?.kind === 'local' ? target.localPreflightContextKey : undefined
 
   const detectedIds = useAppStore((s) => {
     if (isUnknown) {
@@ -73,7 +80,7 @@ export function useDetectedAgents(
     if (targetKind === 'runtime' && targetId) {
       return s.runtimeDetectedAgentIds[targetId] ?? null
     }
-    return s.detectedAgentIds
+    return localContextKey ? (s.localDetectedAgentIds[localContextKey] ?? null) : s.detectedAgentIds
   })
   const isLoading = useAppStore((s) => {
     if (isUnknown) {
@@ -85,9 +92,13 @@ export function useDetectedAgents(
     if (targetKind === 'runtime' && targetId) {
       return s.isDetectingRuntimeAgents[targetId] ?? false
     }
-    return s.isDetectingAgents
+    return localContextKey
+      ? (s.isDetectingLocalAgents[localContextKey] ?? false)
+      : s.isDetectingAgents
   })
-  const isRefreshing = useAppStore((s) => (targetKind === 'local' ? s.isRefreshingAgents : false))
+  const isRefreshing = useAppStore((s) =>
+    targetKind === 'local' && !localContextKey ? s.isRefreshingAgents : false
+  )
   const ensureLocal = useAppStore((s) => s.ensureDetectedAgents)
   const ensureRemote = useAppStore((s) => s.ensureRemoteDetectedAgents)
   const ensureRuntime = useAppStore((s) => s.ensureRuntimeDetectedAgents)
@@ -125,10 +136,19 @@ export function useDetectedAgents(
       }
     } else {
       if (detectedIds === null) {
-        void ensureLocal()
+        void ensureLocal(localContext)
       }
     }
-  }, [isUnknown, targetKind, targetId, detectedIds, ensureLocal, ensureRemote, ensureRuntime])
+  }, [
+    isUnknown,
+    targetKind,
+    targetId,
+    detectedIds,
+    ensureLocal,
+    ensureRemote,
+    ensureRuntime,
+    localContext
+  ])
 
   return { detectedIds, isLoading, isRefreshing, refresh }
 }

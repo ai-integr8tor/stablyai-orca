@@ -74,7 +74,11 @@ import {
   getLinkedWorkItemPromptContext,
   resolveQuickCreateLinkedWorkItemPrompt
 } from '@/lib/linked-work-item-context'
-import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import {
+  getLocalRepoProjectExecutionRuntimeContext,
+  getWslDistroFromPath,
+  localPreflightContextKey
+} from '@/lib/local-preflight-context'
 import {
   buildLinearIssueLinkedWorkItem,
   isLinearLinkedWorkItem
@@ -701,6 +705,32 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     () => getFolderSourceRepos(repos, projectGroups, selectedProjectGroup),
     [projectGroups, repos, selectedProjectGroup]
   )
+  const folderTargetLocalPreflightContext = useMemo(() => {
+    if (!selectedProjectGroup?.parentPath) {
+      return undefined
+    }
+    const wslDistro = getWslDistroFromPath(selectedProjectGroup.parentPath)
+    if (wslDistro) {
+      return { wslDistro }
+    }
+    const sourceRepo = folderSourceRepos[0]
+    const projectRuntime = sourceRepo
+      ? getLocalRepoProjectExecutionRuntimeContext(
+          { activeRepoId, activeWorktreeId: null, projects, repos, settings, worktreesByRepo },
+          sourceRepo.id,
+          CLIENT_PLATFORM
+        )
+      : undefined
+    return projectRuntime ? { projectRuntime } : undefined
+  }, [
+    activeRepoId,
+    folderSourceRepos,
+    projects,
+    repos,
+    selectedProjectGroup,
+    settings,
+    worktreesByRepo
+  ])
   const parsedFolderTargetHost = parseExecutionHostId(selectedProjectGroup?.executionHostId)
   const folderTargetRuntimeEnvironmentId =
     parsedFolderTargetHost?.kind === 'runtime' ? parsedFolderTargetHost.environmentId : null
@@ -713,7 +743,13 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     : folderTargetConnectionId
       ? { kind: 'ssh' as const, connectionId: folderTargetConnectionId }
       : selectedProjectGroup
-        ? { kind: 'local' as const }
+        ? {
+            kind: 'local' as const,
+            localPreflightContext: folderTargetLocalPreflightContext,
+            localPreflightContextKey: folderTargetLocalPreflightContext
+              ? localPreflightContextKey(folderTargetLocalPreflightContext)
+              : undefined
+          }
         : undefined
   const folderTargetSshState = folderTargetConnectionId
     ? (sshConnectionStates.get(folderTargetConnectionId) ?? null)
