@@ -2506,6 +2506,38 @@ describe('connectPanePty', () => {
     )
   })
 
+  it('relaunches local Codex startup after the Codex updater exits to the shell', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport('pty-local-1')
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-local-1'
+    })
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      repos: [{ id: 'repo1', connectionId: null }]
+    }
+    vi.mocked(window.api.pty.getForegroundProcess).mockResolvedValue('zsh')
+
+    connectPanePty(
+      createPane(1) as never,
+      createManager(1) as never,
+      createDeps({ startup: { command: 'codex' } }) as never
+    )
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    vi.useFakeTimers()
+    capturedDataCallback.current?.('Update ran successfully! Please restart Codex.')
+    vi.advanceTimersByTime(250)
+    await flushAsyncTicks()
+
+    expect(window.api.pty.getForegroundProcess).toHaveBeenCalledWith('pty-local-1')
+    expect(transport.sendInput).toHaveBeenCalledWith('codex\r')
+  })
+
   it('seeds a working status for Command Code startup prompts after spawn', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-command-code')

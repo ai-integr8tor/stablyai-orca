@@ -136,6 +136,7 @@ import { createCommandCodeOutputStatusDetector } from './command-code-output-sta
 import type { PtyDataMeta } from './pty-dispatcher'
 import { getEagerPtyBufferHandle } from './pty-dispatcher'
 import { createTerminalGitHubPRLinkDetector } from '@/lib/terminal-github-pr-link-detector'
+import { createCodexAutoRelaunchAfterUpdate } from './codex-auto-relaunch-after-update'
 import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 import {
   CONPTY_DA1_RESPONSE,
@@ -2425,6 +2426,17 @@ export function connectPanePty(
     onDone: scheduleCommandCodeOutputDoneStatus
   })
   const observeTerminalGitHubPRLink = createTerminalGitHubPRLinkDetector()
+  const codexAutoRelaunchAfterUpdate = createCodexAutoRelaunchAfterUpdate({
+    startupCommand: paneStartup?.command,
+    getPtyId: () => transport.getPtyId(),
+    inspectForegroundProcess: async (ptyId) => {
+      const inspection = await inspectRuntimeTerminalProcess(useAppStore.getState().settings, ptyId)
+      return inspection.foregroundProcess
+    },
+    sendInput: (data) => transport.sendInput(data),
+    isDisposed: () => disposed
+  })
+
   const reportPanePtyVisibility = (ptyId: string | null | undefined, visible: boolean): void => {
     if (!ptyId || isRemoteRuntimePtyId(ptyId)) {
       // Why: remote-runtime PTYs use a relay path outside main's local
@@ -5367,6 +5379,7 @@ export function connectPanePty(
         useAppStore.getState().observeTerminalGitHubPullRequestLink(deps.worktreeId, link)
       }
       commandCodeOutputStatusDetector.observe(data)
+      codexAutoRelaunchAfterUpdate.observeOutput(data)
       commandLifecycle.handlePtyData(data)
       // Why: split-pane layouts have multiple visible-but-inactive panes whose
       // output the user is watching. Throttle only when the pane or whole
@@ -6382,6 +6395,7 @@ export function connectPanePty(
       interruptInference.dispose()
       clearTitleOnlyInterruptTimer()
       clearCommandCodeOutputDoneTimer()
+      codexAutoRelaunchAfterUpdate.dispose()
       // Why: actively resolve any in-flight passphrase-gate waits so their
       // zustand subscribers + async IIFEs don't hang for the rest of the
       // session when the pane is torn down before SSH state changes.
