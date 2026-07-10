@@ -96,6 +96,7 @@ export type RepoKind = 'git' | 'folder'
 export type IssueSourcePreference = 'upstream' | 'origin' | 'auto'
 export type { ForkSyncMode, GitForkSyncExpectedUpstream, GitForkSyncResult } from './git-fork-sync'
 export type ExternalWorktreeVisibility = 'hide' | 'show'
+export type WorktreeLocationMode = 'sibling' | 'nested'
 
 export type ProjectProviderIdentity = {
   provider: 'github'
@@ -243,6 +244,8 @@ export type Repo = {
   worktreeBaseRef?: string
   /** Optional repo-scoped workspace root override. Relative paths resolve from `path`. */
   worktreeBasePath?: string
+  /** Where Orca-created worktrees for this repo are placed. Undefined preserves legacy behavior. */
+  worktreeLocationMode?: WorktreeLocationMode
   hookSettings?: RepoHookSettings
   /** SSH target ID for remote repos. null/undefined = local. */
   connectionId?: string | null
@@ -2472,6 +2475,8 @@ export type GlobalSettings = {
    *  host-varying setting is `host override ?? client default`. */
   hostSettingOverrides?: Partial<Record<ExecutionHostId, HostSettingOverrides>>
   nestWorkspaces: boolean
+  /** App-level default for repos without an explicit worktreeLocationMode. */
+  defaultWorktreeLocationMode?: WorktreeLocationMode
   workspaceDirHistory?: OrcaWorkspaceLayout[]
   refreshLocalBaseRefOnWorktreeCreate: boolean
   /** Set once the user dismisses the "local main is behind" suggestion toast, so
@@ -2950,6 +2955,7 @@ export type GlobalSettings = {
 export type OrcaWorkspaceLayout = {
   path: string
   nestWorkspaces: boolean
+  worktreeLocationMode?: WorktreeLocationMode
 }
 
 export type CommitMessageAiModelCapability = {

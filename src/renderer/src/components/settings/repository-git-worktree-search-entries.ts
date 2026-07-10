@@ -53,6 +53,14 @@ export function getRepositoryGitWorktreeSearchEntries(repo: Repo): SettingsSearc
         ...translateSearchKeyword(
           'auto.components.settings.repository.search.4733ec2395',
           '../worktrees'
+        ),
+        ...translateSearchKeyword(
+          'auto.components.settings.repository.search.nestedWorktrees',
+          '.worktrees'
+        ),
+        ...translateSearchKeyword(
+          'auto.components.settings.repository.search.insideProject',
+          'inside project'
         )
       ]
     },

@@ -37,6 +37,10 @@ import type { ForgeProviderId } from '../source-control/forge-provider'
 import { validateGitPushTarget } from '../git/push-target-validation'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { gitExecFileAsync } from '../git/runner'
+import {
+  ensureLocalNestedWorktreeRootIgnored,
+  ensureRemoteNestedWorktreeRootIgnored
+} from '../git/nested-worktree-exclude'
 import { parseGitHubOwnerRepo } from '../github/gh-utils'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { RemoteFetchResult, RemoteTrackingBase } from '../runtime/orca-runtime'
@@ -79,6 +83,7 @@ import {
   getWorktreeCreationLayout,
   getWorktreePathSettings,
   hasRepoWorktreeBasePath,
+  usesNestedWorktreeLocation,
   shouldSetDisplayName,
   mergeWorktree,
   areWorktreePathsEqual
@@ -1705,6 +1710,13 @@ export async function createRemoteWorktree(
     }
   }
 
+
+  if (usesNestedWorktreeLocation(repo, settings)) {
+    if (!fsProvider) {
+      throw new Error('Could not prepare nested worktree ignore rules for this SSH repo.')
+    }
+    await ensureRemoteNestedWorktreeRootIgnored(repo.path, provider, fsProvider)
+  }
   const localBaseRefRefresh =
     settings.refreshLocalBaseRefOnWorktreeCreate && !checkoutExistingBranch && remoteTrackingBase
       ? await refreshLocalBaseRefForRemoteWorktreeCreate(provider, repo.path, remoteTrackingBase)
@@ -2320,6 +2332,9 @@ export async function createLocalWorktree(
     checkoutExistingBranch,
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
+  }
+  if (usesNestedWorktreeLocation(repo, settings)) {
+    await ensureLocalNestedWorktreeRootIgnored(repo.path, localWorktreeGitOptions)
   }
   const addResult: AddWorktreeResult =
     (await timing.time('git_worktree_add', async () => {

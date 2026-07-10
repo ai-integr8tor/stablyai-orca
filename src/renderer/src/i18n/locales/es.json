@@ -5448,7 +5448,9 @@
           "5567191a6e": "Examinar",
           "0e9fc0eadc": "Directorio de espacio de trabajo",
           "e2955d9ccb": "Configura dónde se crean nuevos espacios de trabajo.",
-          "7511097c5d": "Espacio de trabajo"
+          "7511097c5d": "Espacio de trabajo",
+          "defaultNestedWorktreesTitle": "Store worktrees inside each project by default",
+          "defaultNestedWorktreesDescription": "New projects create their worktrees in .worktrees inside the project root and keep that folder ignored. Individual projects can override this."
         },
         "GhosttyImportModal": {
           "9d3e56ca36": "Aplicar cambios",
@@ -6105,7 +6107,19 @@
           "addPlannedHostToHost": "Agregar {{host}}",
           "addPlannedHostConfirm": "Esto solo registra que el proyecto debería estar disponible en este host. Puedes agregar la carpeta o clonar más tarde.",
           "projectRuntime": "Runtime del proyecto",
-          "projectRuntimeDescription": "Elige si este proyecto se ejecuta en Windows o WSL."
+          "projectRuntimeDescription": "Elige si este proyecto se ejecuta en Windows o WSL.",
+          "nestedWorktreesLabel": "Store worktrees inside this project",
+          "nestedWorktreesDescription": "Create new worktrees in .worktrees inside the project root and keep that folder ignored.",
+          "nestedWorktreesPath": "New worktrees will be created under .worktrees in this project.",
+          "nestedWorktreesPlaceholder": ".worktrees",
+          "worktreeLocationFollowingGlobalNested": "Following global default (nested)",
+          "worktreeLocationFollowingGlobalSibling": "Following global default (sibling)",
+          "worktreeLocationExplicitNested": "Project override (nested)",
+          "worktreeLocationExplicitSibling": "Project override (sibling)",
+          "worktreeLocationModeScope": "Worktree location mode",
+          "useGlobal": "Global",
+          "siblingMode": "Sibling",
+          "nestedMode": "Nested"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "Plantilla de comando",
@@ -7639,6 +7653,8 @@
             "8e593f04fc": "Muestra un diálogo de confirmación antes de cerrar una pestaña fijada.",
             "defaultProjectRuntime": "Runtime de proyecto predeterminado",
             "defaultProjectRuntimeDescription": "Elige el runtime que heredarán los proyectos locales de Windows.",
+            "defaultNestedWorktreesTitle": "Store worktrees inside each project by default",
+            "defaultNestedWorktreesDescription": "New projects create their worktrees in .worktrees inside the project root and keep that folder ignored. Individual projects can override this.",
             "d2d2d929c0": "Corrector ortográfico de Rich Markdown",
             "4497e2e2bb": "Muestra subrayados y sugerencias ortográficas del navegador al editar Rich Markdown."
           }

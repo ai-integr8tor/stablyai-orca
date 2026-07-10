@@ -44,7 +44,7 @@ function render(repo: Repo, updateRepo: (repoId: string, updates: object) => voi
     root.render(
       React.createElement(RepositoryWorktreeDefaultsSection, {
         repo,
-        settings: null,
+        settings: { workspaceDir: '/global/workspaces', defaultWorktreeLocationMode: 'sibling' },
         updateRepo,
         forceVisible: true
       })
@@ -139,5 +139,48 @@ describe('RepositoryWorktreeDefaultsSection — worktree path', () => {
     blurInput(input)
 
     expect(updateRepo).toHaveBeenCalledWith('repo-1', { worktreeBasePath: undefined })
+  })
+})
+
+describe('RepositoryWorktreeDefaultsSection — worktree location mode', () => {
+  it('shows a following-global summary when the repo has no explicit mode', () => {
+    const updateRepo = vi.fn()
+    render(BASE_REPO, updateRepo)
+
+    expect(container.textContent).toContain('Following global default (sibling)')
+  })
+
+  it('turning on the effective toggle sets an explicit nested override', () => {
+    const updateRepo = vi.fn()
+    render(BASE_REPO, updateRepo)
+
+    const switchButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Store worktrees inside this project"]'
+    )
+    if (!switchButton) {
+      throw new Error('nested worktree switch not found')
+    }
+    act(() => {
+      switchButton.click()
+    })
+
+    expect(updateRepo).toHaveBeenCalledWith('repo-1', { worktreeLocationMode: 'nested' })
+  })
+
+  it('can clear an explicit mode back to the global default', () => {
+    const updateRepo = vi.fn()
+    render({ ...BASE_REPO, worktreeLocationMode: 'nested' }, updateRepo)
+
+    const globalButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Global'
+    )
+    if (!globalButton) {
+      throw new Error('global segmented control button not found')
+    }
+    act(() => {
+      globalButton.click()
+    })
+
+    expect(updateRepo).toHaveBeenCalledWith('repo-1', { worktreeLocationMode: undefined })
   })
 })

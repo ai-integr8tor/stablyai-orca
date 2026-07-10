@@ -1,12 +1,24 @@
 import { resolve, relative, isAbsolute, posix, sep, win32 } from 'node:path'
-import type { GlobalSettings, OrcaWorkspaceLayout, Repo } from '../../shared/types'
+import type {
+  GlobalSettings,
+  OrcaWorkspaceLayout,
+  Repo,
+  WorktreeLocationMode
+} from '../../shared/types'
 import { resolveRuntimePath } from '../../shared/cross-platform-path'
+import { isNestedWorktreeLocation } from '../../shared/worktree-location-mode'
 import { isWslUncPath } from '../../shared/wsl-paths'
 import { splitWorktreeId } from '../../shared/worktree-id'
 import { getWslHome, parseWslPath } from '../wsl'
 
-type WorktreePathSettings = Pick<GlobalSettings, 'nestWorkspaces' | 'workspaceDir'>
-type WorktreeBasePathRepo = Pick<Repo, 'path' | 'worktreeBasePath'>
+type WorktreePathSettings = Pick<GlobalSettings, 'nestWorkspaces' | 'workspaceDir'> & {
+  worktreeLocationMode?: WorktreeLocationMode
+}
+type WorktreeLocationSettings = Pick<GlobalSettings, 'nestWorkspaces' | 'workspaceDir'> &
+  Partial<Pick<GlobalSettings, 'defaultWorktreeLocationMode'>>
+type WorktreeBasePathRepo = Pick<Repo, 'path' | 'worktreeBasePath' | 'worktreeLocationMode'>
+
+export const NESTED_WORKTREE_DIRECTORY = '.worktrees'
 
 export { computeBranchName, getConfiguredBranchPrefix } from './worktree-branch-name'
 export { mergeWorktree } from './worktree-metadata-merge'
@@ -89,6 +101,9 @@ export function computeWorktreePath(
   const workspaceRoot = computeWorkspaceRoot(repoPath, settings)
   const pathOps = getRuntimePathOps(repoPath, workspaceRoot)
 
+  if (settings.worktreeLocationMode === 'nested') {
+    return pathOps.join(workspaceRoot, sanitizedName)
+  }
   if (settings.nestWorkspaces) {
     const repoName = pathOps.basename(repoPath).replace(/\.git$/, '')
     return pathOps.join(workspaceRoot, repoName, sanitizedName)
@@ -96,7 +111,13 @@ export function computeWorktreePath(
   return pathOps.join(workspaceRoot, sanitizedName)
 }
 
-export function computeWorkspaceRoot(repoPath: string, settings: { workspaceDir: string }): string {
+export function computeWorkspaceRoot(
+  repoPath: string,
+  settings: { workspaceDir: string; worktreeLocationMode?: WorktreeLocationMode }
+): string {
+  if (settings.worktreeLocationMode === 'nested') {
+    return getRuntimePathOps(repoPath, repoPath).join(repoPath, NESTED_WORKTREE_DIRECTORY)
+  }
   const wsl = parseWslPath(repoPath)
   if (wsl && shouldMirrorWorkspaceDirInsideWsl(repoPath, settings.workspaceDir)) {
     const wslHome = getWslHome(wsl.distro)
@@ -131,8 +152,15 @@ export function computeRemoteWorktreePath(
 
 export function getWorktreePathSettings(
   repo: WorktreeBasePathRepo,
-  settings: WorktreePathSettings
+  settings: WorktreeLocationSettings
 ): WorktreePathSettings {
+  if (isNestedWorktreeLocation(repo, settings)) {
+    return {
+      nestWorkspaces: false,
+      workspaceDir: NESTED_WORKTREE_DIRECTORY,
+      worktreeLocationMode: 'nested'
+    }
+  }
   return {
     nestWorkspaces: settings.nestWorkspaces,
     workspaceDir: getEffectiveWorktreeBasePath(repo, settings)
@@ -141,12 +169,26 @@ export function getWorktreePathSettings(
 
 export function getWorktreeCreationLayout(
   repo: WorktreeBasePathRepo,
-  settings: WorktreePathSettings
+  settings: WorktreeLocationSettings
 ): OrcaWorkspaceLayout {
+  if (isNestedWorktreeLocation(repo, settings)) {
+    return {
+      path: NESTED_WORKTREE_DIRECTORY,
+      nestWorkspaces: false,
+      worktreeLocationMode: 'nested'
+    }
+  }
   return {
     path: getEffectiveWorktreeBasePath(repo, settings),
     nestWorkspaces: settings.nestWorkspaces
   }
+}
+
+export function usesNestedWorktreeLocation(
+  repo: Pick<Repo, 'worktreeLocationMode'>,
+  settings: Partial<Pick<GlobalSettings, 'defaultWorktreeLocationMode'>>
+): boolean {
+  return isNestedWorktreeLocation(repo, settings)
 }
 
 export function hasRepoWorktreeBasePath(repo: Pick<Repo, 'worktreeBasePath'>): boolean {

@@ -5448,7 +5448,9 @@
           "5567191a6e": "Browse",
           "0e9fc0eadc": "Workspace Directory",
           "e2955d9ccb": "Configure where new workspaces are created.",
-          "7511097c5d": "Workspace"
+          "7511097c5d": "Workspace",
+          "defaultNestedWorktreesTitle": "Store worktrees inside each project by default",
+          "defaultNestedWorktreesDescription": "New projects create their worktrees in .worktrees inside the project root and keep that folder ignored. Individual projects can override this."
         },
         "GhosttyImportModal": {
           "9d3e56ca36": "Apply Changes",
@@ -6142,7 +6144,19 @@
           "addPlannedHostToHost": "Add {{host}}",
           "addPlannedHostConfirm": "This only records that the project should be available on this host. You can add the folder or clone later.",
           "projectRuntime": "Project Runtime",
-          "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL."
+          "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL.",
+          "nestedWorktreesLabel": "Store worktrees inside this project",
+          "nestedWorktreesDescription": "Create new worktrees in .worktrees inside the project root and keep that folder ignored.",
+          "nestedWorktreesPath": "New worktrees will be created under .worktrees in this project.",
+          "nestedWorktreesPlaceholder": ".worktrees",
+          "worktreeLocationFollowingGlobalNested": "Following global default (nested)",
+          "worktreeLocationFollowingGlobalSibling": "Following global default (sibling)",
+          "worktreeLocationExplicitNested": "Project override (nested)",
+          "worktreeLocationExplicitSibling": "Project override (sibling)",
+          "worktreeLocationModeScope": "Worktree location mode",
+          "useGlobal": "Global",
+          "siblingMode": "Sibling",
+          "nestedMode": "Nested"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "Command template",
@@ -7676,6 +7690,8 @@
             "8e593f04fc": "Show a confirmation dialog before a pinned tab is closed.",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
+            "defaultNestedWorktreesTitle": "Store worktrees inside each project by default",
+            "defaultNestedWorktreesDescription": "New projects create their worktrees in .worktrees inside the project root and keep that folder ignored. Individual projects can override this.",
             "d2d2d929c0": "Rich Markdown Spellcheck",
             "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
           }

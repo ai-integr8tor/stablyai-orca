@@ -29,6 +29,7 @@ import {
   DEFAULT_LEFT_SIDEBAR_TINT_OPACITY
 } from './left-sidebar-appearance'
 import { DEFAULT_SOURCE_CONTROL_GROUP_ORDER } from './source-control-group-order'
+import { DEFAULT_WORKTREE_LOCATION_MODE } from './worktree-location-mode'
 import { DEFAULT_SETUP_AGENT_STARTUP_POLICY } from './setup-agent-startup-policy'
 import { DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT } from './terminal-scrollback-policy'
 
@@ -185,6 +186,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
   return {
     workspaceDir: getDefaultWorkspaceDir(homedir),
     nestWorkspaces: true,
+    defaultWorktreeLocationMode: DEFAULT_WORKTREE_LOCATION_MODE,
     workspaceDirHistory: [],
     refreshLocalBaseRefOnWorktreeCreate: false,
     localBaseRefSuggestionDismissed: false,

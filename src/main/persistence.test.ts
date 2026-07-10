@@ -3762,6 +3762,24 @@ describe('Store', () => {
     expect(reloaded.getRepo('r1')!.issueSourcePreference).toBe('upstream')
   })
 
+  it('updateRepo persists and clears worktreeLocationMode across reloads', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+
+    const updated = store.updateRepo('r1', { worktreeLocationMode: 'nested' })
+    expect(updated!.worktreeLocationMode).toBe('nested')
+
+    store.flush()
+    const reloaded = await createStore()
+    expect(reloaded.getRepo('r1')!.worktreeLocationMode).toBe('nested')
+
+    reloaded.updateRepo('r1', { worktreeLocationMode: undefined })
+    reloaded.flush()
+
+    const cleared = await createStore()
+    expect(cleared.getRepo('r1')!.worktreeLocationMode).toBeUndefined()
+  })
+
   it('updateRepo persists fork sync mode across reloads', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())
