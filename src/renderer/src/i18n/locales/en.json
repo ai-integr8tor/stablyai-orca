@@ -6310,7 +6310,20 @@
           "serverDetails": "Server details",
           "advertiseThisApp": "Advertise this app as a server",
           "advertiseThisAppHelp": "Create access links for browsers, mobile clients, or another Orca client to connect back to this running app.",
-          "runtimeReachable": "{{value0}} is reachable."
+          "runtimeReachable": "{{value0}} is reachable.",
+          "editNameRequired": "Server name is required.",
+          "editServerUpdatedConnection": "Updated {{value0}}. Reconnect if you changed the address.",
+          "editServerRenamed": "Renamed server to {{value0}}.",
+          "editServerFailed": "Failed to update server.",
+          "editServerAria": "Edit {{value0}}",
+          "editServerTitle": "Edit Server",
+          "editServerDescription": "Rename this server, or paste a new pairing code to change its connection address without removing workspaces.",
+          "currentEndpoint": "Current connection",
+          "newPairingCode": "New pairing code (optional)",
+          "editPairingCodeHelp": "Leave blank to keep the current address. To switch LAN ↔ Tailscale, generate a new pairing URL on the server with the desired --pairing-address.",
+          "editServerSave": "Save Changes",
+          "endpointTransportTailscale": "Tailscale",
+          "endpointTransportDirect": "Direct"
         },
         "RuntimePairingGeneratedUrlRows": {
           "0495f68959": "Copy {{value0}}"

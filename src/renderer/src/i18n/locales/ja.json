@@ -6295,7 +6295,20 @@
           "serverDetails": "サーバーの詳細",
           "advertiseThisApp": "このアプリをサーバーとして公開",
           "advertiseThisAppHelp": "ブラウザー、モバイルクライアント、または別の Orca クライアントがこの実行中のアプリへ接続できるように、アクセスリンクを作成します。",
-          "runtimeReachable": "{{value0}} に到達できます。"
+          "runtimeReachable": "{{value0}} に到達できます。",
+          "editNameRequired": "Server name is required.",
+          "editServerUpdatedConnection": "Updated {{value0}}. Reconnect if you changed the address.",
+          "editServerRenamed": "Renamed server to {{value0}}.",
+          "editServerFailed": "Failed to update server.",
+          "editServerAria": "Edit {{value0}}",
+          "editServerTitle": "Edit Server",
+          "editServerDescription": "Rename this server, or paste a new pairing code to change its connection address without removing workspaces.",
+          "currentEndpoint": "Current connection",
+          "newPairingCode": "New pairing code (optional)",
+          "editPairingCodeHelp": "Leave blank to keep the current address. To switch LAN ↔ Tailscale, generate a new pairing URL on the server with the desired --pairing-address.",
+          "editServerSave": "Save Changes",
+          "endpointTransportTailscale": "Tailscale",
+          "endpointTransportDirect": "Direct"
         },
         "RuntimePairingGeneratedUrlRows": {
           "0495f68959": "{{value0}}をコピー"

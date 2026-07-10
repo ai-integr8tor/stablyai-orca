@@ -6258,7 +6258,20 @@
           "serverDetails": "服务器详细信息",
           "advertiseThisApp": "将此应用作为服务器公布",
           "advertiseThisAppHelp": "创建访问链接，让浏览器、移动客户端或另一个 Orca 客户端连接回这个正在运行的应用。",
-          "runtimeReachable": "可连接到 {{value0}}。"
+          "runtimeReachable": "可连接到 {{value0}}。",
+          "editNameRequired": "Server name is required.",
+          "editServerUpdatedConnection": "Updated {{value0}}. Reconnect if you changed the address.",
+          "editServerRenamed": "Renamed server to {{value0}}.",
+          "editServerFailed": "Failed to update server.",
+          "editServerAria": "Edit {{value0}}",
+          "editServerTitle": "Edit Server",
+          "editServerDescription": "Rename this server, or paste a new pairing code to change its connection address without removing workspaces.",
+          "currentEndpoint": "Current connection",
+          "newPairingCode": "New pairing code (optional)",
+          "editPairingCodeHelp": "Leave blank to keep the current address. To switch LAN ↔ Tailscale, generate a new pairing URL on the server with the desired --pairing-address.",
+          "editServerSave": "Save Changes",
+          "endpointTransportTailscale": "Tailscale",
+          "endpointTransportDirect": "Direct"
         },
         "RuntimePairingGeneratedUrlRows": {
           "0495f68959": "复制 {{value0}}"
