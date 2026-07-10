@@ -34,7 +34,10 @@ vi.mock('./ssh-channel-multiplexer', () => {
 })
 
 vi.mock('../agent-hooks/remote-managed-hook-installers', () => ({
-  installRemoteManagedAgentHooks: installRemoteManagedAgentHooksMock
+  installRemoteManagedAgentHooks: installRemoteManagedAgentHooksMock,
+  hasRemoteManagedHookInstallCandidate: (
+    presenceByAgent: Record<string, { state: 'found' | 'missing' | 'unknown' }>
+  ) => Object.values(presenceByAgent).some((presence) => presence.state === 'found')
 }))
 
 vi.mock('../providers/ssh-pty-provider', () => ({
@@ -109,6 +112,7 @@ function createMockDeps() {
   const mockConn = {} as SshConnection
   const mockStore = {
     getRepos: vi.fn().mockReturnValue([]),
+    getSettings: vi.fn().mockReturnValue({ agentCmdOverrides: {} }),
     getSshRemotePtyLeases: vi.fn().mockReturnValue([]),
     markSshRemotePtyLease: vi.fn(),
     markSshRemotePtyLeases: vi.fn()
@@ -170,72 +174,6 @@ describe('SshRelaySession', () => {
     expect(registerSshPtyProvider).toHaveBeenCalledWith('target-1', expect.anything())
     expect(registerSshFilesystemProvider).toHaveBeenCalledWith('target-1', expect.anything())
     expect(registerSshGitProvider).toHaveBeenCalledWith('target-1', expect.anything())
-  })
-
-  it('installs remote managed hooks and relay-owned plugin assets before registering the SSH PTY provider', async () => {
-    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
-    muxRequestMock.mockImplementation(async (method: string) => {
-      if (method === 'session.resolveHome') {
-        return { resolvedPath: '/home/orca' }
-      }
-      return { ok: true }
-    })
-    const sftp = { end: vi.fn() }
-    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
-    const mockConn = {
-      sftp: vi.fn().mockResolvedValue(sftp)
-    } as unknown as SshConnection
-    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
-
-    await session.establish(mockConn)
-
-    const installPluginsCallIndex = muxRequestMock.mock.calls.findIndex(
-      ([method]) => method === AGENT_HOOK_INSTALL_PLUGINS_METHOD
-    )
-    expect(installPluginsCallIndex).toBeGreaterThanOrEqual(0)
-    const installPluginsParams = muxRequestMock.mock.calls[installPluginsCallIndex]?.[1]
-    expect(installPluginsParams).toMatchObject({
-      piExtensionSource: expect.stringContaining('/hook/pi'),
-      ompExtensionSource: expect.stringContaining('/hook/omp')
-    })
-    expect(mockConn.sftp).toHaveBeenCalledTimes(1)
-    expect(installRemoteManagedAgentHooksMock).toHaveBeenCalledWith(sftp, '/home/orca')
-    expect(sftp.end).toHaveBeenCalledTimes(1)
-    expect(installRemoteManagedAgentHooksMock.mock.invocationCallOrder[0]).toBeLessThan(
-      muxRequestMock.mock.invocationCallOrder[installPluginsCallIndex]
-    )
-    expect(muxRequestMock.mock.invocationCallOrder[installPluginsCallIndex]).toBeLessThan(
-      vi.mocked(registerSshPtyProvider).mock.invocationCallOrder[0]
-    )
-  })
-
-  it('does not run POSIX managed hook installers on Windows remotes', async () => {
-    process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '1'
-    const { mockStore, mockPortForward, getMainWindow } = createMockDeps()
-    const mockConn = {
-      writeFile: vi.fn().mockResolvedValue(undefined)
-    } as unknown as SshConnection
-    vi.mocked(deployAndLaunchRelay).mockResolvedValueOnce({
-      transport: {
-        write: vi.fn(),
-        onData: vi.fn(),
-        onClose: vi.fn()
-      },
-      platform: 'win32-x64',
-      hostPlatform: getRemoteHostPlatform('win32-x64'),
-      remoteHome: 'C:/Users/me',
-      remoteRelayDir: 'C:/Users/me/.orca-remote/relay-v1',
-      nodePath: 'C:/Program Files/nodejs/node.exe',
-      sockPath: '\\\\.\\pipe\\orca-relay-123'
-    })
-    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
-
-    await session.establish(mockConn)
-
-    expect(installRemoteManagedAgentHooksMock).not.toHaveBeenCalled()
-    expect(
-      muxRequestMock.mock.calls.some(([method]) => method === AGENT_HOOK_INSTALL_PLUGINS_METHOD)
-    ).toBe(true)
   })
 
   it('does not register providers if dispose wins during initial plugin sync', async () => {

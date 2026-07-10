@@ -30,12 +30,13 @@ import { startSpan } from './observability/tracer'
 import { registerMobileHandlers } from './ipc/mobile'
 import { initTelemetry, shutdownTelemetry, trackAppOpenedOnce, track } from './telemetry/client'
 import { classifyError } from './telemetry/classify-error'
-import { runManagedHookInstallers } from './agent-hooks/install-telemetry'
 import {
+  installManagedAgentHooks,
   isAgentStatusHooksEnabled,
-  MANAGED_AGENT_HOOK_INSTALLERS,
   removeManagedAgentHooks
 } from './agent-hooks/managed-agent-hook-controls'
+import { recordManagedHookInstallFailure } from './agent-hooks/install-telemetry'
+import type { AgentHookInstallStatus } from '../shared/agent-hook-types'
 import { initCohortClassifier } from './telemetry/cohort-classifier'
 import { initOnboardingCohortClassifier } from './telemetry/onboarding-cohort-classifier'
 import { resolveConsent } from './telemetry/consent'
@@ -122,6 +123,7 @@ import {
 } from './codex-accounts/runtime-selection'
 import { normalizeClaudeRuntimeSelection } from './claude-accounts/runtime-selection'
 import { codexHookService } from './codex/hook-service'
+import { codexLaunchNeedsDirectApprovalPromotion } from './codex/codex-launch-hook-upkeep'
 import { getDefaultWslDistro } from './wsl'
 import { ClaudeAccountService } from './claude-accounts/service'
 import { ClaudeRuntimeAuthService } from './claude-accounts/runtime-auth-service'
@@ -693,8 +695,14 @@ async function startServeAgentHookServer(): Promise<void> {
   }
 }
 
-function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget): string | null {
-  const runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target)
+// Why: per-launch Codex hook upkeep also promotes runtime `/hooks` approvals to
+// the system home (#7896), so it must keep running on every Codex launch. Shared
+// so both the awaited commit-message path and the fire-and-forget sync PTY launch
+// path run it; enabled installs stay presence-gated per the persisted off switch.
+async function maintainCodexLaunchHooks(
+  runtimeHomePath: string | null,
+  target?: CodexAccountSelectionTarget
+): Promise<void> {
   const hookTarget =
     target?.runtime === 'wsl'
       ? {
@@ -706,17 +714,40 @@ function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget):
   try {
     // Why: launch prep is reachable after startup via PTY/runtime paths; honor
     // the persisted off switch so those launches cannot reinstall removed hooks.
-    const status = hooksEnabled
-      ? (codexHookService.installForRuntimeHome(runtimeHomePath, hookTarget) ??
-        codexHookService.install())
-      : (codexHookService.refreshRuntimeUserHooksForRuntimeHome(runtimeHomePath, hookTarget) ??
-        codexHookService.refreshRuntimeUserHooks())
-    if (status.state === 'error') {
+    let launchStatus: AgentHookInstallStatus | undefined
+    if (hooksEnabled) {
+      // Why: WSL runtime-home installs (#7969) run codex inside the distro, where
+      // the Windows-side PATH probe can't see it — that path is never presence-
+      // gated. It is also synchronous (no await before it), so it still completes
+      // before spawn even on the fire-and-forget sync launch path.
+      const runtimeHomeStatus = codexHookService.installForRuntimeHome(runtimeHomePath, hookTarget)
+      if (runtimeHomeStatus) {
+        launchStatus = runtimeHomeStatus
+      } else {
+        const statuses = await installManagedAgentHooks(store?.getSettings(), {
+          shouldHydrateShellPath: app.isPackaged && process.platform !== 'win32',
+          onInstallError: recordManagedHookInstallFailure,
+          agents: ['codex']
+        })
+        launchStatus = statuses.find((status) => status.agent === 'codex')
+        // Why: presence-gating can skip the managed install; #7896 approval
+        // promotion must still run on every Codex launch, so promote directly when
+        // install() itself never ran (a completed install() already promoted).
+        if (codexLaunchNeedsDirectApprovalPromotion(launchStatus)) {
+          codexHookService.promoteRuntimeHookApprovals()
+        }
+      }
+    } else {
+      launchStatus =
+        codexHookService.refreshRuntimeUserHooksForRuntimeHome(runtimeHomePath, hookTarget) ??
+        codexHookService.refreshRuntimeUserHooks()
+    }
+    if (launchStatus?.state === 'error') {
       console.warn(
         `[codex-hook-service] failed to ${
           hooksEnabled ? 'refresh' : 'refresh user'
         } runtime hooks before launch`,
-        status.detail
+        launchStatus.detail
       )
     }
   } catch (error) {
@@ -729,6 +760,23 @@ function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget):
       error
     )
   }
+}
+
+async function prepareCodexRuntimeHomeForLaunch(
+  target?: CodexAccountSelectionTarget
+): Promise<string | null> {
+  const runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target)
+  await maintainCodexLaunchHooks(runtimeHomePath, target)
+  return runtimeHomePath
+}
+
+function getSelectedCodexHomePath(target?: CodexAccountSelectionTarget): string | null {
+  const runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target)
+  // Why: the sync PTY spawn path can't await; run per-launch hook upkeep in the
+  // background so #7896 approval promotion and user-hook refresh keep happening
+  // on every Codex launch without blocking spawn. The WSL runtime-home install is
+  // synchronous, so it still lands before spawn even here.
+  void maintainCodexLaunchHooks(runtimeHomePath, target)
   return runtimeHomePath
 }
 
@@ -962,7 +1010,7 @@ function openMainWindow(): BrowserWindow {
     window,
     store,
     runtime,
-    prepareCodexRuntimeHomeForLaunch,
+    getSelectedCodexHomePath,
     (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target),
     {
       awaitLocalPtyStartup: () => localPtyStartupReady,
@@ -1807,7 +1855,8 @@ app.whenReady().then(async () => {
     // reads. worktree.ps pulls it at query time so mobile shows the same agents.
     getAgentStatusSnapshot: () => agentHookServer.getStatusSnapshot(),
     buildAgentHookPtyEnv: () =>
-      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
+      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
+    shouldHydrateShellPathForAgentHooks: app.isPackaged && process.platform !== 'win32'
   })
   runtime = runtimeService
   automations = new AutomationService(store, {
@@ -1934,10 +1983,15 @@ app.whenReady().then(async () => {
   })
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
   if (shouldInstallManagedHooks(is.dev)) {
+    const managedHookStore = store
     // Why: the persisted off switch must run before any auto-install path so
     // users who removed Orca-managed hooks do not see them silently reappear on launch.
-    if (isAgentStatusHooksEnabled(store.getSettings())) {
-      runManagedHookInstallers(MANAGED_AGENT_HOOK_INSTALLERS)
+    if (isAgentStatusHooksEnabled(managedHookStore.getSettings())) {
+      void installManagedAgentHooks(managedHookStore.getSettings(), {
+        shouldHydrateShellPath: app.isPackaged && process.platform !== 'win32',
+        onInstallError: recordManagedHookInstallFailure,
+        shouldContinue: () => isAgentStatusHooksEnabled(managedHookStore.getSettings())
+      })
     } else {
       removeManagedAgentHooks()
     }
@@ -2096,7 +2150,7 @@ app.whenReady().then(async () => {
     await startServeAgentHookServer()
     registerHeadlessPtyRuntime(
       runtime,
-      prepareCodexRuntimeHomeForLaunch,
+      getSelectedCodexHomePath,
       () => store!.getSettings(),
       (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target),
       store

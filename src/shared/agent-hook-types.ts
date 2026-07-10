@@ -21,7 +21,14 @@ export const AGENT_HOOK_TARGETS = [
 ] as const
 export type AgentHookTarget = (typeof AGENT_HOOK_TARGETS)[number]
 
-export type AgentHookInstallState = 'installed' | 'not_installed' | 'partial' | 'error'
+export type AgentHookInstallState = 'installed' | 'not_installed' | 'partial' | 'error' | 'skipped'
+
+export type AgentHookInstallSkipReason =
+  | 'cli_not_found'
+  | 'cli_presence_unknown'
+  | 'hooks_disabled'
+  | 'remote_presence_unavailable'
+  | 'remote_hook_unsupported'
 
 export type AgentHookInstallStatus = {
   agent: AgentHookTarget
@@ -29,6 +36,7 @@ export type AgentHookInstallStatus = {
   configPath: string
   managedHooksPresent: boolean
   detail: string | null
+  skipReason?: AgentHookInstallSkipReason
 }
 
 // Why: bumped whenever the managed script's request shape changes. The

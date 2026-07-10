@@ -2572,6 +2572,110 @@
         "Buffer-clean, pixels-stale variants are otherwise invisible to every buffer oracle in the manifest."
       ],
       "demotionRule": "Drop from the golden suite back to nightly diagnostic if diff thresholds cannot be kept stable across CI runners."
+    },
+    {
+      "id": "agent-hooks.cli-presence-gating",
+      "title": "Managed agent hooks only install when the target CLI is present",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "agent-hooks",
+      "layer": "main-relay-provider-contract",
+      "surfaces": [
+        "startup shell PATH probing",
+        "settings hook toggle",
+        "CLI offline hook toggle",
+        "SSH remote provider contract",
+        "agent hook ownership"
+      ],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "ssh", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local", "ssh"],
+      "coverageNotes": "Deterministic main/relay tests cover local PATH gating, command overrides, PATHEXT, symlinks, config-authoritative status, ungated removal, SSH provider registration before remote presence/install, no-SFTP all-missing/version-skew paths, remote presence validation, relay timeout cleanup, and Windows remote no POSIX mutation. No live SSH host or real Windows runner evidence yet.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/issues/829"],
+      "invariant": "Startup, Settings, runtime RPC, offline CLI, and SSH enable paths must not mutate third-party managed hook config without positive CLI presence or a resolvable explicit command override; disabling hooks remains ungated so stale Orca-managed hooks can be removed.",
+      "oracle": "Presence-gated install calls only installers with found local or remote CLI evidence; missing or unknown CLIs return skipped statuses and do not write config; status reads remain config-authoritative; SSH all-missing/unknown presence avoids opening SFTP.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/agent-hooks/managed-agent-hook-manifest.test.ts src/main/agent-hooks/local-agent-cli-presence.test.ts src/main/agent-hooks/managed-agent-hook-controls.test.ts src/main/agent-hooks/install-telemetry.test.ts src/main/agent-hooks/remote-managed-hook-installers.test.ts src/main/ssh/ssh-relay-session-agent-hook-presence.test.ts src/relay/agent-hook-cli-presence.test.ts src/relay/agent-hook-cli-presence-timeout.test.ts src/cli/handlers/agent-hooks.test.ts src/main/runtime/rpc/methods/client-ui.test.ts src/main/runtime/orca-runtime.test.ts src/main/codex/codex-launch-hook-upkeep.test.ts"
+      ],
+      "testFiles": [
+        "src/main/agent-hooks/managed-agent-hook-manifest.test.ts",
+        "src/main/agent-hooks/local-agent-cli-presence.test.ts",
+        "src/main/agent-hooks/managed-agent-hook-controls.test.ts",
+        "src/main/agent-hooks/install-telemetry.test.ts",
+        "src/main/agent-hooks/remote-managed-hook-installers.test.ts",
+        "src/main/ssh/ssh-relay-session-agent-hook-presence.test.ts",
+        "src/relay/agent-hook-cli-presence.test.ts",
+        "src/relay/agent-hook-cli-presence-timeout.test.ts",
+        "src/cli/handlers/agent-hooks.test.ts",
+        "src/main/runtime/rpc/methods/client-ui.test.ts",
+        "src/main/runtime/orca-runtime.test.ts",
+        "src/main/codex/codex-launch-hook-upkeep.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/agent-hooks/local-agent-cli-presence.test.ts",
+          "assertions": [
+            "deduped PATH scan only installs found CLIs",
+            "explicit override paths, Windows paths, tilde paths, PATHEXT, and symlinks are resolved before install eligibility"
+          ]
+        },
+        {
+          "file": "src/main/ssh/ssh-relay-session-agent-hook-presence.test.ts",
+          "assertions": [
+            "remote presence is requested before SFTP",
+            "SSH providers register before waiting on remote CLI presence",
+            "relay presence method unavailability skips remote mutation without blocking provider registration",
+            "all-missing remote presence avoids SFTP",
+            "safe quoted override executable tokens are sent to the relay",
+            "Windows remotes skip POSIX managed hook installers"
+          ]
+        },
+        {
+          "file": "src/relay/agent-hook-cli-presence-timeout.test.ts",
+          "assertions": [
+            "login-shell PATH probes are force-killed and listeners are removed when the SSH startup budget expires"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-05",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/agent-hooks/managed-agent-hook-manifest.test.ts src/main/agent-hooks/local-agent-cli-presence.test.ts src/main/agent-hooks/managed-agent-hook-controls.test.ts src/main/agent-hooks/install-telemetry.test.ts src/main/agent-hooks/remote-managed-hook-installers.test.ts src/main/ssh/ssh-relay-session-agent-hook-presence.test.ts src/relay/agent-hook-cli-presence.test.ts src/relay/agent-hook-cli-presence-timeout.test.ts src/cli/handlers/agent-hooks.test.ts src/main/runtime/rpc/methods/client-ui.test.ts src/main/runtime/orca-runtime.test.ts src/main/codex/codex-launch-hook-upkeep.test.ts",
+          "result": "passed",
+          "durationSeconds": 12,
+          "summary": "11 test files passed, 639 tests passed locally for managed hook CLI presence gating."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 45,
+        "scope": "focused main/relay/CLI unit tests"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "New gate; needs soak history before promotion."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Tests fail if installer calls ignore presence maps, if offline/runtime toggles do not await application, or if SSH all-missing presence still opens SFTP. Needs saved intentional-break artifact before blocking promotion."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Local detection is bounded by deduped PATH entries times deduped executable candidates plus explicit override path probes; SSH adds one relay request and skips SFTP when no remote CLI is found. No polling, timers, or subprocess fanout."
+      },
+      "promotionCriteria": [
+        "Run in soak for at least 100 consecutive passes or 14 days across required CI platforms.",
+        "Add real Windows runner evidence for PATHEXT and Windows override paths.",
+        "Add live SSH evidence if relay transport or SSH startup ordering changes beyond the request/response contract."
+      ],
+      "knownGaps": [
+        "No live SSH host validation in this gate.",
+        "No real Windows CI runner evidence yet.",
+        "Remote relay detection uses a bounded login-shell PATH probe with relay PATH fallback, not full PTY startup overlay state."
+      ],
+      "demotionRule": "Demote or quarantine if deterministic presence fixtures flake or if a missing-CLI install escape is reported outside the modeled matrix."
     }
   ]
 }

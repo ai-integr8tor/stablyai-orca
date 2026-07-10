@@ -212,6 +212,7 @@ import {
 } from '../agent-trust-presets'
 import { markRemoteAgentWorkspaceTrusted } from '../remote-agent-trust-presets'
 import { applyAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
+import { recordManagedHookInstallFailure } from '../agent-hooks/install-telemetry'
 import {
   isWindowsAbsolutePathLike,
   isPathInsideOrEqual,
@@ -2347,6 +2348,7 @@ export class OrcaRuntimeService {
   private readonly onTerminalAgentStatus: ((event: RuntimeTerminalAgentStatusEvent) => void) | null
   private readonly getAgentStatusSnapshotFn: (() => AgentStatusIpcPayload[]) | null
   private readonly buildAgentHookPtyEnv: (() => Record<string, string>) | null
+  private readonly shouldHydrateShellPathForAgentHooks: boolean
   private accountServices: RuntimeAccountServices | null = null
   private commitMessageAgentEnv: CommitMessageAgentEnvironmentResolvers | null = null
   private automationService: AutomationService | null = null
@@ -2374,6 +2376,7 @@ export class OrcaRuntimeService {
       // same inline agent rows the desktop sidebar does — same source, 1:1.
       getAgentStatusSnapshot?: () => AgentStatusIpcPayload[]
       buildAgentHookPtyEnv?: () => Record<string, string>
+      shouldHydrateShellPathForAgentHooks?: boolean
     }
   ) {
     this.store = store
@@ -2392,6 +2395,7 @@ export class OrcaRuntimeService {
     this.onPtyStopped = deps?.onPtyStopped ?? null
     this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
     this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
+    this.shouldHydrateShellPathForAgentHooks = deps?.shouldHydrateShellPathForAgentHooks === true
   }
 
   getLocalProvider(): IPtyProvider | null {
@@ -2474,7 +2478,7 @@ export class OrcaRuntimeService {
     }
   }
 
-  updateClientSettings(
+  async updateClientSettings(
     updates: Pick<
       Partial<GlobalSettings>,
       | 'agentStatusHooksEnabled'
@@ -2493,24 +2497,26 @@ export class OrcaRuntimeService {
       | 'minimaxGroupId'
       | 'minimaxUsageModels'
     >
-  ): Pick<
-    GlobalSettings,
-    | 'defaultTuiAgent'
-    | 'disabledTuiAgents'
-    | 'agentCmdOverrides'
-    | 'agentDefaultArgs'
-    | 'agentDefaultEnv'
-    | 'agentStatusHooksEnabled'
-    | 'defaultTaskSource'
-    | 'defaultTaskViewPreset'
-    | 'visibleTaskProviders'
-    | 'defaultRepoSelection'
-    | 'defaultLinearTeamSelection'
-    | 'githubProjects'
-    | 'experimentalNewWorktreeCardStyle'
-    | 'compactWorktreeCards'
-    | 'minimaxGroupId'
-    | 'minimaxUsageModels'
+  ): Promise<
+    Pick<
+      GlobalSettings,
+      | 'defaultTuiAgent'
+      | 'disabledTuiAgents'
+      | 'agentCmdOverrides'
+      | 'agentDefaultArgs'
+      | 'agentDefaultEnv'
+      | 'agentStatusHooksEnabled'
+      | 'defaultTaskSource'
+      | 'defaultTaskViewPreset'
+      | 'visibleTaskProviders'
+      | 'defaultRepoSelection'
+      | 'defaultLinearTeamSelection'
+      | 'githubProjects'
+      | 'experimentalNewWorktreeCardStyle'
+      | 'compactWorktreeCards'
+      | 'minimaxGroupId'
+      | 'minimaxUsageModels'
+    >
   > {
     if (!this.store?.getSettings || !this.store.updateSettings) {
       throw new Error('runtime_unavailable')
@@ -2521,7 +2527,20 @@ export class OrcaRuntimeService {
       typeof updates.agentStatusHooksEnabled === 'boolean' &&
       before !== updates.agentStatusHooksEnabled
     ) {
-      applyAgentStatusHooksEnabled(updates.agentStatusHooksEnabled)
+      try {
+        await applyAgentStatusHooksEnabled(
+          updates.agentStatusHooksEnabled,
+          {
+            agentCmdOverrides: this.store.getSettings().agentCmdOverrides ?? {}
+          },
+          {
+            shouldHydrateShellPath: this.shouldHydrateShellPathForAgentHooks,
+            onInstallError: recordManagedHookInstallFailure
+          }
+        )
+      } catch (error) {
+        console.warn('[runtime] failed to apply agentStatusHooksEnabled:', error)
+      }
     }
     return this.getClientSettings()
   }
