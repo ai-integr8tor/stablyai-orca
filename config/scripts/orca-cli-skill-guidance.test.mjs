@@ -13,7 +13,10 @@ function readSkill(path = skillPath) {
 
 function getSection(markdown, heading) {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = markdown.match(new RegExp(`## ${escapedHeading}\\n([\\s\\S]*?)(?=\\n## |$)`))
+  // Why: skill checkouts may use CRLF on Windows; section headers still use ##.
+  const match = markdown.match(
+    new RegExp(`## ${escapedHeading}\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`)
+  )
 
   expect(match).not.toBeNull()
 
@@ -94,30 +97,27 @@ describe('orca CLI skill guidance', () => {
   })
 
   it('routes replyable reviews by return path instead of handoff wording', () => {
+    // Why: lock the design-doc return-path contract as complete lane bullets so
+    // independent token matches cannot pass while conditions map to wrong transports.
     const skill = readSkill()
     const fullHandoffs = getSection(skill, 'Full Handoffs')
     const terminals = getSection(skill, 'Terminals')
-    const routing = [fullHandoffs, terminals].join('\n')
 
-    expect(routing).toMatch(/no response is expected/i)
-    expect(routing).toContain('orca terminal send')
-    expect(routing).toMatch(/stop monitoring/i)
-
-    expect(routing).toMatch(/blocking review|verdict|answer must return/i)
-    expect(routing).toContain('orca orchestration ask')
-    expect(routing).toMatch(/concrete(?:-|\s)?handle/i)
-    expect(routing).toMatch(/does not accept group addresses|rejects group addresses/i)
-
-    expect(routing).toMatch(/asynchronous|multiple messages/i)
-    expect(routing).toContain('orca orchestration send')
-    expect(routing).toContain('orca orchestration reply')
-
-    expect(routing).toMatch(/required return path overrides/i)
-    expect(routing).toMatch(/handoff/i)
-
-    expect(routing).toMatch(/ask.*times? out|If `ask` times out/i)
-    expect(routing).toMatch(/do not silently fall back/i)
-    expect(routing).toMatch(/terminal send/i)
+    expect(fullHandoffs).toContain(
+      'If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.'
+    )
+    expect(fullHandoffs).toContain(
+      'If one blocking review, verdict, or answer must return, use `orca orchestration ask --to <concrete-handle> ...`; `ask` does not accept group addresses.'
+    )
+    expect(fullHandoffs).toContain(
+      'If the exchange may be asynchronous or require multiple messages, use `orca orchestration send ...` and have the recipient answer with `orca orchestration reply ...`.'
+    )
+    expect(fullHandoffs).toContain(
+      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+    )
+    expect(terminals).toContain(
+      'When a review, verdict, or answer must return, do not use raw `terminal send`; choose the transport from the required return path in Full Handoffs (`orchestration ask` for one blocking answer, `orchestration send`/`reply` for asynchronous exchange).'
+    )
   })
 
   it('keeps browser injection guidance narrow and avoids literal secret examples', () => {

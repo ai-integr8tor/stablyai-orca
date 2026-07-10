@@ -11,6 +11,7 @@ function readSkill() {
 
 function getSection(markdown, heading) {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Why: skill checkouts may use CRLF on Windows; section headers still use ##.
   const match = markdown.match(
     new RegExp(`## ${escapedHeading}\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`)
   )
@@ -92,37 +93,46 @@ describe('orchestration skill guidance', () => {
   })
 
   it('routes replyable reviews through ask or send/reply with concrete handles', () => {
+    // Why: lock the replyable-routing contract as complete lane bullets so token
+    // soup cannot pass while Messaging/Full Handoffs map conditions wrongly.
     const skill = readSkill()
     const messaging = getSection(skill, 'Messaging')
     const fullHandoffs = getSection(skill, 'Full Handoffs')
-    const routing = [messaging, fullHandoffs].join('\n')
 
-    expect(routing).toMatch(/no response is expected/i)
-    expect(routing).toContain('terminal send')
-    expect(routing).toMatch(/stop monitoring/i)
-
-    expect(routing).toMatch(/blocking review|verdict|answer must return/i)
-    expect(routing).toContain(
+    expect(fullHandoffs).toContain(
+      'If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.'
+    )
+    expect(fullHandoffs).toContain(
+      'If one blocking review, verdict, or answer must return, use `orca orchestration ask` to a concrete terminal handle; `ask` does not accept group addresses:'
+    )
+    expect(fullHandoffs).toContain(
       'orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json'
     )
-    expect(routing).toMatch(/does not accept group addresses|rejects group addresses/i)
-    expect(routing).toMatch(/concrete terminal handle/i)
-
-    expect(routing).toMatch(/asynchronous|multiple messages/i)
-    expect(routing).toContain(
+    expect(fullHandoffs).toContain(
+      'If the exchange may be asynchronous or require multiple messages, use `orca orchestration send`, then have the recipient answer with `orca orchestration reply`:'
+    )
+    expect(fullHandoffs).toContain(
       'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
     )
-    expect(routing).toContain('orca orchestration reply --id <msg_id> --body <text> --json')
+    expect(fullHandoffs).toContain('orca orchestration reply --id <msg_id> --body <text> --json')
+    expect(fullHandoffs).toContain(
+      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+    )
 
-    expect(routing).toMatch(/required return path overrides/i)
-    expect(routing).toMatch(/handoff/i)
-
-    expect(routing).toMatch(/ask.*times? out|If `ask` times out/i)
-    expect(routing).toMatch(/do not silently fall back/i)
-    expect(routing).toMatch(/terminal send/i)
-
-    expect(routing).toMatch(
-      /raw `?terminal send`? is terminal input|does not carry a structured sender/i
+    expect(messaging).toContain(
+      'For one blocking review, verdict, or answer that must return, target a concrete terminal handle'
+    )
+    expect(messaging).toContain(
+      'orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json'
+    )
+    expect(messaging).toContain(
+      'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
+    )
+    expect(messaging).toContain(
+      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+    )
+    expect(messaging).toContain(
+      'Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route.'
     )
   })
 
