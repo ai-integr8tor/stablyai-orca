@@ -91,6 +91,41 @@ describe('orchestration skill guidance', () => {
     expect(fullHandoffs).toContain('omit `--base-branch`')
   })
 
+  it('routes replyable reviews through ask or send/reply with concrete handles', () => {
+    const skill = readSkill()
+    const messaging = getSection(skill, 'Messaging')
+    const fullHandoffs = getSection(skill, 'Full Handoffs')
+    const routing = [messaging, fullHandoffs].join('\n')
+
+    expect(routing).toMatch(/no response is expected/i)
+    expect(routing).toContain('terminal send')
+    expect(routing).toMatch(/stop monitoring/i)
+
+    expect(routing).toMatch(/blocking review|verdict|answer must return/i)
+    expect(routing).toContain(
+      'orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json'
+    )
+    expect(routing).toMatch(/does not accept group addresses|rejects group addresses/i)
+    expect(routing).toMatch(/concrete terminal handle/i)
+
+    expect(routing).toMatch(/asynchronous|multiple messages/i)
+    expect(routing).toContain(
+      'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
+    )
+    expect(routing).toContain('orca orchestration reply --id <msg_id> --body <text> --json')
+
+    expect(routing).toMatch(/required return path overrides/i)
+    expect(routing).toMatch(/handoff/i)
+
+    expect(routing).toMatch(/ask.*times? out|If `ask` times out/i)
+    expect(routing).toMatch(/do not silently fall back/i)
+    expect(routing).toMatch(/terminal send/i)
+
+    expect(routing).toMatch(
+      /raw `?terminal send`? is terminal input|does not carry a structured sender/i
+    )
+  })
+
   it('classifies handoff wording as ownership transfer unless supervision is explicit', () => {
     const skill = readSkill()
     const fullHandoffs = getSection(skill, 'Full Handoffs')

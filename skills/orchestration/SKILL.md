@@ -94,7 +94,20 @@ Rules:
 - While supervising workers manually, use `check --wait --types worker_done,escalation,decision_gate --timeout-ms <n>` instead of sleep/poll loops. Reply to `decision_gate` messages with `orca orchestration reply --id <msg_id> --body <answer> --json`, then keep waiting.
 - Treat a `check --wait` timeout or `{count:0}` as a checkpoint, not a worker failure. Long coding tasks routinely run 15-60 minutes; keep using rolling waits unless you receive `worker_done`/`escalation`, the terminal exits or disappears, or the user explicitly asks you to stop.
 - Heartbeats and visible terminal activity mean the worker is alive, not done. Do not stop, close, kill, or restart a worker just because it has not produced a completion message yet.
-- Use `ask` when a worker needs a blocking answer from the coordinator; it waits for the reply and returns the answer directly.
+- Use `ask` when a worker needs a blocking answer from the coordinator; it waits for the reply and returns the answer directly. For one blocking review, verdict, or answer that must return, target a concrete terminal handle — `ask` does not accept group addresses:
+
+```bash
+orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json
+```
+
+- For an asynchronous or multi-message exchange, use `send` and have the recipient answer with `reply`:
+
+```bash
+orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json
+orca orchestration reply --id <msg_id> --body <text> --json
+```
+
+- The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`. Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route. Use `terminal send` only when no response is expected and ownership transfers, then stop monitoring.
 - `check --wait` returns one message at a time. If N workers may finish together, loop N times and dispatch newly ready tasks after each completion.
 - Group addresses include `@all`, `@idle`, `@claude`, `@codex`, `@opencode`, `@gemini`, `@droid`, `@grok`, and `@worktree:<id>`.
 - Message types include `status`, `dispatch`, `worker_done`, `merge_ready`, `escalation`, `handoff`, `decision_gate`, and `heartbeat`.
@@ -141,6 +154,24 @@ Recovery only: `orca orchestration reset --tasks|--messages|--all --json` clears
 ## Full Handoffs
 
 For full ownership transfer, use non-lifecycle terminal/worktree commands and then stop monitoring unless the user asks for supervision.
+
+Choose the transport from the required return path. Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route.
+
+- If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.
+- If one blocking review, verdict, or answer must return, use `orca orchestration ask` to a concrete terminal handle; `ask` does not accept group addresses:
+
+```bash
+orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json
+```
+
+- If the exchange may be asynchronous or require multiple messages, use `orca orchestration send`, then have the recipient answer with `orca orchestration reply`:
+
+```bash
+orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json
+orca orchestration reply --id <msg_id> --body <text> --json
+```
+
+The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.
 
 Treat these as full handoff requests by default: "hand off", "handoff", "handover", "give this to another agent", "give this to another worktree", "send this to another agent", "another agent", "another worktree", or "launch another agent to own this." Custom model or reasoning effort words such as `gpt-5.5`, `high`, or `xhigh` do not make the handoff supervised.
 

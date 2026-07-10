@@ -11,6 +11,15 @@ function readSkill(path = skillPath) {
   return readFileSync(path, 'utf8')
 }
 
+function getSection(markdown, heading) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = markdown.match(new RegExp(`## ${escapedHeading}\\n([\\s\\S]*?)(?=\\n## |$)`))
+
+  expect(match).not.toBeNull()
+
+  return match?.[1] ?? ''
+}
+
 describe('orca CLI skill guidance', () => {
   it('keeps independent worktree lineage separate from Git base selection', () => {
     const skill = readSkill()
@@ -82,6 +91,33 @@ describe('orca CLI skill guidance', () => {
     expect(cliSkill).toContain('two-part address')
     expect(orchestrationSkill).toContain('id:<newFullWorktreeId>')
     expect(emulatorSkill).not.toContain('id:abc123')
+  })
+
+  it('routes replyable reviews by return path instead of handoff wording', () => {
+    const skill = readSkill()
+    const fullHandoffs = getSection(skill, 'Full Handoffs')
+    const terminals = getSection(skill, 'Terminals')
+    const routing = [fullHandoffs, terminals].join('\n')
+
+    expect(routing).toMatch(/no response is expected/i)
+    expect(routing).toContain('orca terminal send')
+    expect(routing).toMatch(/stop monitoring/i)
+
+    expect(routing).toMatch(/blocking review|verdict|answer must return/i)
+    expect(routing).toContain('orca orchestration ask')
+    expect(routing).toMatch(/concrete(?:-|\s)?handle/i)
+    expect(routing).toMatch(/does not accept group addresses|rejects group addresses/i)
+
+    expect(routing).toMatch(/asynchronous|multiple messages/i)
+    expect(routing).toContain('orca orchestration send')
+    expect(routing).toContain('orca orchestration reply')
+
+    expect(routing).toMatch(/required return path overrides/i)
+    expect(routing).toMatch(/handoff/i)
+
+    expect(routing).toMatch(/ask.*times? out|If `ask` times out/i)
+    expect(routing).toMatch(/do not silently fall back/i)
+    expect(routing).toMatch(/terminal send/i)
   })
 
   it('keeps browser injection guidance narrow and avoids literal secret examples', () => {
