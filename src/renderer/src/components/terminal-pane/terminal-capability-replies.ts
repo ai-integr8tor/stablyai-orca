@@ -6,7 +6,11 @@ import {
   type TerminalOscColorQuerySlot
 } from '../../../../shared/terminal-osc-color-reply'
 
-export const DEFAULT_DA1_RESPONSE = '\x1b[?1;2c'
+// Why sixel bit 4: every pane loads @xterm/addon-image, but this handler is
+// registered after the addon's own DA1 handler and therefore pre-empts it
+// (xterm dispatches CSI handlers newest-first). The reply must advertise the
+// graphics support itself or sixel-probing tools (lsix, chafa) never emit.
+export const DEFAULT_DA1_RESPONSE = '\x1b[?62;4;9;22c'
 export const CONPTY_DA1_RESPONSE = '\x1b[?61;4c'
 
 type TerminalCapabilityRepliesDeps = {
