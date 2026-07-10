@@ -6215,6 +6215,8 @@ export class OrcaRuntimeService {
       ptyRecordChanged = prevTitle !== normalizedTitle || prevStatus !== agentStatus
       if (agentStatus === 'idle' && prevStatus !== 'idle') {
         this.resolvePtyTuiIdleWaiters(pty, ptyId)
+        // Why: renderer-leaf delivery never sees synthetic background PTY handles.
+        this.deliverPendingMessagesToPty(pty)
       }
       const shouldDelayMobileSnapshot =
         ptyRecordChanged &&
@@ -21344,6 +21346,15 @@ export class OrcaRuntimeService {
 
   deliverPendingMessagesForHandle(handle: string): void {
     try {
+      // Why: synthetic background-PTY handles never appear as renderer leaves, so
+      // resolve the retained PTY identity before falling back to leaf delivery.
+      const livePty = this.getLivePtyForHandle(handle)
+      if (livePty) {
+        if (livePty.pty.connected && livePty.pty.lastAgentStatus === 'idle') {
+          this.deliverPendingMessagesToPty(livePty.pty)
+        }
+        return
+      }
       const { leaf } = this.getLiveLeafForHandle(handle)
       if (leaf.lastAgentStatus === 'idle') {
         this.deliverPendingMessages(leaf)
@@ -21916,38 +21927,67 @@ export class OrcaRuntimeService {
   // into the PTY. This is event-driven (no polling) because the runtime owns
   // both the message store and terminal status detection.
   private deliverPendingMessages(leaf: RuntimeLeafRecord): void {
+    const handle = this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
+    if (!handle || !leaf.ptyId) {
+      return
+    }
+    const tabTitle = this.tabs.get(leaf.tabId)?.title
+    this.deliverPendingMessagesToTarget({
+      handle,
+      ptyId: leaf.ptyId,
+      isWritable: () => leaf.writable,
+      isCursorAgent: isCursorAgentOrchestrationTarget(leaf, tabTitle)
+    })
+  }
+
+  // Why: background CLI PTYs use synthetic handles (pty:<id>) and never mint a
+  // renderer leaf. Reuse the retained handleByPtyId identity — do not issue a
+  // fresh handle during delivery, or the message target would diverge.
+  private deliverPendingMessagesToPty(pty: RuntimePtyWorktreeRecord): void {
+    const handle = this.handleByPtyId.get(pty.ptyId) ?? this.findHandleForPtyRecord(pty.ptyId)
+    if (!handle) {
+      return
+    }
+    this.deliverPendingMessagesToTarget({
+      handle,
+      ptyId: pty.ptyId,
+      isWritable: () => pty.connected,
+      isCursorAgent: [pty.lastOscTitle, pty.managementTitle, pty.title].some(isCursorAgentTitle)
+    })
+  }
+
+  private deliverPendingMessagesToTarget(target: {
+    handle: string
+    ptyId: string
+    isWritable: () => boolean
+    isCursorAgent: boolean
+  }): void {
     if (!this._orchestrationDb) {
       return
     }
 
-    const handle = this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId))
-    if (!handle) {
-      return
-    }
-
-    const unread = this._orchestrationDb.getUndeliveredUnreadMessages(handle)
+    const unread = this._orchestrationDb.getUndeliveredUnreadMessages(target.handle)
     if (unread.length === 0) {
       return
     }
 
-    if (!leaf.writable || !leaf.ptyId) {
+    if (!target.isWritable()) {
       return
     }
 
     const payload = formatMessagesForInjection(unread)
-    const wrote = this.ptyController?.write(leaf.ptyId, payload) ?? false
+    const wrote = this.ptyController?.write(target.ptyId, payload) ?? false
     if (!wrote) {
       return
     }
 
     // The active coordinator prompt is user-owned input, so push-on-idle must not synthesize Enter.
-    if (this._orchestrationDb.getActiveCoordinatorRun()?.coordinator_handle === handle) {
+    if (this._orchestrationDb.getActiveCoordinatorRun()?.coordinator_handle === target.handle) {
       this._orchestrationDb.markAsDelivered(unread.map((m) => m.id))
       return
     }
 
-    const tabTitle = this.tabs.get(leaf.tabId)?.title
-    if (isCursorAgentOrchestrationTarget(leaf, tabTitle)) {
+    if (target.isCursorAgent) {
       // Why: Cursor Agent treats injected PTY text as editable prompt input.
       // Push-on-idle may surface the message, but submitting it must stay
       // under user control.
@@ -21966,15 +22006,16 @@ export class OrcaRuntimeService {
     // consumed this message." Flipping `read` on push-on-idle would hide the
     // message from the coordinator's next `check --unread`, which is the
     // exact bug feedback #2 reported. The two bits must stay independent.
-    const ptyId = leaf.ptyId
+    const { ptyId } = target
+    const messageIds = unread.map((m) => m.id)
     setTimeout(() => {
       try {
-        if (!leaf.writable) {
+        if (!target.isWritable()) {
           return
         }
         const submitted = this.ptyController?.write(ptyId, '\r') ?? false
         if (submitted) {
-          this._orchestrationDb?.markAsDelivered(unread.map((m) => m.id))
+          this._orchestrationDb?.markAsDelivered(messageIds)
         }
       } catch {
         // Terminal may have closed during the delay — messages stay queued
