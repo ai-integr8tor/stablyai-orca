@@ -15,6 +15,13 @@ which expects a verdict back is not a full handoff. Agents can therefore send th
 request with `terminal.send`, finish the review in the recipient, and leave the
 recipient without a return address.
 
+Live validation also exposed a runtime delivery gap. A blocking `ask` to an
+already-idle Grok terminal created as a background PTY persisted the
+`decision_gate`, but left it unread and undelivered. Prompting the same Grok PTY
+to run `orchestration check` manually allowed it to reply successfully on the
+original thread. The reply protocol works; automatic push currently handles
+renderer leaf handles only and silently skips synthetic background-PTY handles.
+
 ## Goals
 
 - Make expected-response semantics override incidental handoff wording.
@@ -24,15 +31,37 @@ recipient without a return address.
   `orca orchestration send` plus `orca orchestration reply`.
 - Preserve raw `terminal.send` for genuine one-way ownership transfers where the
   sender stops and does not wait for a response.
+- Push pending orchestration messages to idle background PTYs, and deliver
+  messages queued while they are working when they next become idle.
 - Apply the rule to all supported agents and local/SSH environments.
 
 ## Non-Goals
 
 - Add a new CLI verb, `terminal send --replyable`, or another message protocol.
-- Change the existing `orchestration.ask`, `send`, or `reply` runtime behavior.
+- Change persistence, thread/reply semantics, or the public
+  `orchestration.ask`, `send`, or `reply` contract.
 - Convert every full handoff into supervised task/dispatch lifecycle state.
 - Add provider-specific Grok or Codex logic.
 - Add UI controls.
+
+## Runtime Delivery Architecture
+
+`deliverPendingMessagesForHandle` must resolve both kinds of valid runtime
+terminal handles:
+
+- renderer leaf handles, using the existing leaf status and writable state;
+- synthetic background-PTY handles, using the retained PTY status and
+  connection state.
+
+Both paths share the existing delivery invariants: inject the formatted message,
+submit Enter separately after the paste delay, mark `delivered_at` only after a
+successful write, and leave `read` for an explicit inbox consumer. Active
+coordinator prompts and Cursor Agent inputs remain non-auto-submitting.
+
+Background PTYs need both event paths. A message addressed to an already-idle
+PTY is pushed immediately, while a message queued during `working` is pushed by
+the PTY's next `working -> idle` status transition. The implementation stays
+agent-neutral; Grok merely provided the live reproduction.
 
 ## Routing Decision
 
@@ -82,6 +111,10 @@ questions require one concrete recipient.
   restriction and replyable-review routing language.
 - `config/scripts/orchestration-skill-guidance.test.mjs`: lock the decision rule,
   concrete-recipient requirement, commands, and full-handoff non-regression.
+- `src/main/runtime/orca-runtime.ts`: resolve synthetic PTY handles during
+  push-on-idle delivery and trigger delivery on background PTY idle transitions.
+- `src/main/runtime/orca-runtime.test.ts`: reproduce already-idle and
+  working-to-idle background PTY delivery, including no-auto-submit safety.
 
 ## Testing
 
@@ -93,7 +126,10 @@ Development follows red-green TDD:
 3. Run both guidance suites.
 4. Run existing orchestration CLI/RPC/formatter tests to prove the documented
    commands and reply metadata remain valid.
-5. Run formatting and repository validation gates relevant to skill changes.
+5. Add background-PTY delivery regressions and observe them fail against the
+   renderer-leaf-only implementation.
+6. Extend push-on-idle delivery through the existing generic PTY record path.
+7. Run runtime, orchestration, guidance, formatting, type, and max-lines gates.
 
 ## Success Criteria
 
@@ -103,4 +139,9 @@ Development follows red-green TDD:
 - The asynchronous path names `orchestration send` and `orchestration reply`.
 - Genuine one-way full handoffs still transfer ownership without task/dispatch
   lifecycle or completion monitoring.
+- An orchestration message sent to an already-idle background agent PTY is
+  injected and submitted without a raw-terminal wake-up.
+- A message queued while a background agent PTY is working is injected when the
+  PTY next becomes idle.
+- Active coordinator and Cursor Agent safety behavior remains unchanged.
 - Tests fail if future guidance removes this distinction.
