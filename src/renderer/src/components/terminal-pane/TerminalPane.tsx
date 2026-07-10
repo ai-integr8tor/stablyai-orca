@@ -197,6 +197,7 @@ type TerminalPaneProps = {
   isActive: boolean
   isVisible?: boolean
   isWorktreeActive?: boolean
+  suppressHeaderPaneZoomControl?: boolean
   // Why: when set (Activity portal), this pane visually isolates the given
   // split pane so only that leaf is shown. Implemented as a transient layout
   // override (separate snapshot ref) — does NOT touch expandedPaneId state
@@ -268,6 +269,7 @@ export default function TerminalPane({
   isActive,
   isVisible = true,
   isWorktreeActive = isVisible,
+  suppressHeaderPaneZoomControl = false,
   isolatedPaneKey = null,
   onPtyExit,
   onCloseTab
@@ -3145,6 +3147,8 @@ export default function TerminalPane({
         renameInputRef={renameInputRef}
         titleUsesLightSurface={titleUsesLightSurface}
         paneTitleBackground={paneTitleBackground}
+        activePaneIsZoomed={activePane?.id !== undefined && expandedPaneId === activePane.id}
+        suppressPaneZoomControl={suppressHeaderPaneZoomControl}
         terminalContentVisible={terminalContentVisible}
         hiddenStartupStyle={hiddenStartupStyle}
         managerRef={managerRef}
@@ -3153,6 +3157,12 @@ export default function TerminalPane({
         isChatViewMode={activePaneIsChatLeaf}
         onToggleNativeChat={handleToggleNativeChat}
         onSplitPane={splitTerminalPaneFromHeader}
+        onTogglePaneZoom={() => {
+          const pane = managerRef.current?.getActivePane() ?? managedPanes[0]
+          if (pane) {
+            toggleExpandPane(pane.id)
+          }
+        }}
         onBeginPaneDrag={beginPaneDragFromHeader}
         onActivatePaneTitleInteraction={activatePaneTitleInteraction}
         onPaneTitleContextMenu={contextMenu.onPaneTitleContextMenu}

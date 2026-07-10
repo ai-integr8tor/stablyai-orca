@@ -1,8 +1,17 @@
 import type { CSSProperties, RefObject } from 'react'
-import { MessageSquare, SquareSplitVertical, SquareTerminal, X } from 'lucide-react'
+import {
+  Maximize2,
+  MessageSquare,
+  Minimize2,
+  SquareSplitVertical,
+  SquareTerminal,
+  X
+} from 'lucide-react'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useShortcutKeyDetails } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/workspace-file-drag'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
@@ -30,6 +39,8 @@ type TerminalPaneHeaderOverlayProps = {
   renameInputRef: RefObject<HTMLInputElement | null>
   titleUsesLightSurface: boolean
   paneTitleBackground: string
+  activePaneIsZoomed: boolean
+  suppressPaneZoomControl?: boolean
   terminalContentVisible: boolean
   hiddenStartupStyle: CSSProperties
   managerRef: RefObject<PaneManager | null>
@@ -43,6 +54,7 @@ type TerminalPaneHeaderOverlayProps = {
   /** Flip the active pane between the terminal and the native chat view. */
   onToggleNativeChat?: () => void
   onSplitPane: (pane: ManagedPane, direction: 'vertical' | 'horizontal') => void
+  onTogglePaneZoom: () => void
   onBeginPaneDrag: (paneId: number, handle: HTMLElement, event: PointerEvent) => void
   onActivatePaneTitleInteraction: (paneId: number) => void
   onPaneTitleContextMenu: (event: React.MouseEvent<HTMLElement>, paneId: number) => void
@@ -70,6 +82,8 @@ export default function TerminalPaneHeaderOverlay({
   renameInputRef,
   titleUsesLightSurface,
   paneTitleBackground,
+  activePaneIsZoomed,
+  suppressPaneZoomControl = false,
   terminalContentVisible,
   hiddenStartupStyle,
   managerRef,
@@ -78,6 +92,7 @@ export default function TerminalPaneHeaderOverlay({
   isChatViewMode,
   onToggleNativeChat,
   onSplitPane,
+  onTogglePaneZoom,
   onBeginPaneDrag,
   onActivatePaneTitleInteraction,
   onPaneTitleContextMenu,
@@ -93,6 +108,10 @@ export default function TerminalPaneHeaderOverlay({
     'auto.components.terminal.pane.TerminalContextMenu.20e565d865',
     'Split Terminal Right'
   )
+  const zoomShortcut = useShortcutKeyDetails('tab.togglePaneZoom')
+  const zoomPaneLabel = activePaneIsZoomed
+    ? translate('auto.components.tab.group.TabGroupPanel.restorePane', 'Restore pane')
+    : translate('auto.components.tab.group.TabGroupPanel.zoomPane', 'Zoom pane')
 
   return (
     <div
@@ -231,6 +250,44 @@ export default function TerminalPaneHeaderOverlay({
                   </button>
                 ) : null}
                 <div className="pane-title-actions ml-auto flex shrink-0 items-center gap-0">
+                  {paneCount > 1 &&
+                  showAlwaysOnHeaders &&
+                  isActivePane &&
+                  !suppressPaneZoomControl ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="pane-title-zoom"
+                          aria-label={zoomPaneLabel}
+                          aria-pressed={activePaneIsZoomed}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onTogglePaneZoom()
+                          }}
+                        >
+                          {activePaneIsZoomed ? (
+                            <Minimize2 className="size-3" />
+                          ) : (
+                            <Maximize2 className="size-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" sideOffset={4}>
+                        <span className="inline-flex items-center gap-2">
+                          {zoomPaneLabel}
+                          {zoomShortcut.keys.length > 0 ? (
+                            <ShortcutKeyCombo
+                              keys={zoomShortcut.keys}
+                              doubleTap={zoomShortcut.doubleTap}
+                            />
+                          ) : null}
+                        </span>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                   {canToggleNativeChat && isActivePane ? (
                     <Tooltip>
                       <TooltipTrigger asChild>

@@ -179,6 +179,23 @@ describe('keybindings', () => {
     expect(formatKeybindingList(['Mod+Shift+O'], 'darwin')).toBe('⌘⇧O')
   })
 
+  it('defines a terminal-safe workspace pane zoom shortcut', () => {
+    expect(getEffectiveKeybindingsForAction('tab.togglePaneZoom', 'darwin')).toEqual([
+      'Mod+Alt+Enter'
+    ])
+    expect(formatKeybindingList(['Mod+Alt+Enter'], 'darwin')).toBe('⌘⌥Enter')
+    expect(formatKeybindingList(['Mod+Alt+Enter'], 'linux')).toBe('Ctrl+Alt+Enter')
+    expect(
+      keybindingMatchesAction(
+        'tab.togglePaneZoom',
+        { key: 'Enter', code: 'Enter', meta: false, control: true, alt: true, shift: false },
+        'linux',
+        undefined,
+        { context: 'terminal', terminalShortcutPolicy: 'terminal-first' }
+      )
+    ).toBe(true)
+  })
+
   it('defines platform-native replace-in-editor shortcuts', () => {
     expect(getEffectiveKeybindingsForAction('editor.replace', 'darwin')).toEqual(['Mod+Alt+F'])
     expect(getEffectiveKeybindingsForAction('editor.replace', 'linux')).toEqual(['Mod+H'])

@@ -68,6 +68,7 @@ export type KeybindingActionId =
   | 'tab.close'
   | 'tab.closeAll'
   | 'tab.rename'
+  | 'tab.togglePaneZoom'
   | 'tab.reopenClosed'
   | 'tab.nextSameType'
   | 'tab.previousSameType'
@@ -618,6 +619,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
       linux: [],
       win32: []
     }
+  },
+  {
+    id: 'tab.togglePaneZoom',
+    title: 'Zoom active pane',
+    group: 'Tabs',
+    scope: 'tabs',
+    searchKeywords: ['shortcut', 'pane', 'zoom', 'maximize', 'restore', 'split'],
+    defaultBindings: platformBindings(['Mod+Alt+Enter']),
+    allowInTerminal: true
   },
   {
     id: 'tab.reopenClosed',

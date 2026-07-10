@@ -118,6 +118,7 @@ function resetStore(): void {
   storeBox.state = {
     activeWorktreeId: 'wt-1',
     browserTabsByWorktree: {},
+    canExpandPaneByTabId: {},
     expandedPaneByTabId: {},
     groupsByWorktree: {
       'wt-1': [

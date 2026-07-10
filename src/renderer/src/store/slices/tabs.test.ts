@@ -123,6 +123,75 @@ describe('TabsSlice', () => {
     expect(store.getState().renamingTabId).toBeNull()
   })
 
+  it('toggles pane zoom without mutating the split layout', () => {
+    const layout = {
+      type: 'split' as const,
+      direction: 'horizontal' as const,
+      ratio: 0.3,
+      first: { type: 'leaf' as const, groupId: 'group-left' },
+      second: { type: 'leaf' as const, groupId: 'group-right' }
+    }
+    store.setState({
+      groupsByWorktree: {
+        [WT]: [
+          makeTabGroup({ id: 'group-left', worktreeId: WT }),
+          makeTabGroup({ id: 'group-right', worktreeId: WT })
+        ]
+      },
+      activeGroupIdByWorktree: { [WT]: 'group-left' },
+      layoutByWorktree: { [WT]: layout }
+    })
+
+    store.getState().togglePaneZoom(WT, 'group-right')
+
+    expect(store.getState().zoomedGroupIdByWorktree[WT]).toBe('group-right')
+    expect(store.getState().activeGroupIdByWorktree[WT]).toBe('group-right')
+    expect(store.getState().layoutByWorktree[WT]).toBe(layout)
+
+    store.getState().togglePaneZoom(WT, 'group-right')
+
+    expect(store.getState().zoomedGroupIdByWorktree[WT]).toBeNull()
+    expect(store.getState().layoutByWorktree[WT]).toBe(layout)
+  })
+
+  it('clears pane zoom when the zoomed group is removed', () => {
+    const tab = makeUnifiedTab({
+      id: 'tab-right',
+      entityId: 'tab-right',
+      worktreeId: WT,
+      groupId: 'group-right'
+    })
+    store.setState({
+      unifiedTabsByWorktree: { [WT]: [tab] },
+      groupsByWorktree: {
+        [WT]: [
+          makeTabGroup({ id: 'group-left', worktreeId: WT }),
+          makeTabGroup({
+            id: 'group-right',
+            worktreeId: WT,
+            activeTabId: tab.id,
+            tabOrder: [tab.id]
+          })
+        ]
+      },
+      activeGroupIdByWorktree: { [WT]: 'group-right' },
+      layoutByWorktree: {
+        [WT]: {
+          type: 'split',
+          direction: 'horizontal',
+          first: { type: 'leaf', groupId: 'group-left' },
+          second: { type: 'leaf', groupId: 'group-right' }
+        }
+      },
+      zoomedGroupIdByWorktree: { [WT]: 'group-right' }
+    })
+
+    store.getState().closeUnifiedTab(tab.id)
+
+    expect(store.getState().zoomedGroupIdByWorktree[WT]).toBeNull()
+    expect(store.getState().layoutByWorktree[WT]).toEqual({ type: 'leaf', groupId: 'group-left' })
+  })
+
   // ─── createUnifiedTab ───────────────────────────────────────────────
 
   describe('createUnifiedTab', () => {
