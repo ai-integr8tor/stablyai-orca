@@ -113,8 +113,12 @@ describe('orca CLI skill guidance', () => {
       'If the exchange may be asynchronous or require multiple messages, use `orca orchestration send ...` and have the recipient answer with `orca orchestration reply ...`.'
     )
     expect(fullHandoffs).toContain(
-      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
     )
+    expect(fullHandoffs).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(fullHandoffs).not.toContain('report or retry')
     expect(terminals).toContain(
       'When a review, verdict, or answer must return, do not use raw `terminal send`; choose the transport from the required return path in Full Handoffs (`orchestration ask` for one blocking answer, `orchestration send`/`reply` for asynchronous exchange).'
     )

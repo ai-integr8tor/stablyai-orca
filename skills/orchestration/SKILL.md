@@ -107,7 +107,7 @@ orca orchestration send --to <concrete-handle> --subject <text> --body <text> --
 orca orchestration reply --id <msg_id> --body <text> --json
 ```
 
-- The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`. Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route. Use `terminal send` only when no response is expected and ownership transfers, then stop monitoring.
+- The required return path overrides words such as "handoff." If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered. Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined. Never fall back to raw `terminal send`. Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route. Use `terminal send` only when no response is expected and ownership transfers, then stop monitoring.
 - `check --wait` returns one message at a time. If N workers may finish together, loop N times and dispatch newly ready tasks after each completion.
 - Group addresses include `@all`, `@idle`, `@claude`, `@codex`, `@opencode`, `@gemini`, `@droid`, `@grok`, and `@worktree:<id>`.
 - Message types include `status`, `dispatch`, `worker_done`, `merge_ready`, `escalation`, `handoff`, `decision_gate`, and `heartbeat`.
@@ -171,7 +171,7 @@ orca orchestration send --to <concrete-handle> --subject <text> --body <text> --
 orca orchestration reply --id <msg_id> --body <text> --json
 ```
 
-The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.
+The required return path overrides words such as "handoff." If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered. Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined. Never fall back to raw `terminal send`.
 
 Treat these as full handoff requests by default: "hand off", "handoff", "handover", "give this to another agent", "give this to another worktree", "send this to another agent", "another agent", "another worktree", or "launch another agent to own this." Custom model or reasoning effort words such as `gpt-5.5`, `high`, or `xhigh` do not make the handoff supervised.
 

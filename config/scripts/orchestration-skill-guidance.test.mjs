@@ -116,8 +116,12 @@ describe('orchestration skill guidance', () => {
     )
     expect(fullHandoffs).toContain('orca orchestration reply --id <msg_id> --body <text> --json')
     expect(fullHandoffs).toContain(
-      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
     )
+    expect(fullHandoffs).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(fullHandoffs).not.toContain('report or retry')
 
     expect(messaging).toContain(
       'For one blocking review, verdict, or answer that must return, target a concrete terminal handle'
@@ -129,8 +133,12 @@ describe('orchestration skill guidance', () => {
       'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
     )
     expect(messaging).toContain(
-      'The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.'
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
     )
+    expect(messaging).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(messaging).not.toContain('report or retry')
     expect(messaging).toContain(
       'Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route.'
     )

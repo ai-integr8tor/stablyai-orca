@@ -53,7 +53,7 @@ Choose the transport from the required return path:
 - If one blocking review, verdict, or answer must return, use `orca orchestration ask --to <concrete-handle> ...`; `ask` does not accept group addresses.
 - If the exchange may be asynchronous or require multiple messages, use `orca orchestration send ...` and have the recipient answer with `orca orchestration reply ...`.
 
-The required return path overrides words such as "handoff." If `ask` times out, report or retry the orchestration failure; do not silently fall back to raw `terminal send`.
+The required return path overrides words such as "handoff." If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered. Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined. Never fall back to raw `terminal send`.
 
 Independent new-worktree handoff:
 
