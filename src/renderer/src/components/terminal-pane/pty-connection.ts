@@ -6233,10 +6233,18 @@ export function connectPanePty(
     syncProcessTracking() {
       agentCompletionCoordinator.startProcessTracking()
     },
-    // Why: called from the lifecycle visibility effect so the visible-resume
-    // size readback can repair dropped hidden resizes without refitting against
-    // xterm's transient hidden DOM fallback.
+    // Why: called from the lifecycle visibility effect so visible-resume can
+    // repair dropped hidden resizes without fitting transient hidden DOM.
     noteVisibilityResume() {
+      const ptyId = transport.getPtyId()
+      if (ptyId && isRemoteRuntimePtyId(ptyId)) {
+        const { cols, rows } = pane.terminal
+        if (cols > 0 && rows > 0) {
+          // Why: remote-runtime viewports have no pty:getSize readback, so a
+          // guarded re-send is the only way to repair a dropped hidden resize.
+          forwardPtyResize(cols, rows)
+        }
+      }
       ptySizeReassertion.request({ fit: false })
       consumeHibernatedAgentWake()
       sampleVisiblePaneForegroundAgent()
