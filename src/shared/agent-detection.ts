@@ -20,9 +20,11 @@ export {
 } from './agent-title-core'
 export { getAgentLabel, isClaudeAgent } from './agent-title-identity'
 export {
+  CODEX_NATIVE_ACTION_REQUIRED_TITLE_RE,
   clearWorkingIndicators,
   createAgentStatusTracker,
   detectAgentStatusFromTitle,
+  isCodexNativeActionRequiredTitle,
   normalizeTerminalTitle
 } from './agent-title-status'
 
