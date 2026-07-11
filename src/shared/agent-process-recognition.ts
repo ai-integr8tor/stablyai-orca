@@ -52,6 +52,7 @@ const NODE_PACKAGE_SCRIPT_ENTRYPOINTS: Record<string, readonly string[]> = {
   codex: ['node_modules/@openai/codex/'],
   gemini: ['node_modules/@google/gemini-cli/']
 }
+const CURSOR_AGENT_NODE_ENTRYPOINT_RE = /(?:^|\/)cursor-agent\/versions\/[^/]+\/index\.js$/
 const PYTHON_SCRIPT_ENTRYPOINT_DIRECTORIES = ['/bin/', '/scripts/', '/site-packages/']
 
 const PROCESS_TO_AGENT = new Map<string, TuiAgent>()
@@ -202,12 +203,17 @@ function comparablePath(token: string): string {
 }
 
 function recognizeNodeScriptEntrypoint(token: string): RecognizedAgentProcess | null {
+  const path = comparablePath(token)
+  // Why: Cursor's native Windows launcher runs a generic versioned index.js,
+  // so its install path is the only stable identity that avoids ordinary Node apps.
+  if (CURSOR_AGENT_NODE_ENTRYPOINT_RE.test(path)) {
+    return { agent: 'cursor', processName: 'cursor-agent' }
+  }
   const normalized = normalizeProcessName(token, { stripInterpreterScriptExtension: true })
   const markers = NODE_PACKAGE_SCRIPT_ENTRYPOINTS[normalized]
   if (!markers) {
     return null
   }
-  const path = comparablePath(token)
   if (!markers.some((marker) => path.includes(marker))) {
     return null
   }
