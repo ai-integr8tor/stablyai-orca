@@ -80,6 +80,25 @@ function publish(event: SideQuestStreamEvent): void {
   }
 }
 
+function publishGlobalError(message: string): void {
+  for (const senderSubscriptions of subscriptions.values()) {
+    for (const subscription of senderSubscriptions.values()) {
+      if (subscription.sender.isDestroyed()) {
+        continue
+      }
+      const payload: SideQuestStreamPayload = {
+        subscriptionId: subscription.subscriptionId,
+        event: {
+          type: 'error',
+          providerThreadId: subscription.providerThreadId,
+          message
+        }
+      }
+      subscription.sender.send('sideQuest:event', payload)
+    }
+  }
+}
+
 function publishManagerEvent(event: CodexAppServerEvent): void {
   if (event.type === 'agent-message-delta') {
     publish({
@@ -120,7 +139,11 @@ function publishManagerEvent(event: CodexAppServerEvent): void {
   }
   if (event.threadId) {
     publish({ type: 'error', providerThreadId: event.threadId, message: event.message })
+    return
   }
+  // Why: protocol/process failures may happen before app-server can attribute
+  // them to a thread; every active Side Quest must leave its pending state.
+  publishGlobalError(event.message)
 }
 
 export function registerSideQuestHandlers(options: CodexSideQuestManagerOptions = {}): () => void {

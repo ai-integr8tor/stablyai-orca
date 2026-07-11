@@ -2174,6 +2174,7 @@ function Terminal(): React.JSX.Element | null {
                         }
                         const terminalPane = tab.sideQuestSession ? (
                           <ProviderSideQuestView
+                            key={tab.id}
                             terminalTabId={tab.id}
                             sessionReference={tab.sideQuestSession}
                           />

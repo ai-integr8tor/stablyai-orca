@@ -25,17 +25,17 @@ paired, and headless worktrees need a host API improvement before they can bind 
 
 ## Architecture
 
-| Concern | Existing Orca primitive | Side Quest behavior |
-| --- | --- | --- |
-| Side-by-side layout | terminal split groups | create an empty right split beside the source group |
-| Independent agent | Codex app-server manager | reuse one warm process and create a provider-owned thread per Side Quest |
-| Agent choice | detected leaf, launched tab, default-agent settings | prefer the detected source agent, then launch metadata, then default |
-| Chat surface | experimental native chat | force the created unified terminal tab to chat mode |
-| Context | bounded session transcript cleaner | strip terminal control data and cap context at the existing transcript budget |
-| Prompt safety | native chat send path | fence output as untrusted quoted text and append the user's question |
-| Pending handoff | bounded renderer cache keyed by terminal tab ID | seed before chat's first render and clear after send/removal |
-| Durability | terminal-tab workspace state | persist only the Side Quest/provider thread reference; the provider owns messages |
-| Live updates | preload IPC subscription | stream agent deltas, completed items, turn completion, errors, and interrupts |
+| Concern             | Existing Orca primitive                             | Side Quest behavior                                                               |
+| ------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Side-by-side layout | terminal split groups                               | create an empty right split beside the source group                               |
+| Independent agent   | Codex app-server manager                            | reuse one warm process and create a provider-owned thread per Side Quest          |
+| Agent choice        | detected leaf, launched tab, default-agent settings | prefer the detected source agent, then launch metadata, then default              |
+| Chat surface        | experimental native chat                            | force the created unified terminal tab to chat mode                               |
+| Context             | bounded session transcript cleaner                  | strip terminal control data and cap context at the existing transcript budget     |
+| Prompt safety       | native chat send path                               | fence output as untrusted quoted text and append the user's question              |
+| Pending handoff     | bounded renderer cache keyed by terminal tab ID     | seed before chat's first render and clear after send/removal                      |
+| Durability          | terminal-tab workspace state                        | persist only the Side Quest/provider thread reference; the provider owns messages |
+| Live updates        | preload IPC subscription                            | stream agent deltas, completed items, turn completion, errors, and interrupts     |
 
 Codex app-server threads use `sandbox: read-only` and `approvalPolicy: never`. Inherited MCP servers
 and apps are disabled for these research conversations, avoiding both unwanted capabilities and the
@@ -46,12 +46,12 @@ the shared-worktree guarantee.
 
 ## Platform viability
 
-| Environment | Status | Notes |
-| --- | --- | --- |
-| macOS, Linux, Windows local worktrees | Supported | cross-platform process spawning plus the existing split/chat UI |
-| WSL worktrees | Supported by provider manager | converts renderer UNC paths to the selected distro's Linux path |
-| Ordinary SSH worktrees | Compatibility path | existing terminal launch routing keeps process creation on the SSH target |
-| Runtime-owned web/paired/headless worktrees | Blocked on host API | renderer receives no created tab ID, so context cannot be bound to a specific chat safely |
+| Environment                                 | Status                        | Notes                                                                                     |
+| ------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
+| macOS, Linux, Windows local worktrees       | Supported                     | cross-platform process spawning plus the existing split/chat UI                           |
+| WSL worktrees                               | Supported by provider manager | converts renderer UNC paths to the selected distro's Linux path                           |
+| Ordinary SSH worktrees                      | Compatibility path            | existing terminal launch routing keeps process creation on the SSH target                 |
+| Runtime-owned web/paired/headless worktrees | Blocked on host API           | renderer receives no created tab ID, so context cannot be bound to a specific chat safely |
 
 The runtime fix should make host terminal creation awaitable and return the created terminal and
 unified-tab identities. The same transaction should accept the target group, initial view mode,
@@ -87,8 +87,8 @@ conversation until its first user turn materializes it.
 - Extend the runtime host create-tab API and enable web/paired/headless worktrees.
 - Add an awaited agent-readiness result so late local/SSH startup failures can close the tab and
   collapse its split automatically.
-- Add keyboard access and command-palette launch.
-- Add telemetry for launch, first question, context removal, and return-to-main-thread behavior.
+- Include keyboard access and command-palette launch.
+- Introduce telemetry for launch, first question, context removal, and return-to-main-thread behavior.
 - Run interaction QA on macOS, Linux, Windows, local SSH, and high-latency SSH.
 
 ## Acceptance criteria

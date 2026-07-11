@@ -12989,6 +12989,7 @@
         "showMore": "Show more"
       },
       "sideQuest": {
+        "terminalSource": "终端",
         "starting": "Starting the Side Quest agent… You can draft while it gets ready.",
         "startFailed": "The agent did not become ready. Switch to Terminal to inspect it.",
         "draftPlaceholder": "Draft your question…",

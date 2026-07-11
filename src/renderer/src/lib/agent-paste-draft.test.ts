@@ -10,7 +10,8 @@ import {
   pasteDraftWhenAgentReady,
   sendAgentDraftPasteContent,
   sendBracketedPasteToRunningAgent,
-  submitPromptToAgentPty
+  submitPromptToAgentPty,
+  waitForAgentTabInputReady
 } from './agent-paste-draft'
 
 const testState = vi.hoisted(() => ({
@@ -698,6 +699,22 @@ describe('pasteDraftWhenAgentReady', () => {
     ).resolves.toBe(false)
 
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+  })
+
+  it('keeps terminal Side Quest readiness within one shared timeout budget', async () => {
+    const startedAt = Date.now()
+    const promise = waitForAgentTabInputReady({
+      tabId: 'tab-1',
+      agent: 'codex',
+      timeoutMs: 200
+    })
+
+    await flushMicrotasks()
+    await vi.advanceTimersByTimeAsync(200)
+
+    await expect(promise).resolves.toBe(false)
+    expect(Date.now() - startedAt).toBe(200)
+    expect(testState.inspectRuntimeTerminalProcess).not.toHaveBeenCalled()
   })
 })
 

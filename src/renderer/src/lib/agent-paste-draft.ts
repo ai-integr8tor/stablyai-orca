@@ -52,6 +52,7 @@ export async function waitForAgentTabInputReady(args: {
   timeoutMs?: number
 }): Promise<boolean> {
   const budget = args.timeoutMs ?? READINESS_TIMEOUT_MS
+  const deadline = Date.now() + budget
   const ptyId = await waitForPtyId(args.tabId, budget)
   if (!ptyId) {
     return false
@@ -60,14 +61,20 @@ export async function waitForAgentTabInputReady(args: {
   const settings = getSettingsForAgentTabRuntimeOwner(args.tabId)
   const agentConfig = TUI_AGENT_CONFIG[args.agent]
   const readySignal = agentConfig.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
-  const ready = await waitForAgentDraftInputReady(ptyId, budget, readySignal, settings)
+  const readyBudget = Math.max(0, deadline - Date.now())
+  const ready =
+    readyBudget > 0 &&
+    (await waitForAgentDraftInputReady(ptyId, readyBudget, readySignal, settings))
   if (ready) {
     return true
   }
 
   // Why: the renderer can attach after the handshake on a very fast launch;
   // process inspection is the bounded fallback used by generated-prompt delivery.
-  return await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, 1000, settings)
+  const processBudget = Math.min(1000, Math.max(0, deadline - Date.now()))
+  return processBudget > 0
+    ? await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, processBudget, settings)
+    : false
 }
 
 export function getSettingsForAgentTabRuntimeOwner(

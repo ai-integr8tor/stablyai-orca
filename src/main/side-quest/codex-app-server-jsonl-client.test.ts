@@ -69,7 +69,9 @@ describe('Codex app-server JSONL client', () => {
     process.close(7)
 
     await expect(pending).rejects.toThrow('exited with code 7: startup failed')
-    await expect(client.request('thread/start', {})).rejects.toThrow('exited with code 7')
+    await expect(client.request('thread/start', {})).rejects.toThrow(
+      /^Codex app-server exited with code 7: startup failed$/
+    )
   })
 
   it('fails closed when stdout is not valid JSONL', async () => {

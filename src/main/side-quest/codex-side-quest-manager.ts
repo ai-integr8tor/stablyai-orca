@@ -84,6 +84,8 @@ export class CodexSideQuestManager {
     const config = await buildCodexSideQuestThreadConfig(connection, cwd)
     const result = await connection.request('thread/start', {
       cwd,
+      // Why: Side Quests explain workspace state without mutating the shared
+      // worktree or pausing an independent conversation for approvals.
       approvalPolicy: 'never',
       sandbox: 'read-only',
       serviceName: 'orca_side_quest',

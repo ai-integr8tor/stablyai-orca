@@ -82,6 +82,30 @@ describe('startTerminalSideQuest', () => {
     expect(mocks.seedNativeChatSideQuestContext).not.toHaveBeenCalled()
   })
 
+  it('skips terminal readiness for provider transport while preserving quoted context', () => {
+    mocks.launchSideQuest.mockReturnValue({
+      status: 'started',
+      groupId: 'side-group',
+      terminalTabId: 'side-tab'
+    })
+
+    startTerminalSideQuest({
+      worktreeId: 'worktree',
+      sourceGroupId: 'source-group',
+      agent: 'codex',
+      capturedText: 'context',
+      sourceLabel: 'Terminal'
+    })
+
+    mocks.launchSideQuest.mock.calls[0][0].beforeOpenChat?.('side-tab', 'provider')
+    expect(mocks.seedNativeChatSideQuestReadiness).not.toHaveBeenCalled()
+    expect(mocks.waitForAgentTabInputReady).not.toHaveBeenCalled()
+    expect(mocks.seedNativeChatSideQuestContext).toHaveBeenCalledWith('side-tab', {
+      sourceLabel: 'Terminal',
+      text: 'context'
+    })
+  })
+
   it('surfaces a specific runtime-host limitation', () => {
     mocks.launchSideQuest.mockReturnValue({ status: 'runtime-unsupported' })
 

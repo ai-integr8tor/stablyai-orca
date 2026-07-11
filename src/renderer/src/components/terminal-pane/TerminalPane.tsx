@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
 import type { IDisposable } from '@xterm/xterm'
 import { useAppStore } from '../../store'
+import { translate } from '@/i18n/i18n'
 import { isUnifiedTabPinned } from '@/store/pinned-tab-close-guard'
 import { useLinkRoutingPreferenceDialog } from '@/components/link-routing-preference-dialog'
 import { DaemonActionDialog, useDaemonActions } from '@/components/shared/useDaemonActions'
@@ -2690,7 +2691,10 @@ export default function TerminalPane({
     isActive && isVisible && nativeChatEnabled && quickCommandGroupId !== null
   const sourceLabelForPane = useCallback(
     (pane: ManagedPane): string =>
-      paneTitlesRef.current[pane.id] || unifiedTabLabel || terminalTab?.title || 'Terminal',
+      paneTitlesRef.current[pane.id] ||
+      unifiedTabLabel ||
+      terminalTab?.title ||
+      translate('components.native-chat.sideQuest.terminalSource', 'Terminal'),
     [terminalTab?.title, unifiedTabLabel]
   )
   const handleStartSideQuest = useCallback(() => {
@@ -2703,7 +2707,7 @@ export default function TerminalPane({
       worktreeId,
       sourceGroupId: quickCommandGroupId,
       agent,
-      capturedText: pane.terminal.getSelection(),
+      capturedText: pane.terminal.getSelection().trim(),
       sourceLabel: sourceLabelForPane(pane)
     })
   }, [
