@@ -1169,7 +1169,9 @@ function ProviderSegment({
   // Has data (ok, fetching with stale data, or error with stale data)
   const isStale = p.status === 'error'
 
-  if (p.buckets && p.buckets.length > 0) {
+  // Why: Codex buckets are additional meters; its preferred session/weekly
+  // remain authoritative in the compact bar. Gemini buckets replace them.
+  if (p.provider !== 'codex' && p.buckets && p.buckets.length > 0) {
     const visibleBuckets = p.buckets.filter((b) => STATUS_BAR_BUCKET_NAMES.has(b.name))
     return (
       <span className="inline-flex items-center gap-1.5">

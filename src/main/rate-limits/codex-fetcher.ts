@@ -29,6 +29,16 @@ import {
   createAuthFilesystemOperation,
   type SharedAuthFilesystemOperation
 } from './auth-filesystem-operation'
+import {
+  buildCodexRateLimitResetCreditsConsumeUrl,
+  buildCodexRateLimitResetCreditsUrl,
+  resolveCodexBackendBaseUrl
+} from './codex-backend-base-url'
+import {
+  mapCodexRpcRateLimitsPayload,
+  type CodexRpcRateLimitsPayload,
+  type CodexRpcRateWindow
+} from './codex-rpc-rate-limit-mapping'
 
 const RPC_TIMEOUT_MS = 10_000
 const WSL_RPC_TIMEOUT_MS = 25_000
@@ -55,11 +65,7 @@ type RpcResponse = {
   error?: { code: number; message: string }
 }
 
-type RpcRateWindow = {
-  usedPercent?: number
-  windowDurationMins?: number
-  resetsAt?: number // Unix seconds
-}
+type RpcRateWindow = CodexRpcRateWindow
 
 type RateLimitResetCredits = {
   availableCount: number
@@ -72,15 +78,9 @@ type RateLimitResetCredits = {
   }[]
 }
 
-type RpcRateLimitsResult = {
-  primary?: RpcRateWindow
-  secondary?: RpcRateWindow
-}
-
 // Why: the Codex app-server wraps rate limit data inside a `rateLimits` key.
 // The actual response shape is `{ rateLimits: { primary, secondary, ... } }`.
-type RpcRateLimitsResponse = {
-  rateLimits?: RpcRateLimitsResult
+type RpcRateLimitsResponse = CodexRpcRateLimitsPayload & {
   rateLimitResetCredits?: {
     availableCount?: number
     totalEarnedCount?: number
@@ -376,7 +376,8 @@ async function fetchBackendRateLimitResetCredits(
   }
   // Why: published Codex 0.140 can read windows through app-server but strips
   // reset-credit metadata that the backend already returns.
-  const response = await fetch('https://chatgpt.com/backend-api/wham/rate-limit-reset-credits', {
+  const baseUrl = await resolveCodexBackendBaseUrl(getCodexHomePath(options?.codexHomePath), signal)
+  const response = await fetch(buildCodexRateLimitResetCreditsUrl(baseUrl), {
     ...auth,
     signal
   })
@@ -435,18 +436,16 @@ export async function consumeCodexRateLimitResetCredit(options: {
   if (!auth) {
     throw new Error('Codex not signed in')
   }
-  const response = await fetch(
-    'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume',
-    {
-      method: 'POST',
-      headers: {
-        ...auth.headers,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ redeem_request_id: options.idempotencyKey }),
-      signal
-    }
-  )
+  const baseUrl = await resolveCodexBackendBaseUrl(getCodexHomePath(options.codexHomePath), signal)
+  const response = await fetch(buildCodexRateLimitResetCreditsConsumeUrl(baseUrl), {
+    method: 'POST',
+    headers: {
+      ...auth.headers,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ redeem_request_id: options.idempotencyKey }),
+    signal
+  })
   if (!response.ok) {
     throw new Error(`Codex reset failed: HTTP ${response.status}`)
   }
@@ -456,7 +455,7 @@ export async function consumeCodexRateLimitResetCredit(options: {
 
 function mapRpcWindow(
   raw: RpcRateWindow | undefined,
-  expectedWindowMinutes: number
+  windowMinutes: number
 ): RateLimitWindow | null {
   if (!raw || typeof raw.usedPercent !== 'number' || !Number.isFinite(raw.usedPercent)) {
     return null
@@ -483,9 +482,7 @@ function mapRpcWindow(
 
   return {
     usedPercent: Math.min(100, Math.max(0, raw.usedPercent)),
-    // Why: Codex currently reports remaining minutes in `windowDurationMins`.
-    // Orca's UI needs the fixed bucket duration so labels stay "5h" / "wk".
-    windowMinutes: expectedWindowMinutes,
+    windowMinutes,
     resetsAt,
     resetDescription
   }
@@ -723,9 +720,7 @@ async function fetchViaRpc(options?: FetchCodexRateLimitsOptions): Promise<Provi
             }
 
             const wrapper = msg.result as RpcRateLimitsResponse | undefined
-            const result = wrapper?.rateLimits
-            const session = mapRpcWindow(result?.primary, 300)
-            const weekly = mapRpcWindow(result?.secondary, 10080)
+            const { session, weekly, buckets } = mapCodexRpcRateLimitsPayload(wrapper, mapRpcWindow)
             const rateLimitResetCredits = mapRpcRateLimitResetCredits(
               wrapper?.rateLimitResetCredits
             )
@@ -735,6 +730,7 @@ async function fetchViaRpc(options?: FetchCodexRateLimitsOptions): Promise<Provi
                 provider: 'codex',
                 session,
                 weekly,
+                ...(buckets ? { buckets } : {}),
                 ...(rateLimitResetCredits !== undefined ? { rateLimitResetCredits } : {}),
                 updatedAt: Date.now(),
                 error: null,

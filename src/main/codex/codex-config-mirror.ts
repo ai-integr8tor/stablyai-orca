@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { writeFileAtomically } from '../codex-accounts/fs-utils'
+import { forceFileAuthCredentialsStore } from './codex-config-auth-store'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex-home-paths'
 import { rewriteRelativePathConfigValues } from './codex-config-path-reference-rewrite'
+import { syncCodexProfileConfigOverlaysIntoManagedHome } from './codex-profile-config-overlay-mirror'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
   promoteCodexRuntimeSettingsToSystem,
@@ -54,12 +56,17 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe({
   const runtimeConfigPath = join(runtimeHomePath, 'config.toml')
   const systemConfigExists = existsSync(systemConfigPath)
   const runtimeConfigExists = existsSync(runtimeConfigPath)
+  const sourceConfigDir = resolveCodexConfigMirrorSourceDirectory(systemHomePath)
+  syncCodexProfileConfigOverlaysIntoManagedHome({
+    runtimeHomePath,
+    sourceConfigDir,
+    systemHomePath
+  })
   if (!systemConfigExists && !runtimeConfigExists) {
     return
   }
 
   const rawSystemConfig = systemConfigExists ? readFileSync(systemConfigPath, 'utf-8') : ''
-  const sourceConfigDir = resolveCodexConfigMirrorSourceDirectory(systemHomePath)
   if (!runtimeConfigExists) {
     writeFileAtomically(
       runtimeConfigPath,
@@ -81,9 +88,11 @@ export function resolveCodexConfigMirrorSourceDirectory(systemHomePath: string):
 }
 
 function prepareSystemConfigForRuntimeMirror(config: string, systemConfigDir: string): string {
-  return rewriteRelativePathConfigValues(
-    normalizeDeprecatedCodexHookFeatureFlag(config),
-    systemConfigDir
+  return forceFileAuthCredentialsStore(
+    rewriteRelativePathConfigValues(
+      normalizeDeprecatedCodexHookFeatureFlag(config),
+      systemConfigDir
+    )
   )
 }
 
