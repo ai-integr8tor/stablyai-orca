@@ -52,6 +52,7 @@ export type NativeChatLiveSession = NativeChatSession & {
 
 // Stable empty-base reference so a non-ready read doesn't churn the base axis.
 const EMPTY_MESSAGES: readonly NativeChatMessage[] = []
+const MISSING_TRANSCRIPT_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const
 
 /** True when `whole`'s first `len` entries are referentially identical to
  *  `prefix` — i.e. `whole` is `prefix` extended at the tail, so the incremental
@@ -132,6 +133,21 @@ export function useNativeChatLiveSession(
   // Live hook state for this pane, selected narrowly so unrelated status churn
   // doesn't re-render the chat view.
   const hookState = useAppStore((s) => s.agentStatusByPaneKey[paneKey]?.state ?? null)
+  const missingTranscriptRef = useRef(false)
+  const missingTranscriptRetryCountRef = useRef(0)
+  const [transcriptDiscoveryVersion, setTranscriptDiscoveryVersion] = useState(0)
+
+  useEffect(() => {
+    missingTranscriptRetryCountRef.current = 0
+  }, [agent, sessionId, transcriptPath, transport])
+
+  useEffect(() => {
+    if (missingTranscriptRef.current && hookState !== null) {
+      // Why: a first prompt creates the transcript after the fresh session id;
+      // the hook-state transition is the signal to resolve and tail that file.
+      setTranscriptDiscoveryVersion((version) => version + 1)
+    }
+  }, [hookState])
 
   const latestSessionId = useRef<string | null>(sessionId)
   latestSessionId.current = sessionId
@@ -157,10 +173,12 @@ export function useNativeChatLiveSession(
       replaceList(appendMergerRef.current, [])
       setAppended([])
       setHasMore(false)
+      missingTranscriptRef.current = false
       return
     }
 
     let cancelled = false
+    let missingTranscriptRetryTimer: ReturnType<typeof setTimeout> | null = null
     limitRef.current = NATIVE_CHAT_INITIAL_LIMIT
     setRead({ phase: 'loading' })
     replaceList(appendMergerRef.current, [])
@@ -174,15 +192,38 @@ export function useNativeChatLiveSession(
           return
         }
         if (result && 'error' in result) {
+          // Why: fresh agent sessions report an id before their first prompt
+          // creates a transcript; that is an empty chat, not a load failure.
+          if (result.code === 'transcript_not_found') {
+            missingTranscriptRef.current = true
+            setRead({ phase: 'ready', messages: [] })
+            const retryDelay =
+              MISSING_TRANSCRIPT_RETRY_DELAYS_MS[missingTranscriptRetryCountRef.current]
+            if (retryDelay !== undefined) {
+              missingTranscriptRetryCountRef.current += 1
+              // Why: a fresh agent can create its transcript after the initial
+              // read and final hook event, leaving no external signal to retry.
+              missingTranscriptRetryTimer = setTimeout(() => {
+                if (!cancelled) {
+                  setTranscriptDiscoveryVersion((version) => version + 1)
+                }
+              }, retryDelay)
+            }
+            return
+          }
+          missingTranscriptRef.current = false
           setRead({ phase: 'error', error: result.error })
           return
         }
+        missingTranscriptRef.current = false
+        missingTranscriptRetryCountRef.current = 0
         const messages = result?.messages ?? []
         setRead({ phase: 'ready', messages })
         setHasMore(hasMoreNativeChatHistory(messages.length, limitRef.current))
       })
       .catch((err: unknown) => {
         if (!cancelled) {
+          missingTranscriptRef.current = false
           setRead({ phase: 'error', error: err instanceof Error ? err.message : String(err) })
         }
       })
@@ -208,6 +249,9 @@ export function useNativeChatLiveSession(
 
     return () => {
       cancelled = true
+      if (missingTranscriptRetryTimer !== null) {
+        clearTimeout(missingTranscriptRetryTimer)
+      }
       // Desktop returns a sync unsubscribe fn; the web RPC bridge returns a
       // Promise instead (and can't deliver streaming callbacks). Calling a
       // Promise as a function crashed the whole chat view, so resolve it first
@@ -225,7 +269,7 @@ export function useNativeChatLiveSession(
     }
     // `transport` identity changes on an owner flip, re-running this effect to
     // tear down the old host's subscription and open one against the new host.
-  }, [agent, sessionId, transcriptPath, transport])
+  }, [agent, sessionId, transcriptPath, transport, transcriptDiscoveryVersion])
 
   const loadEarlier = useCallback(() => {
     if (!sessionId || loadingEarlier || !hasMore || read.phase !== 'ready') {

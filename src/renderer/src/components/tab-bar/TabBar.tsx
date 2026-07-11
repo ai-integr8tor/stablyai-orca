@@ -1118,6 +1118,7 @@ function TabBarInner({
                 // the unified tab id can differ from it.
                 const detectedAgent = tabAgentTypesByTabId[terminalTab.id] ?? null
                 const canToggleViewMode =
+                  !terminalTab.sideQuestSession &&
                   unifiedTabForItem !== undefined &&
                   canToggleNativeChat({
                     experimentalNativeChatEnabled: nativeChatEnabled,

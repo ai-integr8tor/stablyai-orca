@@ -173,6 +173,18 @@ import type { KeybindingActionId, KeybindingFileSnapshot } from '../shared/keybi
 import type { AiVaultListArgs, AiVaultSubagentListArgs } from '../shared/ai-vault-types'
 import type { AgentType } from '../shared/native-chat-types'
 import type {
+  SideQuestCreateArgs,
+  SideQuestCreateResult,
+  SideQuestInterruptArgs,
+  SideQuestReadArgs,
+  SideQuestReadResult,
+  SideQuestSendArgs,
+  SideQuestSendResult,
+  SideQuestStreamEvent,
+  SideQuestStreamPayload,
+  SideQuestSubscribeArgs
+} from '../shared/side-quest-runtime-types'
+import type {
   NativeChatAppendedMessages,
   NativeChatAppendedPayload,
   NativeChatReadSessionResult
@@ -3873,6 +3885,33 @@ const api = {
       return () => {
         ipcRenderer.removeListener('nativeChat:appended', listener)
         ipcRenderer.send('nativeChat:unsubscribe', { subscriptionId: args.subscriptionId })
+      }
+    }
+  },
+
+  sideQuest: {
+    create: (args: SideQuestCreateArgs): Promise<SideQuestCreateResult> =>
+      ipcRenderer.invoke('sideQuest:create', args),
+    read: (args: SideQuestReadArgs): Promise<SideQuestReadResult> =>
+      ipcRenderer.invoke('sideQuest:read', args),
+    send: (args: SideQuestSendArgs): Promise<SideQuestSendResult> =>
+      ipcRenderer.invoke('sideQuest:send', args),
+    interrupt: (args: SideQuestInterruptArgs): Promise<void> =>
+      ipcRenderer.invoke('sideQuest:interrupt', args),
+    subscribe: (
+      args: SideQuestSubscribeArgs,
+      onEvent: (event: SideQuestStreamEvent) => void
+    ): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: SideQuestStreamPayload) => {
+        if (payload.subscriptionId === args.subscriptionId) {
+          onEvent(payload.event)
+        }
+      }
+      ipcRenderer.on('sideQuest:event', listener)
+      ipcRenderer.send('sideQuest:subscribe', args)
+      return () => {
+        ipcRenderer.removeListener('sideQuest:event', listener)
+        ipcRenderer.send('sideQuest:unsubscribe', { subscriptionId: args.subscriptionId })
       }
     }
   },

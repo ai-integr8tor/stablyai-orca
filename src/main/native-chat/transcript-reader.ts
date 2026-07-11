@@ -9,7 +9,9 @@ import {
 } from './transcript-line-decoders'
 import { decodeTranscriptStream } from './transcript-stream-lines'
 
-export type ReadTranscriptResult = { messages: NativeChatMessage[] } | { error: string }
+export type ReadTranscriptResult =
+  | { messages: NativeChatMessage[] }
+  | { error: string; code?: 'transcript_not_found' }
 
 export type ReadTranscriptOptions = ResolveSessionFileOptions & {
   /** Resolve directly to this file, skipping path discovery (used by tests). */
@@ -30,7 +32,10 @@ export async function readNativeChatTranscript(
 ): Promise<ReadTranscriptResult> {
   const filePath = options.filePath ?? (await resolveSessionFilePath(agent, sessionId, options))
   if (!filePath) {
-    return { error: `No transcript found for ${agent} session ${sessionId}` }
+    return {
+      error: `No transcript found for ${agent} session ${sessionId}`,
+      code: 'transcript_not_found'
+    }
   }
   try {
     if (agent === 'claude') {

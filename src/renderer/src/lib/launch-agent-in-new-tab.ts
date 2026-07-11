@@ -40,6 +40,8 @@ export type LaunchAgentInNewTabArgs = {
   prompt?: string
   /** Optional CLI arguments appended to the selected agent command. */
   agentArgs?: string | null
+  /** Ignore the configured command override and use Orca's built-in command. */
+  ignoreConfiguredAgentCommand?: boolean
   /** Force generated prompt text out of the shell launch command. `draft`
    *  leaves it editable; `submit-after-ready` sends it once the TUI is ready. */
   promptDelivery?: 'auto-submit' | 'draft' | 'submit-after-ready'
@@ -91,6 +93,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     groupId,
     prompt,
     agentArgs,
+    ignoreConfiguredAgentCommand = false,
     promptDelivery = 'auto-submit',
     launchSource,
     quickCommandLabel,
@@ -116,7 +119,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     isRemote,
     terminalWindowsShell: store.settings?.terminalWindowsShell
   })
-  const cmdOverrides = store.settings?.agentCmdOverrides ?? {}
+  const cmdOverrides = ignoreConfiguredAgentCommand ? {} : (store.settings?.agentCmdOverrides ?? {})
   const effectiveAgentArgs =
     agentArgs !== undefined
       ? agentArgs

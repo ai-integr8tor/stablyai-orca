@@ -172,6 +172,7 @@ describe('useNativeChatLiveSession — transport routing', () => {
     for (const root of roots.splice(0)) {
       act(() => root.unmount())
     }
+    vi.useRealTimers()
     latest = null
     vi.clearAllMocks()
     resetMockTransports()
@@ -236,6 +237,46 @@ describe('useNativeChatLiveSession — transport routing', () => {
 
     expect(latest?.status).toBe('error')
     expect(latest?.error).toBe('runtime too old')
+  })
+
+  it('treats a fresh session with no transcript yet as an empty conversation', async () => {
+    getMockTransport('env-1').readSession.mockResolvedValueOnce({
+      error: 'No transcript found for claude session sess-1',
+      code: 'transcript_not_found'
+    })
+
+    await render({ paneKey: PANE, agent: AGENT, sessionId: SESSION, runtimeEnvironmentId: 'env-1' })
+    await flush()
+
+    expect(latest?.status).toBe('empty')
+    expect(latest?.error).toBeUndefined()
+  })
+
+  it('retries a fresh transcript when the file appears after the final hook event', async () => {
+    vi.useFakeTimers()
+    const transport = getMockTransport('env-1')
+    transport.readSession
+      .mockResolvedValueOnce({
+        error: 'No transcript found for codex session sess-1',
+        code: 'transcript_not_found'
+      })
+      .mockResolvedValueOnce({ messages: [user('u-1', 'question'), assistant('a-1', 'answer')] })
+
+    await render({
+      paneKey: PANE,
+      agent: 'codex',
+      sessionId: SESSION,
+      runtimeEnvironmentId: 'env-1'
+    })
+    expect(latest?.status).toBe('empty')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250)
+    })
+    await flush()
+
+    expect(transport.readSession).toHaveBeenCalledTimes(2)
+    expect(latest?.messages.map((message) => message.id)).toEqual(['u-1', 'a-1'])
   })
 
   it('never calls the transport when there is no session id', async () => {

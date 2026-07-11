@@ -15,6 +15,8 @@ import { shouldMountBackgroundWorktreeTab } from '../terminal/background-termina
 import { useNativeChatToggleShortcut } from '../native-chat/use-native-chat-toggle-shortcut'
 import { shouldDeferParkedPtyExitTabClose } from './terminal-parked-tab-watchers'
 import { useTerminalTabColdParking } from './use-terminal-tab-cold-parking'
+import { ProviderSideQuestView } from '../native-chat/ProviderSideQuestView'
+import type { SideQuestSessionReference } from '../../../../shared/side-quest-types'
 
 type TerminalOverlayAssignment = {
   unifiedTabId: string
@@ -54,6 +56,7 @@ type TerminalOverlaySlotProps = {
   worktreeId: string
   worktreePath: string
   startupCwd: string | undefined
+  sideQuestSession: SideQuestSessionReference | undefined
   groupId: string | undefined
   isWorktreeActive: boolean
   isVisible: boolean
@@ -71,6 +74,7 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
   worktreeId,
   worktreePath,
   startupCwd,
+  sideQuestSession,
   groupId,
   isWorktreeActive,
   isVisible,
@@ -223,7 +227,9 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
     }
   }, [groupId, onFocusOwningGroup])
 
-  const terminalPane = (
+  const terminalPane = sideQuestSession ? (
+    <ProviderSideQuestView terminalTabId={terminalTabId} sessionReference={sideQuestSession} />
+  ) : (
     <TerminalPane
       key={`${terminalTabId}-${terminalGeneration ?? 0}`}
       tabId={terminalTabId}
@@ -404,6 +410,7 @@ const TerminalPaneOverlayLayer = memo(function TerminalPaneOverlayLayer({
               worktreeId={worktreeId}
               worktreePath={worktreePath}
               startupCwd={terminalTab.startupCwd}
+              sideQuestSession={terminalTab.sideQuestSession}
               groupId={assignment?.groupId}
               isWorktreeActive={isWorktreeActive}
               isVisible={isVisible}

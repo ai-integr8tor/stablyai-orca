@@ -91,7 +91,10 @@ export async function readNativeChatTranscriptCached(
 ): Promise<ReadTranscriptResult> {
   const filePath = await resolveSessionFilePath(agent, sessionId, { transcriptPath })
   if (!filePath) {
-    return { error: `No transcript found for ${agent} session ${sessionId}` }
+    return {
+      error: `No transcript found for ${agent} session ${sessionId}`,
+      code: 'transcript_not_found'
+    }
   }
 
   const key = cacheKey(agent, filePath)

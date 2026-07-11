@@ -119,6 +119,42 @@ describe('buildWorkspaceSessionPayload', () => {
     expect(payload.defaultTerminalTabsAppliedByWorktreeId).toEqual({ 'wt-1': true })
   })
 
+  it('persists Side Quest provider metadata without copying conversation messages', () => {
+    const payload = buildWorkspaceSessionPayload(
+      createSnapshot({
+        tabsByWorktree: {
+          'wt-1': [
+            {
+              id: 'tab-1',
+              title: 'Side Quest',
+              ptyId: null,
+              worktreeId: 'wt-1',
+              sideQuestSession: {
+                id: 'side-quest-1',
+                provider: 'codex',
+                providerThreadId: 'thread-1',
+                status: 'ready',
+                error: null,
+                createdAt: 100,
+                updatedAt: 200
+              }
+            } as never
+          ]
+        }
+      })
+    )
+
+    expect(payload.tabsByWorktree['wt-1'][0].sideQuestSession).toEqual({
+      id: 'side-quest-1',
+      provider: 'codex',
+      providerThreadId: 'thread-1',
+      status: 'ready',
+      error: null,
+      createdAt: 100,
+      updatedAt: 200
+    })
+  })
+
   it('persists floating terminal tabs for daemon reattach after restart', () => {
     const payload = buildWorkspaceSessionPayload(
       createSnapshot({

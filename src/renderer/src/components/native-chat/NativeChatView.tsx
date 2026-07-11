@@ -326,15 +326,17 @@ function NativeChatResolvedView({
   // agent is mid-turn, the merged transcript may not yet reflect the in-flight
   // turn, but the hook already says 'working' — show the indicator immediately.
   const viewWorking = viewState.kind === 'ready' && viewState.isWorking
+  const pendingWorking = pending.length > 0
   useEffect(() => {
-    if (shouldClearNativeChatWorkingSuppression({ viewWorking, hookWorking })) {
+    if (shouldClearNativeChatWorkingSuppression({ viewWorking, hookWorking, pendingWorking })) {
       setWorkingInterrupted(false)
     }
-  }, [viewWorking, hookWorking])
+  }, [viewWorking, hookWorking, pendingWorking])
   const isWorking = shouldShowNativeChatWorking({
     isConversation,
     viewWorking,
     hookWorking,
+    pendingWorking,
     interrupted: workingInterrupted
   })
 

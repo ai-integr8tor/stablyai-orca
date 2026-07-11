@@ -71,6 +71,7 @@ function renderMenu(overrides: Record<string, unknown> = {}): void {
     isNativeChatView: false,
     onToggleNativeChat: vi.fn(),
     onCopyAgentSessionContext: vi.fn(),
+    sideQuest: { enabled: false, includesSelection: false, onStart: vi.fn() },
     repoQuickCommands: [],
     globalQuickCommands: [],
     quickCommandRepoLabel: null,
@@ -112,6 +113,20 @@ describe('TerminalContextMenu', () => {
     expect(onCopyAgentSessionContext).toHaveBeenCalledTimes(1)
     // Why: copying context must not go through the fork dialog path.
     expect(onForkAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('starts a Side Quest with the selected terminal output', () => {
+    const onStartSideQuest = vi.fn()
+    renderMenu({
+      sideQuest: { enabled: true, includesSelection: true, onStart: onStartSideQuest }
+    })
+
+    const sideQuestItem = items.list.find(
+      (item) => childrenText(item.children) === 'Add to Side Quest'
+    )
+    expect(sideQuestItem).toBeDefined()
+    sideQuestItem?.onSelect?.()
+    expect(onStartSideQuest).toHaveBeenCalledOnce()
   })
 
   it('shows one shortcut per terminal menu action on Windows', () => {
