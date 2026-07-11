@@ -50,6 +50,7 @@ const APPEARANCE_MENU_KEYS: readonly (keyof GlobalSettings)[] = [
   'showTitlebarAppName'
 ]
 
+/** Keep renderer-provided values behind the same normalization boundary as persisted settings. */
 export function registerSettingsHandlers(
   store: Store,
   agentAwakeService?: AgentAwakeService

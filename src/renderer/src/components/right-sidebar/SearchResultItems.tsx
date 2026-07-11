@@ -52,6 +52,7 @@ export function ToggleButton({
 }
 
 // ─── File Result ──────────────────────────────────────────
+/** Match explorer icon behavior so search results retain the same theme and fallback. */
 export function FileResultRow({
   fileResult,
   onToggleCollapse,

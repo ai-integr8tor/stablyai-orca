@@ -83,6 +83,7 @@ export type InlineInput = {
 
 // ─── Inline Input Row ────────────────────────────────────────────
 
+/** Honor the active icon theme during creation so file rows do not change appearance on submit. */
 export function InlineInputRow({
   depth,
   inlineInput,

@@ -12,6 +12,7 @@ type ThemedFileIconProps = {
   isMuted?: boolean
 }
 
+/** Centralize theme selection so every file surface retains the same classic fallback behavior. */
 export function ThemedFileIcon({
   className,
   classicClassName,

@@ -3,8 +3,7 @@ import { ThemedFileIcon } from '@/components/file-icons/ThemedFileIcon'
 import { AgentIcon } from '@/lib/agent-catalog'
 import type { TabDragItemData } from '../tab-group/useTabDragSplit'
 
-// Why: a terminal tab running an agent leads with the provider glyph so the
-// ghost matches the resting tab; plain terminals keep the generic icon.
+/** Keep the drag ghost's leading icon aligned with the resting tab across every tab mode. */
 function LeadingIcon({ drag }: { drag: TabDragItemData }): React.JSX.Element {
   if (drag.tabType === 'browser') {
     return <Globe className="h-3.5 w-3.5 shrink-0" />

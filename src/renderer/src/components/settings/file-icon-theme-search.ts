@@ -3,12 +3,13 @@ import { translate } from '@/i18n/i18n'
 import type { SettingsSearchEntry } from './settings-search'
 import { translateSearchKeyword } from './settings-search-keywords'
 
+/** Build entries on access so settings search reflects runtime locale changes. */
 export const getFileIconThemeEntries = createLocalizedCatalog((): SettingsSearchEntry[] => [
   {
     title: translate('auto.components.settings.fileIconTheme.search.title', 'File Icons'),
     description: translate(
       'auto.components.settings.fileIconTheme.search.description',
-      'Choose how file type icons appear in the file explorer and editor tabs.'
+      'Choose how file type icons appear in the file explorer, search results, and editor tabs.'
     ),
     keywords: [
       ...translateSearchKeyword(

@@ -11,6 +11,7 @@ type MaterialFileIconManifest = {
 
 const materialFileIconManifest = manifest as MaterialFileIconManifest
 
+/** Resolve from the renderer base so both the dev server and packaged app find checked-in assets. */
 function resolveMaterialFileIconAssetUrl(
   iconName: string,
   baseHref = globalThis.location?.href ?? 'http://localhost/'
@@ -18,6 +19,7 @@ function resolveMaterialFileIconAssetUrl(
   return new URL(`file-icons/${iconName}.svg`, baseHref).toString()
 }
 
+/** Preserve Material Icon Theme's exact-name and longest compound-extension precedence. */
 function getMaterialFileIconName(filePath: string | undefined | null): string | null {
   const name = basename(filePath ?? '')
   const lowerName = name.toLowerCase()
@@ -50,6 +52,7 @@ function getMaterialFileIconName(filePath: string | undefined | null): string | 
   return null
 }
 
+/** Let callers retain Orca's classic icon when Material has no specific mapping. */
 export function getKnownMaterialFileIconAssetUrl(
   filePath: string | undefined | null
 ): string | null {
@@ -57,6 +60,7 @@ export function getKnownMaterialFileIconAssetUrl(
   return iconName ? resolveMaterialFileIconAssetUrl(iconName) : null
 }
 
+/** Provide Material's generic file asset when a caller explicitly wants a complete fallback. */
 export function getMaterialFileIconAssetUrl(
   filePath: string | undefined | null,
   _isDirectory = false
@@ -67,6 +71,7 @@ export function getMaterialFileIconAssetUrl(
   )
 }
 
+/** Render checked-in assets while allowing context-specific classic fallbacks and muted states. */
 export function MaterialFileIcon({
   className,
   fallbackIcon,

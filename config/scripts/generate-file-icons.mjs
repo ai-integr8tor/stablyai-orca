@@ -7,12 +7,14 @@ const OUT_DIR = resolve(ROOT, 'src/renderer/public/file-icons')
 const MANIFEST_PATH = resolve(ROOT, 'src/renderer/src/lib/material-file-icons-manifest.json')
 const ICONS_SRC = resolve(ROOT, 'node_modules/material-icon-theme/icons')
 
+/** Keep optional manifest mappings from producing invalid asset names. */
 function addIcon(referencedIcons, name) {
   if (typeof name === 'string' && name.length > 0) {
     referencedIcons.add(name)
   }
 }
 
+/** Condense VS Code's manifest to the path lookups Orca can perform at runtime. */
 function createManifest() {
   const manifest = generateManifest({
     activeIconPack: 'react',
@@ -61,6 +63,7 @@ function createManifest() {
   return { manifest: condensed, referencedIcons }
 }
 
+/** Check assets in so packaged and remote sessions never depend on runtime node_modules access. */
 function run() {
   const { manifest, referencedIcons } = createManifest()
 

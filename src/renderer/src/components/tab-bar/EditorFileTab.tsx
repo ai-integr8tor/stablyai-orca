@@ -270,7 +270,7 @@ export default function EditorFileTab({
         />
       ) : (
         <ThemedFileIcon
-          className="mr-1 size-3.5 shrink-0"
+          className="w-3 h-3 mr-1 shrink-0"
           classicClassName={`w-3 h-3 mr-1 shrink-0 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}
           filePath={file.filePath}
         />

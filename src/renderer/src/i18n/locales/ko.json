@@ -9001,7 +9001,7 @@
         "fileIconTheme": {
           "search": {
             "title": "File Icons",
-            "description": "Choose how file type icons appear in the file explorer and editor tabs."
+            "description": "Choose how file type icons appear in the file explorer, search results, and editor tabs."
           }
         }
       },
