@@ -57,6 +57,23 @@ describe('skill discovery', () => {
     expect(rootPaths).toContain('/workspace/current/.claude/skills')
   })
 
+  it('includes provider-specific global skill roots', () => {
+    const roots = buildSkillDiscoverySources({
+      homeDir: '/home/test',
+      cwd: '/workspace/current'
+    })
+
+    expect(roots.map((root) => root.path.replace(/\\/g, '/'))).toEqual(
+      expect.arrayContaining([
+        '/home/test/.grok/skills',
+        '/home/test/.config/opencode/skills',
+        '/home/test/.pi/agent/skills',
+        '/home/test/.gemini/antigravity/skills',
+        '/home/test/.cursor/skills'
+      ])
+    )
+  })
+
   it('discovers skill packages through symlinked skill directories', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-skills-'))
     const home = join(root, 'home')

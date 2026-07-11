@@ -35,6 +35,19 @@ export function buildSkillDiscoverySources(
       'agent-skills'
     ]),
     source('home-claude', 'Claude home', join(home, '.claude', 'skills'), 'home', ['claude']),
+    source('home-grok', 'Grok home', join(home, '.grok', 'skills'), 'home', ['agent-skills']),
+    source('home-opencode', 'OpenCode home', join(home, '.config', 'opencode', 'skills'), 'home', [
+      'agent-skills'
+    ]),
+    source('home-pi', 'Pi home', join(home, '.pi', 'agent', 'skills'), 'home', ['agent-skills']),
+    source(
+      'home-antigravity',
+      'Antigravity home',
+      join(home, '.gemini', 'antigravity', 'skills'),
+      'home',
+      ['agent-skills']
+    ),
+    source('home-cursor', 'Cursor home', join(home, '.cursor', 'skills'), 'home', ['agent-skills']),
     source(
       'codex-plugin-cache',
       'Codex plugin cache',

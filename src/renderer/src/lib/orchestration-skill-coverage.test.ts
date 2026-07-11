@@ -70,6 +70,25 @@ describe('orchestration skill agent coverage', () => {
     ).toBe(true)
   })
 
+  it.each([
+    ['claude-agent-teams', '/Users/test/.claude/skills'],
+    ['grok', '/Users/test/.grok/skills'],
+    ['opencode', '/Users/test/.config/opencode/skills'],
+    ['pi', '/Users/test/.pi/agent/skills'],
+    ['antigravity', '/Users/test/.gemini/antigravity/skills'],
+    ['cursor', '/Users/test/.cursor/skills']
+  ] as const)('marks %s from its global skill directory', (agent, rootPath) => {
+    expect(
+      agentHasOrchestrationSkill(agent, [
+        skill({
+          providers: ['agent-skills'],
+          rootPath,
+          directoryPath: `${rootPath}/orchestration`
+        })
+      ])
+    ).toBe(true)
+  })
+
   it('ignores repo-scoped orchestration installs', () => {
     expect(
       agentHasOrchestrationSkill('gemini', [
