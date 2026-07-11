@@ -67,6 +67,10 @@
     "quit": "終了",
     "minimizeNotice": {
       "body": "Orcaはシステムトレイで実行中です"
+    },
+    "keepServingNotice": {
+      "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
+      "linux": "Orca is still running and serving remote clients. Run orca again to reopen."
     }
   },
   "worktreeJumpPalette": {
@@ -4994,7 +4998,16 @@
           "windowSidebarSummary": "サイドバー、ステータスバー、ファイルエクスプローラー",
           "statusBarCount": "{{value0}} 個のインジケーターが表示中。",
           "gitIgnoredGlossary": ".gitignore に一致するファイル。",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Choose which indicators appear in the status bar.",
+          "keepServingOnClose": {
+            "title": "Keep Serving on Close",
+            "description": "When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting."
+          },
+          "showTrayIconWhileClosed": {
+            "title": "Show Menu Bar Icon While Closed",
+            "description": "Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.",
+            "launchNote": "Takes effect the next time you launch Orca."
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -7242,8 +7255,6 @@
               "workspaceOptions": "ワークスペースオプション",
               "detailed": "詳細"
             },
-            "9a115966d3": "閉じるときにトレイへ最小化",
-            "4d5b9427b5": "有効にすると、ウィンドウを閉じてもOrcaは終了せず、システムトレイで実行を続けます。",
             "antigravityUsageTitle": "Antigravity の使用状況",
             "antigravityUsageDescription": "ステータスバーに Antigravity サブスクリプションの使用量を表示します。",
             "antigravityKeyword": "antigravity",

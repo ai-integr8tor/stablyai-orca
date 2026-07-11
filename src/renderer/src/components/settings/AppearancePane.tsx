@@ -82,9 +82,11 @@ export function AppearancePane({
   )
   const isSearching = normalizeSettingsSearchQuery(searchQuery).length > 0
   const isWebClient = isWebClientLocation()
-  // Why: the system tray behavior is desktop-Electron Windows-only; a Windows
-  // browser web client has no local tray to control.
-  const isDesktopWindows = getRendererAppPlatform() === 'win32' && !isWebClient
+  // Why: keepServingOnClose controls the desktop host's window on every platform;
+  // a web client has no local window to keep serving. The macOS menu-bar sub-icon
+  // is darwin-only.
+  const isDesktop = !isWebClient
+  const isDesktopMac = getRendererAppPlatform() === 'darwin' && !isWebClient
 
   const [manuallyOpenSection, setManuallyOpenSection] = useState<AppearanceSectionKey | null>(
     'interface'
@@ -134,7 +136,7 @@ export function AppearancePane({
     ...getTypographyEntries(),
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktopWindows })
+    ...getSystemTrayEntries({ showSystemTray: isDesktop })
   ]
   const terminalSearchEntries = [
     { title: terminalTitle },
@@ -207,7 +209,8 @@ export function AppearancePane({
             applyTheme={applyTheme}
             fontSuggestions={fontSuggestions}
             onRequestFontSuggestions={onRequestFontSuggestions}
-            isDesktopWindows={isDesktopWindows}
+            isDesktop={isDesktop}
+            isDesktopMac={isDesktopMac}
             forceVisiblePrimary={interfaceLabelMatches}
           />
         </AppearanceSection>

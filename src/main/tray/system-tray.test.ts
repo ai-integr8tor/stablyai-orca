@@ -6,15 +6,20 @@ const {
   menuFromTemplateMock,
   createAppIconImageMock,
   composeAttentionMock,
-  resizedImage
+  toMacTemplateImageMock,
+  resizedImage,
+  macTemplateImage
 } = vi.hoisted(() => {
-  const resizedImage = { resized: true }
+  const resizedImage = { resized: true, setTemplateImage: vi.fn() }
+  const macTemplateImage = { macTemplate: true }
   return {
     trayInstances: [] as FakeTray[],
     menuFromTemplateMock: vi.fn((template: unknown) => ({ template })),
     createAppIconImageMock: vi.fn(),
     composeAttentionMock: vi.fn((image: unknown) => ({ dotted: image })),
-    resizedImage
+    toMacTemplateImageMock: vi.fn(() => macTemplateImage),
+    resizedImage,
+    macTemplateImage
   }
 })
 
@@ -43,6 +48,10 @@ vi.mock('./tray-attention-icon', () => ({
   composeTrayAttentionIcon: composeAttentionMock
 }))
 
+vi.mock('./mac-template-icon', () => ({
+  toMacTemplateImage: toMacTemplateImageMock
+}))
+
 type TrayModule = typeof SystemTrayModule
 
 const originalPlatform = process.platform
@@ -68,6 +77,8 @@ beforeEach(() => {
   composeAttentionMock.mockClear()
   createAppIconImageMock.mockReset()
   createAppIconImageMock.mockReturnValue({ resize: vi.fn(() => resizedImage) })
+  resizedImage.setTemplateImage.mockClear()
+  toMacTemplateImageMock.mockClear()
 })
 
 afterEach(() => {
@@ -126,8 +137,23 @@ describe('createSystemTray', () => {
     expect(second).toBe(first)
   })
 
-  it('is a no-op on non-win32 platforms', async () => {
+  it('creates a menu-bar tray from a flattened Template image on darwin', async () => {
     setPlatform('darwin')
+    const { createSystemTray } = await loadModule()
+
+    const tray = createSystemTray({ appIcon: 'classic', onOpen: vi.fn(), onQuit: vi.fn() })
+
+    expect(tray).not.toBeNull()
+    expect(trayInstances).toHaveLength(1)
+    // The colored app icon is flattened to a black+alpha Template image so macOS
+    // recolors it for light/dark menu bars, rather than marked template as-is.
+    expect(toMacTemplateImageMock).toHaveBeenCalledWith(resizedImage)
+    expect(trayInstances[0].image).toBe(macTemplateImage)
+    expect(resizedImage.setTemplateImage).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op on linux', async () => {
+    setPlatform('linux')
     const { createSystemTray } = await loadModule()
 
     const tray = createSystemTray({ appIcon: 'classic', onOpen: vi.fn(), onQuit: vi.fn() })
@@ -152,6 +178,21 @@ describe('setTrayAttention', () => {
     tray.setImage.mockClear()
     setTrayAttention(false)
     expect(tray.setImage).toHaveBeenCalledWith(resizedImage)
+  })
+
+  it('composes a Template attention badge on darwin', async () => {
+    setPlatform('darwin')
+    const { createSystemTray, setTrayAttention } = await loadModule()
+    createSystemTray({ appIcon: 'classic', onOpen: vi.fn(), onQuit: vi.fn() })
+    const tray = trayInstances[0]
+    tray.setImage.mockClear()
+
+    setTrayAttention(true)
+
+    // darwin must request the monochrome Template variant off the flattened base
+    // so the menu-bar badge keeps recoloring for light/dark.
+    expect(composeAttentionMock).toHaveBeenCalledWith(macTemplateImage, { template: true })
+    expect(tray.setImage).toHaveBeenCalledWith({ dotted: macTemplateImage })
   })
 
   it('ignores repeated same-state calls', async () => {
@@ -179,8 +220,8 @@ describe('setTrayAttention', () => {
     expect(tray.setImage).toHaveBeenCalledWith({ dotted: resizedImage })
   })
 
-  it('is a safe no-op on non-win32 platforms', async () => {
-    setPlatform('darwin')
+  it('is a safe no-op on linux', async () => {
+    setPlatform('linux')
     const { setTrayAttention } = await loadModule()
 
     expect(() => setTrayAttention(true)).not.toThrow()

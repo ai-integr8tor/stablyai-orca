@@ -67,6 +67,10 @@
     "quit": "종료",
     "minimizeNotice": {
       "body": "Orca가 시스템 트레이에서 계속 실행 중입니다"
+    },
+    "keepServingNotice": {
+      "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
+      "linux": "Orca is still running and serving remote clients. Run orca again to reopen."
     }
   },
   "worktreeJumpPalette": {
@@ -4994,7 +4998,16 @@
           "windowSidebarSummary": "사이드바, 상태 표시줄 및 파일 탐색기",
           "statusBarCount": "{{value0}}개 표시기가 보입니다.",
           "gitIgnoredGlossary": ".gitignore와 일치하는 파일.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Choose which indicators appear in the status bar.",
+          "keepServingOnClose": {
+            "title": "Keep Serving on Close",
+            "description": "When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting."
+          },
+          "showTrayIconWhileClosed": {
+            "title": "Show Menu Bar Icon While Closed",
+            "description": "Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.",
+            "launchNote": "Takes effect the next time you launch Orca."
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -7194,8 +7207,6 @@
               "title": "왼쪽 사이드바 모양",
               "description": "왼쪽 사이드바를 terminal에 맞추거나 기본값을 유지하거나 은은한 색조를 적용합니다."
             },
-            "9a115966d3": "닫을 때 트레이로 최소화",
-            "4d5b9427b5": "활성화하면 창을 닫아도 Orca가 종료되지 않고 시스템 트레이에서 계속 실행됩니다.",
             "workspaceCardLayout": {
               "title": "워크스페이스 카드 레이아웃",
               "description": "워크스페이스 카드는 컴팩트 또는 상세 레이아웃을 사용할 수 있습니다.",

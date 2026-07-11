@@ -37,7 +37,8 @@ type AppearanceInterfaceSectionProps = {
   updateSettings: (updates: Partial<GlobalSettings>) => void
   applyTheme: (theme: 'system' | 'dark' | 'light') => void
   fontSuggestions: string[]
-  isDesktopWindows: boolean
+  isDesktop: boolean
+  isDesktopMac: boolean
   onRequestFontSuggestions?: () => void
   forceVisiblePrimary?: boolean
 }
@@ -47,7 +48,8 @@ export function AppearanceInterfaceSection({
   updateSettings,
   applyTheme,
   fontSuggestions,
-  isDesktopWindows,
+  isDesktop,
+  isDesktopMac,
   onRequestFontSuggestions,
   forceVisiblePrimary = false
 }: AppearanceInterfaceSectionProps): React.JSX.Element {
@@ -65,7 +67,7 @@ export function AppearanceInterfaceSection({
   const advancedEntries = [
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktopWindows })
+    ...getSystemTrayEntries({ showSystemTray: isDesktop })
   ]
   const showAdvanced = !isSearching || matchesSettingsSearch(searchQuery, advancedEntries)
 
@@ -209,29 +211,64 @@ export function AppearanceInterfaceSection({
               />
             </SearchableSetting>
 
-            {isDesktopWindows ? (
+            {isDesktop ? (
               <SearchableSetting
                 title={translate(
-                  'auto.components.settings.AppearancePane.2edf606c46',
-                  'Minimize to Tray on Close'
+                  'auto.components.settings.AppearancePane.keepServingOnClose.title',
+                  'Keep Serving on Close'
                 )}
                 description={systemTrayEntry?.description}
-                keywords={systemTrayEntry?.keywords ?? ['tray', 'minimize', 'close']}
+                keywords={systemTrayEntry?.keywords ?? ['tray', 'serving', 'remote', 'close']}
               >
                 <SettingsSwitchRow
                   label={translate(
-                    'auto.components.settings.AppearancePane.2edf606c46',
-                    'Minimize to Tray on Close'
+                    'auto.components.settings.AppearancePane.keepServingOnClose.title',
+                    'Keep Serving on Close'
                   )}
-                  // Why: platform constraint + "close keeps Orca running" consequence are
-                  // both non-obvious from the label alone.
+                  // Why: the "close keeps Orca serving remote clients" consequence is
+                  // not obvious from the label alone.
                   description={translate(
-                    'auto.components.settings.AppearancePane.b707773a0d',
-                    'When enabled, closing the window keeps Orca running in the system tray instead of quitting.'
+                    'auto.components.settings.AppearancePane.keepServingOnClose.description',
+                    'When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting.'
                   )}
-                  checked={settings.minimizeToTrayOnClose === true}
+                  checked={settings.keepServingOnClose === true}
                   onChange={() =>
-                    updateSettings({ minimizeToTrayOnClose: !settings.minimizeToTrayOnClose })
+                    updateSettings({ keepServingOnClose: !settings.keepServingOnClose })
+                  }
+                />
+              </SearchableSetting>
+            ) : null}
+
+            {/* Why: macOS-only sub-setting of keepServingOnClose; the Dock always
+                restores the window, so the menu-bar icon is opt-in. Windows always
+                shows its tray; Linux has none. */}
+            {isDesktopMac && settings.keepServingOnClose === true ? (
+              <SearchableSetting
+                title={translate(
+                  'auto.components.settings.AppearancePane.showTrayIconWhileClosed.title',
+                  'Show Menu Bar Icon While Closed'
+                )}
+                keywords={['menu bar', 'tray', 'icon', 'macos']}
+              >
+                <SettingsSwitchRow
+                  label={translate(
+                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.title',
+                    'Show Menu Bar Icon While Closed'
+                  )}
+                  // Why: the menu-bar icon is created at launch only (see the
+                  // deferred-tray gate), so the toggle can't add/remove it live.
+                  description={`${translate(
+                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.description',
+                    'Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.'
+                  )} ${translate(
+                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.launchNote',
+                    'Takes effect the next time you launch Orca.'
+                  )}`}
+                  checked={settings.showTrayIconWhileClosed === true}
+                  onChange={() =>
+                    updateSettings({
+                      showTrayIconWhileClosed: !settings.showTrayIconWhileClosed
+                    })
                   }
                 />
               </SearchableSetting>

@@ -4,6 +4,7 @@ const createFromBitmapMock = vi.hoisted(() =>
   vi.fn((buffer: Buffer, options: { width: number; height: number }) => ({
     __image: true,
     buffer,
+    setTemplateImage: vi.fn(),
     ...options
   }))
 )
@@ -84,5 +85,34 @@ describe('composeTrayAttentionIcon', () => {
     expect(sumX / amberCount).toBeGreaterThan(width / 2) // centroid sits right of center
     expect(sumY / amberCount).toBeLessThan(height / 2) // centroid sits above center
     expect(paintedInBottomLeft).toBe(0) // the opposite corner is never touched
+  })
+
+  it('paints a monochrome Template badge when template is requested', () => {
+    createFromBitmapMock.mockClear()
+    const width = 16
+    const height = 16
+    const result = composeTrayAttentionIcon(fakeBase(width, height) as never, { template: true })
+    const bitmap = createFromBitmapMock.mock.calls[0][0]
+
+    let dotCount = 0
+    for (let offset = 0; offset < bitmap.length; offset += 4) {
+      const [b, g, r, a] = [
+        bitmap[offset],
+        bitmap[offset + 1],
+        bitmap[offset + 2],
+        bitmap[offset + 3]
+      ]
+      if (a === 0xff) {
+        dotCount++
+        // The macOS badge must be pure black so the menu bar recolors it cleanly.
+        expect([b, g, r]).toEqual([0, 0, 0])
+      }
+    }
+
+    expect(dotCount).toBeGreaterThan(0)
+    // The composite must stay a Template image so macOS keeps recoloring it.
+    expect(
+      (result as unknown as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage
+    ).toHaveBeenCalledWith(true)
   })
 })

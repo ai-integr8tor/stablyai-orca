@@ -67,6 +67,10 @@
     "quit": "Quit",
     "minimizeNotice": {
       "body": "Orca is still running in the system tray"
+    },
+    "keepServingNotice": {
+      "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
+      "linux": "Orca is still running and serving remote clients. Run orca again to reopen."
     }
   },
   "worktreeJumpPalette": {
@@ -5009,7 +5013,16 @@
           "windowSidebarSummary": "Sidebar, status bar, and file explorer",
           "statusBarCount": "{{value0}} indicators visible.",
           "gitIgnoredGlossary": "Files matched by .gitignore.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Choose which indicators appear in the status bar.",
+          "keepServingOnClose": {
+            "title": "Keep Serving on Close",
+            "description": "When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting."
+          },
+          "showTrayIconWhileClosed": {
+            "title": "Show Menu Bar Icon While Closed",
+            "description": "Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.",
+            "launchNote": "Takes effect the next time you launch Orca."
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -7128,8 +7141,6 @@
         },
         "appearance": {
           "search": {
-            "9a115966d3": "Minimize to Tray on Close",
-            "4d5b9427b5": "When enabled, closing the window keeps Orca running in the system tray instead of quitting.",
             "468448bba4": "watercolor",
             "f586abfa35": "blue",
             "651f35b2c6": "switcher",

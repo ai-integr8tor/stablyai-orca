@@ -67,6 +67,10 @@
     "quit": "退出",
     "minimizeNotice": {
       "body": "Orca 仍在系统托盘中运行"
+    },
+    "keepServingNotice": {
+      "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
+      "linux": "Orca is still running and serving remote clients. Run orca again to reopen."
     }
   },
   "worktreeJumpPalette": {
@@ -4994,7 +4998,16 @@
           "windowSidebarSummary": "侧边栏、状态栏和文件浏览器",
           "statusBarCount": "显示 {{value0}} 个指示器。",
           "gitIgnoredGlossary": "与 .gitignore 匹配的文件。",
-          "statusBarDescription": "选择状态栏中显示哪些指示器。"
+          "statusBarDescription": "选择状态栏中显示哪些指示器。",
+          "keepServingOnClose": {
+            "title": "Keep Serving on Close",
+            "description": "When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting."
+          },
+          "showTrayIconWhileClosed": {
+            "title": "Show Menu Bar Icon While Closed",
+            "description": "Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.",
+            "launchNote": "Takes effect the next time you launch Orca."
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -7205,8 +7218,6 @@
               "workspaceOptions": "工作区选项",
               "detailed": "详细"
             },
-            "9a115966d3": "关闭时最小化到托盘",
-            "4d5b9427b5": "启用后，关闭窗口会让 Orca 继续在系统托盘中运行，而不是退出。",
             "antigravityUsageTitle": "Antigravity 使用量",
             "antigravityUsageDescription": "在状态栏中显示 Antigravity 订阅使用量。",
             "antigravityKeyword": "antigravity",

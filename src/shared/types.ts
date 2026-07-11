@@ -2585,10 +2585,18 @@ export type GlobalSettings = {
   terminalCursorOpacity?: number
   terminalQuickCommands?: TerminalQuickCommand[]
   windowBackgroundBlur?: boolean
-  /** Why: Windows-only. When on, the close (X) button hides the window to the
-   *  system tray instead of quitting Orca; off keeps the default quit-on-close.
-   *  The tray icon itself is always present on Windows regardless of this flag. */
+  /** Why: Windows-only legacy alias of keepServingOnClose. Kept so existing
+   *  Windows users' stored preference still applies; new writes mirror
+   *  keepServingOnClose. The Windows tray icon is always present regardless. */
   minimizeToTrayOnClose?: boolean
+  /** Why: all platforms. When on, closing the main window HIDES it (the renderer
+   *  stays alive so remote/mobile/SSH clients keep full functionality) instead
+   *  of quitting or tearing down the graph. Cmd+Q / app quit still quit. */
+  keepServingOnClose?: boolean
+  /** Why: macOS-only sub-setting. When on (with keepServingOnClose), Orca shows a
+   *  menu-bar icon while the window is hidden so it can be restored or quit.
+   *  Windows always shows its tray; Linux has no tray. */
+  showTrayIconWhileClosed?: boolean
   /** Why: Windows terminals conventionally use right-click as a paste gesture,
    *  while macOS/Linux default to their existing context menu behavior. */
   terminalRightClickToPaste: boolean

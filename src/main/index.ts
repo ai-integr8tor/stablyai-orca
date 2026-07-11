@@ -113,6 +113,8 @@ import {
 } from './window/attach-main-window-services'
 import { createMainWindow, loadMainWindow } from './window/createMainWindow'
 import { createSystemTray, destroySystemTray, setTrayAttention } from './tray/system-tray'
+import { shouldCreateDeferredTray } from './tray/deferred-tray-policy'
+import { decideActivateWindowAction } from './window/activate-window-policy'
 import { focusExistingMainWindow } from './window/focus-existing-window'
 import { notifyMainWindowBecameVisible } from './window/main-window-visibility'
 import { CodexAccountService } from './codex-accounts/service'
@@ -882,10 +884,22 @@ function openMainWindow(): BrowserWindow {
     if (trayCreated || window.isDestroyed() || isQuitting || !store) {
       return
     }
+    // Why: Windows always shows a tray; macOS only when the user opted into the
+    // menu-bar icon (keepServingOnClose + showTrayIconWhileClosed); Linux relies
+    // on createSystemTray no-opping there.
+    const traySettings = store.getSettings()
+    if (
+      !shouldCreateDeferredTray({
+        platform: process.platform,
+        keepServingOnClose: traySettings.keepServingOnClose === true,
+        showTrayIconWhileClosed: traySettings.showTrayIconWhileClosed === true
+      })
+    ) {
+      return
+    }
     trayCreated = true
-    // Why: Windows-only system tray. createSystemTray is idempotent and a
-    // no-op off win32, so calling it on each window open keeps exactly one
-    // live icon.
+    // Why: createSystemTray is idempotent, so calling it on each window open
+    // keeps exactly one live icon.
     createSystemTray({
       appIcon: store.getSettings().appIcon,
       onOpen: showMainWindowFromTray,
@@ -2214,11 +2228,26 @@ app.whenReady().then(async () => {
   })
 
   app.on('activate', () => {
-    // Don't re-open a window while Squirrel's ShipIt is replacing the .app
-    // bundle.  Without this guard the old version gets resurrected and the
-    // update never applies.
-    if (BrowserWindow.getAllWindows().length === 0 && !isQuittingForUpdate()) {
-      openMainWindow()
+    // Why: routing through the pure policy locks in the Dock-click restore for a
+    // hidden keepServingOnClose window (a revert to length===0-only would ship
+    // green otherwise). showMainWindowFromTray shows+focuses an existing window;
+    // openMainWindow only runs when everything was torn down. The isQuittingForUpdate
+    // gate keeps Squirrel's ShipIt bundle swap from resurrecting the old version.
+    switch (
+      decideActivateWindowAction({
+        isQuittingForUpdate: isQuittingForUpdate(),
+        hasLiveMainWindow: mainWindow != null && !mainWindow.isDestroyed(),
+        openWindowCount: BrowserWindow.getAllWindows().length
+      })
+    ) {
+      case 'show-existing':
+        showMainWindowFromTray()
+        break
+      case 'open-new':
+        openMainWindow()
+        break
+      case 'none':
+        break
     }
   })
 })

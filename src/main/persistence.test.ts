@@ -648,6 +648,69 @@ describe('Store', () => {
     expect(store.getSettings().minimizeToTrayOnClose).toBe(false)
   })
 
+  it('defaults keepServingOnClose and showTrayIconWhileClosed to false when unset', async () => {
+    const store = await createStore()
+    expect(store.getSettings().keepServingOnClose).toBe(false)
+    expect(store.getSettings().showTrayIconWhileClosed).toBe(false)
+  })
+
+  it('migrates a legacy minimizeToTrayOnClose=true into keepServingOnClose on load', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        minimizeToTrayOnClose: true
+      }
+    })
+
+    const store = await createStore()
+
+    expect(store.getSettings().keepServingOnClose).toBe(true)
+  })
+
+  it('keeps keepServingOnClose disabled when a conflicted on-disk pair is loaded', async () => {
+    // A stored explicit false must win over a stale legacy alias — otherwise the
+    // preference would re-enable itself on every launch.
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        keepServingOnClose: false,
+        minimizeToTrayOnClose: true
+      }
+    })
+
+    const store = await createStore()
+
+    expect(store.getSettings().keepServingOnClose).toBe(false)
+  })
+
+  it('mirrors keepServingOnClose into the legacy minimizeToTrayOnClose alias', async () => {
+    const store = await createStore()
+    store.updateSettings({ keepServingOnClose: true })
+    expect(store.getSettings().keepServingOnClose).toBe(true)
+    expect(store.getSettings().minimizeToTrayOnClose).toBe(true)
+    store.updateSettings({ keepServingOnClose: false })
+    expect(store.getSettings().keepServingOnClose).toBe(false)
+    expect(store.getSettings().minimizeToTrayOnClose).toBe(false)
+  })
+
+  it('clears keepServingOnClose when the legacy minimizeToTrayOnClose alias is turned off', async () => {
+    const store = await createStore()
+    store.updateSettings({ keepServingOnClose: true })
+    expect(store.getSettings().keepServingOnClose).toBe(true)
+    // A bare legacy write must not leave keepServingOnClose stuck on.
+    store.updateSettings({ minimizeToTrayOnClose: false })
+    expect(store.getSettings().minimizeToTrayOnClose).toBe(false)
+    expect(store.getSettings().keepServingOnClose).toBe(false)
+  })
+
+  it('coerces non-boolean keepServingOnClose and showTrayIconWhileClosed payloads', async () => {
+    const store = await createStore()
+    store.updateSettings({ keepServingOnClose: 'true' as unknown as boolean })
+    expect(store.getSettings().keepServingOnClose).toBe(false)
+    store.updateSettings({ showTrayIconWhileClosed: 1 as unknown as boolean })
+    expect(store.getSettings().showTrayIconWhileClosed).toBe(false)
+  })
+
   it('defaults trayMinimizeNoticeShown to false and persists it strictly', async () => {
     const store = await createStore()
     expect(store.getUI().trayMinimizeNoticeShown).toBe(false)

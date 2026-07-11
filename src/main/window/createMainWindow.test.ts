@@ -3077,7 +3077,7 @@ describe('createMainWindow', () => {
     })
   })
 
-  describe('minimize to tray on close (win32)', () => {
+  describe('keep serving on close (all platforms)', () => {
     const originalPlatform = process.platform
 
     function setPlatform(platform: NodeJS.Platform): void {
@@ -3127,10 +3127,18 @@ describe('createMainWindow', () => {
       return { windowHandlers, webContents, instance }
     }
 
-    function makeStore(minimizeToTrayOnClose: boolean, trayMinimizeNoticeShown: boolean) {
+    function makeStore(
+      minimizeToTrayOnClose: boolean,
+      trayMinimizeNoticeShown: boolean,
+      keepServingOnClose = false
+    ) {
       return {
         getUI: vi.fn(() => ({ trayMinimizeNoticeShown })),
-        getSettings: vi.fn(() => ({ windowBackgroundBlur: false, minimizeToTrayOnClose })),
+        getSettings: vi.fn(() => ({
+          windowBackgroundBlur: false,
+          minimizeToTrayOnClose,
+          keepServingOnClose
+        })),
         updateUI: vi.fn()
       }
     }
@@ -3142,7 +3150,7 @@ describe('createMainWindow', () => {
     it('hides to the tray instead of closing when the setting is on', () => {
       setPlatform('win32')
       const { windowHandlers, webContents, instance } = setupCloseWindow()
-      const store = makeStore(true, true)
+      const store = makeStore(true, true, true)
 
       createMainWindow(store as never, { getIsQuitting: () => false })
       const preventDefault = vi.fn()
@@ -3153,6 +3161,35 @@ describe('createMainWindow', () => {
       expect(webContents.send).not.toHaveBeenCalledWith('window:close-requested', expect.anything())
       // Notice already shown, so it must not fire again.
       expect(notificationMock).not.toHaveBeenCalled()
+    })
+
+    it('hides on win32 with only keepServingOnClose set (legacy alias off)', () => {
+      setPlatform('win32')
+      const { windowHandlers, instance } = setupCloseWindow()
+      // Canonical flag on, legacy minimizeToTrayOnClose off — the guard reads the
+      // canonical flag only, so this must still hide.
+      const store = makeStore(false, true, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(instance.hide).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not hide when keepServingOnClose is false even if the legacy alias is stuck on', () => {
+      setPlatform('win32')
+      const { windowHandlers, webContents, instance } = setupCloseWindow()
+      // A desynced on-disk pair the load migration can produce for legacy data;
+      // the explicit canonical false must win over the stale alias.
+      const store = makeStore(true, true, false)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(instance.hide).not.toHaveBeenCalled()
+      expect(webContents.send).toHaveBeenCalledWith('window:close-requested', {
+        isQuitting: false
+      })
     })
 
     it('keeps the normal close flow when the setting is off', () => {
@@ -3205,7 +3242,7 @@ describe('createMainWindow', () => {
     it('shows the first-run notification once and persists the flag', () => {
       setPlatform('win32')
       const { windowHandlers } = setupCloseWindow()
-      const store = makeStore(true, false)
+      const store = makeStore(true, false, true)
 
       createMainWindow(store as never, { getIsQuitting: () => false })
       windowHandlers.close({ preventDefault: vi.fn() } as never)
@@ -3215,10 +3252,63 @@ describe('createMainWindow', () => {
       expect(store.updateUI).toHaveBeenCalledWith({ trayMinimizeNoticeShown: true })
     })
 
-    it('leaves the close handler unchanged off win32', () => {
+    it('hides on darwin when keepServingOnClose is on', () => {
       setPlatform('darwin')
       const { windowHandlers, webContents, instance } = setupCloseWindow()
-      const store = makeStore(true, true)
+      const store = makeStore(false, true, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      const preventDefault = vi.fn()
+      windowHandlers.close({ preventDefault } as never)
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect(instance.hide).toHaveBeenCalledTimes(1)
+      expect(webContents.send).not.toHaveBeenCalledWith('window:close-requested', expect.anything())
+    })
+
+    it('hides on linux when keepServingOnClose is on', () => {
+      setPlatform('linux')
+      const { windowHandlers, webContents, instance } = setupCloseWindow()
+      const store = makeStore(false, true, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(instance.hide).toHaveBeenCalledTimes(1)
+      expect(webContents.send).not.toHaveBeenCalledWith('window:close-requested', expect.anything())
+    })
+
+    it('does not hide on darwin when only the legacy alias is set (canonical off)', () => {
+      setPlatform('darwin')
+      const { windowHandlers, instance } = setupCloseWindow()
+      // The window layer trusts the canonical keepServingOnClose flag; the legacy
+      // alias reaches the hide path only through persistence load-migration.
+      const store = makeStore(true, true, false)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(instance.hide).not.toHaveBeenCalled()
+    })
+
+    it('does not hide on darwin during a real quit even with keepServingOnClose on', () => {
+      setPlatform('darwin')
+      const { windowHandlers, webContents, instance } = setupCloseWindow()
+      const store = makeStore(false, true, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => true })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(instance.hide).not.toHaveBeenCalled()
+      expect(webContents.send).toHaveBeenCalledWith('window:close-requested', {
+        isQuitting: true
+      })
+    })
+
+    it('keeps the normal close flow on darwin when neither setting is on', () => {
+      setPlatform('darwin')
+      const { windowHandlers, webContents, instance } = setupCloseWindow()
+      const store = makeStore(false, true, false)
 
       createMainWindow(store as never, { getIsQuitting: () => false })
       windowHandlers.close({ preventDefault: vi.fn() } as never)
@@ -3245,7 +3335,20 @@ describe('createMainWindow', () => {
       setPlatform('win32')
       const ipcHandlers = captureIpcHandlers()
       const { webContents, instance } = setupCloseWindow()
-      const store = makeStore(true, true)
+      const store = makeStore(true, true, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      ipcHandlers['window:request-close']?.()
+
+      expect(instance.hide).toHaveBeenCalledTimes(1)
+      expect(webContents.send).not.toHaveBeenCalledWith('window:close-requested', expect.anything())
+    })
+
+    it('hides on linux when the renderer-drawn X requests close', () => {
+      setPlatform('linux')
+      const ipcHandlers = captureIpcHandlers()
+      const { webContents, instance } = setupCloseWindow()
+      const store = makeStore(false, true, true)
 
       createMainWindow(store as never, { getIsQuitting: () => false })
       ipcHandlers['window:request-close']?.()

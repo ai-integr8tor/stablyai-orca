@@ -3182,6 +3182,17 @@ export class Store {
             // Why: persisted settings can be user-edited or written by older
             // builds; keep tray-minimize false unless the stored value is true.
             minimizeToTrayOnClose: parsed.settings?.minimizeToTrayOnClose === true,
+            // Why: keepServingOnClose is the canonical hide-on-close flag and the
+            // Windows-only minimizeToTrayOnClose is its legacy alias. Derive from
+            // the legacy flag ONLY when keepServingOnClose is absent from disk — a
+            // stored explicit false must win over a stale alias, so a desynced pair
+            // ({keepServingOnClose:false, minimizeToTrayOnClose:true}) can't
+            // re-enable a disabled preference on every launch.
+            keepServingOnClose:
+              parsed.settings?.keepServingOnClose === undefined
+                ? parsed.settings?.minimizeToTrayOnClose === true
+                : parsed.settings?.keepServingOnClose === true,
+            showTrayIconWhileClosed: parsed.settings?.showTrayIconWhileClosed === true,
             uiLanguage: normalizeUiLanguage(parsed.settings?.uiLanguage),
             defaultTaskSource: taskProviderSettings.defaultTaskSource,
             visibleTaskProviders: taskProviderSettings.visibleTaskProviders,
@@ -5214,7 +5225,21 @@ export class Store {
     // path is covered and a non-bool renderer payload can never persist a
     // truthy non-bool that later reads as "tray-minimize on".
     if ('minimizeToTrayOnClose' in updates) {
-      sanitizedUpdates.minimizeToTrayOnClose = updates.minimizeToTrayOnClose === true
+      const enabled = updates.minimizeToTrayOnClose === true
+      sanitizedUpdates.minimizeToTrayOnClose = enabled
+      // Why: mirror the new flag so a bare legacy write can never leave the
+      // load-time OR migration stuck re-enabling a preference the user cleared.
+      sanitizedUpdates.keepServingOnClose = enabled
+    }
+    if ('keepServingOnClose' in updates) {
+      const enabled = updates.keepServingOnClose === true
+      sanitizedUpdates.keepServingOnClose = enabled
+      // Why: mirror the legacy alias so the load-time OR migration stays stable
+      // (a stale minimizeToTrayOnClose can't re-enable a disabled preference).
+      sanitizedUpdates.minimizeToTrayOnClose = enabled
+    }
+    if ('showTrayIconWhileClosed' in updates) {
+      sanitizedUpdates.showTrayIconWhileClosed = updates.showTrayIconWhileClosed === true
     }
     if ('disabledTuiAgents' in updates) {
       sanitizedUpdates.disabledTuiAgents = normalizeDisabledTuiAgents(updates.disabledTuiAgents)

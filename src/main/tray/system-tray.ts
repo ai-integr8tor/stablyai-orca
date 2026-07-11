@@ -2,6 +2,7 @@ import { Menu, Tray, type NativeImage } from 'electron'
 import { createAppIconImage } from '../app-icon'
 import { translateMain } from '../i18n/main-i18n'
 import { composeTrayAttentionIcon } from './tray-attention-icon'
+import { toMacTemplateImage } from './mac-template-icon'
 
 type SystemTrayOptions = {
   /** App icon id from settings; the tray reuses the app icon image. */
@@ -35,25 +36,39 @@ function applyTrayImage(): void {
   if (!tray || tray.isDestroyed() || !baseTrayImage) {
     return
   }
-  tray.setImage(attentionActive ? composeTrayAttentionIcon(baseTrayImage) : baseTrayImage)
+  if (!attentionActive) {
+    tray.setImage(baseTrayImage)
+    return
+  }
+  // Why: darwin needs a monochrome Template composite so the menu-bar icon keeps
+  // adapting to light/dark; Windows keeps the full-color amber badge unchanged.
+  tray.setImage(
+    process.platform === 'darwin'
+      ? composeTrayAttentionIcon(baseTrayImage, { template: true })
+      : composeTrayAttentionIcon(baseTrayImage)
+  )
 }
 
 /**
- * Creates the Windows system tray icon. No-op on macOS/Linux. Idempotent: a
- * second call while a tray is alive returns the existing one instead of
- * stacking a duplicate ghost icon.
+ * Creates the system tray / menu-bar icon. Windows always; macOS uses a
+ * Template image (alpha-only) so the OS recolors it for light/dark menu bars.
+ * No-op on Linux. Idempotent: a second call while a tray is alive returns the
+ * existing one instead of stacking a duplicate ghost icon.
  */
 export function createSystemTray(opts: SystemTrayOptions): Tray | null {
-  if (process.platform !== 'win32') {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
     return null
   }
   if (tray && !tray.isDestroyed()) {
     return tray
   }
-  baseTrayImage = createAppIconImage(opts.appIcon).resize({
+  const resizedIcon = createAppIconImage(opts.appIcon).resize({
     width: TRAY_ICON_SIZE,
     height: TRAY_ICON_SIZE
   })
+  // Why: a macOS menu-bar icon must be a black+alpha Template image so the OS
+  // recolors it for light/dark menu bars; Windows keeps the full-color glyph.
+  baseTrayImage = process.platform === 'darwin' ? toMacTemplateImage(resizedIcon) : resizedIcon
   tray = new Tray(baseTrayImage)
   // Why: reflect any attention event that fired before the tray existed.
   applyTrayImage()
@@ -71,10 +86,12 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
 }
 
 /**
- * Shows or hides a red/amber attention dot on the tray icon. Call with `true`
- * when a terminal bell or agent completion fires while the window is
- * minimized/hidden, and `false` once the window is shown again. No-op on
- * macOS/Linux (no tray) and safe to call before the tray is created.
+ * Shows or hides an attention badge on the tray icon (amber dot on Windows, a
+ * Template-safe black dot on the macOS menu bar). Call with `true` when a
+ * terminal bell or agent completion fires while the window is minimized/hidden,
+ * and `false` once the window is shown again. A no-op on Linux (never has a
+ * tray) and whenever the tray hasn't been created (the macOS menu-bar icon is
+ * opt-in); safe to call before the tray exists.
  */
 export function setTrayAttention(active: boolean): void {
   if (attentionActive === active) {

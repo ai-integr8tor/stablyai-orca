@@ -97,6 +97,25 @@ function syncTrafficLightPosition(win: BrowserWindow, zoomFactor: number): void 
   win.setWindowButtonPosition({ x: TRAFFIC_LIGHT_X, y })
 }
 
+// Why: the hide-on-close notice must name the correct restore path per platform
+// (Dock on macOS, tray on Windows, re-running orca on Linux) instead of the
+// old Windows-only "system tray" wording.
+function keepServingNoticeBody(): string {
+  if (process.platform === 'darwin') {
+    return translateMain(
+      'tray.keepServingNotice.macos',
+      'Orca is still running and serving remote clients. Reopen it from the Dock.'
+    )
+  }
+  if (process.platform === 'win32') {
+    return translateMain('tray.minimizeNotice.body', 'Orca is still running in the system tray')
+  }
+  return translateMain(
+    'tray.keepServingNotice.linux',
+    'Orca is still running and serving remote clients. Run orca again to reopen.'
+  )
+}
+
 type CreateMainWindowOptions = {
   /** Returns true when a manual app.quit() (Cmd+Q) is in progress. The close
    *  handler sends this to the renderer so it can skip the running-process
@@ -1024,34 +1043,32 @@ export function createMainWindow(
   let windowCloseConfirmed = false
   const confirmCloseChannel = 'window:confirm-close'
 
-  // Why: Windows minimize-to-tray. Hides the window instead of closing when the
-  // setting is on, this isn't a real quit (Ctrl+Q / tray "Quit" set
-  // getIsQuitting), and the renderer is alive. Returns true when it handled the
-  // close by hiding, so callers skip their normal close path. Shared by BOTH the
-  // renderer-drawn X (window:request-close) and the native close event (Alt+F4).
+  // Why: keepServingOnClose (all platforms) HIDES the window instead of closing
+  // so the renderer stays alive and remote/SSH clients keep working. It reads the
+  // canonical flag only — persistence load-migration + updateSettings mirroring
+  // keep it authoritative over the legacy minimizeToTrayOnClose alias, so a stored
+  // explicit false wins even if the alias is stale. Skipped on a real quit (Cmd+Q /
+  // tray "Quit" set getIsQuitting) and when the renderer is gone/crashed. Returns
+  // true when it handled the close by hiding, so callers skip their normal close
+  // path. Shared by BOTH the renderer-drawn X (window:request-close) and the native
+  // close event (Alt+F4 / macOS traffic light).
   const hideToTrayIfEnabled = (): boolean => {
     const isRendererCrashed = mainWindow.webContents.isCrashed?.() ?? false
+    const settings = store?.getSettings()
     if (
-      process.platform !== 'win32' ||
       rendererProcessGone ||
       isRendererCrashed ||
       opts?.getIsQuitting?.() === true ||
-      store?.getSettings().minimizeToTrayOnClose !== true
+      settings?.keepServingOnClose !== true
     ) {
       return false
     }
     mainWindow.hide()
     // Why: tell the user once that closing only hid the window; the persisted
-    // flag stops the notice from repeating on every later minimize.
-    if (store.getUI().trayMinimizeNoticeShown !== true) {
+    // flag stops the notice from repeating on every later close.
+    if (store && store.getUI().trayMinimizeNoticeShown !== true) {
       try {
-        new Notification({
-          title: 'Orca',
-          body: translateMain(
-            'tray.minimizeNotice.body',
-            'Orca is still running in the system tray'
-          )
-        }).show()
+        new Notification({ title: 'Orca', body: keepServingNoticeBody() }).show()
       } catch {
         // Notification is best-effort — never block hiding the window.
       }
