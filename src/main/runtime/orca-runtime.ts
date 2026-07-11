@@ -749,6 +749,7 @@ import {
 } from '../speech/speech-model-deletion'
 import type { CommitMessageAgentEnvironmentResolvers } from '../text-generation/commit-message-agent-environment'
 import { scanNestedRepos } from '../project-groups/nested-repo-discovery'
+import { persistWorktreeSortOrder } from '../worktree-sort-order-persistence'
 import {
   createNestedProjectGroupResolver,
   resolveNestedRepoSelection
@@ -16328,11 +16329,9 @@ export class OrcaRuntimeService {
     if (!this.store) {
       throw new Error('runtime_unavailable')
     }
-    const now = Date.now()
-    let updated = 0
-    for (let i = 0; i < orderedIds.length; i++) {
-      this.store.setWorktreeMeta(orderedIds[i], { sortOrder: now - i * 1000 })
-      updated++
+    const updated = persistWorktreeSortOrder(this.store, orderedIds)
+    if (updated === 0) {
+      return { updated: 0 }
     }
     this.invalidateResolvedWorktreeCache()
     this.notifyReposChanged()
