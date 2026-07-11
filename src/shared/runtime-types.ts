@@ -547,6 +547,7 @@ export type RuntimeTerminalWaitBlockedReason =
   | 'codex-cwd-prompt'
   | 'codex-model-migration-prompt'
   | 'codex-hooks-review-prompt'
+  | 'agent-command-not-found'
   | 'codex-interactive-prompt'
 
 export type RuntimeTerminalWait = {

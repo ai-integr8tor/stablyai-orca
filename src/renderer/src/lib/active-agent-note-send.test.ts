@@ -433,6 +433,55 @@ describe('active agent note send', () => {
     ).resolves.toEqual({ status: 'permission' })
   })
 
+  it('maps command-not-found wait blocks to agent-command-not-found', async () => {
+    const methods: string[] = []
+    testState.callRuntimeRpc.mockImplementation(async (_target, method) => {
+      methods.push(method)
+      if (method === 'terminal.list') {
+        return {
+          terminals: [
+            {
+              handle: 'term-1',
+              worktreeId: 'wt-1',
+              worktreePath: '/repo',
+              branch: 'main',
+              tabId: 'tab-1',
+              leafId: LEAF_ID,
+              title: 'Codex',
+              connected: true,
+              writable: true,
+              lastOutputAt: 1,
+              preview: ''
+            }
+          ],
+          totalCount: 1,
+          truncated: false
+        }
+      }
+      if (method === 'terminal.agentStatus') {
+        return { agentStatus: { handle: 'term-1', isRunningAgent: true, status: 'idle' } }
+      }
+      if (method === 'terminal.wait') {
+        return {
+          wait: {
+            handle: 'term-1',
+            condition: 'tui-idle',
+            satisfied: false,
+            status: 'running',
+            exitCode: null,
+            blockedReason: 'agent-command-not-found'
+          }
+        }
+      }
+      throw new Error(`unexpected method ${method}`)
+    })
+
+    await expect(
+      sendNotesToActiveAgentSession({ worktreeId: 'wt-1', prompt: 'notes' })
+    ).resolves.toEqual({ status: 'agent-command-not-found' })
+    expect(methods).toEqual(['terminal.list', 'terminal.agentStatus', 'terminal.wait'])
+  })
+
   it('keeps active-focused sends compatible when an older runtime lacks agentStatus', async () => {
     const methods: string[] = []
     testState.callRuntimeRpc.mockImplementation(async (_target, method, params) => {
@@ -1310,6 +1359,12 @@ describe('active agent note send', () => {
     )
     expect(activeAgentNotesSendFailureMessage('permission')).toBe(
       'The active agent needs permission.'
+    )
+    expect(
+      activeAgentNotesSendFailureMessage('agent-command-not-found', { explicitTarget: true })
+    ).toBe('The selected agent CLI is not installed or was not found.')
+    expect(activeAgentNotesSendFailureMessage('agent-command-not-found')).toBe(
+      'The active agent CLI is not installed or was not found.'
     )
     expect(activeAgentNotesSendFailureMessage('status-unavailable', { explicitTarget: true })).toBe(
       'The selected agent status could not be verified.'

@@ -102,6 +102,9 @@ export async function sendNotesToActiveAgentSession({
       return { status: 'no-active-terminal' }
     }
     if (wait.blockedReason) {
+      if (wait.blockedReason === 'agent-command-not-found') {
+        return { status: 'agent-command-not-found' }
+      }
       return { status: 'permission' }
     }
     if (!wait.satisfied) {
