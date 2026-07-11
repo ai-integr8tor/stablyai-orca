@@ -915,7 +915,7 @@ function cursorBusyScreen(): string {
 class InMemoryOrchestrationMessages {
   private sequence = 0
 
-  private activeCoordinatorRun: { coordinator_handle: string } | null = null
+  private activeCoordinatorRuns: { coordinator_handle: string }[] = []
 
   private messages: MessageRow[] = []
 
@@ -928,6 +928,7 @@ class InMemoryOrchestrationMessages {
     priority?: MessagePriority
     threadId?: string
     payload?: string
+    workspaceKey?: string | null
   }): MessageRow {
     this.sequence += 1
     const row: MessageRow = {
@@ -943,7 +944,8 @@ class InMemoryOrchestrationMessages {
       read: 0,
       sequence: this.sequence,
       created_at: '1970-01-01 00:00:00',
-      delivered_at: null
+      delivered_at: null,
+      workspace_key: msg.workspaceKey ?? null
     }
     this.messages.push(row)
     return row
@@ -965,11 +967,19 @@ class InMemoryOrchestrationMessages {
   }
 
   setActiveCoordinatorRun(run: { coordinator_handle: string } | null): void {
-    this.activeCoordinatorRun = run
+    this.activeCoordinatorRuns = run ? [run] : []
+  }
+
+  setActiveCoordinatorRuns(runs: { coordinator_handle: string }[]): void {
+    this.activeCoordinatorRuns = runs
   }
 
   getActiveCoordinatorRun(): { coordinator_handle: string } | null {
-    return this.activeCoordinatorRun
+    return this.activeCoordinatorRuns.at(-1) ?? null
+  }
+
+  getActiveCoordinatorRunForHandle(handle: string): { coordinator_handle: string } | null {
+    return this.activeCoordinatorRuns.find((run) => run.coordinator_handle === handle) ?? null
   }
 
   markAsDelivered(ids: string[]): void {
@@ -2566,6 +2576,18 @@ describe('OrcaRuntimeService', () => {
     const runtime = new OrcaRuntimeService(store)
 
     await expect(runtime.showManagedWorktree('active')).rejects.toThrow('selector_not_found')
+  })
+
+  it('only uses global orchestration scope when the selector is omitted', async () => {
+    const runtime = new OrcaRuntimeService(store)
+
+    await expect(runtime.resolveWorkspaceKeyForSelector()).resolves.toBeNull()
+    await expect(runtime.resolveWorkspaceKeyForSelector(`id:${TEST_WORKTREE_ID}`)).resolves.toBe(
+      `worktree:${TEST_WORKTREE_ID}`
+    )
+    await expect(runtime.resolveWorkspaceKeyForSelector('branch:missing')).rejects.toThrow(
+      'selector_not_found'
+    )
   })
 
   it('does not resolve the floating-terminal sentinel as a managed worktree', async () => {
@@ -13122,6 +13144,47 @@ describe('OrcaRuntimeService', () => {
       expect(unread).toHaveLength(1)
       expect(unread[0].read).toBe(0)
       expect(unread[0].delivered_at).not.toBeNull()
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not auto-submit to an earlier coordinator when another workspace run is newer', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      syncSinglePty(runtime)
+
+      const [terminal] = (await runtime.listTerminals()).terminals
+      runtime.onPtyData('pty-1', '\x1b]0;Codex working\x07', 100)
+      runtime.onPtyData('pty-1', '\x1b]0;Codex done\x07', 101)
+      db.setActiveCoordinatorRuns([
+        { coordinator_handle: terminal.handle },
+        { coordinator_handle: 'term_newer_other_workspace' }
+      ])
+      db.insertMessage({
+        from: 'term_sender',
+        to: terminal.handle,
+        subject: 'hello earlier coordinator'
+      })
+
+      runtime.deliverPendingMessagesForHandle(terminal.handle)
+
+      expect(write).toHaveBeenCalledWith(
+        'pty-1',
+        expect.stringContaining('Subject: hello earlier coordinator')
+      )
+      await vi.advanceTimersByTimeAsync(500)
+      expect(write).not.toHaveBeenCalledWith('pty-1', '\r')
       db.close()
     } finally {
       vi.useRealTimers()
