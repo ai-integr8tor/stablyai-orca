@@ -24,8 +24,10 @@ import {
   _getWebSessionTabsTrackingCountsForTest,
   acceptReplayedWebSessionTabsSnapshot,
   applyFreshWebSessionTabsSnapshot,
+  applyRemovedRuntimeEnvironmentSessionTabs,
   applyWebSessionTabsSnapshot,
   applyWebSessionTabsSnapshots,
+  clearRemovedRuntimeEnvironmentSessionState,
   clearWebSessionTabsTrackingForEnvironment,
   resolveHostSessionTabIdForWebSessionTab,
   resetWebSessionTabsSnapshotFreshnessForTests,
@@ -37,9 +39,15 @@ import {
   type WebSessionTabsSyncState
 } from './web-session-tabs-sync'
 
+const appStoreControl = vi.hoisted(() => ({
+  getState: vi.fn(),
+  setState: vi.fn()
+}))
+
 vi.mock('../store', () => ({
   useAppStore: {
-    setState: vi.fn()
+    getState: appStoreControl.getState,
+    setState: appStoreControl.setState
   }
 }))
 
@@ -64,6 +72,7 @@ function makeState(overrides: Partial<WebSessionTabsSyncState> = {}): WebSession
     activeWorktreeId: WT,
     agentStatusByPaneKey: {},
     agentStatusEpoch: 0,
+    dismissedAgentStatusByPaneKey: {},
     browserPagesByWorkspace: {},
     browserTabsByWorktree: {},
     groupsByWorktree: {},
@@ -99,6 +108,8 @@ function makeSnapshot(
 
 describe('applyWebSessionTabsSnapshot', () => {
   beforeEach(() => {
+    appStoreControl.getState.mockReset()
+    appStoreControl.setState.mockReset()
     resetWebSessionTabsSnapshotFreshnessForTests()
     resetWebSessionFocusIntentForTests()
     resetWebSessionCloseIntentForTests()
@@ -666,6 +677,93 @@ describe('applyWebSessionTabsSnapshot', () => {
       freshness: 1,
       hostMappings: 1
     })
+  })
+
+  it('retires mirrored tabs and agent status when a runtime environment is removed', () => {
+    const hostPaneKey = makePaneKey('host-tab-1', LEAF_ID)
+    const mirroredPatch = applyFreshWebSessionTabsSnapshot(
+      makeState(),
+      makeSnapshot([
+        {
+          type: 'terminal',
+          id: HOST_SURFACE_ID,
+          title: 'codex done',
+          parentTabId: 'host-tab-1',
+          leafId: LEAF_ID,
+          isActive: true,
+          status: 'ready',
+          terminal: 'terminal-1',
+          agentStatus: {
+            state: 'done',
+            prompt: 'remote environment cleanup',
+            updatedAt: NOW,
+            stateStartedAt: NOW - 1_000,
+            agentType: 'codex',
+            paneKey: hostPaneKey,
+            terminalTitle: 'codex done',
+            stateHistory: []
+          }
+        }
+      ]),
+      ENV,
+      NOW
+    ) as Partial<WebSessionTabsSyncState>
+    const mirroredState = makeState(mirroredPatch)
+    const mirroredId = mirroredState.tabsByWorktree[WT]?.[0]?.id
+    const mirroredPaneKey = makePaneKey(mirroredId!, LEAF_ID)
+
+    const cleanupPatch = applyRemovedRuntimeEnvironmentSessionTabs(
+      mirroredState,
+      ENV,
+      NOW + 1
+    ) as Partial<WebSessionTabsSyncState>
+    const cleanedState = { ...mirroredState, ...cleanupPatch }
+
+    expect(mirroredId).toBeTruthy()
+    expect(cleanedState.tabsByWorktree[WT]).toBeUndefined()
+    expect(cleanedState.unifiedTabsByWorktree[WT]).toBeUndefined()
+    expect(cleanedState.agentStatusByPaneKey[mirroredPaneKey]).toBeUndefined()
+    expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
+      freshness: 0,
+      hostMappings: 0
+    })
+  })
+
+  it('drops retained agent rows before pruning a removed runtime environment', () => {
+    const mirroredPatch = applyFreshWebSessionTabsSnapshot(
+      makeState(),
+      makeSnapshot([
+        {
+          type: 'terminal',
+          id: HOST_SURFACE_ID,
+          title: 'codex done',
+          parentTabId: 'host-tab-1',
+          leafId: LEAF_ID,
+          isActive: true,
+          status: 'ready',
+          terminal: 'terminal-1'
+        }
+      ]),
+      ENV,
+      NOW
+    ) as Partial<WebSessionTabsSyncState>
+    const dropAgentStatusByTabPrefix = vi.fn()
+    const mirroredState = {
+      ...makeState(mirroredPatch),
+      dropAgentStatusByTabPrefix
+    }
+    const mirroredId = mirroredState.tabsByWorktree[WT]?.[0]?.id
+    appStoreControl.getState.mockReturnValue(mirroredState)
+    appStoreControl.setState.mockImplementation((updater) => {
+      if (typeof updater === 'function') {
+        updater(mirroredState)
+      }
+    })
+
+    clearRemovedRuntimeEnvironmentSessionState(ENV)
+
+    expect(dropAgentStatusByTabPrefix).toHaveBeenCalledWith(mirroredId)
+    expect(appStoreControl.setState).toHaveBeenCalledOnce()
   })
 
   it('replaces stale local agent quick-launch tabs once host mirrors arrive', () => {
@@ -1652,6 +1750,101 @@ describe('applyWebSessionTabsSnapshot', () => {
     expect(patch.agentStatusByPaneKey?.[hostPaneKey]).toBeUndefined()
     expect(patch.agentStatusEpoch).toBe(1)
     expect(patch.sortEpoch).toBe(1)
+  })
+
+  it('keeps a dismissed remote completion hidden until a new active turn arrives', () => {
+    const hostPaneKey = makePaneKey('host-tab-1', LEAF_ID)
+    const mirroredId = toWebTerminalSurfaceTabId('host-tab-1')
+    const mirroredPaneKey = makePaneKey(mirroredId, LEAF_ID)
+    const terminalSurface = (state: 'done' | 'working', stateStartedAt: number) => ({
+      type: 'terminal' as const,
+      id: HOST_SURFACE_ID,
+      title: `codex [${state}]`,
+      parentTabId: 'host-tab-1',
+      leafId: LEAF_ID,
+      isActive: true,
+      status: 'ready' as const,
+      terminal: 'terminal-1',
+      agentStatus: {
+        state,
+        prompt: 'fix web parity',
+        updatedAt: stateStartedAt,
+        stateStartedAt,
+        agentType: 'codex' as const,
+        paneKey: hostPaneKey,
+        terminalTitle: `codex [${state}]`,
+        stateHistory: []
+      }
+    })
+    const dismissedState = makeState({
+      dismissedAgentStatusByPaneKey: { [mirroredPaneKey]: NOW }
+    })
+
+    const replayPatch = applyWebSessionTabsSnapshot(
+      dismissedState,
+      makeSnapshot([terminalSurface('done', NOW + 60_000)]),
+      ENV,
+      NOW + 60_000
+    ) as Partial<WebSessionTabsSyncState>
+    expect(replayPatch.agentStatusByPaneKey?.[mirroredPaneKey]).toBeUndefined()
+    expect(replayPatch.dismissedAgentStatusByPaneKey).toBeUndefined()
+
+    const activePatch = applyWebSessionTabsSnapshot(
+      dismissedState,
+      makeSnapshot([terminalSurface('working', NOW + 120_000)]),
+      ENV,
+      NOW + 120_000
+    ) as Partial<WebSessionTabsSyncState>
+    expect(activePatch.agentStatusByPaneKey?.[mirroredPaneKey]?.state).toBe('working')
+    expect(activePatch.dismissedAgentStatusByPaneKey?.[mirroredPaneKey]).toBeUndefined()
+  })
+
+  it('keeps the mirrored state start stable across same-agent spinner snapshots', () => {
+    const hostPaneKey = makePaneKey('host-tab-1', LEAF_ID)
+    const terminalSurface = (updatedAt: number, stateStartedAt: number) => ({
+      type: 'terminal' as const,
+      id: HOST_SURFACE_ID,
+      title: '\u280b codex task',
+      parentTabId: 'host-tab-1',
+      leafId: LEAF_ID,
+      isActive: true,
+      status: 'ready' as const,
+      terminal: 'terminal-1',
+      agentStatus: {
+        state: 'working' as const,
+        prompt: 'fix web parity',
+        updatedAt,
+        stateStartedAt,
+        agentType: 'codex' as const,
+        paneKey: hostPaneKey,
+        terminalTitle: '\u280b codex task',
+        stateHistory: []
+      }
+    })
+    const initialPatch = applyWebSessionTabsSnapshot(
+      makeState(),
+      makeSnapshot([terminalSurface(NOW - 100, NOW - 1_000)]),
+      ENV,
+      NOW
+    ) as Partial<WebSessionTabsSyncState>
+    const mirroredId = initialPatch.tabsByWorktree?.[WT]?.[0]?.id
+    const mirroredPaneKey = makePaneKey(mirroredId!, LEAF_ID)
+    const initialStateStartedAt =
+      initialPatch.agentStatusByPaneKey?.[mirroredPaneKey]?.stateStartedAt
+
+    const nextPatch = applyWebSessionTabsSnapshot(
+      makeState(initialPatch),
+      makeSnapshot([terminalSurface(NOW + 100, NOW + 50)], { snapshotVersion: 2 }),
+      ENV,
+      NOW + 200
+    ) as Partial<WebSessionTabsSyncState>
+
+    expect(nextPatch.agentStatusByPaneKey?.[mirroredPaneKey]).toMatchObject({
+      updatedAt: NOW + 100,
+      stateStartedAt: initialStateStartedAt
+    })
+    expect(nextPatch.agentStatusEpoch).toBe(initialPatch.agentStatusEpoch)
+    expect(nextPatch.sortEpoch).toBe(initialPatch.sortEpoch)
   })
 
   it('keeps mirrored OMP tabs from repainting to Pi-compatible titles', () => {

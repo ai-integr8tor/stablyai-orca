@@ -12,6 +12,7 @@ import {
 } from '../../../shared/agent-status-types'
 import type {
   RuntimeMobileSessionTabsResult,
+  RuntimeMobileSessionTabsRemovedResult,
   RuntimeMobileSessionBrowserTab,
   RuntimeMobileSessionFileTab,
   RuntimeMobileSessionMarkdownTab,
@@ -129,6 +130,7 @@ export type WebSessionTabsSyncState = Pick<
   | 'activeWorktreeId'
   | 'agentStatusByPaneKey'
   | 'agentStatusEpoch'
+  | 'dismissedAgentStatusByPaneKey'
   | 'browserPagesByWorkspace'
   | 'browserTabsByWorktree'
   | 'groupsByWorktree'
@@ -651,7 +653,10 @@ function buildMirroredAgentStatusPatch(
   currentTerminalTabs: readonly TerminalTab[],
   terminalSurfaceTabs: readonly TerminalSurface[],
   now: number
-): Pick<WebSessionTabsSyncState, 'agentStatusByPaneKey' | 'agentStatusEpoch' | 'sortEpoch'> | null {
+): Pick<
+  WebSessionTabsSyncState,
+  'agentStatusByPaneKey' | 'agentStatusEpoch' | 'dismissedAgentStatusByPaneKey' | 'sortEpoch'
+> | null {
   const mirroredTabIds = new Set<string>()
   for (const tab of currentTerminalTabs) {
     if (isWebTerminalSurfaceTabId(tab.id)) {
@@ -667,19 +672,46 @@ function buildMirroredAgentStatusPatch(
   }
 
   const nextByPaneKey = new Map<string, AgentStatusEntry>()
+  let nextDismissedAgentStatusByPaneKey = state.dismissedAgentStatusByPaneKey
   for (const surface of terminalSurfaceTabs) {
     const entry = remapHostAgentStatus(surface)
     if (!entry) {
       continue
     }
+    const dismissedAt = state.dismissedAgentStatusByPaneKey[entry.paneKey]
+    // Why: remote terminal surfaces can republish the same completed status
+    // with a freshly generated stateStartedAt. A timestamp comparison would
+    // therefore resurrect an explicitly dismissed row on every session sync.
+    // Keep completion hidden until the host proves a new active turn exists.
+    if (dismissedAt !== undefined && entry.state === 'done') {
+      continue
+    }
+    if (dismissedAt !== undefined) {
+      if (nextDismissedAgentStatusByPaneKey === state.dismissedAgentStatusByPaneKey) {
+        nextDismissedAgentStatusByPaneKey = { ...state.dismissedAgentStatusByPaneKey }
+      }
+      delete nextDismissedAgentStatusByPaneKey[entry.paneKey]
+    }
     const existing = state.agentStatusByPaneKey[entry.paneKey]
     // Why: active web streams can report a fresher OSC 9999 status for the same
     // mirrored pane before the next host snapshot arrives. Do not rewind that
     // row with an older host publication.
-    const nextEntry =
+    const freshestEntry =
       existing && existing.updatedAt > entry.updatedAt
         ? normalizeCompatibleAgentStatusEntryForOwner(existing, entry.agentType)
         : entry
+    // Remote OSC spinner frames can republish the same working agent with a
+    // fresh stateStartedAt on every snapshot. Keep the original state boundary
+    // when identity, prompt, and state are unchanged so activity rows do not
+    // continuously reorder while only the decorative title is moving.
+    const nextEntry =
+      existing &&
+      freshestEntry !== existing &&
+      existing.state === freshestEntry.state &&
+      existing.agentType === freshestEntry.agentType &&
+      existing.prompt === freshestEntry.prompt
+        ? { ...freshestEntry, stateStartedAt: existing.stateStartedAt }
+        : freshestEntry
     nextByPaneKey.set(entry.paneKey, nextEntry)
   }
 
@@ -719,12 +751,14 @@ function buildMirroredAgentStatusPatch(
       !isAgentStatusFresh(existing, now)
   }
 
-  if (!changed) {
+  const dismissedChanged = nextDismissedAgentStatusByPaneKey !== state.dismissedAgentStatusByPaneKey
+  if (!changed && !dismissedChanged) {
     return null
   }
 
   return {
     agentStatusByPaneKey: nextAgentStatusByPaneKey,
+    dismissedAgentStatusByPaneKey: nextDismissedAgentStatusByPaneKey,
     agentStatusEpoch: sortRelevantChange ? state.agentStatusEpoch + 1 : state.agentStatusEpoch,
     sortEpoch: sortRelevantChange ? state.sortEpoch + 1 : state.sortEpoch
   }
@@ -2428,6 +2462,95 @@ export function applyFreshWebSessionTabsSnapshots(
     : applyWebSessionTabsSnapshots(state, freshSnapshots, environmentId, now)
 }
 
+function collectRuntimeEnvironmentSessionMirrors(
+  state: WebSessionTabsSyncState,
+  environmentId: string
+): { terminalTabIds: Set<string>; worktreeIds: Set<string> } {
+  const terminalTabIds = new Set<string>()
+  const worktreeIds = new Set<string>()
+  const trackingPrefix = `${environmentId}:`
+
+  for (const key of latestSessionTabsSnapshotByWorktree.keys()) {
+    if (key.startsWith(trackingPrefix)) {
+      worktreeIds.add(key.slice(trackingPrefix.length))
+    }
+  }
+  for (const key of lastHostTerminalTabCountByWorktree.keys()) {
+    if (key.startsWith(trackingPrefix)) {
+      worktreeIds.add(key.slice(trackingPrefix.length))
+    }
+  }
+  for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree)) {
+    for (const tab of tabs) {
+      if (!isRuntimeTerminalTabForEnvironment(tab, environmentId)) {
+        continue
+      }
+      terminalTabIds.add(tab.id)
+      worktreeIds.add(worktreeId)
+    }
+  }
+  for (const [worktreeId, workspaces] of Object.entries(state.browserTabsByWorktree)) {
+    const ownsRemotePage = workspaces.some((workspace) =>
+      (state.browserPagesByWorkspace[workspace.id] ?? []).some(
+        (page) => state.remoteBrowserPageHandlesByPageId[page.id]?.environmentId === environmentId
+      )
+    )
+    if (ownsRemotePage) {
+      worktreeIds.add(worktreeId)
+    }
+  }
+  for (const file of state.openFiles) {
+    if (file.runtimeEnvironmentId === environmentId && file.mirroredFromRuntimeSession === true) {
+      worktreeIds.add(file.worktreeId)
+    }
+  }
+
+  return { terminalTabIds, worktreeIds }
+}
+
+export function applyRemovedRuntimeEnvironmentSessionTabs(
+  state: WebSessionTabsSyncState,
+  environmentId: string,
+  now = Date.now()
+): WebSessionTabsSyncState | Partial<WebSessionTabsSyncState> {
+  const { worktreeIds } = collectRuntimeEnvironmentSessionMirrors(state, environmentId)
+  let nextState = state
+  let mergedPatch: Partial<WebSessionTabsSyncState> = {}
+
+  for (const worktree of worktreeIds) {
+    const removedSnapshot: RuntimeMobileSessionTabsRemovedResult = {
+      worktree,
+      publicationEpoch: `removed-runtime-environment:${environmentId}`,
+      snapshotVersion: 0,
+      activeGroupId: null,
+      activeTabId: null,
+      activeTabType: null,
+      tabs: [],
+      removed: true
+    }
+    const patch = applyWebSessionTabsSnapshot(nextState, removedSnapshot, environmentId, now)
+    if (patch === nextState) {
+      continue
+    }
+    mergedPatch = { ...mergedPatch, ...patch }
+    nextState = { ...nextState, ...patch }
+  }
+
+  clearWebSessionTabsTrackingForEnvironment(environmentId)
+  return Object.keys(mergedPatch).length === 0 ? state : mergedPatch
+}
+
+export function clearRemovedRuntimeEnvironmentSessionState(environmentId: string): void {
+  const state = useAppStore.getState()
+  const { terminalTabIds } = collectRuntimeEnvironmentSessionMirrors(state, environmentId)
+  for (const tabId of terminalTabIds) {
+    state.dropAgentStatusByTabPrefix(tabId)
+  }
+  useAppStore.setState((current) =>
+    applyRemovedRuntimeEnvironmentSessionTabs(current, environmentId)
+  )
+}
+
 export function useWebSessionTabsSync(): void {
   const activeWorktreeId = useAppStore((state) => state.activeWorktreeId)
   const runtimeSessionMirrorEnvironmentKey = useAppStore((state) =>
@@ -2568,10 +2691,19 @@ export function useWebSessionTabsSync(): void {
       for (const unsubscribe of unsubscribes) {
         unsubscribe()
       }
-      // Why: environment ids can churn as paired runtimes reconnect or switch;
-      // stale freshness/mapping entries should not live for the renderer lifetime.
+      const desiredEnvironmentIds = new Set(
+        getRuntimeSessionMirrorEnvironmentIds(useAppStore.getState())
+      )
+      // Why: environment ids can churn as paired runtimes reconnect or switch.
+      // A surviving environment only needs tracking reset for its replay, while
+      // a removed environment must also retire mirrored tabs and retained Done
+      // rows so an orphaned remote thread does not live for the renderer session.
       for (const environmentId of environmentIds) {
-        clearWebSessionTabsTrackingForEnvironment(environmentId)
+        if (desiredEnvironmentIds.has(environmentId)) {
+          clearWebSessionTabsTrackingForEnvironment(environmentId)
+        } else {
+          clearRemovedRuntimeEnvironmentSessionState(environmentId)
+        }
       }
     }
   }, [runtimeSessionMirrorEnvironmentKey, workspaceSessionReady])

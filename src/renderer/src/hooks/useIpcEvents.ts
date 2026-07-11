@@ -452,6 +452,22 @@ function targetWorktreeIds(targetId: string): Set<string> {
   )
 }
 
+export function getRemovedRemoteTerminalTabIds(args: {
+  currentTabsByWorktree: Record<string, readonly { id: string }[]>
+  remoteTabsByWorktree: Record<string, readonly { id: string }[]>
+  targetWorktreeIds: ReadonlySet<string>
+}): string[] {
+  const remoteTabIds = new Set(
+    Object.values(args.remoteTabsByWorktree)
+      .flat()
+      .map((tab) => tab.id)
+  )
+  return Object.entries(args.currentTabsByWorktree)
+    .filter(([worktreeId]) => args.targetWorktreeIds.has(worktreeId))
+    .flatMap(([, tabs]) => tabs.map((tab) => tab.id))
+    .filter((tabId) => !remoteTabIds.has(tabId))
+}
+
 function mergeRemoteWorkspaceSession(
   current: WorkspaceSessionState,
   remote: WorkspaceSessionState,
@@ -542,6 +558,11 @@ async function applyRemoteWorkspaceSnapshot(
     resolveWorktreeId: (worktreePath) => localByPath.get(worktreePath) ?? null
   })
   const current = buildWorkspaceSessionPayload(useAppStore.getState())
+  const removedTerminalTabIds = getRemovedRemoteTerminalTabIds({
+    currentTabsByWorktree: current.tabsByWorktree,
+    remoteTabsByWorktree: remoteSession.tabsByWorktree,
+    targetWorktreeIds: worktreeIds
+  })
   const merged = mergeRemoteWorkspaceSession(current, remoteSession, targetId)
   const store = useAppStore.getState()
   remoteWorkspaceSnapshotApplyDepth += 1
@@ -550,6 +571,12 @@ async function applyRemoteWorkspaceSnapshot(
     store.hydrateTabsSession(merged)
     store.hydrateEditorSession(merged)
     store.hydrateBrowserSession(merged)
+    // Why: host snapshots are authoritative for their own terminal tabs. A
+    // tab removed by the host was explicitly closed, so its completed agent
+    // must not survive forever as a retained Activity row on this client.
+    for (const tabId of removedTerminalTabIds) {
+      store.dropAgentStatusByTabPrefix(tabId)
+    }
     store.markRemoteWorkspaceHydrated(targetId)
     store.setRemoteWorkspaceSyncStatus(targetId, {
       phase: 'synced',
@@ -1671,6 +1698,7 @@ export function useIpcEvents(): void {
             ? {
                 ...(shouldActivate ? {} : { activate: false, recordInteraction: false }),
                 launchAgent: data.launchAgent,
+                ...(data.viewMode ? { viewMode: data.viewMode } : {}),
                 ...initialAgentTabViewModeProps(store.settings, {
                   agent: data.launchAgent,
                   nativeChatTranscriptIsLocalReadable: isNativeChatTranscriptLocalReadable(

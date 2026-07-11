@@ -10,7 +10,8 @@ import {
   MessageSquareText,
   MoreVertical,
   Search,
-  TerminalSquare
+  TerminalSquare,
+  X
 } from 'lucide-react'
 
 import { AgentStateDot, agentStateLabel } from '@/components/AgentStateDot'
@@ -53,12 +54,20 @@ import {
   setActivityTerminalPortals,
   type ActivityTerminalPortalTarget
 } from './activity-terminal-portal'
-import type { Repo, TerminalTab, Worktree } from '../../../../shared/types'
+import { buildTitleDerivedAgentRows } from '../sidebar/worktree-title-derived-agent-rows'
+import type {
+  Project,
+  Repo,
+  TerminalLayoutSnapshot,
+  TerminalTab,
+  Worktree
+} from '../../../../shared/types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStateHistoryEntry,
   type AgentStatusEntry,
+  type AgentStatusOrchestrationContext,
   type AgentStatusState,
   type AgentType,
   type MigrationUnsupportedPtyEntry
@@ -242,6 +251,16 @@ export function activityThreadResponseRenderPreview({
     trimmed,
     ACTIVITY_THREAD_RESPONSE_RENDER_PREVIEW_MAX_LENGTH
   ).trimEnd()}...`
+}
+
+export function activityThreadMatchesReadFilter({
+  thread,
+  readFilter
+}: {
+  thread: Pick<AgentPaneThread, 'unread'>
+  readFilter: ThreadReadFilter
+}): boolean {
+  return readFilter === 'all' || thread.unread
 }
 
 function getSelectedActivityTerminalPortalStatus(
@@ -512,6 +531,39 @@ function standaloneActivityWorktree(worktreeId: string): Worktree {
   }
 }
 
+function runtimeAttributedActivityContext(
+  entry: AgentStatusEntry,
+  parsed: { tabId: string },
+  worktreeMap: Map<string, Worktree>
+): { worktree: Worktree; tab: TerminalTab } | null {
+  if (!entry.worktreeId) {
+    return null
+  }
+  const worktree = worktreeMap.get(entry.worktreeId)
+  if (!worktree) {
+    return null
+  }
+  const tabId = entry.tabId ?? parsed.tabId
+  return {
+    worktree,
+    // Why: remote hook status can arrive with authoritative worktree/tab
+    // attribution before the paired client's tabsByWorktree has hydrated that
+    // terminal. Activity only needs stable identity and labels to show the
+    // unread completion; the real tab record replaces this projection once the
+    // user opens the worktree.
+    tab: {
+      id: tabId,
+      ptyId: null,
+      worktreeId: worktree.id,
+      title: (entry.terminalTitle ?? entry.prompt) || 'Agent',
+      customTitle: null,
+      color: null,
+      sortOrder: 0,
+      createdAt: entry.stateStartedAt
+    }
+  }
+}
+
 // Why: per-pane cap guarantees each agent appears in the left list even when one pane has a long history.
 const EVENTS_PER_PANE_CAP = 5
 
@@ -604,11 +656,29 @@ function appendActivityEventsForEntry(args: {
   })
 }
 
+function compareActivityEventsNewestFirst(a: ActivityEvent, b: ActivityEvent): number {
+  const timestampOrder = b.timestamp - a.timestamp
+  if (timestampOrder !== 0) {
+    return timestampOrder
+  }
+  const paneOrder = a.entry.paneKey.localeCompare(b.entry.paneKey)
+  return paneOrder !== 0 ? paneOrder : a.id.localeCompare(b.id)
+}
+
+function compareActivityThreadsNewestFirst(a: AgentPaneThread, b: AgentPaneThread): number {
+  const timestampOrder = b.latestTimestamp - a.latestTimestamp
+  return timestampOrder !== 0 ? timestampOrder : a.paneKey.localeCompare(b.paneKey)
+}
+
 export function buildActivityEvents(args: {
   agentStatusByPaneKey: Record<string, AgentStatusEntry>
   migrationUnsupportedByPtyId?: Record<string, MigrationUnsupportedPtyEntry>
   retainedAgentsByPaneKey: Record<string, RetainedAgentEntry>
   tabsByWorktree: Record<string, TerminalTab[]>
+  runtimePaneTitlesByTabId?: Record<string, Record<number, string>>
+  ptyIdsByTabId?: Record<string, string[]>
+  terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
+  runtimeAgentOrchestrationByPaneKey?: Record<string, AgentStatusOrchestrationContext>
   worktreeMap: Map<string, Worktree>
   repoMap: Map<string, Repo>
   acknowledgedAgentsByPaneKey: Record<string, number>
@@ -634,7 +704,9 @@ export function buildActivityEvents(args: {
     if (!parsed) {
       continue
     }
-    const context = tabContext.get(parsed.tabId)
+    const context =
+      tabContext.get(parsed.tabId) ??
+      runtimeAttributedActivityContext(entry, parsed, args.worktreeMap)
     if (!context) {
       continue
     }
@@ -704,6 +776,41 @@ export function buildActivityEvents(args: {
     })
   }
 
+  const titleDerivedSeenPaneKeys = new Set([
+    ...Object.keys(args.agentStatusByPaneKey),
+    ...Object.keys(liveAgentByPaneKey)
+  ])
+  for (const [worktreeId, tabs] of Object.entries(args.tabsByWorktree)) {
+    const worktree = args.worktreeMap.get(worktreeId) ?? standaloneActivityWorktree(worktreeId)
+    const repo = args.repoMap.get(worktree.repoId) ?? null
+    // Why: Hermes and other agents can be visible only through terminal title
+    // evidence before their hooks attach. Reuse the sidebar fallback so Agents
+    // can still show and portal the live terminal for those panes.
+    const rows = buildTitleDerivedAgentRows({
+      tabs,
+      runtimePaneTitlesByTabId: args.runtimePaneTitlesByTabId,
+      ptyIdsByTabId: args.ptyIdsByTabId,
+      terminalLayoutsByTabId: args.terminalLayoutsByTabId,
+      runtimeAgentOrchestrationByPaneKey: args.runtimeAgentOrchestrationByPaneKey,
+      seenPaneKeys: titleDerivedSeenPaneKeys,
+      now: args.now
+    })
+    for (const row of rows) {
+      if (row.state === 'idle' || !isActivityLiveAgentState(row.state)) {
+        continue
+      }
+      liveAgentByPaneKey[row.paneKey] = {
+        state: row.state,
+        timestamp: row.entry.stateStartedAt,
+        worktree,
+        repo,
+        entry: row.entry,
+        tab: row.tab,
+        agentType: row.agentType
+      }
+    }
+  }
+
   for (const [paneKey, retained] of Object.entries(args.retainedAgentsByPaneKey)) {
     if (!parsePaneKey(paneKey)) {
       continue
@@ -730,7 +837,7 @@ export function buildActivityEvents(args: {
     })
   }
 
-  const sorted = events.sort((a, b) => b.timestamp - a.timestamp)
+  const sorted = events.sort(compareActivityEventsNewestFirst)
   const perPaneCount = new Map<string, number>()
   const includedEventIds = new Set<string>()
   const capped: ActivityEvent[] = []
@@ -766,7 +873,7 @@ export function buildActivityEvents(args: {
     includedEventIds.add(event.id)
     capped.push(event)
   }
-  return { events: capped.sort((a, b) => b.timestamp - a.timestamp), liveAgentByPaneKey }
+  return { events: capped.sort(compareActivityEventsNewestFirst), liveAgentByPaneKey }
 }
 
 export function buildAgentPaneThreads(args: {
@@ -847,9 +954,9 @@ export function buildAgentPaneThreads(args: {
   return Array.from(byPaneKey.values())
     .map((thread) => ({
       ...thread,
-      events: [...thread.events].sort((a, b) => b.timestamp - a.timestamp)
+      events: [...thread.events].sort(compareActivityEventsNewestFirst)
     }))
-    .sort((a, b) => b.latestTimestamp - a.latestTimestamp)
+    .sort(compareActivityThreadsNewestFirst)
 }
 
 function EventTime({ timestamp }: { timestamp: number }): React.JSX.Element {
@@ -928,18 +1035,31 @@ export function ActivityThreadOptionsMenu({
   )
 }
 
-function EventRepoBadge({ repo }: { repo: Repo | null }): React.JSX.Element | null {
-  if (!repo) {
+function ProjectBadge({ project }: { project: Project | Repo | null }): React.JSX.Element | null {
+  if (!project) {
     return null
   }
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-1.5 rounded-[4px] border border-border bg-accent px-1.5 py-0.5 dark:border-border/60 dark:bg-accent/50">
-      <RepoBadgeMark color={repo.badgeColor} />
+      <RepoBadgeMark color={project.badgeColor} />
       <span className="max-w-[6rem] truncate text-[10px] font-semibold leading-none text-foreground lowercase">
-        {repo.displayName}
+        {project.displayName}
       </span>
     </div>
   )
+}
+
+function projectForThread(
+  thread: AgentPaneThread,
+  projects: readonly Project[]
+): Project | Repo | null {
+  if (thread.worktree.projectId) {
+    const project = projects.find((candidate) => candidate.id === thread.worktree.projectId)
+    if (project) {
+      return project
+    }
+  }
+  return thread.repo
 }
 
 function threadAgentState(thread: AgentPaneThread): AgentStatusState {
@@ -986,6 +1106,10 @@ export function buildActivityThreadGroups(
   threads: AgentPaneThread[],
   groupBy: ActivityGroupBy
 ): ActivityThreadGroup[] {
+  if (groupBy === 'status') {
+    return groupActivityThreadsByStatus(threads)
+  }
+
   const groups: ActivityThreadGroup[] = []
   const groupIndexByKey = new Map<string, number>()
   for (const thread of threads) {
@@ -1147,6 +1271,37 @@ export function handleActivityFilterFocusShortcut({
   return true
 }
 
+export function shouldAutoAcknowledgeSelectedThread(args: {
+  manuallyUnreadPaneKey: string | null
+  selectedAtPaneKey: string | null
+  selectedAtThreadTimestamp: number | null
+  selectedPaneKey: string | null
+  selectedThreadHasDetailOnlyView: boolean
+  selectedThreadIsVisibleTerminal: boolean
+  selectedThreadLatestTimestamp: number
+  selectedThreadPaneKey: string | null
+  selectedThreadUnread: boolean
+  stagedThread: boolean
+}): boolean {
+  if (
+    !args.selectedThreadPaneKey ||
+    !args.selectedThreadUnread ||
+    args.stagedThread ||
+    args.selectedThreadPaneKey !== args.selectedPaneKey ||
+    args.manuallyUnreadPaneKey === args.selectedThreadPaneKey
+  ) {
+    return false
+  }
+  if (
+    args.selectedAtPaneKey === args.selectedThreadPaneKey &&
+    args.selectedAtThreadTimestamp !== null &&
+    args.selectedThreadLatestTimestamp > args.selectedAtThreadTimestamp
+  ) {
+    return false
+  }
+  return args.selectedThreadHasDetailOnlyView || args.selectedThreadIsVisibleTerminal
+}
+
 function ThreadAgentStateIndicator({ thread }: { thread: AgentPaneThread }): React.JSX.Element {
   const state = threadAgentState(thread)
   const label = threadAgentStateLabel(thread)
@@ -1199,12 +1354,65 @@ function isEventFromNestedInteractiveElement(
   )
 }
 
+export function ActivityThreadReadToggle({
+  unread,
+  onMarkRead,
+  onMarkUnread
+}: {
+  unread: boolean
+  onMarkRead: () => void
+  onMarkUnread: () => void
+}): React.JSX.Element {
+  const markReadLabel = translate(
+    'auto.components.activity.ActivityPrototypePage.c6b1a30e61',
+    'Mark thread read'
+  )
+  const markUnreadLabel = translate(
+    'auto.components.activity.ActivityPrototypePage.59b131fbd9',
+    'Mark thread unread'
+  )
+  const label = unread ? markReadLabel : markUnreadLabel
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (unread) {
+              onMarkRead()
+            } else {
+              onMarkUnread()
+            }
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+          className={cn(
+            'flex size-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all',
+            'hover:bg-accent/80 active:scale-95',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+          )}
+          aria-label={label}
+        >
+          {unread ? (
+            <FilledBellIcon className="size-[13px] shrink-0 text-amber-500 drop-shadow-sm" />
+          ) : (
+            <Bell className="size-3 text-muted-foreground/40 can-hover:opacity-0 transition-opacity group-hover:opacity-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function ThreadRow({
   thread,
   selected,
   onSelect,
   onJump,
+  onMarkRead,
   onMarkUnread,
+  onDismiss,
   canJump,
   compactMode
 }: {
@@ -1212,7 +1420,9 @@ function ThreadRow({
   selected: boolean
   onSelect: () => void
   onJump: () => void
+  onMarkRead: () => void
   onMarkUnread: () => void
+  onDismiss?: () => void
   canJump: boolean
   compactMode: boolean
 }): React.JSX.Element {
@@ -1297,58 +1507,21 @@ function ThreadRow({
           ) : null}
         </div>
         <span className="inline-flex shrink-0 items-center gap-1.5 pt-px">
-          {/* Why (bell matches WorktreeCard pattern): unread → amber filled
-              bell as a static, non-interactive cue (selecting the thread
-              auto-marks it read, so a Mark-read button would be redundant);
-              read → outline Bell that fades in on row hover and acts as
-              Mark-unread. Bare button (no shadcn outline) so it reads as
-              an inline cue rather than a discrete control square. */}
+          {/* Why: this is a real read/unread toggle. Selecting a thread also
+              acknowledges it, but the explicit bell must support inbox
+              triage without opening or moving the terminal. */}
           <span className="inline-flex size-4 shrink-0 items-center justify-center">
-            {thread.unread ? (
-              <FilledBellIcon
-                className="size-[13px] shrink-0 text-amber-500 drop-shadow-sm"
-                aria-label={translate(
-                  'auto.components.activity.ActivityPrototypePage.beb2c19173',
-                  'Unread'
-                )}
-              />
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onMarkUnread()
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    className={cn(
-                      'group/unread flex size-4 shrink-0 cursor-pointer items-center justify-center rounded transition-all',
-                      'hover:bg-accent/80 active:scale-95',
-                      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-                    )}
-                    aria-label={translate(
-                      'auto.components.activity.ActivityPrototypePage.59b131fbd9',
-                      'Mark thread unread'
-                    )}
-                  >
-                    <Bell className="size-3 text-muted-foreground/40 can-hover:opacity-0 transition-opacity group-hover:opacity-100 group-hover/unread:opacity-100" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {translate(
-                    'auto.components.activity.ActivityPrototypePage.59b131fbd9',
-                    'Mark thread unread'
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <ActivityThreadReadToggle
+              unread={thread.unread}
+              onMarkRead={onMarkRead}
+              onMarkUnread={onMarkUnread}
+            />
           </span>
           <EventTime timestamp={thread.latestTimestamp} />
         </span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5 pl-[42px]">
-        <EventRepoBadge repo={thread.repo} />
+        <ProjectBadge project={thread.repo} />
         <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
           {thread.worktree.displayName}
         </span>
@@ -1393,18 +1566,56 @@ function ThreadRow({
             </Tooltip>
           </span>
         ) : null}
+        {onDismiss && threadAgentState(thread) === 'done' ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={translate(
+                  'auto.components.activity.ActivityPrototypePage.dismissDoneThread',
+                  'Dismiss completed thread'
+                )}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDismiss()
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {translate(
+                'auto.components.activity.ActivityPrototypePage.dismissDoneThread',
+                'Dismiss completed thread'
+              )}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </div>
   )
 }
 
 export default function ActivityPrototypePage(): React.JSX.Element {
-  const [readFilter, setReadFilter] = useState<ThreadReadFilter>('all')
+  const [readFilter, setReadFilter] = useState<ThreadReadFilter>('unread')
   const [groupBy, setGroupBy] = useState<ActivityGroupBy>('status')
   const [query, setQuery] = useState('')
   const activityFilterInputRef = useRef<HTMLInputElement | null>(null)
   const [compactMode, setCompactMode] = useState(false)
   const [selectedPaneKey, setSelectedPaneKey] = useState<string | null>(null)
+  // Why: marking the currently visible thread unread updates the same store
+  // observed by the auto-ack effect below. Remember that explicit user intent
+  // so the effect does not immediately flip the thread back to read.
+  const manuallyUnreadSelectedPaneKeyRef = useRef<string | null>(null)
+  // Why: a completion that arrives while its terminal is already visible is a
+  // new inbox event, not another view of the selection the user already read.
+  // Keep the thread version observed at selection time so only an explicit
+  // reopen acknowledges a newer done/blocked/waiting transition.
+  const selectedThreadVersionRef = useRef<{ paneKey: string; timestamp: number } | null>(null)
   const [displayedPaneKey, setDisplayedPaneKey] = useState<string | null>(null)
   const [activePortalSlotId, setActivePortalSlotId] =
     useState<ActivityTerminalPortalSlotId>('primary')
@@ -1435,11 +1646,17 @@ export default function ActivityPrototypePage(): React.JSX.Element {
       migrationUnsupportedByPtyId: s.migrationUnsupportedByPtyId,
       retainedAgentsByPaneKey: s.retainedAgentsByPaneKey,
       tabsByWorktree: s.tabsByWorktree,
+      runtimePaneTitlesByTabId: s.runtimePaneTitlesByTabId,
+      ptyIdsByTabId: s.ptyIdsByTabId,
+      terminalLayoutsByTabId: s.terminalLayoutsByTabId,
+      runtimeAgentOrchestrationByPaneKey: s.runtimeAgentOrchestrationByPaneKey,
+      projects: s.projects,
       worktreeMap: getWorktreeMapFromState(s),
       repoMap: getRepoMapFromState(s),
       acknowledgedAgentsByPaneKey: s.acknowledgedAgentsByPaneKey,
       acknowledgeAgents: s.acknowledgeAgents,
-      unacknowledgeAgents: s.unacknowledgeAgents
+      unacknowledgeAgents: s.unacknowledgeAgents,
+      dropAgentStatus: s.dropAgentStatus
     }))
   )
   // Why: agentStatusEpoch is included in the dependency array (but not in the
@@ -1454,6 +1671,10 @@ export default function ActivityPrototypePage(): React.JSX.Element {
         migrationUnsupportedByPtyId: storeData.migrationUnsupportedByPtyId,
         retainedAgentsByPaneKey: storeData.retainedAgentsByPaneKey,
         tabsByWorktree: storeData.tabsByWorktree,
+        runtimePaneTitlesByTabId: storeData.runtimePaneTitlesByTabId,
+        ptyIdsByTabId: storeData.ptyIdsByTabId,
+        terminalLayoutsByTabId: storeData.terminalLayoutsByTabId,
+        runtimeAgentOrchestrationByPaneKey: storeData.runtimeAgentOrchestrationByPaneKey,
         worktreeMap: storeData.worktreeMap,
         repoMap: storeData.repoMap,
         acknowledgedAgentsByPaneKey: storeData.acknowledgedAgentsByPaneKey,
@@ -1474,23 +1695,22 @@ export default function ActivityPrototypePage(): React.JSX.Element {
   const selectedPaneKeyIsLive =
     selectedPaneKey === null || allThreads.some((thread) => thread.paneKey === selectedPaneKey)
   const effectiveSelectedPaneKey = selectedPaneKeyIsLive ? selectedPaneKey : null
-  if (!selectedPaneKeyIsLive) {
+  useEffect(() => {
+    if (selectedPaneKeyIsLive) {
+      return
+    }
     // Why: Activity rows disappear when agent retention or tab state changes;
-    // clear stale selection before detail/portal rendering can target it.
+    // clear stale selection after render so detail/portal rendering targets null.
     setSelectedPaneKey(null)
-  }
+  }, [selectedPaneKeyIsLive])
 
   const visibleThreads = useMemo(() => {
     const normalizedQuery = isActivitySearchQueryTooLarge(query) ? null : query.trim().toLowerCase()
     return allThreads.filter((thread) => {
-      // Why: keep the just-selected thread visible even after auto-mark-read
-      // flips it to read, otherwise clicking a row in unread-only mode makes it
-      // vanish from the left list while staying selected on the right.
-      if (
-        readFilter === 'unread' &&
-        !thread.unread &&
-        thread.paneKey !== effectiveSelectedPaneKey
-      ) {
+      // Why: the bell filter is an inbox. Once opening a thread acknowledges
+      // it, remove the row from the unread list while leaving its detail open
+      // on the right. Turning the filter off still exposes full history.
+      if (!activityThreadMatchesReadFilter({ thread, readFilter })) {
         return false
       }
       if (normalizedQuery === null) {
@@ -1498,7 +1718,7 @@ export default function ActivityPrototypePage(): React.JSX.Element {
       }
       return activityThreadMatchesSearchQuery({ thread, searchQuery: normalizedQuery })
     })
-  }, [allThreads, readFilter, query, effectiveSelectedPaneKey])
+  }, [allThreads, readFilter, query])
   const visibleThreadGroups = useMemo(
     () => buildActivityThreadGroups(visibleThreads, groupBy),
     [visibleThreads, groupBy]
@@ -1690,11 +1910,39 @@ export default function ActivityPrototypePage(): React.JSX.Element {
   }, [activePortalTargetEl, inactivePortalTargetEl])
 
   const markThreadRead = (thread: AgentPaneThread): void => {
+    if (manuallyUnreadSelectedPaneKeyRef.current === thread.paneKey) {
+      manuallyUnreadSelectedPaneKeyRef.current = null
+    }
+    selectedThreadVersionRef.current = {
+      paneKey: thread.paneKey,
+      timestamp: thread.latestTimestamp
+    }
     storeData.acknowledgeAgents([thread.paneKey])
   }
 
   const markThreadUnread = (thread: AgentPaneThread): void => {
+    if (thread.paneKey === effectiveSelectedPaneKey) {
+      manuallyUnreadSelectedPaneKeyRef.current = thread.paneKey
+    }
     storeData.unacknowledgeAgents([thread.paneKey])
+  }
+
+  const dismissDoneThread = (thread: AgentPaneThread): void => {
+    if (threadAgentState(thread) !== 'done') {
+      return
+    }
+    if (selectedPaneKey === thread.paneKey) {
+      setSelectedPaneKey(null)
+    }
+    if (displayedPaneKey === thread.paneKey) {
+      setDisplayedPaneKey(null)
+    }
+    // Dismissal removes the cached row, but a late hook/cache replay can still
+    // recreate the same done event. Keep its read watermark so that replay is
+    // not mistaken for a new unread completion; a later turn has a newer
+    // timestamp and will still enter the inbox normally.
+    storeData.acknowledgeAgents([thread.paneKey])
+    storeData.dropAgentStatus(thread.paneKey)
   }
 
   const activateThreadTerminal = (thread: AgentPaneThread): void => {
@@ -1727,24 +1975,48 @@ export default function ActivityPrototypePage(): React.JSX.Element {
   }
 
   const selectThread = (thread: AgentPaneThread): void => {
+    const reselectsUnreadThread = effectiveSelectedPaneKey === thread.paneKey && thread.unread
+    manuallyUnreadSelectedPaneKeyRef.current = null
+    selectedThreadVersionRef.current = {
+      paneKey: thread.paneKey,
+      timestamp: thread.latestTimestamp
+    }
     setSelectedPaneKey(thread.paneKey)
     activateThreadTerminal(thread)
+    // Why: the normal auto-ack effect only reruns after a selection/portal
+    // change. A click on an already-selected thread has neither, so acknowledge
+    // a newly completed or manually-unread turn directly as an explicit reopen.
+    if (reselectsUnreadThread) {
+      storeData.acknowledgeAgents([thread.paneKey])
+    }
   }
 
   useEffect(() => {
-    if (
-      !selectedThread ||
-      !selectedThread.unread ||
-      stagedThread ||
-      selectedThread.paneKey !== effectiveSelectedPaneKey
-    ) {
+    if (!selectedThread) {
       return
     }
     const selectedThreadHasDetailOnlyView =
       !selectedHasLiveTab || selectedThread.migrationUnsupportedPtyId !== undefined
     const selectedThreadIsVisibleTerminal =
       visibleThread?.paneKey === effectiveSelectedPaneKey && visiblePortalReady
-    if (selectedThreadHasDetailOnlyView || selectedThreadIsVisibleTerminal) {
+    if (
+      shouldAutoAcknowledgeSelectedThread({
+        manuallyUnreadPaneKey: manuallyUnreadSelectedPaneKeyRef.current,
+        selectedAtPaneKey: selectedThreadVersionRef.current?.paneKey ?? null,
+        selectedAtThreadTimestamp: selectedThreadVersionRef.current?.timestamp ?? null,
+        selectedPaneKey: effectiveSelectedPaneKey,
+        selectedThreadHasDetailOnlyView,
+        selectedThreadIsVisibleTerminal,
+        selectedThreadLatestTimestamp: selectedThread.latestTimestamp,
+        selectedThreadPaneKey: selectedThread.paneKey,
+        selectedThreadUnread: selectedThread.unread,
+        stagedThread: stagedThread !== null
+      })
+    ) {
+      selectedThreadVersionRef.current = {
+        paneKey: selectedThread.paneKey,
+        timestamp: selectedThread.latestTimestamp
+      }
       storeData.acknowledgeAgents([selectedThread.paneKey])
     }
   }, [
@@ -1773,6 +2045,7 @@ export default function ActivityPrototypePage(): React.JSX.Element {
     if (unreadKeys.length === 0) {
       return
     }
+    manuallyUnreadSelectedPaneKeyRef.current = null
     storeData.acknowledgeAgents(unreadKeys)
   }
 
@@ -1904,7 +2177,9 @@ export default function ActivityPrototypePage(): React.JSX.Element {
                     selected={thread.paneKey === selectedThread?.paneKey}
                     onSelect={() => selectThread(thread)}
                     onJump={() => jumpToWorkspace(thread)}
+                    onMarkRead={() => markThreadRead(thread)}
                     onMarkUnread={() => markThreadUnread(thread)}
+                    onDismiss={() => dismissDoneThread(thread)}
                     canJump={storeData.worktreeMap.has(thread.worktree.id)}
                     compactMode={compactMode}
                   />
@@ -1968,10 +2243,10 @@ export default function ActivityPrototypePage(): React.JSX.Element {
                     </h2>
                   </div>
                   <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-11">
-                    <EventRepoBadge repo={selectedThread.repo} />
                     <span className="truncate text-xs text-muted-foreground">
                       {selectedThread.worktree.displayName}
                     </span>
+                    <ProjectBadge project={projectForThread(selectedThread, storeData.projects)} />
                   </div>
                 </div>
               </div>

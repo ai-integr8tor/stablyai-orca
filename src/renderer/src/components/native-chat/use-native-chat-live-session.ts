@@ -4,7 +4,8 @@ import {
   NATIVE_CHAT_SOURCE_PRIORITY,
   type AgentType,
   type NativeChatMessage,
-  type NativeChatSession
+  type NativeChatSession,
+  type NativeChatSessionModel
 } from '../../../../shared/native-chat-types'
 import {
   applyAppend,
@@ -52,6 +53,7 @@ export type NativeChatLiveSession = NativeChatSession & {
 
 // Stable empty-base reference so a non-ready read doesn't churn the base axis.
 const EMPTY_MESSAGES: readonly NativeChatMessage[] = []
+const NATIVE_CHAT_READ_TIMEOUT_MS = 15_000
 
 /** True when `whole`'s first `len` entries are referentially identical to
  *  `prefix` — i.e. `whole` is `prefix` extended at the tail, so the incremental
@@ -78,7 +80,7 @@ function nextSubscriptionId(): string {
 
 type ReadState =
   | { phase: 'loading' }
-  | { phase: 'ready'; messages: NativeChatMessage[] }
+  | { phase: 'ready'; messages: NativeChatMessage[]; sessionModel?: NativeChatSessionModel }
   | { phase: 'error'; error: string }
 
 /**
@@ -161,16 +163,28 @@ export function useNativeChatLiveSession(
     }
 
     let cancelled = false
+    let timedOut = false
     limitRef.current = NATIVE_CHAT_INITIAL_LIMIT
     setRead({ phase: 'loading' })
     replaceList(appendMergerRef.current, [])
     setAppended([])
     setHasMore(false)
 
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      if (!cancelled) {
+        setRead({
+          phase: 'error',
+          error:
+            'The conversation took too long to load. Switch to the terminal and try again later.'
+        })
+      }
+    }, NATIVE_CHAT_READ_TIMEOUT_MS)
+
     void transport
       .readSession(agent, sessionId, limitRef.current, transcriptPath ?? undefined)
       .then((result) => {
-        if (cancelled) {
+        if (cancelled || timedOut) {
           return
         }
         if (result && 'error' in result) {
@@ -178,14 +192,19 @@ export function useNativeChatLiveSession(
           return
         }
         const messages = result?.messages ?? []
-        setRead({ phase: 'ready', messages })
+        setRead({
+          phase: 'ready',
+          messages,
+          ...(result?.sessionModel ? { sessionModel: result.sessionModel } : {})
+        })
         setHasMore(hasMoreNativeChatHistory(messages.length, limitRef.current))
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
+        if (!cancelled && !timedOut) {
           setRead({ phase: 'error', error: err instanceof Error ? err.message : String(err) })
         }
       })
+      .finally(() => clearTimeout(timeoutId))
 
     const subscriptionId = nextSubscriptionId()
     const unsubscribe = transport.subscribe(
@@ -208,6 +227,7 @@ export function useNativeChatLiveSession(
 
     return () => {
       cancelled = true
+      clearTimeout(timeoutId)
       // Desktop returns a sync unsubscribe fn; the web RPC bridge returns a
       // Promise instead (and can't deliver streaming callbacks). Calling a
       // Promise as a function crashed the whole chat view, so resolve it first
@@ -247,7 +267,11 @@ export function useNativeChatLiveSession(
         limitRef.current = nextLimit
         // Read results are an ordered tail — replace the base list so the older
         // page prepends in order; live appends stay in their separate bucket.
-        setRead({ phase: 'ready', messages: result.messages })
+        setRead({
+          phase: 'ready',
+          messages: result.messages,
+          ...(result.sessionModel ? { sessionModel: result.sessionModel } : {})
+        })
         setHasMore(hasMoreNativeChatHistory(result.messages.length, nextLimit))
       })
       .catch(() => {
@@ -307,6 +331,12 @@ export function useNativeChatLiveSession(
       loading: read.phase === 'loading',
       ...(read.phase === 'error' ? { error: read.error } : {})
     })
-    return { ...session, hasMore, loadingEarlier, loadEarlier }
+    return {
+      ...session,
+      ...(read.phase === 'ready' && read.sessionModel ? { sessionModel: read.sessionModel } : {}),
+      hasMore,
+      loadingEarlier,
+      loadEarlier
+    }
   }, [assembledMessages, read, sessionId, agent, hookState, hasMore, loadingEarlier, loadEarlier])
 }

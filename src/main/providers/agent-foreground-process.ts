@@ -9,6 +9,7 @@ import {
   shouldInspectWindowsAgentForeground,
   type AgentForegroundResolutionOptions
 } from './windows-agent-foreground-process'
+import { getLinuxProcessTreeSnapshot } from './linux-process-tree'
 
 export type { AgentForegroundResolutionOptions } from './windows-agent-foreground-process'
 
@@ -90,9 +91,12 @@ export async function resolveAgentForegroundProcessWithAvailability(
   }
 
   try {
-    const rows = options.fresh
-      ? await getFreshProcessTableSnapshot()
-      : await getProcessTableSnapshot()
+    const rows =
+      process.platform === 'linux'
+        ? await getLinuxProcessTreeSnapshot(shellPid)
+        : options.fresh
+          ? await getFreshProcessTableSnapshot()
+          : await getProcessTableSnapshot()
     if (options.fresh && !rows.some((row) => row.pid === shellPid)) {
       return { available: false, processName: fallbackProcess }
     }

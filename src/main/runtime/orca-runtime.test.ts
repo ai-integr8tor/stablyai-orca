@@ -20,7 +20,10 @@ import type {
   WorkspaceLineage,
   WorkspaceSessionState
 } from '../../shared/types'
-import { AGENT_STATUS_STALE_AFTER_MS } from '../../shared/agent-status-types'
+import {
+  AGENT_STATUS_STALE_AFTER_MS,
+  type AgentStatusIpcPayload
+} from '../../shared/agent-status-types'
 import { detectAgentStatusFromTitle, MAX_OSC_TITLE_CHARS } from '../../shared/agent-detection'
 import {
   addWorktree,
@@ -14825,6 +14828,209 @@ describe('OrcaRuntimeService', () => {
     ])
   })
 
+  it('hydrates and streams hook-only agent status through remote session tabs', async () => {
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    const paneKey = `tab-1:${leafId}`
+    const now = Date.now()
+    let hookStatuses: AgentStatusIpcPayload[] = [
+      {
+        paneKey,
+        tabId: 'tab-1',
+        worktreeId: TEST_WORKTREE_ID,
+        connectionId: null,
+        state: 'working',
+        prompt: 'check the remote inbox',
+        agentType: 'codex',
+        toolName: 'Bash',
+        toolInput: 'pnpm test',
+        receivedAt: now,
+        stateStartedAt: now - 1_000
+      }
+    ]
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => hookStatuses
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [],
+      leaves: [],
+      mobileSessionTabs: [
+        {
+          worktree: TEST_WORKTREE_ID,
+          publicationEpoch: 'hook-only-epoch',
+          snapshotVersion: 1,
+          activeGroupId: 'group-1',
+          activeTabId: `tab-1::${leafId}`,
+          activeTabType: 'terminal',
+          tabs: [
+            {
+              type: 'terminal',
+              id: `tab-1::${leafId}`,
+              parentTabId: 'tab-1',
+              leafId,
+              title: 'Remote task',
+              launchAgent: 'codex',
+              isActive: true
+            }
+          ]
+        }
+      ]
+    })
+
+    const hydrated = await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)
+    expect(hydrated.tabs[0]).toEqual(
+      expect.objectContaining({
+        type: 'terminal',
+        agentStatus: expect.objectContaining({
+          state: 'working',
+          prompt: 'check the remote inbox',
+          agentType: 'codex',
+          toolName: 'Bash',
+          toolInput: 'pnpm test',
+          paneKey
+        })
+      })
+    )
+
+    const events: RuntimeMobileSessionTabsResult[] = []
+    const unsubscribe = runtime.onMobileSessionTabsChanged((snapshot) => events.push(snapshot))
+    hookStatuses = [
+      {
+        ...hookStatuses[0]!,
+        state: 'waiting',
+        interactivePrompt: JSON.stringify({ questions: [{ question: 'Continue?' }] }),
+        receivedAt: now + 1,
+        stateStartedAt: now + 1
+      }
+    ]
+    runtime.notifyAgentStatusSnapshotChanged()
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      publicationEpoch: 'hook-only-epoch',
+      snapshotVersion: 2,
+      tabs: [
+        {
+          agentStatus: expect.objectContaining({
+            state: 'waiting',
+            interactivePrompt: expect.stringContaining('Continue?')
+          })
+        }
+      ]
+    })
+
+    hookStatuses = [
+      {
+        ...hookStatuses[0]!,
+        state: 'done',
+        interactivePrompt: undefined,
+        lastAssistantMessage: 'Finished',
+        receivedAt: now + 2,
+        stateStartedAt: now + 2
+      }
+    ]
+    runtime.notifyAgentStatusSnapshotChanged()
+
+    expect(events).toHaveLength(2)
+    expect(events[1]).toMatchObject({
+      snapshotVersion: 3,
+      tabs: [
+        {
+          agentStatus: expect.objectContaining({
+            state: 'done',
+            lastAssistantMessage: 'Finished'
+          })
+        }
+      ]
+    })
+
+    hookStatuses = []
+    runtime.notifyAgentStatusSnapshotChanged()
+
+    expect(events).toHaveLength(3)
+    expect(events[2]).toMatchObject({ snapshotVersion: 4 })
+    expect(events[2]?.tabs[0]).not.toHaveProperty('agentStatus')
+    unsubscribe()
+  })
+
+  it('replaces a stale saved Hermes status with a newer explicit PTY hook', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    const paneKey = `hermes-tab:${leafId}`
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'hermes-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Hermes UI check',
+          activeLeafId: leafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'hermes-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId,
+          paneRuntimeId: 1,
+          ptyId: 'pty-hermes',
+          paneTitle: 'Hermes UI check'
+        }
+      ],
+      mobileSessionTabs: [
+        {
+          worktree: TEST_WORKTREE_ID,
+          publicationEpoch: 'renderer-stale',
+          snapshotVersion: 1,
+          activeGroupId: null,
+          activeTabId: `hermes-tab::${leafId}`,
+          activeTabType: 'terminal',
+          tabs: [
+            {
+              type: 'terminal',
+              id: `hermes-tab::${leafId}`,
+              parentTabId: 'hermes-tab',
+              leafId,
+              ptyId: 'pty-hermes',
+              title: 'Hermes UI check',
+              launchAgent: 'hermes',
+              agentStatus: {
+                state: 'done',
+                prompt: 'previous task',
+                updatedAt: 1_700_000_000_000,
+                stateStartedAt: 1_699_999_999_000,
+                agentType: 'hermes',
+                paneKey,
+                stateHistory: []
+              },
+              isActive: true
+            }
+          ]
+        }
+      ]
+    })
+
+    runtime.onPtyData(
+      'pty-hermes',
+      '\x1b]9999;{"state":"working","prompt":"run check","agentType":"hermes"}\x07',
+      123
+    )
+    const result = await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)
+
+    expect(result.tabs[0]).toEqual(
+      expect.objectContaining({
+        type: 'terminal',
+        title: 'Hermes UI check',
+        agentStatus: expect.objectContaining({
+          state: 'working',
+          agentType: 'hermes',
+          prompt: 'run check'
+        })
+      })
+    )
+  })
+
   it('preserves authoritative OMP identity for Pi-compatible remote terminal snapshots', async () => {
     const runtime = new OrcaRuntimeService(store)
     const leafId = '11111111-1111-4111-8111-111111111111'
@@ -17362,6 +17568,65 @@ describe('OrcaRuntimeService', () => {
         ]
       })
     ])
+
+    unsubscribe()
+  })
+
+  it('publishes the latest Hermes hook transition for a custom-titled PTY', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'hermes-created-pty' })
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => 'hermes'
+    })
+    const events: RuntimeMobileSessionTabsResult[] = []
+    const unsubscribe = runtime.onMobileSessionTabsChanged((snapshot) => events.push(snapshot))
+
+    await runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+      tabId: 'hermes-tab',
+      leafId: HEADLESS_LEAF_ID,
+      title: 'Hermes UI check',
+      command: 'hermes --tui --yolo',
+      launchAgent: 'hermes'
+    })
+    events.length = 0
+
+    runtime.onPtyData(
+      'hermes-created-pty',
+      '\x1b]9999;{"state":"done","prompt":"previous","agentType":"hermes"}\x07',
+      123
+    )
+    runtime.onPtyData(
+      'hermes-created-pty',
+      '\x1b]9999;{"state":"working","prompt":"run check","agentType":"hermes","toolName":"terminal","toolInput":"sleep 60"}\x07',
+      124
+    )
+    runtime.onPtyData(
+      'hermes-created-pty',
+      '\x1b]9999;{"state":"waiting","prompt":"run check","agentType":"hermes"}\x07',
+      125
+    )
+    runtime.onPtyData(
+      'hermes-created-pty',
+      '\x1b]9999;{"state":"done","prompt":"run check","agentType":"hermes","lastAssistantMessage":"OK"}\x07',
+      126
+    )
+
+    await waitForMobileSessionTabsEvents(events, 1)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.tabs[0]).toEqual(
+      expect.objectContaining({
+        type: 'terminal',
+        title: 'Hermes UI check',
+        agentStatus: expect.objectContaining({
+          state: 'done',
+          agentType: 'hermes',
+          lastAssistantMessage: 'OK'
+        })
+      })
+    )
 
     unsubscribe()
   })

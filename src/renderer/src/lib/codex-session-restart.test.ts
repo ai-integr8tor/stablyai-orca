@@ -144,6 +144,81 @@ describe('markLiveCodexSessionsForRestart', () => {
     })
   })
 
+  it('still marks healthy Codex panes when another process inspection fails', async () => {
+    useAppStore.setState({
+      ptyIdsByTabId: {
+        'tab-1': ['pty-1', 'pty-expired']
+      }
+    })
+    vi.mocked(window.api.pty.getForegroundProcess).mockImplementation((ptyId) => {
+      if (ptyId === 'pty-expired') {
+        return Promise.reject(new Error('terminal_handle_stale'))
+      }
+      return Promise.resolve('codex')
+    })
+
+    await markLiveCodexSessionsForRestart({
+      previousAccountLabel: ACCOUNT_A,
+      nextAccountLabel: ACCOUNT_B
+    })
+
+    expect(useAppStore.getState().codexRestartNoticeByPtyId).toEqual({
+      'pty-1': {
+        previousAccountLabel: ACCOUNT_A,
+        nextAccountLabel: ACCOUNT_B
+      }
+    })
+  })
+
+  it('marks remote PTYs before their tab mirror appears in tabsByWorktree', async () => {
+    useAppStore.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      tabsByWorktree: {},
+      ptyIdsByTabId: {
+        'remote-tab-not-mirrored-yet': ['remote:env-1@@term-1']
+      }
+    })
+    runtimeEnvironmentCall.mockResolvedValue({
+      id: 'rpc-1',
+      ok: true,
+      result: {
+        process: { foregroundProcess: 'codex', hasChildProcesses: true }
+      },
+      _meta: { runtimeId: 'remote-runtime' }
+    })
+
+    await markLiveCodexSessionsForRestart({
+      previousAccountLabel: ACCOUNT_A,
+      nextAccountLabel: ACCOUNT_B
+    })
+
+    expect(useAppStore.getState().codexRestartNoticeByPtyId['remote:env-1@@term-1']).toEqual({
+      previousAccountLabel: ACCOUNT_A,
+      nextAccountLabel: ACCOUNT_B
+    })
+  })
+
+  it('inspects a PTY only once when multiple tab mappings reference it', async () => {
+    useAppStore.setState({
+      ptyIdsByTabId: {
+        'tab-1': ['pty-1'],
+        'tab-2': ['pty-1']
+      }
+    })
+    vi.mocked(window.api.pty.getForegroundProcess).mockResolvedValue('codex')
+
+    await markLiveCodexSessionsForRestart({
+      previousAccountLabel: ACCOUNT_A,
+      nextAccountLabel: ACCOUNT_B
+    })
+
+    expect(window.api.pty.getForegroundProcess).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().codexRestartNoticeByPtyId['pty-1']).toEqual({
+      previousAccountLabel: ACCOUNT_A,
+      nextAccountLabel: ACCOUNT_B
+    })
+  })
+
   it('does not mark non-codex foreground processes', async () => {
     vi.mocked(window.api.pty.getForegroundProcess).mockResolvedValue('zsh')
 

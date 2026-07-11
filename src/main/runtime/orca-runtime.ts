@@ -75,8 +75,21 @@ import type {
   AutomationCreateInput,
   AutomationRun,
   AutomationUpdateInput,
-  AutomationWorkspaceMode
+  AutomationWorkspaceMode,
+  ExternalAutomationActionInput,
+  ExternalAutomationCreateInput,
+  ExternalAutomationManager,
+  ExternalAutomationRunsInput,
+  ExternalAutomationRunsPage,
+  ExternalAutomationUpdateInput
 } from '../../shared/automations-types'
+import {
+  createExternalAutomation,
+  listExternalAutomationRuns,
+  listLocalExternalAutomationManagers,
+  runExternalAutomationAction,
+  updateExternalAutomation
+} from '../automations/external-manager'
 import type {
   AutomationWorkspaceProvenance,
   BaseRefSearchResult,
@@ -2133,6 +2146,10 @@ export class OrcaRuntimeService {
     { activate: boolean; selectIfNoActiveTab: boolean }
   >()
   private mobileSessionTabListeners = new Set<(snapshot: RuntimeMobileSessionTabsResult) => void>()
+  // Why: hook events can update agent state without PTY output or renderer graph
+  // churn. Track the last hook projection published for each worktree so those
+  // events can advance session.tabs snapshots without republishing every workspace.
+  private hookAgentStatusProjectionByWorktree = new Map<string, string>()
   // Why: coalesces title/status-driven session.tabs emits so spinner churn
   // doesn't fan out (and per-client JSON.stringify) a snapshot several times a
   // second. Emit reads the latest snapshot, so only the freshest version ships.
@@ -2708,6 +2725,28 @@ export class OrcaRuntimeService {
       throw new Error('runtime_unavailable')
     }
     return this.store.listAutomationRuns(automationId)
+  }
+
+  listExternalAutomationManagers(): Promise<ExternalAutomationManager[]> {
+    return listLocalExternalAutomationManagers()
+  }
+
+  listExternalAutomationRuns(
+    input: Omit<ExternalAutomationRunsInput, 'target'>
+  ): Promise<ExternalAutomationRunsPage> {
+    return listExternalAutomationRuns({ ...input, target: { type: 'local' } })
+  }
+
+  createExternalAutomation(input: Omit<ExternalAutomationCreateInput, 'target'>): Promise<void> {
+    return createExternalAutomation({ ...input, target: { type: 'local' } })
+  }
+
+  updateExternalAutomation(input: Omit<ExternalAutomationUpdateInput, 'target'>): Promise<void> {
+    return updateExternalAutomation({ ...input, target: { type: 'local' } })
+  }
+
+  runExternalAutomationAction(input: Omit<ExternalAutomationActionInput, 'target'>): Promise<void> {
+    return runExternalAutomationAction({ ...input, target: { type: 'local' } })
   }
 
   showAutomation(id: string): Automation {
@@ -5424,6 +5463,26 @@ export class OrcaRuntimeService {
       // subscriber closing mid-window still receives the latest settled state.
       this.mobileSessionTabsNotifyCoalescer.flushAll()
       this.mobileSessionTabListeners.delete(listener)
+    }
+  }
+
+  notifyAgentStatusSnapshotChanged(): void {
+    const hookStatusByPaneKey = this.getHookAgentStatusByPaneKey()
+    for (const [worktreeId, snapshot] of this.mobileSessionTabsByWorktree) {
+      const projection = this.getHookAgentStatusProjection(snapshot, hookStatusByPaneKey)
+      const previousProjection = this.hookAgentStatusProjectionByWorktree.get(worktreeId)
+      this.hookAgentStatusProjectionByWorktree.set(worktreeId, projection)
+      if (
+        projection === previousProjection ||
+        (previousProjection === undefined && projection === '[]')
+      ) {
+        continue
+      }
+      this.mobileSessionTabsByWorktree.set(worktreeId, {
+        ...snapshot,
+        snapshotVersion: snapshot.snapshotVersion + 1
+      })
+      this.notifyMobileSessionTabsChanged(worktreeId)
     }
   }
 
@@ -17727,6 +17786,7 @@ export class OrcaRuntimeService {
       agent?: TuiAgent
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
+      viewMode?: 'terminal' | 'chat'
       activate?: boolean
       clientMutationId?: string
       signal?: AbortSignal
@@ -17771,6 +17831,7 @@ export class OrcaRuntimeService {
       agent?: TuiAgent
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
+      viewMode?: 'terminal' | 'chat'
       activate?: boolean
       clientMutationId?: string
       signal?: AbortSignal
@@ -17804,6 +17865,7 @@ export class OrcaRuntimeService {
           env: startupCommand.env,
           startupCommandDelivery: startupCommand.startupCommandDelivery,
           launchAgent: startupCommand.launchAgent,
+          viewMode: opts.viewMode,
           targetGroupId: opts.targetGroupId,
           launchConfig: startupCommand.launchConfig
         }
@@ -17852,6 +17914,7 @@ export class OrcaRuntimeService {
         ...(startupCommand.env ? { env: startupCommand.env } : {}),
         ...(startupCommand.launchConfig ? { launchConfig: startupCommand.launchConfig } : {}),
         ...(startupCommand.launchAgent ? { launchAgent: startupCommand.launchAgent } : {}),
+        ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
         startupCommandDelivery: startupCommand.startupCommandDelivery,
         source: 'runtime-session',
         activate: opts.activate
@@ -18038,6 +18101,7 @@ export class OrcaRuntimeService {
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       identity?: { tabId: string; leafId: string; sessionId?: string }
       launchAgent?: TuiAgent
+      viewMode?: 'terminal' | 'chat'
       targetGroupId?: string
       launchConfig?: SleepingAgentLaunchConfig
     } = {}
@@ -18055,6 +18119,7 @@ export class OrcaRuntimeService {
       env: opts.env,
       ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
+      ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
       startupCommandDelivery: opts.startupCommandDelivery,
       ...(opts.identity
         ? {
@@ -18098,6 +18163,7 @@ export class OrcaRuntimeService {
       title: terminal.title ?? livePty.pty.title ?? 'Terminal',
       ...(cwd ? { startupCwd: cwd } : {}),
       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
+      ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
       parentLayout,
       isActive: activate
     }
@@ -20543,6 +20609,11 @@ export class OrcaRuntimeService {
   ): RuntimeMobileSessionTabsResult {
     const tabs: RuntimeMobileSessionClientTab[] = []
     const liveBrowserTabsByPageId = this.getLiveBrowserTabsByPageId(snapshot.worktree)
+    const hookStatusByPaneKey = this.getHookAgentStatusByPaneKey()
+    this.hookAgentStatusProjectionByWorktree.set(
+      snapshot.worktree,
+      this.getHookAgentStatusProjection(snapshot, hookStatusByPaneKey)
+    )
     // Why: a live PTY backs exactly one terminal surface, so it must map to a
     // single emitted tab. After agent sleep + mobile wake, a stale
     // headless-hydrated leaf can survive beside the renderer's live leaf and both
@@ -20623,48 +20694,6 @@ export class OrcaRuntimeService {
         leafTitle ?? ptyTitle ?? syncedTab?.title ?? tab.title,
         ownerAgent
       )
-      const liveTitleEvidence = leafTitle ?? ptyTitle
-      const liveTitleEvidenceClassification = classifyAgentTitle(liveTitleEvidence)
-      const normalizedTabAgentStatus = tab.agentStatus
-        ? normalizeCompatibleAgentStatusEntryForOwner(tab.agentStatus, ownerAgent)
-        : null
-      // Why: keep the rich hook-driven status when the agent has a live
-      // interactive prompt or an active tool — those are authoritative agent
-      // activity even if the terminal's title isn't agent-classified (e.g. it
-      // shows a task/branch name). Otherwise the mobile/web client falls back to
-      // the OSC-title-only status and never sees interactivePrompt (the question
-      // card never renders).
-      const hasLiveAgentSignal =
-        normalizedTabAgentStatus?.interactivePrompt != null ||
-        normalizedTabAgentStatus?.toolName != null
-      const keepFullAgentStatus =
-        normalizedTabAgentStatus &&
-        (liveTitleEvidence === null ||
-          liveTitleEvidenceClassification === 'agent' ||
-          hasLiveAgentSignal)
-      const agentStatus = keepFullAgentStatus
-        ? { agentStatus: normalizedTabAgentStatus }
-        : // Why: when live title evidence says the pane is idle (e.g. the Claude
-          // agents picker or a neutral shell title), suppress the stale "working"
-          // state so the client shows no spinner — but retain agent identity
-          // (agentType + providerSession) so native chat can still address an
-          // idle agent's transcript. Reset the transient state to 'done'.
-          normalizedTabAgentStatus?.agentType != null
-          ? {
-              agentStatus: {
-                state: 'done' as const,
-                prompt: '',
-                updatedAt: normalizedTabAgentStatus.updatedAt,
-                stateStartedAt: normalizedTabAgentStatus.stateStartedAt,
-                paneKey: normalizedTabAgentStatus.paneKey,
-                stateHistory: [],
-                agentType: normalizedTabAgentStatus.agentType,
-                ...(normalizedTabAgentStatus.providerSession
-                  ? { providerSession: normalizedTabAgentStatus.providerSession }
-                  : {})
-              }
-            }
-          : null
       // Why: web/mobile clients hold these handles across renderer graph syncs;
       // leaf handles are graph-epoch-bound, but PTY handles remain streamable.
       const terminalHandle = liveLeafPtyId
@@ -20678,6 +20707,136 @@ export class OrcaRuntimeService {
         : livePty
           ? this.issuePtyHandle(livePty)
           : null
+      const liveTitleEvidence = leafTitle ?? ptyTitle
+      const liveTitleEvidenceClassification = classifyAgentTitle(liveTitleEvidence)
+      const retainedAgentStatus = this.latestAgentStatusByPaneKey.get(paneKey)
+      const retainedAgentStatusEntry =
+        retainedAgentStatus &&
+        (!tab.agentStatus || retainedAgentStatus.updatedAt >= tab.agentStatus.updatedAt)
+          ? {
+              ...retainedAgentStatus.payload,
+              prompt: retainedAgentStatus.payload.prompt || tab.agentStatus?.prompt || '',
+              updatedAt: retainedAgentStatus.updatedAt,
+              stateStartedAt: retainedAgentStatus.stateStartedAt,
+              paneKey,
+              stateHistory: tab.agentStatus?.stateHistory ?? [],
+              ...(terminalHandle ? { terminalHandle } : {}),
+              ...(retainedAgentStatus.worktreeId
+                ? { worktreeId: retainedAgentStatus.worktreeId }
+                : {}),
+              ...(retainedAgentStatus.tabId ? { tabId: retainedAgentStatus.tabId } : {}),
+              ...(tab.agentStatus?.orchestration
+                ? { orchestration: tab.agentStatus.orchestration }
+                : {}),
+              ...(tab.agentStatus?.providerSession
+                ? { providerSession: tab.agentStatus.providerSession }
+                : {})
+            }
+          : null
+      const hookStatus = hookStatusByPaneKey.get(paneKey)
+      const hookAgentStatusEntry = hookStatus
+        ? {
+            state: hookStatus.state,
+            prompt: hookStatus.prompt || tab.agentStatus?.prompt || '',
+            updatedAt: hookStatus.receivedAt,
+            stateStartedAt: hookStatus.stateStartedAt,
+            paneKey,
+            stateHistory: tab.agentStatus?.stateHistory ?? [],
+            ...(hookStatus.agentType ? { agentType: hookStatus.agentType } : {}),
+            ...(hookStatus.toolName ? { toolName: hookStatus.toolName } : {}),
+            ...(hookStatus.toolInput ? { toolInput: hookStatus.toolInput } : {}),
+            ...(hookStatus.interactivePrompt
+              ? { interactivePrompt: hookStatus.interactivePrompt }
+              : {}),
+            ...(hookStatus.lastAssistantMessage
+              ? { lastAssistantMessage: hookStatus.lastAssistantMessage }
+              : {}),
+            ...(hookStatus.interrupted !== undefined
+              ? { interrupted: hookStatus.interrupted }
+              : {}),
+            ...(terminalHandle
+              ? { terminalHandle }
+              : hookStatus.terminalHandle
+                ? { terminalHandle: hookStatus.terminalHandle }
+                : {}),
+            ...(hookStatus.worktreeId ? { worktreeId: hookStatus.worktreeId } : {}),
+            ...(hookStatus.tabId ? { tabId: hookStatus.tabId } : {}),
+            ...(hookStatus.orchestration ? { orchestration: hookStatus.orchestration } : {}),
+            ...(hookStatus.providerSession ? { providerSession: hookStatus.providerSession } : {})
+          }
+        : null
+      const explicitAgentStatus = [retainedAgentStatusEntry, hookAgentStatusEntry]
+        .filter((entry): entry is AgentStatusEntry => entry !== null)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      const explicitAgentStatusToUse =
+        explicitAgentStatus &&
+        (!tab.agentStatus || explicitAgentStatus.updatedAt >= tab.agentStatus.updatedAt)
+          ? explicitAgentStatus
+          : null
+      // Why: a renderer/mobile tab snapshot can lag behind OSC 9999 hooks from
+      // the live PTY or main hook cache. Prefer the newer explicit payload so
+      // paired clients see working/tool transitions instead of an old done row.
+      const freshestAgentStatus = explicitAgentStatusToUse
+        ? explicitAgentStatusToUse
+        : tab.agentStatus
+      const normalizedTabAgentStatus = freshestAgentStatus
+        ? normalizeCompatibleAgentStatusEntryForOwner(freshestAgentStatus, ownerAgent)
+        : null
+      // Why: keep the rich hook-driven status when the agent has a live
+      // interactive prompt or an active tool — those are authoritative agent
+      // activity even if the terminal's title isn't agent-classified (e.g. it
+      // shows a task/branch name). Otherwise the mobile/web client falls back to
+      // the OSC-title-only status and never sees interactivePrompt (the question
+      // card never renders).
+      const hasFreshExplicitAgentSignal =
+        explicitAgentStatusToUse !== null &&
+        Date.now() - explicitAgentStatusToUse.updatedAt <= AGENT_STATUS_STALE_AFTER_MS &&
+        normalizedTabAgentStatus?.state !== 'done'
+      const hasHookCompletionSignal =
+        explicitAgentStatusToUse === hookAgentStatusEntry &&
+        normalizedTabAgentStatus?.state === 'done'
+      const hasLiveAgentSignal =
+        hasFreshExplicitAgentSignal ||
+        hasHookCompletionSignal ||
+        normalizedTabAgentStatus?.interactivePrompt != null ||
+        normalizedTabAgentStatus?.toolName != null
+      const shellReclaimedTransientAgent =
+        explicitAgentStatusToUse !== null &&
+        liveTitleEvidence !== null &&
+        liveTitleEvidenceClassification !== 'agent' &&
+        normalizedTabAgentStatus?.state !== 'done' &&
+        normalizedTabAgentStatus?.interactivePrompt == null &&
+        normalizedTabAgentStatus?.toolName == null
+      const keepFullAgentStatus =
+        normalizedTabAgentStatus &&
+        (liveTitleEvidence === null ||
+          liveTitleEvidenceClassification === 'agent' ||
+          hasLiveAgentSignal)
+      const agentStatus = shellReclaimedTransientAgent
+        ? {}
+        : keepFullAgentStatus
+          ? { agentStatus: normalizedTabAgentStatus }
+          : // Why: when live title evidence says the pane is idle (e.g. the Claude
+            // agents picker or a neutral shell title), suppress the stale "working"
+            // state so the client shows no spinner — but retain agent identity
+            // (agentType + providerSession) so native chat can still address an
+            // idle agent's transcript. Reset the transient state to 'done'.
+            normalizedTabAgentStatus?.agentType != null
+            ? {
+                agentStatus: {
+                  state: 'done' as const,
+                  prompt: '',
+                  updatedAt: normalizedTabAgentStatus.updatedAt,
+                  stateStartedAt: normalizedTabAgentStatus.stateStartedAt,
+                  paneKey: normalizedTabAgentStatus.paneKey,
+                  stateHistory: [],
+                  agentType: normalizedTabAgentStatus.agentType,
+                  ...(normalizedTabAgentStatus.providerSession
+                    ? { providerSession: normalizedTabAgentStatus.providerSession }
+                    : {})
+                }
+              }
+            : null
       tabs.push({
         type: 'terminal',
         id: tab.id,
@@ -20736,6 +20895,28 @@ export class OrcaRuntimeService {
       ...(snapshot.tabGroupLayout !== undefined ? { tabGroupLayout } : {}),
       tabs: normalizedTabs
     }
+  }
+
+  private getHookAgentStatusByPaneKey(): Map<string, AgentStatusIpcPayload> {
+    return new Map(
+      (this.getAgentStatusSnapshotFn?.() ?? []).map((entry) => [entry.paneKey, entry] as const)
+    )
+  }
+
+  private getHookAgentStatusProjection(
+    snapshot: RuntimeMobileSessionTabsSnapshot,
+    hookStatusByPaneKey: ReadonlyMap<string, AgentStatusIpcPayload>
+  ): string {
+    const entries = snapshot.tabs
+      .filter((tab): tab is RuntimeMobileSessionTerminalTab => tab.type === 'terminal')
+      .map((tab) => {
+        const paneKey = this.getMobileTerminalPaneKey(tab)
+        const entry = hookStatusByPaneKey.get(paneKey)
+        return entry ? [paneKey, entry] : null
+      })
+      .filter((entry): entry is [string, AgentStatusIpcPayload] => entry !== null)
+      .sort(([a], [b]) => a.localeCompare(b))
+    return JSON.stringify(entries)
   }
 
   /**

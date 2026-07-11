@@ -505,6 +505,7 @@ export function getDefaultUIState(): PersistedUIState {
     trustedOrcaHooks: {},
     setupScriptPromptDismissedRepoIds: [],
     acknowledgedAgentsByPaneKey: {},
+    dismissedAgentStatusByPaneKey: {},
     setupGuideSidebarDismissed: false,
     setupGuideBrowserMilestoneMigrated: true,
     setupGuideBrowserMilestoneLegacyComplete: false,

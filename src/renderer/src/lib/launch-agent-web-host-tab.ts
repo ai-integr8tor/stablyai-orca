@@ -32,16 +32,26 @@ export function launchAgentInWebHostTab(args: {
   groupId?: string
   hasPrompt: boolean
   startupPlan: AgentStartupPlan
+  viewMode?: 'terminal' | 'chat'
   onPromptDelivered?: () => void
 }): void {
-  const { agent, worktreeId, environmentId, groupId, hasPrompt, startupPlan, onPromptDelivered } =
-    args
+  const {
+    agent,
+    worktreeId,
+    environmentId,
+    groupId,
+    hasPrompt,
+    startupPlan,
+    viewMode,
+    onPromptDelivered
+  } = args
   removeStaleLocalAgentTabsForWebHostLaunch(worktreeId)
   void createWebRuntimeSessionTerminal({
     worktreeId,
     environmentId,
     targetGroupId: groupId,
     activate: true,
+    ...(viewMode ? { viewMode } : {}),
     ...(hasPrompt
       ? {
           command: startupPlan.launchCommand,
