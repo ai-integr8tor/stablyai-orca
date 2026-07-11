@@ -57,6 +57,8 @@ import {
 } from './tooltip'
 import { ClaudeIcon, GeminiIcon, MiniMaxIcon, OpenAIIcon, OpenCodeGoIcon } from './icons'
 import { AgentIcon } from '@/lib/agent-catalog'
+import { formatResetDuration } from '@/lib/reset-countdown'
+import { useResetCountdownNow } from '@/hooks/useResetCountdownClock'
 import { formatWindowLabel } from '@/lib/window-label-formatter'
 import { markLiveCodexSessionsForRestart } from '@/lib/codex-session-restart'
 import { UpdateStatusSegment } from './UpdateStatusSegment'
@@ -1111,6 +1113,17 @@ function ProviderSegment({
 }): React.JSX.Element {
   const provider = p?.provider ?? 'claude'
   const statusLabel = p ? getProviderUsageStatusLabel(p) : ''
+  // Why: rate-limit data only refetches every ~15min, so read a shared clock
+  // that ticks at the session's next label boundary to keep the badge current.
+  const now = useResetCountdownNow(p?.session?.resetsAt)
+
+  // Why: show the live time-until-reset for the session window instead of the
+  // fixed window length (issue #5399) so users see it without opening the panel.
+  const sessionLabel = p?.session
+    ? p.session.resetsAt != null
+      ? formatResetDuration(p.session.resetsAt - now)
+      : formatWindowLabel(p.session.windowMinutes)
+    : ''
 
   // Idle / initial load
   if (!p || p.status === 'idle') {
@@ -1173,7 +1186,7 @@ function ProviderSegment({
           )
         })}
         {visibleBuckets.length === 0 && p.session && (
-          <WindowLabel w={p.session} label={formatWindowLabel(p.session.windowMinutes)} />
+          <WindowLabel w={p.session} label={sessionLabel} />
         )}
         {isStale && <AlertTriangle size={11} className="text-muted-foreground/80" />}
       </span>
@@ -1185,7 +1198,7 @@ function ProviderSegment({
       ? {
           key: 'session',
           window: p.session,
-          label: formatWindowLabel(p.session.windowMinutes)
+          label: sessionLabel
         }
       : null,
     p.weekly
