@@ -16,6 +16,9 @@ vi.mock('./host-store', () => ({
 vi.mock('./connection-revival-triggers', () => ({
   subscribeConnectionRevivalTriggers: () => () => {}
 }))
+vi.mock('./device-identity', () => ({
+  resolveMobileDeviceDisplayName: () => 'Test Phone'
+}))
 
 import { RpcClientProvider, useCloseHost, useHostClient } from './client-context'
 
@@ -131,6 +134,12 @@ describe('useHostClient', () => {
     loadHostsMock.mockResolvedValue([HOST])
 
     const harness = await renderHarness(HOST.id)
+    expect(connectMock).toHaveBeenCalledWith(
+      HOST.endpoint,
+      HOST.deviceToken,
+      HOST.publicKeyB64,
+      expect.objectContaining({ deviceName: 'Test Phone' })
+    )
     expect(harness.hook.client).toBe(fake)
     expect(harness.hook.state).toBe('connected')
 

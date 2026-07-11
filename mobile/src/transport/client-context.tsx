@@ -22,6 +22,7 @@ import {
 import { connect, type RpcClient } from './rpc-client'
 import { connectionLogStore } from './connection-log-buffer'
 import { subscribeConnectionRevivalTriggers } from './connection-revival-triggers'
+import { resolveMobileDeviceDisplayName } from './device-identity'
 import { HostClientOpenRegistry } from './host-client-open-registry'
 import { loadHosts } from './host-store'
 import type { ConnectionState, HostProfile } from './types'
@@ -156,6 +157,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       let client: RpcClient
       try {
         client = connect(host.endpoint, host.deviceToken, host.publicKeyB64, {
+          deviceName: resolveMobileDeviceDisplayName(),
           // Why: retain reconnect lifecycle events for the Connection Log
           // screen — without this the reasons a host is stuck live only in
           // console.log, which users can't see or share.
