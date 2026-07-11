@@ -103,6 +103,7 @@ import {
   ONBOARDING_FLOW_VERSION,
   ONBOARDING_FINAL_STEP
 } from '../shared/constants'
+import { normalizeFileIconTheme } from '../shared/file-icon-theme'
 import { parseWorkspaceSession } from '../shared/workspace-session-schema'
 import {
   LOCAL_EXECUTION_HOST_ID,
@@ -3158,6 +3159,7 @@ export class Store {
               parsed.settings?.terminalCustomThemes
             ),
             appIcon: normalizeAppIconId(parsed.settings?.appIcon),
+            fileIconTheme: normalizeFileIconTheme(parsed.settings?.fileIconTheme),
             // Why: persisted settings can be user-edited or written by older
             // builds; keep tray-minimize false unless the stored value is true.
             minimizeToTrayOnClose: parsed.settings?.minimizeToTrayOnClose === true,
@@ -5242,6 +5244,9 @@ export class Store {
     }
     if ('appIcon' in updates) {
       sanitizedUpdates.appIcon = normalizeAppIconId(updates.appIcon)
+    }
+    if ('fileIconTheme' in updates) {
+      sanitizedUpdates.fileIconTheme = normalizeFileIconTheme(updates.fileIconTheme)
     }
     if ('uiLanguage' in updates) {
       sanitizedUpdates.uiLanguage = normalizeUiLanguage(updates.uiLanguage)

@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { detectLanguage } from '@/lib/language-detect'
-import { getFileTypeIcon } from '@/lib/file-type-icons'
+import { ThemedFileIcon } from '@/components/file-icons/ThemedFileIcon'
 import { openFileInBrowserTab } from '@/lib/file-preview'
 import {
   encodeWorkspaceFilePaths,
@@ -83,6 +83,7 @@ export type InlineInput = {
 
 // ─── Inline Input Row ────────────────────────────────────────────
 
+/** Honor the active icon theme during creation so file rows do not change appearance on submit. */
 export function InlineInputRow({
   depth,
   inlineInput,
@@ -209,7 +210,11 @@ export function InlineInputRow({
       {inlineInput.type === 'folder' ? (
         <Folder className="size-3 shrink-0 text-muted-foreground" />
       ) : (
-        <File className="size-3 shrink-0 text-muted-foreground" />
+        <ThemedFileIcon
+          className="size-3.5 shrink-0"
+          classicClassName="size-3 shrink-0 text-muted-foreground"
+          filePath={inlineInput.existingName ?? ''}
+        />
       )}
       <input
         key={inlineInputKey}
@@ -450,7 +455,6 @@ export function FileExplorerRow({
   const copyPathShortcutLabel = useShortcutLabel('fileExplorer.copyPath')
   const copyRelativePathShortcutLabel = useShortcutLabel('fileExplorer.copyRelativePath')
   const findInFolderShortcutLabel = useShortcutLabel('sidebar.search.toggle')
-  const FileIcon = getFileTypeIcon(node.relativePath || node.name)
   const rowDropDir = node.isDirectory ? node.path : targetDir
   const showRemoteDownloadAction = shouldShowRemoteDownloadAction(
     node,
@@ -603,7 +607,15 @@ export function FileExplorerRow({
               {node.isSymlink ? (
                 <Link className="size-3 shrink-0 text-muted-foreground" />
               ) : (
-                <FileIcon className="size-3 shrink-0 text-muted-foreground" />
+                <ThemedFileIcon
+                  className="size-3.5 shrink-0"
+                  classicClassName="size-3 shrink-0"
+                  classicStyle={{
+                    color: isIgnored ? 'var(--git-decoration-ignored)' : 'var(--muted-foreground)'
+                  }}
+                  filePath={node.relativePath || node.name}
+                  isMuted={isIgnored}
+                />
               )}
             </>
           )}

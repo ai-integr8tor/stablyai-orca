@@ -24,6 +24,7 @@ import type { GitBranchChangeStatus } from './git-status-types'
 import type { KeybindingOverrides, TerminalShortcutPolicy } from './keybindings'
 import type { RepoIcon } from './repo-icon'
 import type { AppIconId } from './app-icon'
+import type { FileIconTheme } from './file-icon-theme'
 import type {
   RepoSourceControlAiOverrides,
   SourceControlAiSettings
@@ -2506,6 +2507,7 @@ export type GlobalSettings = {
   leftSidebarTintOpacity?: number
   uiLanguage: UiLanguage
   appIcon: AppIconId
+  fileIconTheme?: FileIconTheme
   appFontFamily: string
   editorAutoSave: boolean
   editorAutoSaveDelayMs: number

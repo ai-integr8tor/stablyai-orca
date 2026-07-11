@@ -4969,7 +4969,10 @@
           "windowSidebarSummary": "사이드바, 상태 표시줄 및 파일 탐색기",
           "statusBarCount": "{{value0}}개 표시기가 보입니다.",
           "gitIgnoredGlossary": ".gitignore와 일치하는 파일.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Choose which indicators appear in the status bar.",
+          "fileIconThemeLabel": "File Icons",
+          "fileIconThemeClassic": "Classic",
+          "fileIconThemeMaterial": "Material"
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -8994,6 +8997,12 @@
           "a8f3e2c1b4": "주간 크레딧",
           "b7e2d9f0a3": "터미널의 grok /usage 화면과 같은 주간 크레딧 비율입니다.",
           "c6d1a8f4e2": "{{when}}에 재설정"
+        },
+        "fileIconTheme": {
+          "search": {
+            "title": "File Icons",
+            "description": "Choose how file type icons appear in the file explorer, search results, and editor tabs."
+          }
         }
       },
       "right": {
