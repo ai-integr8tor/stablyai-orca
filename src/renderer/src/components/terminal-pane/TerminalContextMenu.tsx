@@ -37,6 +37,7 @@ import { AgentIcon } from '@/lib/agent-catalog'
 import type { KeybindingOverrides } from '../../../../shared/keybindings'
 import { translate } from '@/i18n/i18n'
 import { isMacPlatform, nativeChatToggleShortcutLabel } from '../native-chat/native-chat-shortcut'
+import { TerminalSideQuestMenuItem } from './TerminalSideQuestMenuItem'
 
 type TerminalContextMenuProps = {
   open: boolean
@@ -60,6 +61,7 @@ type TerminalContextMenuProps = {
   isNativeChatView: boolean
   onToggleNativeChat: () => void
   onCopyAgentSessionContext: () => void
+  sideQuest: { enabled: boolean; includesSelection: boolean; onStart: () => void }
   repoQuickCommands: TerminalQuickCommand[]
   globalQuickCommands: TerminalQuickCommand[]
   quickCommandRepoLabel: string | null
@@ -95,6 +97,7 @@ export default function TerminalContextMenu({
   isNativeChatView,
   onToggleNativeChat,
   onCopyAgentSessionContext,
+  sideQuest,
   repoQuickCommands,
   globalQuickCommands,
   quickCommandRepoLabel,
@@ -204,6 +207,12 @@ export default function TerminalContextMenu({
           {translate('auto.components.terminal.pane.TerminalContextMenu.0a917b591a', 'Paste')}
           <DropdownMenuShortcut>{shortcuts.paste}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {sideQuest.enabled ? (
+          <TerminalSideQuestMenuItem
+            includesSelection={sideQuest.includesSelection}
+            onSelect={sideQuest.onStart}
+          />
+        ) : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <Play fill="currentColor" strokeWidth={0} />

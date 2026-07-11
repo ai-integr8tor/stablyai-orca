@@ -22,6 +22,11 @@ import { isTuiAgent } from './tui-agent-config'
 import { normalizeBrowserHistoryEntries } from './workspace-session-browser-history'
 import { isWorkspaceKey } from './workspace-scope'
 import { sleepingAgentSessionsByPaneKeySchema } from './workspace-session-sleeping-agents'
+import {
+  SIDE_QUEST_PROVIDERS,
+  SIDE_QUEST_SESSION_STATUSES,
+  type SideQuestSessionReference
+} from './side-quest-types'
 
 // ─── Terminal pane layout (recursive) ───────────────────────────────
 
@@ -62,6 +67,16 @@ const terminalLayoutSnapshotSchema = z.object({
   titlesByLeafId: z.record(z.string(), z.string()).optional()
 })
 
+const sideQuestSessionReferenceSchema: z.ZodType<SideQuestSessionReference> = z.object({
+  id: z.string().min(1),
+  provider: z.enum(SIDE_QUEST_PROVIDERS),
+  providerThreadId: z.string().min(1).nullable(),
+  status: z.enum(SIDE_QUEST_SESSION_STATUSES),
+  error: z.string().nullable(),
+  createdAt: z.number().finite().nonnegative(),
+  updatedAt: z.number().finite().nonnegative()
+})
+
 // ─── Terminal tab (legacy) ──────────────────────────────────────────
 
 const terminalTabSchema = z.object({
@@ -86,7 +101,10 @@ const terminalTabSchema = z.object({
   launchAgent: z
     .custom<TuiAgent>((v) => isTuiAgent(v))
     .optional()
-    .catch(undefined)
+    .catch(undefined),
+  // Why: an older Orca build must still restore every terminal if a newer
+  // build persisted a provider or lifecycle state it does not recognize.
+  sideQuestSession: sideQuestSessionReferenceSchema.optional().catch(undefined)
 })
 
 // ─── Unified tab model ──────────────────────────────────────────────

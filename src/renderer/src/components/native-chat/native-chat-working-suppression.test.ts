@@ -27,10 +27,29 @@ describe('native chat working suppression', () => {
     ).toBe(true)
   })
 
+  it('shows working immediately while a sent prompt is still unconfirmed', () => {
+    expect(
+      shouldShowNativeChatWorking({
+        isConversation: true,
+        viewWorking: false,
+        hookWorking: false,
+        pendingWorking: true,
+        interrupted: false
+      })
+    ).toBe(true)
+  })
+
   it('clears suppression only after all working signals clear', () => {
     expect(shouldClearNativeChatWorkingSuppression({ viewWorking: true, hookWorking: false })).toBe(
       false
     )
+    expect(
+      shouldClearNativeChatWorkingSuppression({
+        viewWorking: false,
+        hookWorking: false,
+        pendingWorking: true
+      })
+    ).toBe(false)
     expect(
       shouldClearNativeChatWorkingSuppression({ viewWorking: false, hookWorking: false })
     ).toBe(true)

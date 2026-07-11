@@ -149,6 +149,47 @@ describe('hydrateWorkspaceSession', () => {
     })
   })
 
+  it('preserves the durable Side Quest reference while clearing terminal runtime state', () => {
+    const store = createTestStore()
+    const worktreeId = 'repo1::/wt-side-quest'
+    seedStore(store, {
+      worktreesByRepo: {
+        repo1: [makeWorktree({ id: worktreeId, repoId: 'repo1', path: '/wt-side-quest' })]
+      }
+    })
+    const sideQuestSession = {
+      id: 'side-quest-1',
+      provider: 'codex' as const,
+      providerThreadId: 'thread-1',
+      status: 'error' as const,
+      error: 'Provider connection closed',
+      createdAt: 100,
+      updatedAt: 200
+    }
+    const session: WorkspaceSessionState = {
+      ...getDefaultWorkspaceSession(),
+      activeRepoId: 'repo1',
+      activeWorktreeId: worktreeId,
+      activeTabId: 'tab-side-quest',
+      tabsByWorktree: {
+        [worktreeId]: [
+          makeTab({
+            id: 'tab-side-quest',
+            worktreeId,
+            ptyId: 'stale-pty',
+            sideQuestSession
+          })
+        ]
+      }
+    }
+
+    store.getState().hydrateWorkspaceSession(session)
+
+    const hydrated = store.getState().tabsByWorktree[worktreeId][0]
+    expect(hydrated.ptyId).toBeNull()
+    expect(hydrated.sideQuestSession).toEqual(sideQuestSession)
+  })
+
   it('hydrates runtime-owned tabs from host partitions before remote catalogs load', () => {
     const store = createTestStore()
     const worktreeId = 'remote-repo::/srv/remote-wt'

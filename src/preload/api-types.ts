@@ -418,6 +418,17 @@ import type {
   AiVaultSubagentListResult
 } from '../shared/ai-vault-types'
 import type { AgentType, NativeChatMessage } from '../shared/native-chat-types'
+import type {
+  SideQuestCreateArgs,
+  SideQuestCreateResult,
+  SideQuestInterruptArgs,
+  SideQuestReadArgs,
+  SideQuestReadResult,
+  SideQuestSendArgs,
+  SideQuestSendResult,
+  SideQuestStreamEvent,
+  SideQuestSubscribeArgs
+} from '../shared/side-quest-runtime-types'
 import type { TelemetryConsentState } from '../shared/telemetry-consent-types'
 import type { AgentKind, LaunchSource, RequestKind } from '../shared/telemetry-events'
 import type { AppStarSource } from '../shared/gh-star-source'
@@ -812,7 +823,9 @@ export type AiVaultApi = {
   onWindowFocused: (callback: () => void) => () => void
 }
 
-export type NativeChatReadSessionResult = { messages: NativeChatMessage[] } | { error: string }
+export type NativeChatReadSessionResult =
+  | { messages: NativeChatMessage[] }
+  | { error: string; code?: 'transcript_not_found' }
 
 /** Messages appended to a live-tailed transcript since the previous emit. */
 export type NativeChatAppendedMessages = NativeChatMessage[]
@@ -849,6 +862,17 @@ export type NativeChatApi = {
   subscribe: (
     args: NativeChatSubscribeArgs,
     onAppended: (messages: NativeChatAppendedMessages) => void
+  ) => () => void
+}
+
+export type SideQuestApi = {
+  create: (args: SideQuestCreateArgs) => Promise<SideQuestCreateResult>
+  read: (args: SideQuestReadArgs) => Promise<SideQuestReadResult>
+  send: (args: SideQuestSendArgs) => Promise<SideQuestSendResult>
+  interrupt: (args: SideQuestInterruptArgs) => Promise<void>
+  subscribe: (
+    args: SideQuestSubscribeArgs,
+    onEvent: (event: SideQuestStreamEvent) => void
   ) => () => void
 }
 
@@ -2356,6 +2380,7 @@ export type PreloadApi = {
   openCodeUsage: OpenCodeUsageApi
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
+  sideQuest: SideQuestApi
   fs: {
     readDir: (args: { dirPath: string; connectionId?: string }) => Promise<DirEntry[]>
     readFile: (args: {

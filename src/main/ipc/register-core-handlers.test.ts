@@ -59,6 +59,7 @@ const {
   registerWorkspacePortHandlersMock,
   registerLocalhostWorktreeLabelHandlersMock,
   registerNativeChatHandlersMock,
+  registerSideQuestHandlersMock,
   registerEmulatorFrameStreamHandlersMock,
   registerEmulatorVideoStreamHandlersMock
 } = vi.hoisted(() => ({
@@ -120,14 +121,20 @@ const {
   registerWorkspacePortHandlersMock: vi.fn(),
   registerLocalhostWorktreeLabelHandlersMock: vi.fn(),
   registerNativeChatHandlersMock: vi.fn(),
+  registerSideQuestHandlersMock: vi.fn(() => vi.fn()),
   registerEmulatorFrameStreamHandlersMock: vi.fn(),
   registerEmulatorVideoStreamHandlersMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
   app: {
-    getPath: getPathMock
+    getPath: getPathMock,
+    once: vi.fn()
   }
+}))
+
+vi.mock('./side-quest', () => ({
+  registerSideQuestHandlers: registerSideQuestHandlersMock
 }))
 
 vi.mock('../../shared/runtime-environment-store', () => ({
@@ -416,6 +423,8 @@ describe('registerCoreHandlers', () => {
     registerWorkspacePortHandlersMock.mockReset()
     registerLocalhostWorktreeLabelHandlersMock.mockReset()
     registerNativeChatHandlersMock.mockReset()
+    registerSideQuestHandlersMock.mockReset()
+    registerSideQuestHandlersMock.mockReturnValue(vi.fn())
     registerEmulatorFrameStreamHandlersMock.mockReset()
     registerEmulatorVideoStreamHandlersMock.mockReset()
   })
@@ -468,6 +477,7 @@ describe('registerCoreHandlers', () => {
     expect(registerCodexAccountHandlersMock).toHaveBeenCalledWith(codexAccounts)
     expect(registerAgentHookHandlersMock).toHaveBeenCalledWith(runtime)
     expect(registerPetHandlersMock).toHaveBeenCalled()
+    expect(registerSideQuestHandlersMock).toHaveBeenCalled()
     expect(registerClaudeAccountHandlersMock).toHaveBeenCalledWith(claudeAccounts)
     expect(registerMiniMaxCredentialsHandlersMock).toHaveBeenCalledWith(rateLimits)
     expect(registerGrokAccountHandlersMock).toHaveBeenCalled()

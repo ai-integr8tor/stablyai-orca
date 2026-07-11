@@ -62,6 +62,11 @@ export function useNativeChatToggleShortcut(worktreeId: string, isWorktreeActive
       const terminalTab = (state.tabsByWorktree[worktreeId] ?? []).find(
         (candidate) => candidate.id === tab.entityId
       )
+      // Why: provider-backed Side Quests deliberately have no PTY surface, so
+      // the generic terminal/chat shortcut must leave their chat view fixed.
+      if (terminalTab?.sideQuestSession) {
+        return
+      }
       // Carry the agent identity (not just "an agent exists") so the chord stays
       // inert on unsupported agents (e.g. Gemini), matching the menu/header gate.
       // Pane keys are `${entityId}:${leafId}` — the backing terminal tab id, not

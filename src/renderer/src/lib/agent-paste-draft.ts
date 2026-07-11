@@ -44,6 +44,32 @@ export function sanitizeBracketedPasteContent(content: string): string {
 // stuck launch doesn't pin a Promise forever.
 const READINESS_TIMEOUT_MS = 8000
 
+/** Wait without sending; Side Quest starts this at launch so the one-time
+ *  input-ready handshake cannot pass while the user is still composing. */
+export async function waitForAgentTabInputReady(args: {
+  tabId: string
+  agent: TuiAgent
+  timeoutMs?: number
+}): Promise<boolean> {
+  const budget = args.timeoutMs ?? READINESS_TIMEOUT_MS
+  const ptyId = await waitForPtyId(args.tabId, budget)
+  if (!ptyId) {
+    return false
+  }
+
+  const settings = getSettingsForAgentTabRuntimeOwner(args.tabId)
+  const agentConfig = TUI_AGENT_CONFIG[args.agent]
+  const readySignal = agentConfig.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
+  const ready = await waitForAgentDraftInputReady(ptyId, budget, readySignal, settings)
+  if (ready) {
+    return true
+  }
+
+  // Why: the renderer can attach after the handshake on a very fast launch;
+  // process inspection is the bounded fallback used by generated-prompt delivery.
+  return await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, 1000, settings)
+}
+
 export function getSettingsForAgentTabRuntimeOwner(
   tabId: string
 ): Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined {

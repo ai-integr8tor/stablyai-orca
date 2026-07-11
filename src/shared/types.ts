@@ -40,6 +40,7 @@ import type {
   GlobalWindowsRuntimeDefault,
   LocalWindowsRuntimePreference
 } from './project-execution-runtime'
+import type { SideQuestSessionReference } from './side-quest-types'
 
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
@@ -847,6 +848,9 @@ export type TerminalTab = {
    *  hook status overrides this once the agent does anything. Plain terminals
    *  and manually-started agents omit it. */
   launchAgent?: TuiAgent
+  /** Durable terminal-to-conversation binding for Side Quests. The provider
+   *  owns transcript content; Orca persists only this lightweight reference. */
+  sideQuestSession?: SideQuestSessionReference
   /** Why: when `setActiveWorktree` bumps generation on all-dead tabs to drive a
    *  TerminalPane remount, the fresh PTY that results is caused by navigation,
    *  not by the user doing work. Without this flag the resulting

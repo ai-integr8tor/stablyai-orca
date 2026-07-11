@@ -26,6 +26,7 @@ import {
 import { Button } from '@/components/ui/button'
 import TabBar from './tab-bar/TabBar'
 import TerminalPane from './terminal-pane/TerminalPane'
+import { ProviderSideQuestView } from './native-chat/ProviderSideQuestView'
 import {
   ORCA_EDITOR_REQUEST_FILE_CLOSE_EVENT,
   ORCA_EDITOR_SAVE_AND_CLOSE_EVENT,
@@ -2171,7 +2172,12 @@ function Terminal(): React.JSX.Element | null {
                         if (shouldColdParkTerminalPanes && !isActivityPortalTab) {
                           return null
                         }
-                        const terminalPane = (
+                        const terminalPane = tab.sideQuestSession ? (
+                          <ProviderSideQuestView
+                            terminalTabId={tab.id}
+                            sessionReference={tab.sideQuestSession}
+                          />
+                        ) : (
                           <TerminalPane
                             key={`${tab.id}-${tab.generation ?? 0}`}
                             tabId={tab.id}

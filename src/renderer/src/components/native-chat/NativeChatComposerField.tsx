@@ -14,6 +14,9 @@ import {
 import { NativeChatComposerActions } from './NativeChatComposerActions'
 import { nativeChatComposerPlaceholder } from './native-chat-composer-target'
 import type { DiscoveredSkill } from '../../../../shared/skills'
+import type { SideQuestQuotedContext } from '@/lib/side-quest-context'
+import { SideQuestQuoteCard } from './SideQuestQuoteCard'
+import type { NativeChatSideQuestReadiness } from './use-native-chat-side-quest-context'
 
 export type NativeChatComposerFieldProps = {
   textareaRef: RefObject<HTMLTextAreaElement | null>
@@ -24,6 +27,8 @@ export type NativeChatComposerFieldProps = {
   autocomplete: ComposerAutocomplete
   activeSuggestion: number
   notice: string | null
+  sideQuestContext: SideQuestQuotedContext | null
+  sideQuestReadiness: NativeChatSideQuestReadiness
   imageAttachments: readonly NativeChatComposerImageAttachment[]
   sendButtonDisabled: boolean
   isWorking: boolean
@@ -39,6 +44,7 @@ export type NativeChatComposerFieldProps = {
   onAcceptMention: () => void
   onChooseSkill: (skill: DiscoveredSkill) => void
   onRemoveImageAttachment: (id: string) => void
+  onRemoveSideQuestContext: () => void
   onAttach: () => void
   onDictationToggle: () => void
   onDictationHoldStart: () => void
@@ -61,6 +67,8 @@ export function NativeChatComposerField({
   autocomplete,
   activeSuggestion,
   notice,
+  sideQuestContext,
+  sideQuestReadiness,
   imageAttachments,
   sendButtonDisabled,
   isWorking,
@@ -76,6 +84,7 @@ export function NativeChatComposerField({
   onAcceptMention,
   onChooseSkill,
   onRemoveImageAttachment,
+  onRemoveSideQuestContext,
   onAttach,
   onDictationToggle,
   onDictationHoldStart,
@@ -117,6 +126,15 @@ export function NativeChatComposerField({
               'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 dark:bg-input/30'
             )}
           >
+            {sideQuestContext ? (
+              <div className="mb-2 px-1">
+                <SideQuestQuoteCard
+                  sourceLabel={sideQuestContext.sourceLabel}
+                  text={sideQuestContext.text}
+                  onRemove={onRemoveSideQuestContext}
+                />
+              </div>
+            ) : null}
             {imageAttachments.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-1.5 px-1">
                 {imageAttachments.map((attachment) => (
@@ -158,7 +176,7 @@ export function NativeChatComposerField({
               onKeyDown={onKeyDown}
               onPaste={onPaste}
               onSelect={(e) => onTextareaSelect(e.currentTarget)}
-              placeholder={nativeChatComposerPlaceholder(hasPty, canSend)}
+              placeholder={nativeChatComposerPlaceholder(hasPty, canSend, sideQuestReadiness)}
               // Why: coarse-pointer min-height follows the app's touch target convention.
               // scrollbar-sleek keeps the overflow gutter from showing the heavy
               // native scrollbar once the draft exceeds max-height.
@@ -167,6 +185,21 @@ export function NativeChatComposerField({
                 'placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-50'
               )}
             />
+            {sideQuestReadiness === 'starting' ? (
+              <p className="px-2 pb-1 text-xs text-muted-foreground" role="status">
+                {translate(
+                  'components.native-chat.sideQuest.starting',
+                  'Starting the Side Quest agent… You can draft while it gets ready.'
+                )}
+              </p>
+            ) : sideQuestReadiness === 'failed' ? (
+              <p className="px-2 pb-1 text-xs text-destructive" role="alert">
+                {translate(
+                  'components.native-chat.sideQuest.startFailed',
+                  'The agent did not become ready. Switch to Terminal to inspect it.'
+                )}
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2 pt-0.5">
               <NativeChatComposerActions
                 attachDisabled={attachDisabled}

@@ -44,6 +44,7 @@ import { useNativeChatComposerPaste } from './use-native-chat-composer-paste'
 import { useNativeChatExternalAttachments } from './use-native-chat-external-attachments'
 import { dispatchDictationControl } from '../dictation/dictation-control-events'
 import { useNativeChatComposerKeyDown } from './use-native-chat-composer-keydown'
+import { useNativeChatSideQuestContext } from './use-native-chat-side-quest-context'
 
 // Why: a plain ESC byte is what the agent TUIs read as the interrupt key over a
 // PTY (matching how xterm forwards Escape). The richer interrupt-intent
@@ -119,6 +120,12 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
     // images survive the composer unmounting on a TUI/GUI toggle.
     const draftScopeKey = targetPtyId ?? terminalTabId
     const { draft, setDraft } = useNativeChatDraft(draftScopeKey)
+    const {
+      context: sideQuestContext,
+      readiness: sideQuestReadiness,
+      clearContext: clearSideQuestContext,
+      buildSubmittedText: buildSideQuestSubmittedText
+    } = useNativeChatSideQuestContext(terminalTabId)
     const [caret, setCaret] = useState(draft.length)
     const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY)
     const [activeSuggestion, setActiveSuggestion] = useState(0)
@@ -163,6 +170,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
 
     const hasPty = targetPtyId !== null
     const disabled = !hasPty || !canSend
+    const sideQuestSubmitBlocked = ['starting', 'failed'].includes(sideQuestReadiness)
 
     const syncCaret = useCallback((el: HTMLTextAreaElement) => {
       setCaret(el.selectionStart ?? el.value.length)
@@ -180,7 +188,9 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       })
     const sendButtonDisabled = isWorking
       ? !hasPty || !onStop
-      : disabled || (draft.trim() === '' && imageAttachments.length === 0)
+      : disabled ||
+        sideQuestSubmitBlocked ||
+        (draft.trim() === '' && (sideQuestContext !== null || imageAttachments.length === 0))
 
     const insertTypedText = useCallback(
       (text: string): boolean => {
@@ -280,7 +290,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
     const send = useCallback(() => {
       const text = draft
       const imagePaths = imageAttachments.map((attachment) => attachment.path)
-      if ((text.trim() === '' && imagePaths.length === 0) || disabled) {
+      if ((text.trim() === '' && imagePaths.length === 0) || disabled || sideQuestSubmitBlocked) {
         return
       }
       const target = resolveTarget()
@@ -293,12 +303,21 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       // (like text) so the GUI chips and TUI input stay in sync and removing a
       // chip needs no TUI un-paste: send images, then text, then Enter atomically.
       const isSlashCommand = isSlashCommandDraft(text)
+      const submittedText = buildSideQuestSubmittedText(text, isSlashCommand)
+      if (submittedText === null) {
+        return
+      }
       if (isSlashCommand) {
-        sendNativeChatMessage(target.settings, target.ptyId, text)
+        sendNativeChatMessage(target.settings, target.ptyId, submittedText)
       } else if (imagePaths.length > 0) {
-        sendNativeChatMessageWithImageAttachments(target.settings, target.ptyId, text, imagePaths)
-      } else if (text.trim().length > 0) {
-        sendNativeChatMessage(target.settings, target.ptyId, text)
+        sendNativeChatMessageWithImageAttachments(
+          target.settings,
+          target.ptyId,
+          submittedText,
+          imagePaths
+        )
+      } else if (submittedText.trim().length > 0) {
+        sendNativeChatMessage(target.settings, target.ptyId, submittedText)
       } else {
         submitNativeChatPrompt(target.settings, target.ptyId)
       }
@@ -307,7 +326,8 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       if (isSlashCommand) {
         onSlashCommand?.(text.trim())
       } else {
-        onOptimisticSend?.(text, imagePaths)
+        onOptimisticSend?.(submittedText, imagePaths)
+        clearSideQuestContext()
       }
       // Why: U10 telemetry — record adoption + local-vs-remote runtime split. The
       // agent prop is the loose AgentType; the emitter narrows unknowns to 'other'.
@@ -326,10 +346,13 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       draft,
       imageAttachments,
       disabled,
+      sideQuestSubmitBlocked,
       resolveTarget,
       onOptimisticSend,
       onSlashCommand,
-      setDraft
+      setDraft,
+      buildSideQuestSubmittedText,
+      clearSideQuestContext
     ])
 
     const interrupt = useCallback(() => {
@@ -405,6 +428,8 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
         autocomplete={autocomplete}
         activeSuggestion={activeSuggestion}
         notice={notice}
+        sideQuestContext={sideQuestContext}
+        sideQuestReadiness={sideQuestReadiness}
         imageAttachments={imageAttachments}
         sendButtonDisabled={sendButtonDisabled}
         isWorking={isWorking}
@@ -439,6 +464,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
           textareaRef.current?.focus()
         }}
         onRemoveImageAttachment={(id) => removeImageAttachment(id)}
+        onRemoveSideQuestContext={clearSideQuestContext}
         onAttach={pickAttachment}
         onDictationToggle={toggleDictation}
         onDictationHoldStart={startHoldDictation}

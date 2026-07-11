@@ -165,6 +165,23 @@ describe('launchAgentInNewTab', () => {
     })
   })
 
+  it('can bypass a configured command when the caller requires a safe built-in launch', async () => {
+    store.settings.agentCmdOverrides = {
+      codex: 'codex --dangerously-bypass-approvals-and-sandbox'
+    }
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    const result = launchAgentInNewTab({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      agentArgs: '--sandbox read-only --ask-for-approval never',
+      ignoreConfiguredAgentCommand: true
+    })
+
+    expect(result?.startupPlan.launchCommand).not.toContain('dangerously-bypass')
+    expect(result?.startupPlan.launchCommand).toContain("--sandbox' 'read-only")
+  })
+
   it('opens supported submit-after-ready launches in chat and seeds a launch prompt echo', async () => {
     store.settings = {
       agentCmdOverrides: {},
