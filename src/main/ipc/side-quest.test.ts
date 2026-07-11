@@ -65,7 +65,17 @@ describe('Side Quest IPC', () => {
       once: vi.fn(),
       send: vi.fn()
     }
+    const secondSender = {
+      id: 8,
+      isDestroyed: vi.fn(() => false),
+      once: vi.fn(),
+      send: vi.fn()
+    }
     subscribe?.({ sender }, { subscriptionId: 'subscription-1', providerThreadId: 'thread-1' })
+    subscribe?.(
+      { sender: secondSender },
+      { subscriptionId: 'subscription-2', providerThreadId: 'thread-1' }
+    )
     process.send({
       method: 'item/agentMessage/delta',
       params: { turnId: 'turn-1', itemId: 'item-1', delta: 'Hello' }
@@ -73,6 +83,14 @@ describe('Side Quest IPC', () => {
 
     expect(sender.send).toHaveBeenCalledWith('sideQuest:event', {
       subscriptionId: 'subscription-1',
+      event: {
+        type: 'error',
+        providerThreadId: 'thread-1',
+        message: 'Codex app-server response is missing threadId.'
+      }
+    })
+    expect(secondSender.send).toHaveBeenCalledWith('sideQuest:event', {
+      subscriptionId: 'subscription-2',
       event: {
         type: 'error',
         providerThreadId: 'thread-1',
