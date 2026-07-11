@@ -8,16 +8,16 @@ import {
 import {
   clearEnvCommand,
   commandSeparator,
-  planAgentCliArgsSuffix,
   quoteStartupArg,
   resolveStartupShell,
   type AgentStartupShell
 } from './tui-agent-startup-shell'
-import { getTuiAgentLaunchCommand, TUI_AGENT_CONFIG } from './tui-agent-config'
+import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { StartupCommandDelivery } from './codex-startup-delivery'
 import { buildSleepingAgentLaunchConfig } from './sleeping-agent-launch-config'
 import { planHermesStartupQuery } from './hermes-startup-query'
 import { inlineAgentDraftFitsPlatform } from './agent-draft-platform-limit'
+import { resolveTuiAgentBaseCommand } from './tui-agent-launch-command'
 import type { TuiAgent } from './types'
 
 export type AgentStartupPlan = {
@@ -30,29 +30,6 @@ export type AgentStartupPlan = {
   draftPrompt?: string | null
   env?: Record<string, string>
   startupCommandDelivery?: StartupCommandDelivery
-}
-
-function resolveBaseCommand(args: {
-  agent: TuiAgent
-  cmdOverrides: Partial<Record<TuiAgent, string>>
-  platform: NodeJS.Platform
-  shell: AgentStartupShell
-  agentArgs?: string | null
-  isRemote?: boolean
-}): { ok: true; command: string } | { ok: false; error: string } {
-  const override = args.cmdOverrides[args.agent]
-  const command =
-    override ||
-    getTuiAgentLaunchCommand(TUI_AGENT_CONFIG[args.agent], args.platform, {
-      isRemote: args.isRemote
-    })
-  const suffix = planAgentCliArgsSuffix(args.agentArgs, args.shell)
-  if (!suffix.ok) {
-    return suffix
-  }
-  // Why: Codex status hooks live in Orca's runtime CODEX_HOME; adding
-  // --profile-v2 makes Codex load a second hook representation and warn.
-  return { ok: true, command: suffix.suffix ? `${command} ${suffix.suffix}` : command }
 }
 
 export function buildAgentStartupPlan(args: {
@@ -73,7 +50,7 @@ export function buildAgentStartupPlan(args: {
   const trimmedPrompt = prompt.trim()
   const config = TUI_AGENT_CONFIG[agent]
   const usesQuery = config.promptInjectionMode === 'hermes-query' && Boolean(trimmedPrompt)
-  const baseCommand = resolveBaseCommand({
+  const baseCommand = resolveTuiAgentBaseCommand({
     agent,
     cmdOverrides,
     platform,
@@ -107,9 +84,29 @@ export function buildAgentStartupPlan(args: {
 
   if (config.promptInjectionMode === 'argv') {
     const promptSeparator = config.argvPromptSeparator ? ` ${config.argvPromptSeparator}` : ''
+    const launchCommand = `${baseCommand.command}${promptSeparator} ${quotedPrompt}`
+    if (
+      !inlineAgentDraftFitsPlatform({
+        command: launchCommand,
+        env: args.agentEnv ?? undefined,
+        platform,
+        shell
+      })
+    ) {
+      // Why: oversized Windows argv must fall back to post-ready stdin rather
+      // than being truncated or rejected by CreateProcess/cmd.exe.
+      return {
+        agent,
+        launchCommand: baseCommand.command,
+        expectedProcess: config.expectedProcess,
+        followupPrompt: trimmedPrompt,
+        launchConfig,
+        ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+      }
+    }
     return {
       agent,
-      launchCommand: `${baseCommand.command}${promptSeparator} ${quotedPrompt}`,
+      launchCommand,
       expectedProcess: config.expectedProcess,
       followupPrompt: null,
       launchConfig,
@@ -207,7 +204,7 @@ export function buildAgentResumeStartupPlan(args: {
   const resolvedAgentCommand = args.agentCommand?.trim()
   const baseCommand = resolvedAgentCommand
     ? ({ ok: true, command: resolvedAgentCommand } as const)
-    : resolveBaseCommand({
+    : resolveTuiAgentBaseCommand({
         agent: args.agent,
         cmdOverrides: args.cmdOverrides,
         platform: args.platform,
@@ -264,7 +261,7 @@ export function buildAgentDraftLaunchPlan(args: {
   if (!trimmed) {
     return null
   }
-  const baseCommand = resolveBaseCommand({
+  const baseCommand = resolveTuiAgentBaseCommand({
     agent,
     cmdOverrides,
     platform,
@@ -303,7 +300,7 @@ export function buildAgentDraftLaunchPlan(args: {
   }
   if (
     !plan ||
-    !inlineAgentDraftFitsPlatform({ command: plan.launchCommand, env: plan.env, platform })
+    !inlineAgentDraftFitsPlatform({ command: plan.launchCommand, env: plan.env, platform, shell })
   ) {
     return null
   }

@@ -219,11 +219,14 @@ import type { SetupSplitDirection, TuiAgent } from '../../../../shared/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
 import { createDraftPasteReadyScanner } from '../../../../shared/draft-paste-ready-scanner'
-import { sendAgentDraftPasteContent } from '@/lib/agent-draft-paste-content'
+import { sendAgentDraftPasteContentWithOutcome } from '@/lib/agent-draft-paste-content'
 import { writeTerminalPastePtyInput } from './terminal-pty-paste-writer'
+import { pasteDraftToAgentPtyWhenReadyWithOutcome } from '@/lib/agent-paste-draft'
 import {
   beginAgentStartupDeliveryAttempt,
-  releaseAgentStartupDeliveryAttempt
+  queuePendingAgentStartupDelivery,
+  releaseAgentStartupDeliveryAttempt,
+  type AgentStartupDeliveryOutcome
 } from '@/lib/agent-startup-delayed-delivery'
 import {
   AGENT_TASK_COMPLETE_NOTIFICATION_GRACE_MS,
@@ -1110,7 +1113,9 @@ export function connectPanePty(
     !startupDraftAgentConfig?.draftPromptFlag &&
     !startupDraftAgentConfig?.draftPromptEnvVar
   let startupDraftDeliveryClaimed = false
-  let startupDraftPasteAttempted = false
+  let startupDraftPasteDelivered = false
+  let startupDraftPasteDeliveryUncertain = false
+  let startupDraftPasteInFlight = false
   const claimStartupDraftPasteDelivery = (): boolean => {
     if (!startupDraftPromptNeedsPaste || launchToken === undefined) {
       return false
@@ -1128,8 +1133,14 @@ export function connectPanePty(
     })
     return startupDraftDeliveryClaimed
   }
-  const releaseUnattemptedStartupDraftPasteDelivery = (): void => {
-    if (!startupDraftDeliveryClaimed || startupDraftPasteAttempted || launchToken === undefined) {
+  const releaseUndeliveredStartupDraftPasteDelivery = (): void => {
+    if (
+      !startupDraftDeliveryClaimed ||
+      startupDraftPasteDelivered ||
+      startupDraftPasteDeliveryUncertain ||
+      startupDraftPasteInFlight ||
+      launchToken === undefined
+    ) {
       return
     }
     releaseAgentStartupDeliveryAttempt({
@@ -3962,6 +3973,16 @@ export function connectPanePty(
       }
     }
     cleanupStartupDraftPasteTimers = clearStartupDraftPasteTimers
+    const writeStartupDraftPtyInput = async (data: string): Promise<boolean> => {
+      const accepted = await writeTerminalPastePtyInput(transport, data)
+      if (accepted && !startupDraftInputRecorded) {
+        // Why: this transport write bypasses xterm's user-input signal; keep
+        // the composed draft from being discarded by later hibernation.
+        startupDraftInputRecorded = true
+        recordTerminalInputForHibernation()
+      }
+      return accepted
+    }
     const getStartupDraftPtyId = (): string | null => {
       const ptyId = transport.getPtyId()
       if (
@@ -3973,6 +3994,59 @@ export function connectPanePty(
         return null
       }
       return ptyId
+    }
+    const handOffFailedStartupDraftPaste = (failedPtyId: string): void => {
+      startupDraftPasteSettled = true
+      cleanupStartupDraftPasteTimers()
+      releaseUndeliveredStartupDraftPasteDelivery()
+      if (
+        !startupDraftPrompt ||
+        !startupDraftAgent ||
+        !startupDraftAgentConfig ||
+        !paneStartup?.launchConfig ||
+        launchToken === undefined
+      ) {
+        return
+      }
+      const retryStartup = {
+        agent: startupDraftAgent,
+        launchCommand: paneStartup.command,
+        expectedProcess: startupDraftAgentConfig.expectedProcess,
+        followupPrompt: null,
+        launchConfig: paneStartup.launchConfig,
+        launchToken,
+        draftPrompt: startupDraftPrompt
+      }
+      // Why: the composer was ready on the failed PTY, so retry it directly;
+      // a replacement PTY must pass the normal readiness gate first.
+      queuePendingAgentStartupDelivery({
+        worktreeId: deps.worktreeId,
+        tabId: deps.tabId,
+        launchToken,
+        startup: retryStartup,
+        deliver: async (retryTabId, retryPtyId): Promise<AgentStartupDeliveryOutcome> => {
+          const outcome =
+            retryPtyId === failedPtyId
+              ? await sendAgentDraftPasteContentWithOutcome(
+                  getSettingsForWorktreeRuntimeOwner(useAppStore.getState(), deps.worktreeId),
+                  retryPtyId,
+                  startupDraftPrompt,
+                  writeStartupDraftPtyInput
+                )
+              : await pasteDraftToAgentPtyWhenReadyWithOutcome({
+                  tabId: retryTabId,
+                  ptyId: retryPtyId,
+                  content: startupDraftPrompt,
+                  agent: startupDraftAgent,
+                  forcePaste: true
+                })
+          return outcome === 'delivered'
+            ? { kind: 'delivered' }
+            : outcome === 'not-written'
+              ? { kind: 'retryable', startup: retryStartup }
+              : { kind: 'delivery-uncertain' }
+        }
+      })
     }
     const sendStartupDraftPaste = (): void => {
       if (
@@ -3988,26 +4062,39 @@ export function connectPanePty(
         return
       }
       startupDraftPasteInFlight = true
-      startupDraftPasteSettled = true
-      startupDraftPasteAttempted = true
-      cleanupStartupDraftPasteTimers()
       const settings = getSettingsForWorktreeRuntimeOwner(useAppStore.getState(), deps.worktreeId)
       // Why: xterm focus reports share this transport queue. Bypassing it can
       // race CSI I against the draft on ConPTY and expose a literal `[I` prefix.
-      void sendAgentDraftPasteContent(settings, ptyId, startupDraftPrompt, async (data) => {
-        const accepted = await writeTerminalPastePtyInput(transport, data)
-        if (accepted && !startupDraftInputRecorded) {
-          // Why: this transport write bypasses xterm's user-input signal; keep
-          // the composed draft from being discarded by later hibernation.
-          startupDraftInputRecorded = true
-          recordTerminalInputForHibernation()
-        }
-        return accepted
-      })
-        .catch(() => false)
-        .finally(() => {
+      void sendAgentDraftPasteContentWithOutcome(
+        settings,
+        ptyId,
+        startupDraftPrompt,
+        writeStartupDraftPtyInput
+      ).then(
+        (outcome) => {
           startupDraftPasteInFlight = false
-        })
+          if (outcome === 'delivered') {
+            startupDraftPasteDelivered = true
+            startupDraftPasteSettled = true
+            cleanupStartupDraftPasteTimers()
+          } else if (outcome === 'not-written') {
+            handOffFailedStartupDraftPaste(ptyId)
+          } else {
+            // Why: an acknowledgement can be lost after bytes reached the PTY.
+            // Consume the launch instead of duplicating an ambiguous draft.
+            startupDraftPasteDeliveryUncertain = true
+            startupDraftPasteSettled = true
+            cleanupStartupDraftPasteTimers()
+          }
+        },
+        (error) => {
+          startupDraftPasteInFlight = false
+          startupDraftPasteDeliveryUncertain = true
+          startupDraftPasteSettled = true
+          cleanupStartupDraftPasteTimers()
+          console.warn('Startup draft paste delivery failed', error)
+        }
+      )
     }
     const deliverStartupDraftIfAgentOwnsPty = async (): Promise<void> => {
       if (!startupDraftAgentConfig || startupDraftPasteSettled) {
@@ -4270,7 +4357,7 @@ export function connectPanePty(
           if (submitted) {
             armStartupDraftReadinessObservation()
           } else {
-            releaseUnattemptedStartupDraftPasteDelivery()
+            releaseUndeliveredStartupDraftPasteDelivery()
           }
           pendingStartupCommand = null
         })()
@@ -7460,7 +7547,7 @@ export function connectPanePty(
         sshShellReadyFallbackTimer = null
       }
       cleanupStartupDraftPasteTimers()
-      releaseUnattemptedStartupDraftPasteDelivery()
+      releaseUndeliveredStartupDraftPasteDelivery()
       unregisterAgentHookTerminalLifecycle()
       clearSuppressedTitleSideEffects()
       clearPendingAgentTaskCompleteNotification()
