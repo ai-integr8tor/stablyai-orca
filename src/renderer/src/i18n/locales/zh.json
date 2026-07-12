@@ -6628,7 +6628,8 @@
           "e90afcc44f": "关",
           "16c471ee03": "开",
           "typographyAdvanced": "排版",
-          "dimUnfocusedPanes": "调暗未聚焦的窗格。"
+          "dimUnfocusedPanes": "调暗未聚焦的窗格。",
+          "fallbackFonts": "后备字体"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "像素",
@@ -8429,7 +8430,10 @@
               "title": "主题模式",
               "keyword_target": "目标",
               "keyword_editing": "编辑"
-            }
+            },
+            "fallbackFontsTitle": "后备字体",
+            "fallbackFontsDescription": "主字体缺少某个字形时，按指定顺序使用这些字体。Orca 默认字体仍位于字体栈末尾。",
+            "fallbackKeyword": "后备 字体栈 多语言"
           },
           "windows": {
             "search": {
@@ -8994,6 +8998,17 @@
           "a8f3e2c1b4": "每周额度",
           "b7e2d9f0a3": "与终端中 grok /usage 屏幕显示的每周额度百分比相同。",
           "c6d1a8f4e2": "{{when}} 重置"
+        },
+        "TerminalFontFallbackSetting": {
+          "list": "终端后备字体",
+          "moveUp": "上移",
+          "moveDown": "下移",
+          "remove": "移除后备字体",
+          "placeholder": "添加字体",
+          "addLabel": "新的后备字体",
+          "add": "添加",
+          "maximum": "最多可添加 32 个后备字体。",
+          "entryLabel": "后备字体"
         }
       },
       "right": {

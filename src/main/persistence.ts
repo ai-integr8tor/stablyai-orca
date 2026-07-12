@@ -208,6 +208,7 @@ import {
   normalizeTuiAgentEnvRecord
 } from '../shared/tui-agent-launch-defaults'
 import { normalizeTerminalCursorStyleDefault } from '../shared/terminal-cursor-style-settings'
+import { normalizeTerminalFontFallbacks } from '../shared/terminal-font-fallbacks'
 import { normalizeTerminalLineHeight } from '../shared/terminal-line-height-settings'
 import { normalizeUiLanguage } from '../shared/ui-language'
 import { normalizeBrowserPageZoomLevel } from '../shared/browser-page-zoom'
@@ -3134,6 +3135,9 @@ export class Store {
               primarySelectionDefaultedForTerminalDefaults || stampPrimarySelectionTerminalDefaults,
             ...migratedAutoRenameBranchFromWork,
             ...migratedTerminalCursorStyle,
+            terminalFontFallbacks: normalizeTerminalFontFallbacks(
+              parsed.settings?.terminalFontFallbacks
+            ),
             terminalLineHeight: migratedTerminalLineHeight,
             ...migratedTerminalTuiScrollSensitivity.settings,
             experimentalActivity: migratedExperimentalActivity,
@@ -5194,6 +5198,11 @@ export class Store {
     if ('terminalCustomThemes' in updates) {
       sanitizedUpdates.terminalCustomThemes = normalizeTerminalCustomThemes(
         updates.terminalCustomThemes
+      )
+    }
+    if ('terminalFontFallbacks' in updates) {
+      sanitizedUpdates.terminalFontFallbacks = normalizeTerminalFontFallbacks(
+        updates.terminalFontFallbacks
       )
     }
     if ('terminalScrollbackRows' in updates) {

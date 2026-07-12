@@ -212,6 +212,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
       getDefaultPrimarySelectionMiddleClickPaste(),
     terminalFontSize: 14,
     terminalFontFamily: defaultTerminalFontFamily(),
+    terminalFontFallbacks: [],
     terminalFontWeight: DEFAULT_TERMINAL_FONT_WEIGHT,
     terminalLineHeight: 1,
     terminalScrollSensitivity: 1.15,

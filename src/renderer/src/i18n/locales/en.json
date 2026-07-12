@@ -6680,7 +6680,8 @@
           "e90afcc44f": "off",
           "16c471ee03": "on",
           "typographyAdvanced": "Typography",
-          "dimUnfocusedPanes": "Dim unfocused panes."
+          "dimUnfocusedPanes": "Dim unfocused panes.",
+          "fallbackFonts": "Fallback Fonts"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8481,7 +8482,10 @@
               "title": "Theme Mode",
               "keyword_target": "target",
               "keyword_editing": "editing"
-            }
+            },
+            "fallbackFontsTitle": "Fallback Fonts",
+            "fallbackFontsDescription": "Ordered fonts used when the primary font doesn't contain a glyph. Orca's defaults remain at the end of the stack.",
+            "fallbackKeyword": "fallback stack multilingual"
           },
           "windows": {
             "search": {
@@ -8994,6 +8998,17 @@
           "a8f3e2c1b4": "Weekly credits",
           "b7e2d9f0a3": "Same weekly credit % as the grok /usage screen in the terminal.",
           "c6d1a8f4e2": "Resets {{when}}"
+        },
+        "TerminalFontFallbackSetting": {
+          "list": "Terminal fallback fonts",
+          "moveUp": "Move up",
+          "moveDown": "Move down",
+          "remove": "Remove fallback",
+          "placeholder": "Add a font",
+          "addLabel": "New fallback font",
+          "add": "Add",
+          "maximum": "Maximum of 32 fallback fonts reached.",
+          "entryLabel": "Fallback font"
         }
       },
       "right": {

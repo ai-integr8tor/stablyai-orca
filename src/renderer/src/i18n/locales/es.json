@@ -6643,7 +6643,8 @@
           "e90afcc44f": "apagado",
           "16c471ee03": "activado",
           "typographyAdvanced": "Tipografía",
-          "dimUnfocusedPanes": "Atenuar paneles sin foco."
+          "dimUnfocusedPanes": "Atenuar paneles sin foco.",
+          "fallbackFonts": "Fuentes alternativas"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8444,7 +8445,10 @@
               "title": "Modo del tema",
               "keyword_target": "destino",
               "keyword_editing": "edición"
-            }
+            },
+            "fallbackFontsTitle": "Fuentes alternativas",
+            "fallbackFontsDescription": "Fuentes ordenadas que se usan cuando la fuente principal no contiene un glifo. Los valores predeterminados de Orca permanecen al final de la lista.",
+            "fallbackKeyword": "fuentes alternativas pila multilingüe"
           },
           "windows": {
             "search": {
@@ -8994,6 +8998,17 @@
           "a8f3e2c1b4": "Créditos semanales",
           "b7e2d9f0a3": "El mismo porcentaje de créditos semanales que la pantalla grok /usage en la terminal.",
           "c6d1a8f4e2": "Se restablece {{when}}"
+        },
+        "TerminalFontFallbackSetting": {
+          "list": "Fuentes alternativas del terminal",
+          "moveUp": "Subir",
+          "moveDown": "Bajar",
+          "remove": "Eliminar fuente alternativa",
+          "placeholder": "Agregar una fuente",
+          "addLabel": "Nueva fuente alternativa",
+          "add": "Agregar",
+          "maximum": "Se alcanzó el máximo de 32 fuentes alternativas.",
+          "entryLabel": "Fuente alternativa"
         }
       },
       "right": {

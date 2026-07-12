@@ -146,17 +146,28 @@ const FALLBACK_FONTS = [
   'monospace' // ultimate generic fallback
 ] as const
 
-export function buildFontFamily(fontFamily: string): string {
+export function buildFontFamily(fontFamily: string, userFallbacks: readonly string[] = []): string {
   const trimmed = fontFamily.trim()
-  const parts = trimmed ? [`"${trimmed}"`] : []
-  const lowerParts = parts.map((p) => p.toLowerCase())
-  // Append each fallback unless the user's font name already contains it
-  // (case-insensitive) to avoid duplicates like '"SF Mono", "SF Mono"'.
+  const parts = trimmed ? [JSON.stringify(trimmed)] : []
+  const configuredKeys = new Set<string>(trimmed ? [trimmed.toLocaleLowerCase()] : [])
+  for (const candidate of userFallbacks) {
+    const fallback = candidate.trim()
+    const key = fallback.toLocaleLowerCase()
+    // Why: a generic family ends CSS fallback resolution, so Orca owns the
+    // final unquoted `monospace` entry rather than allowing it mid-stack.
+    if (!fallback || key === 'monospace' || configuredKeys.has(key)) {
+      continue
+    }
+    configuredKeys.add(key)
+    parts.push(JSON.stringify(fallback))
+  }
+
   for (const fallback of FALLBACK_FONTS) {
-    const lower = fallback.toLowerCase()
-    if (!lowerParts.some((p) => p.includes(lower))) {
+    const key = fallback.toLocaleLowerCase()
+    if (!configuredKeys.has(key)) {
+      configuredKeys.add(key)
       // Generic keywords like "monospace" are unquoted; named fonts are quoted.
-      parts.push(fallback === 'monospace' ? fallback : `"${fallback}"`)
+      parts.push(fallback === 'monospace' ? fallback : JSON.stringify(fallback))
     }
   }
   return parts.join(', ')

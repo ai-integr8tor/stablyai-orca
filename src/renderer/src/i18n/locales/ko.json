@@ -6628,7 +6628,8 @@
           "e90afcc44f": "끔",
           "16c471ee03": "켜짐",
           "typographyAdvanced": "타이포그래피",
-          "dimUnfocusedPanes": "포커스되지 않은 창을 흐리게 표시합니다."
+          "dimUnfocusedPanes": "포커스되지 않은 창을 흐리게 표시합니다.",
+          "fallbackFonts": "대체 글꼴"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8429,7 +8430,10 @@
               "title": "테마 모드",
               "keyword_target": "대상",
               "keyword_editing": "편집"
-            }
+            },
+            "fallbackFontsTitle": "대체 글꼴",
+            "fallbackFontsDescription": "기본 글꼴에 글리프가 없을 때 지정한 순서로 사용하는 글꼴입니다. Orca 기본값은 스택 끝에 유지됩니다.",
+            "fallbackKeyword": "대체 글꼴 스택 다국어"
           },
           "windows": {
             "search": {
@@ -8994,6 +8998,17 @@
           "a8f3e2c1b4": "주간 크레딧",
           "b7e2d9f0a3": "터미널의 grok /usage 화면과 같은 주간 크레딧 비율입니다.",
           "c6d1a8f4e2": "{{when}}에 재설정"
+        },
+        "TerminalFontFallbackSetting": {
+          "list": "터미널 대체 글꼴",
+          "moveUp": "위로 이동",
+          "moveDown": "아래로 이동",
+          "remove": "대체 글꼴 제거",
+          "placeholder": "글꼴 추가",
+          "addLabel": "새 대체 글꼴",
+          "add": "추가",
+          "maximum": "대체 글꼴은 최대 32개까지 추가할 수 있습니다.",
+          "entryLabel": "대체 글꼴"
         }
       },
       "right": {

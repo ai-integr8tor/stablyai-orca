@@ -16,6 +16,17 @@ describe('mapGhosttyToOrca — font & cursor', () => {
     expect(result.unsupportedKeys).toEqual([])
   })
 
+  it('maps repeated font families to a primary font and ordered fallbacks', () => {
+    const result = mapGhosttyToOrca({
+      'font-family': ['MesloLGS NF', 'Microsoft YaHei UI', 'Noto Sans Arabic']
+    })
+    expect(result.diff).toEqual({
+      terminalFontFamily: 'MesloLGS NF',
+      terminalFontFallbacks: ['Microsoft YaHei UI', 'Noto Sans Arabic']
+    })
+    expect(result.unsupportedKeys).toEqual([])
+  })
+
   it('skips invalid font-size values', () => {
     const result = mapGhosttyToOrca({ 'font-size': 'not-a-number' })
     expect(result.diff).toEqual({})

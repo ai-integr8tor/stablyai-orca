@@ -277,7 +277,10 @@ export function applyTerminalAppearance(
     pane.terminal.options.cursorBlink = settings.terminalCursorBlink
     const paneSize = paneFontSizes.get(pane.id)
     pane.terminal.options.fontSize = paneSize ?? settings.terminalFontSize
-    pane.terminal.options.fontFamily = buildFontFamily(settings.terminalFontFamily)
+    pane.terminal.options.fontFamily = buildFontFamily(
+      settings.terminalFontFamily,
+      settings.terminalFontFallbacks
+    )
     pane.terminal.options.fontWeight = terminalFontWeights.fontWeight
     pane.terminal.options.fontWeightBold = terminalFontWeights.fontWeightBold
     pane.terminal.options.scrollSensitivity = normalizeTerminalScrollSensitivity(

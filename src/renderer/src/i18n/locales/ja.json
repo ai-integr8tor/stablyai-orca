@@ -6665,7 +6665,8 @@
           "e90afcc44f": "オフ",
           "16c471ee03": "オン",
           "typographyAdvanced": "タイポグラフィ",
-          "dimUnfocusedPanes": "フォーカスされていないペインを暗くします。"
+          "dimUnfocusedPanes": "フォーカスされていないペインを暗くします。",
+          "fallbackFonts": "フォールバックフォント"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "ピクセル",
@@ -8466,7 +8467,10 @@
               "title": "テーマモード",
               "keyword_target": "対象",
               "keyword_editing": "編集"
-            }
+            },
+            "fallbackFontsTitle": "フォールバックフォント",
+            "fallbackFontsDescription": "優先フォントにグリフがない場合に、指定順で使用するフォントです。Orca の既定フォントはスタックの末尾に残ります。",
+            "fallbackKeyword": "フォールバック スタック 多言語"
           },
           "windows": {
             "search": {
@@ -8994,6 +8998,17 @@
           "a8f3e2c1b4": "週次クレジット",
           "b7e2d9f0a3": "ターミナルの grok /usage 画面と同じ週次クレジット率です。",
           "c6d1a8f4e2": "{{when}} にリセット"
+        },
+        "TerminalFontFallbackSetting": {
+          "list": "ターミナルのフォールバックフォント",
+          "moveUp": "上へ移動",
+          "moveDown": "下へ移動",
+          "remove": "フォールバックを削除",
+          "placeholder": "フォントを追加",
+          "addLabel": "新しいフォールバックフォント",
+          "add": "追加",
+          "maximum": "フォールバックフォントは最大32個です。",
+          "entryLabel": "フォールバックフォント"
         }
       },
       "right": {
