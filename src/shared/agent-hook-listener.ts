@@ -696,7 +696,7 @@ function toolUpdate(
  *  agents emit (`AskUserQuestion` / `ask_user_question` / `askUserQuestion`).
  *  Why: this is the structured "pick an option" prompt whose full input the
  *  clients render as a live card. */
-function isAskUserQuestionTool(toolName: string | undefined): boolean {
+export function isAskUserQuestionTool(toolName: string | undefined): boolean {
   return toolName?.replaceAll(/[^a-z0-9]/gi, '').toLowerCase() === 'askuserquestion'
 }
 

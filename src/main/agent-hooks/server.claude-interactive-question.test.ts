@@ -8,9 +8,9 @@ function ingestClaudeStatus(
   server: AgentHookServer,
   event: {
     state: 'working' | 'waiting'
-    hookEventName: 'PermissionRequest' | 'PreToolUse'
+    hookEventName: 'PermissionRequest' | 'PreToolUse' | 'PostToolUse'
     toolName: string
-    toolUseId: string
+    toolUseId?: string
   }
 ): void {
   server.ingestRemote(
@@ -53,6 +53,41 @@ describe('Claude interactive-question status transitions', () => {
         state: 'working',
         agentType: 'claude',
         toolName: 'Read'
+      })
+    ])
+  })
+
+  it('clears an AskUserQuestion wait that arrived as a PermissionRequest when the answer lands', () => {
+    const server = new AgentHookServer()
+
+    // Why: real Claude emits PreToolUse then, ~120ms later, a PermissionRequest
+    // for the auto-allowed AskUserQuestion. Orca registers PermissionRequest, so
+    // it overwrites the PreToolUse as `previous` — and it carries no tool_use_id,
+    // so a resuming-tool id match can never clear it. The answer's PostToolUse
+    // 'working' hook must still drop the wait.
+    ingestClaudeStatus(server, {
+      state: 'waiting',
+      hookEventName: 'PreToolUse',
+      toolName: 'AskUserQuestion',
+      toolUseId: 'tool-question'
+    })
+    ingestClaudeStatus(server, {
+      state: 'waiting',
+      hookEventName: 'PermissionRequest',
+      toolName: 'AskUserQuestion'
+    })
+    ingestClaudeStatus(server, {
+      state: 'working',
+      hookEventName: 'PostToolUse',
+      toolName: 'AskUserQuestion',
+      toolUseId: 'tool-question'
+    })
+
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({
+        paneKey: PANE_KEY,
+        state: 'working',
+        agentType: 'claude'
       })
     ])
   })
