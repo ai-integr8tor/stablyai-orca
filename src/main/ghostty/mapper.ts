@@ -297,7 +297,7 @@ export function mapGhosttyToOrca(
       continue
     }
 
-    if (!value.trim()) {
+    if (!value.trim() && (key !== 'font-family' || !Array.isArray(rawValue))) {
       unsupportedKeys.push(key)
       continue
     }

@@ -34,12 +34,9 @@ const getTerminalTypographySearchEntryCatalog = createLocalizedCatalog(() => [
     ]
   },
   {
-    title: translate(
-      'auto.components.settings.terminal.search.fallbackFontsTitle',
-      'Fallback Fonts'
-    ),
+    title: translate('auto.components.settings.terminal.search.3f2a94a78d', 'Fallback Fonts'),
     description: translate(
-      'auto.components.settings.terminal.search.fallbackFontsDescription',
+      'auto.components.settings.terminal.search.a113f6ead3',
       "Ordered fonts used when the primary font doesn't contain a glyph. Orca's defaults remain at the end of the stack."
     ),
     keywords: [
@@ -50,7 +47,7 @@ const getTerminalTypographySearchEntryCatalog = createLocalizedCatalog(() => [
       ),
       ...translateSearchKeyword('auto.components.settings.terminal.search.b0bb76ae6b', 'font'),
       ...translateSearchKeyword(
-        'auto.components.settings.terminal.search.fallbackKeyword',
+        'auto.components.settings.terminal.search.ceecc7e492',
         'fallback stack multilingual'
       )
     ]

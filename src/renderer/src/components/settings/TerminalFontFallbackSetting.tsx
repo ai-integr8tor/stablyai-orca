@@ -25,14 +25,14 @@ export function TerminalFontFallbackSetting({
   const [draft, setDraft] = useState('')
   const fallbacks = normalizeTerminalFontFallbacks(value)
   const draftIsDuplicate = fallbacks.some(
-    (fallback) => fallback.toLocaleLowerCase() === draft.trim().toLocaleLowerCase()
+    (fallback) => fallback.toLowerCase() === draft.trim().toLowerCase()
   )
 
   const commitAt = (index: number, fontFamily: string): boolean => {
     const trimmed = fontFamily.trim()
     const duplicate = fallbacks.some(
       (fallback, candidate) =>
-        candidate !== index && fallback.toLocaleLowerCase() === trimmed.toLocaleLowerCase()
+        candidate !== index && fallback.toLowerCase() === trimmed.toLowerCase()
     )
     if (!trimmed || duplicate) {
       return false
@@ -67,7 +67,7 @@ export function TerminalFontFallbackSetting({
         <ol
           className="space-y-1"
           aria-label={translate(
-            'auto.components.settings.TerminalFontFallbackSetting.list',
+            'auto.components.settings.TerminalFontFallbackSetting.212953bee6',
             'Terminal fallback fonts'
           )}
         >
@@ -85,7 +85,7 @@ export function TerminalFontFallbackSetting({
               />
               <FallbackAction
                 label={translate(
-                  'auto.components.settings.TerminalFontFallbackSetting.moveUp',
+                  'auto.components.settings.TerminalFontFallbackSetting.36f45a7277',
                   'Move up'
                 )}
                 disabled={index === 0}
@@ -95,7 +95,7 @@ export function TerminalFontFallbackSetting({
               </FallbackAction>
               <FallbackAction
                 label={translate(
-                  'auto.components.settings.TerminalFontFallbackSetting.moveDown',
+                  'auto.components.settings.TerminalFontFallbackSetting.5adea09881',
                   'Move down'
                 )}
                 disabled={index === fallbacks.length - 1}
@@ -105,7 +105,7 @@ export function TerminalFontFallbackSetting({
               </FallbackAction>
               <FallbackAction
                 label={translate(
-                  'auto.components.settings.TerminalFontFallbackSetting.remove',
+                  'auto.components.settings.TerminalFontFallbackSetting.7c2c7906a8',
                   'Remove fallback'
                 )}
                 onClick={() => onChange(fallbacks.filter((_, candidate) => candidate !== index))}
@@ -123,11 +123,11 @@ export function TerminalFontFallbackSetting({
             value={draft}
             suggestions={suggestions}
             placeholder={translate(
-              'auto.components.settings.TerminalFontFallbackSetting.placeholder',
+              'auto.components.settings.TerminalFontFallbackSetting.a47b16e7af',
               'Add a font'
             )}
             ariaLabel={translate(
-              'auto.components.settings.TerminalFontFallbackSetting.addLabel',
+              'auto.components.settings.TerminalFontFallbackSetting.5674a5b618',
               'New fallback font'
             )}
             onRequestSuggestions={onRequestSuggestions}
@@ -145,13 +145,13 @@ export function TerminalFontFallbackSetting({
           onClick={addDraft}
         >
           <Plus />
-          {translate('auto.components.settings.TerminalFontFallbackSetting.add', 'Add')}
+          {translate('auto.components.settings.TerminalFontFallbackSetting.14e6f886f2', 'Add')}
         </Button>
       </div>
       {fallbacks.length >= MAX_TERMINAL_FONT_FALLBACKS ? (
         <p className="text-[11px] text-muted-foreground">
           {translate(
-            'auto.components.settings.TerminalFontFallbackSetting.maximum',
+            'auto.components.settings.TerminalFontFallbackSetting.f78f446a8d',
             'Maximum of 32 fallback fonts reached.'
           )}
         </p>
@@ -194,7 +194,7 @@ function FallbackFontInput({
         value={draft}
         suggestions={suggestions}
         ariaLabel={`${translate(
-          'auto.components.settings.TerminalFontFallbackSetting.entryLabel',
+          'auto.components.settings.TerminalFontFallbackSetting.ff79a93a0d',
           'Fallback font'
         )} ${index + 1}`}
         onRequestSuggestions={onRequestSuggestions}

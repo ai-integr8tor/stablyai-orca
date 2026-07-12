@@ -6668,7 +6668,7 @@
           "16c471ee03": "activado",
           "typographyAdvanced": "Tipografía",
           "dimUnfocusedPanes": "Atenuar paneles sin foco.",
-          "fallbackFonts": "Fuentes alternativas"
+          "13b09da243": "Fuentes alternativas"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8472,9 +8472,9 @@
               "keyword_target": "destino",
               "keyword_editing": "edición"
             },
-            "fallbackFontsTitle": "Fuentes alternativas",
-            "fallbackFontsDescription": "Fuentes ordenadas que se usan cuando la fuente principal no contiene un glifo. Los valores predeterminados de Orca permanecen al final de la lista.",
-            "fallbackKeyword": "fuentes alternativas pila multilingüe"
+            "3f2a94a78d": "Fuentes alternativas",
+            "a113f6ead3": "Fuentes ordenadas que se usan cuando la fuente principal no contiene un glifo. Los valores predeterminados de Orca permanecen al final de la lista.",
+            "ceecc7e492": "fuentes alternativas pila multilingüe"
           },
           "windows": {
             "search": {
@@ -9034,15 +9034,15 @@
           "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         },
         "TerminalFontFallbackSetting": {
-          "list": "Fuentes alternativas del terminal",
-          "moveUp": "Subir",
-          "moveDown": "Bajar",
-          "remove": "Eliminar fuente alternativa",
-          "placeholder": "Agregar una fuente",
-          "addLabel": "Nueva fuente alternativa",
-          "add": "Agregar",
-          "maximum": "Se alcanzó el máximo de 32 fuentes alternativas.",
-          "entryLabel": "Fuente alternativa"
+          "212953bee6": "Fuentes alternativas del terminal",
+          "36f45a7277": "Subir",
+          "5adea09881": "Bajar",
+          "7c2c7906a8": "Eliminar fuente alternativa",
+          "a47b16e7af": "Agregar una fuente",
+          "14e6f886f2": "Agregar",
+          "ff79a93a0d": "Fuente alternativa",
+          "5674a5b618": "Nueva fuente alternativa",
+          "f78f446a8d": "Se alcanzó el máximo de 32 fuentes alternativas."
         }
       },
       "right": {

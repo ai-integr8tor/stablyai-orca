@@ -6653,7 +6653,7 @@
           "16c471ee03": "켜짐",
           "typographyAdvanced": "타이포그래피",
           "dimUnfocusedPanes": "포커스되지 않은 창을 흐리게 표시합니다.",
-          "fallbackFonts": "대체 글꼴"
+          "13b09da243": "대체 글꼴"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8457,9 +8457,9 @@
               "keyword_target": "대상",
               "keyword_editing": "편집"
             },
-            "fallbackFontsTitle": "대체 글꼴",
-            "fallbackFontsDescription": "기본 글꼴에 글리프가 없을 때 지정한 순서로 사용하는 글꼴입니다. Orca 기본값은 스택 끝에 유지됩니다.",
-            "fallbackKeyword": "대체 글꼴 스택 다국어"
+            "3f2a94a78d": "대체 글꼴",
+            "a113f6ead3": "기본 글꼴에 글리프가 없을 때 지정한 순서로 사용하는 글꼴입니다. Orca 기본값은 스택 끝에 유지됩니다.",
+            "ceecc7e492": "대체 글꼴 스택 다국어"
           },
           "windows": {
             "search": {
@@ -9034,15 +9034,15 @@
           "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         },
         "TerminalFontFallbackSetting": {
-          "list": "터미널 대체 글꼴",
-          "moveUp": "위로 이동",
-          "moveDown": "아래로 이동",
-          "remove": "대체 글꼴 제거",
-          "placeholder": "글꼴 추가",
-          "addLabel": "새 대체 글꼴",
-          "add": "추가",
-          "maximum": "대체 글꼴은 최대 32개까지 추가할 수 있습니다.",
-          "entryLabel": "대체 글꼴"
+          "212953bee6": "터미널 대체 글꼴",
+          "36f45a7277": "위로 이동",
+          "5adea09881": "아래로 이동",
+          "7c2c7906a8": "대체 글꼴 제거",
+          "a47b16e7af": "글꼴 추가",
+          "14e6f886f2": "추가",
+          "ff79a93a0d": "대체 글꼴",
+          "5674a5b618": "새 대체 글꼴",
+          "f78f446a8d": "대체 글꼴은 최대 32개까지 추가할 수 있습니다."
         }
       },
       "right": {

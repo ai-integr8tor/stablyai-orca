@@ -6705,7 +6705,7 @@
           "16c471ee03": "on",
           "typographyAdvanced": "Typography",
           "dimUnfocusedPanes": "Dim unfocused panes.",
-          "fallbackFonts": "Fallback Fonts"
+          "13b09da243": "Fallback Fonts"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -8509,9 +8509,9 @@
               "keyword_target": "target",
               "keyword_editing": "editing"
             },
-            "fallbackFontsTitle": "Fallback Fonts",
-            "fallbackFontsDescription": "Ordered fonts used when the primary font doesn't contain a glyph. Orca's defaults remain at the end of the stack.",
-            "fallbackKeyword": "fallback stack multilingual"
+            "3f2a94a78d": "Fallback Fonts",
+            "a113f6ead3": "Ordered fonts used when the primary font doesn't contain a glyph. Orca's defaults remain at the end of the stack.",
+            "ceecc7e492": "fallback stack multilingual"
           },
           "windows": {
             "search": {
@@ -9034,15 +9034,15 @@
           "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         },
         "TerminalFontFallbackSetting": {
-          "list": "Terminal fallback fonts",
-          "moveUp": "Move up",
-          "moveDown": "Move down",
-          "remove": "Remove fallback",
-          "placeholder": "Add a font",
-          "addLabel": "New fallback font",
-          "add": "Add",
-          "maximum": "Maximum of 32 fallback fonts reached.",
-          "entryLabel": "Fallback font"
+          "212953bee6": "Terminal fallback fonts",
+          "36f45a7277": "Move up",
+          "5adea09881": "Move down",
+          "7c2c7906a8": "Remove fallback",
+          "a47b16e7af": "Add a font",
+          "14e6f886f2": "Add",
+          "ff79a93a0d": "Fallback font",
+          "5674a5b618": "New fallback font",
+          "f78f446a8d": "Maximum of 32 fallback fonts reached."
         }
       },
       "right": {

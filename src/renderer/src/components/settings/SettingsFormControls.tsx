@@ -773,6 +773,7 @@ export function FontAutocomplete({
 
                 if (e.key === 'Enter' && onCommit) {
                   e.preventDefault()
+                  setIsFilteringQuery(false)
                   onCommit(query)
                   setOpen(false)
                 }

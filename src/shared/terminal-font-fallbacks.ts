@@ -12,7 +12,7 @@ export function normalizeTerminalFontFallbacks(value: unknown): string[] {
       continue
     }
     const fontFamily = candidate.trim()
-    const key = fontFamily.toLocaleLowerCase()
+    const key = fontFamily.toLowerCase()
     if (!fontFamily || seen.has(key)) {
       continue
     }

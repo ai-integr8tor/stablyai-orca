@@ -27,6 +27,17 @@ describe('mapGhosttyToOrca — font & cursor', () => {
     expect(result.unsupportedKeys).toEqual([])
   })
 
+  it('keeps valid repeated font families when the final entry is blank', () => {
+    const result = mapGhosttyToOrca({
+      'font-family': ['JetBrains Mono', '']
+    })
+    expect(result.diff).toEqual({
+      terminalFontFamily: 'JetBrains Mono',
+      terminalFontFallbacks: []
+    })
+    expect(result.unsupportedKeys).toEqual([])
+  })
+
   it('skips invalid font-size values', () => {
     const result = mapGhosttyToOrca({ 'font-size': 'not-a-number' })
     expect(result.diff).toEqual({})
