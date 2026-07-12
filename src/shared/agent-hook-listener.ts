@@ -3185,6 +3185,9 @@ function normalizeCodexEvent(
     // a user prompt exists; reset stale turn/session cache without emitting state.
     clearPaneTurnCacheState(state, paneKey)
     state.lastProviderSessionByPaneKey.delete(paneKey)
+    if (state.lastStatusByPaneKey.get(paneKey)?.payload.agentType === 'codex') {
+      state.lastStatusByPaneKey.delete(paneKey)
+    }
     return null
   }
 
