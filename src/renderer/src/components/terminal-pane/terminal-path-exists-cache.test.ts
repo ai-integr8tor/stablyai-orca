@@ -26,7 +26,7 @@ describe('terminal path-exists cache', () => {
     writeTerminalPathExistsCache(cache, 'k', false, 1000)
     // Past the negative TTL: treated as a miss so the caller re-checks the
     // filesystem (the file may have since been created).
-    expect(readTerminalPathExistsCache(cache, 'k', 1000 + 11_000)).toBeUndefined()
+    expect(readTerminalPathExistsCache(cache, 'k', 1000 + 10_000)).toBeUndefined()
     expect(cache.has('k')).toBe(false)
   })
 

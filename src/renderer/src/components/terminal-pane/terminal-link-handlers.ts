@@ -168,7 +168,11 @@ export function createFilePathLinkProvider(
                   (fileContext.connectionId || isRemoteRuntimePath
                     ? await runtimePathExists(fileContext, resolved.absolutePath)
                     : await window.api.shell.pathExists(resolved.absolutePath))
-                writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                // Why: refreshing a cached negative's timestamp on every hover
+                // would keep frequently scanned missing paths stale forever.
+                if (cachedExists === undefined) {
+                  writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                }
                 if (!exists) {
                   return null
                 }

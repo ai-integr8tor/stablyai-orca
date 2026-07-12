@@ -1364,6 +1364,35 @@ describe('createFilePathLinkProvider range bounds', () => {
     expect(pathExistsCache.get('active\0/repo/fresh.ts')?.exists).toBe(true)
   })
 
+  it('expires a cached missing path even when the provider scans it repeatedly', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(5_000)
+    const cacheKey = 'active\0/repo/eventually-created.ts'
+    const pathExistsCache: TerminalPathExistsCache = new Map([
+      [cacheKey, { exists: false, checkedAt: 1_000 }]
+    ])
+    const { provider } = createProviderSetup(
+      [makeBufferLine('eventually-created.ts')],
+      pathExistsCache
+    )
+
+    const firstLinks = await new Promise<ILink[]>((resolve) => {
+      provider.provideLinks(1, (provided) => resolve(provided ?? []))
+    })
+    expect(firstLinks).toEqual([])
+    expect(window.api.shell.pathExists).not.toHaveBeenCalled()
+    expect(pathExistsCache.get(cacheKey)?.checkedAt).toBe(1_000)
+
+    now.mockReturnValue(11_000)
+    const refreshedLinks = await new Promise<ILink[]>((resolve) => {
+      provider.provideLinks(1, (provided) => resolve(provided ?? []))
+    })
+
+    expect(refreshedLinks.map((link) => link.text)).toEqual(['eventually-created.ts'])
+    expect(window.api.shell.pathExists).toHaveBeenCalledOnce()
+    expect(pathExistsCache.get(cacheKey)).toEqual({ exists: true, checkedAt: 11_000 })
+    now.mockRestore()
+  })
+
   it('does not reuse SSH path-exists cache entries across connections', async () => {
     setPlatform('Macintosh')
     const pathExistsCache = makeExistsCache()
@@ -1443,6 +1472,40 @@ describe('createFilePathLinkProvider range bounds', () => {
       { forceContentReload: true }
     )
     expect(openFilePathMock).not.toHaveBeenCalled()
+  })
+
+  it('retries a direct file click when a cached missing path expires', async () => {
+    setPlatform('Macintosh')
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_999)
+    const pathExistsCache: TerminalPathExistsCache = new Map([
+      ['active\0/tmp/eventually-created.ts', { exists: false, checkedAt: 1_000 }]
+    ])
+    const openAtCurrentTime = (): boolean =>
+      openFilePathLinkAtBufferPosition(
+        makeBuffer([makeBufferLine('eventually-created.ts')]),
+        { x: 4, y: 1 },
+        80,
+        {
+          startupCwd: '/tmp',
+          worktreeId: 'wt-1',
+          worktreePath: '/tmp',
+          runtimeEnvironmentId: null,
+          pathExistsCache
+        }
+      )
+
+    expect(openAtCurrentTime()).toBe(false)
+    expect(openFileMock).not.toHaveBeenCalled()
+
+    now.mockReturnValue(11_000)
+    expect(openAtCurrentTime()).toBe(true)
+    await flushAsyncWork()
+
+    expect(openFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: '/tmp/eventually-created.ts' }),
+      { forceContentReload: true }
+    )
+    now.mockRestore()
   })
 
   it('switches to a known worktree root from direct fallback even when cache says missing', async () => {
@@ -2050,7 +2113,7 @@ describe('createFilePathLinkProvider range bounds', () => {
       makeBufferLine(`${firstPath} · ${middleStart}`),
       makeBufferLine(`${middleEnd} · ${thirdPath}`)
     ]
-    const pathExistsCache = new Map([[`active\0/repo/${middlePath}`, true]])
+    const pathExistsCache = makeExistsCache([[`active\0/repo/${middlePath}`, true]])
     const positions = [
       { x: firstPath.length + ' · '.length + 2, y: 1 },
       { x: 2, y: 2 }
