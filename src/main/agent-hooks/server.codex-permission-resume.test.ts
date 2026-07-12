@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
+import { AGENT_STATUS_STALE_AFTER_MS } from '../../shared/agent-status-types'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { AgentHookServer } from './server'
 
 const PANE_KEY = makePaneKey('tab-codex', '11111111-1111-4111-8111-111111111111')
 
+/** Seed the exact Codex PermissionRequest shape that remains waiting after approval. */
 function ingestCodexPermission(server: AgentHookServer): void {
   server.ingestRemote(
     {
@@ -68,5 +70,33 @@ describe('Codex permission resume from terminal title', () => {
     expect(codexServer.resumeCodexPermissionWaitFromTerminalTitle(PANE_KEY)).toBe(true)
     expect(codexServer.resumeCodexPermissionWaitFromTerminalTitle(PANE_KEY)).toBe(false)
     expect(codexServer.resumeCodexPermissionWaitFromTerminalTitle('missing:1')).toBe(false)
+  })
+
+  it('ignores stale Codex permission waits', () => {
+    vi.useFakeTimers()
+    try {
+      const server = new AgentHookServer()
+      ingestCodexPermission(server)
+
+      vi.advanceTimersByTime(AGENT_STATUS_STALE_AFTER_MS + 1)
+
+      expect(server.resumeCodexPermissionWaitFromTerminalTitle(PANE_KEY)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores Codex waits that did not come from PermissionRequest', () => {
+    const server = new AgentHookServer()
+    server.ingestRemote(
+      {
+        paneKey: PANE_KEY,
+        hookEventName: 'AskUserQuestion',
+        payload: { state: 'waiting', prompt: 'Answer me', agentType: 'codex' }
+      },
+      'connection-1'
+    )
+
+    expect(server.resumeCodexPermissionWaitFromTerminalTitle(PANE_KEY)).toBe(false)
   })
 })

@@ -2528,6 +2528,7 @@ export class OrcaRuntimeService {
       // terminal output. worktree.ps reads this at query time so mobile shows the
       // same inline agent rows the desktop sidebar does — same source, 1:1.
       getAgentStatusSnapshot?: () => AgentStatusIpcPayload[]
+      /** Clear the hook-owned Codex wait once a working title proves approval. */
       resumeCodexPermissionWait?: (paneKey: string) => boolean
       // Why: codex-home paths for the Agent Session History scan must be sourced
       // here, not via the window-only registerCoreHandlers path — that path never
@@ -6205,11 +6206,13 @@ export class OrcaRuntimeService {
     // store the NORMALIZED title so rotating Grok/Pi/Gemini frames collapse to
     // one stable stored label (#7880) instead of churning `ps`/mobile tabs.
     const agentStatus = detectAgentStatusFromTitle(rawTitle)
-    if (agentStatus === 'working') {
+    const pty = this.ptysById.get(ptyId)
+    const previousAgentStatus =
+      pty?.lastAgentStatus ?? this.getLeavesForPty(ptyId)[0]?.lastAgentStatus ?? null
+    if (agentStatus === 'working' && previousAgentStatus !== 'working') {
       this.resumeCodexPermissionWaitForPty(ptyId)
     }
     let ptyRecordChanged = false
-    const pty = this.ptysById.get(ptyId)
     if (pty) {
       const prevStatus = pty.lastAgentStatus
       const prevTitle = pty.lastOscTitle
@@ -6276,6 +6279,8 @@ export class OrcaRuntimeService {
     return ptyRecordChanged
   }
 
+  /** Route a Codex permission resume through stable mounted-pane identity,
+   * falling back to the spawn-time pane key for parked terminals. */
   private resumeCodexPermissionWaitForPty(ptyId: string): void {
     if (!this.resumeCodexPermissionWaitFn) {
       return
