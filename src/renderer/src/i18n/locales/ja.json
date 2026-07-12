@@ -5442,7 +5442,13 @@
           "31fd7150cf": "アップデートをチェックしています...",
           "3394d1f663": "チェック中",
           "d69a09b672": "アップデートは起動時に自動的にチェックされます。",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "releaseChannel": {
+            "title": "Release Channel",
+            "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check.",
+            "stable": "Stable",
+            "prerelease": "Pre-Release"
+          }
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "ワークスペースの「開く」メニューから利用可能なアプリを選択します。",
@@ -7693,6 +7699,10 @@
             "8e593f04fc": "ピン留めしたタブを閉じる前に確認ダイアログを表示します。",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
+            "releaseChannel": {
+              "title": "Release Channel",
+              "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check."
+            },
             "d2d2d929c0": "Rich Markdown Spellcheck",
             "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
           }

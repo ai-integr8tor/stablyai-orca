@@ -5457,7 +5457,13 @@
           "31fd7150cf": "Buscando actualizaciones...",
           "3394d1f663": "de cheques",
           "d69a09b672": "Las actualizaciones se verifican automáticamente al iniciarse.",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "releaseChannel": {
+            "title": "Release Channel",
+            "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check.",
+            "stable": "Stable",
+            "prerelease": "Pre-Release"
+          }
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "Elige las apps disponibles en el menú Abrir en de un espacio de trabajo.",
@@ -7671,6 +7677,10 @@
             "8e593f04fc": "Muestra un diálogo de confirmación antes de cerrar una pestaña fijada.",
             "defaultProjectRuntime": "Runtime de proyecto predeterminado",
             "defaultProjectRuntimeDescription": "Elige el runtime que heredarán los proyectos locales de Windows.",
+            "releaseChannel": {
+              "title": "Release Channel",
+              "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check."
+            },
             "d2d2d929c0": "Corrector ortográfico de Rich Markdown",
             "4497e2e2bb": "Muestra subrayados y sugerencias ortográficas del navegador al editar Rich Markdown."
           }

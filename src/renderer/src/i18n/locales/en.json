@@ -5457,7 +5457,13 @@
           "31fd7150cf": "Checking for updates...",
           "3394d1f663": "checking",
           "d69a09b672": "Updates are checked automatically on launch.",
-          "7173352632": "idle"
+          "7173352632": "idle",
+          "releaseChannel": {
+            "title": "Release Channel",
+            "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check.",
+            "stable": "Stable",
+            "prerelease": "Pre-Release"
+          }
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "Choose apps available from a workspace's Open in menu.",
@@ -7708,6 +7714,10 @@
             "8e593f04fc": "Show a confirmation dialog before a pinned tab is closed.",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
+            "releaseChannel": {
+              "title": "Release Channel",
+              "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check."
+            },
             "d2d2d929c0": "Rich Markdown Spellcheck",
             "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
           }

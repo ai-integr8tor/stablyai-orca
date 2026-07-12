@@ -3155,3 +3155,34 @@ describe('createUISlice space navigation', () => {
     expect(store.getState().activeView).toBe('tasks')
   })
 })
+
+describe('createUISlice release channel', () => {
+  it('persists a release channel change once', () => {
+    const setMock = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('window', {
+      api: {
+        ui: {
+          set: setMock
+        }
+      }
+    })
+    const store = createUIStore()
+
+    store.getState().setReleaseChannel('prerelease')
+    store.getState().setReleaseChannel('prerelease')
+
+    expect(store.getState().releaseChannel).toBe('prerelease')
+    expect(setMock).toHaveBeenCalledTimes(1)
+    expect(setMock).toHaveBeenCalledWith({ releaseChannel: 'prerelease' })
+  })
+
+  it('hydrates an explicit prerelease channel and falls back to stable when missing', () => {
+    const store = createUIStore()
+
+    store.getState().hydratePersistedUI(makePersistedUI({ releaseChannel: 'prerelease' }))
+    expect(store.getState().releaseChannel).toBe('prerelease')
+
+    store.getState().hydratePersistedUI(makePersistedUI({ releaseChannel: undefined }))
+    expect(store.getState().releaseChannel).toBe('stable')
+  })
+})

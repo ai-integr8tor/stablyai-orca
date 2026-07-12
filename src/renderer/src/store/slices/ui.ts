@@ -497,6 +497,14 @@ function hydratedUIPartialMatchesState(state: AppState, hydrated: Partial<UISlic
   )
 }
 
+/** Coerce a persisted `releaseChannel` (undefined on pre-feature builds) into a
+ *  valid slice literal. */
+function normalizeReleaseChannel(
+  channel: PersistedUIState['releaseChannel']
+): 'stable' | 'prerelease' {
+  return channel === 'prerelease' ? 'prerelease' : 'stable'
+}
+
 let agentSendTargetModeInstanceCounter = 0
 
 function createAgentSendTargetModeInstanceId(): string {
@@ -950,6 +958,8 @@ export type UISlice = {
   setUIZoomLevel: (level: number) => void
   editorFontZoomLevel: number
   setEditorFontZoomLevel: (level: number) => void
+  releaseChannel: 'stable' | 'prerelease'
+  setReleaseChannel: (channel: 'stable' | 'prerelease') => void
   hydratePersistedUI: (ui: PersistedUIState) => void
   updateStatus: UpdateStatus
   setUpdateStatus: (status: UpdateStatus) => void
@@ -2323,6 +2333,15 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
   setUIZoomLevel: (level) => set({ uiZoomLevel: level }),
   editorFontZoomLevel: 0,
   setEditorFontZoomLevel: (level) => set({ editorFontZoomLevel: level }),
+  releaseChannel: 'stable',
+  setReleaseChannel: (channel) =>
+    set((s) => {
+      if (s.releaseChannel === channel) {
+        return s
+      }
+      window.api.ui.set({ releaseChannel: channel }).catch(console.error)
+      return { releaseChannel: channel }
+    }),
 
   hydratePersistedUI: (ui) =>
     set((s) => {
@@ -2440,6 +2459,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         collapsedGroups: new Set(ui.collapsedGroups ?? []),
         uiZoomLevel: ui.uiZoomLevel ?? 0,
         editorFontZoomLevel: ui.editorFontZoomLevel ?? 0,
+        releaseChannel: normalizeReleaseChannel(ui.releaseChannel),
         worktreeCardProperties: normalizeWorktreeCardProperties(ui.worktreeCardProperties),
         _worktreeCardModeDefaulted: ui._worktreeCardModeDefaulted === true,
         agentActivityDisplayMode: normalizeAgentActivityDisplayMode(ui.agentActivityDisplayMode),

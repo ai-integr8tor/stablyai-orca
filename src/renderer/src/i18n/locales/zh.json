@@ -5442,7 +5442,13 @@
           "31fd7150cf": "正在检查更新...",
           "3394d1f663": "检查中",
           "d69a09b672": "启动时会自动检查更新。",
-          "7173352632": "空闲"
+          "7173352632": "空闲",
+          "releaseChannel": {
+            "title": "Release Channel",
+            "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check.",
+            "stable": "Stable",
+            "prerelease": "Pre-Release"
+          }
         },
         "GeneralWorkspaceSettingsSection": {
           "3d538a98f7": "从工作区的“打开方式”菜单中选择可用的应用程序。",
@@ -7656,6 +7662,10 @@
             "8e593f04fc": "关闭固定标签页前显示确认对话框。",
             "defaultProjectRuntime": "默认项目运行时",
             "defaultProjectRuntimeDescription": "选择本地 Windows 项目继承的运行时。",
+            "releaseChannel": {
+              "title": "Release Channel",
+              "description": "Stable skips release candidates; Pre-Release opts into early rc builds for every check."
+            },
             "d2d2d929c0": "Rich Markdown Spellcheck",
             "4497e2e2bb": "在编辑富 Markdown 时显示浏览器拼写下划线和建议。"
           }

@@ -190,6 +190,44 @@ export const getGeneralUpdateSearchEntries = createLocalizedCatalog(() => [
       ),
       ...translateSearchKeyword('auto.components.settings.general.search.e49e739a59', 'download')
     ]
+  },
+  {
+    title: translate(
+      'auto.components.settings.general.search.releaseChannel.title',
+      'Release Channel'
+    ),
+    description: translate(
+      'auto.components.settings.general.search.releaseChannel.description',
+      'Stable skips release candidates; Pre-Release opts into early rc builds for every check.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.general.search.f89a94773c', 'update'),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.titleId',
+        'channel'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.titleId',
+        'release channel'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.stableId',
+        'stable'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.prereleaseId',
+        'prerelease'
+      ),
+      ...translateSearchKeyword('auto.components.settings.general.search.releaseChannel.rc', 'rc'),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.releaseCandidate',
+        'release candidate'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.general.search.releaseChannel.beta',
+        'beta'
+      )
+    ]
   }
 ])
 

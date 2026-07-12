@@ -1024,12 +1024,45 @@ describe('updater', () => {
     expect(autoUpdaterMock.setFeedURL.mock.calls.length).toBe(setupFeedUrlCalls + 1)
   })
 
+  it('honors a persisted prerelease channel during a menu check without an explicit Shift-click', async () => {
+    appMock.getVersion.mockReturnValue('1.3.17')
+    fetchNewerReleaseTagsMock.mockResolvedValue(['v1.3.18-rc.1'])
+    autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
+    const mainWindow = { webContents: { send: vi.fn() } }
+
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+    // Why: defer the startup background check so we observe the channel-driven
+    // opt-in from the *menu* call, not the auto timer.
+    setupAutoUpdater(mainWindow as never, {
+      getLastUpdateCheckAt: () => Date.now(),
+      getReleaseChannel: () => 'prerelease'
+    })
+    expect(autoUpdaterMock.allowPrerelease).not.toBe(true)
+
+    checkForUpdatesFromMenu()
+
+    await vi.waitFor(() => {
+      expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.3.17', 2, {
+        includePrerelease: true
+      })
+      expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
+        provider: 'generic',
+        url: 'https://github.com/stablyai/orca/releases/download/v1.3.18-rc.1'
+      })
+      expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
+    })
+    expect(autoUpdaterMock.allowPrerelease).toBe(true)
+  })
+
   it('pins the generic feed to a perf-tagged prerelease when requested', async () => {
     appMock.getVersion.mockReturnValue('1.4.120')
     fetchNewerReleaseTagsMock.mockResolvedValue(['v1.4.121-rc.6.perf'])
     autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
     const mainWindow = { webContents: { send: vi.fn() } }
 
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
     const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
@@ -1050,6 +1083,65 @@ describe('updater', () => {
     expect(autoUpdaterMock.allowPrerelease).toBe(true)
   })
 
+  it('honors a persisted prerelease channel during the startup background check', async () => {
+    appMock.getVersion.mockReturnValue('1.3.17')
+    fetchNewerReleaseTagsMock.mockResolvedValue(['v1.3.18-rc.1'])
+    autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
+    const mainWindow = { webContents: { send: vi.fn() } }
+
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
+    const { setupAutoUpdater } = await import('./updater')
+
+    // Why: lastUpdateCheckAt=null makes the startup block in setupAutoUpdater
+    // schedule an immediate runBackgroundUpdateCheck, so we can observe the
+    // channel-driven RC opt-in without any manual menu invocation.
+    setupAutoUpdater(mainWindow as never, {
+      getLastUpdateCheckAt: () => null,
+      getReleaseChannel: () => 'prerelease'
+    })
+
+    await vi.waitFor(() => {
+      expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.3.17', 2, {
+        includePrerelease: true
+      })
+      expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
+        provider: 'generic',
+        url: 'https://github.com/stablyai/orca/releases/download/v1.3.18-rc.1'
+      })
+      expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
+    })
+    expect(autoUpdaterMock.allowPrerelease).toBe(true)
+  })
+
+  it('keeps the stable feed when the persisted channel is stable or unset', async () => {
+    appMock.getVersion.mockReturnValue('1.3.17')
+    fetchNewerReleaseTagsMock.mockResolvedValue(['v1.3.18'])
+    autoUpdaterMock.checkForUpdates.mockResolvedValue(undefined)
+    const mainWindow = { webContents: { send: vi.fn() } }
+
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+    setupAutoUpdater(mainWindow as never, {
+      getLastUpdateCheckAt: () => Date.now(),
+      getReleaseChannel: () => 'stable'
+    })
+
+    checkForUpdatesFromMenu()
+
+    await vi.waitFor(() => {
+      expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.3.17', 1, {
+        includePrerelease: false
+      })
+      expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
+        provider: 'generic',
+        url: 'https://github.com/stablyai/orca/releases/download/v1.3.18'
+      })
+      expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
+    })
+    expect(autoUpdaterMock.allowPrerelease).not.toBe(true)
+  })
+
   it('surfaces no-update feedback when no newer perf-tagged prerelease exists', async () => {
     appMock.getVersion.mockReturnValue('1.4.120')
     fetchNewerReleaseTagsMock.mockResolvedValue({ tags: [], state: 'no-newer' })
@@ -1057,6 +1149,7 @@ describe('updater', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
     const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
@@ -1088,6 +1181,7 @@ describe('updater', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
     const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
@@ -1111,6 +1205,67 @@ describe('updater', () => {
       expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
         provider: 'generic',
         url: 'https://github.com/stablyai/orca/releases/download/v1.4.121'
+      })
+    })
+  })
+
+  it('clears a session-sticky RC flag when a plain menu check runs after the channel reverts to stable', async () => {
+    appMock.getVersion.mockReturnValue('1.3.17')
+    fetchNewerReleaseTagsMock.mockResolvedValue(['v1.3.18-rc.1'])
+    autoUpdaterMock.checkForUpdates.mockImplementation(() => {
+      const callCount = autoUpdaterMock.checkForUpdates.mock.calls.length
+      autoUpdaterMock.emit('checking-for-update')
+      // Why: emit 'update-not-available' for the first (Shift-click) check so its
+      // state settles out of 'checking' — otherwise the second plain-click
+      // check would short-circuit as in-flight and skip the disable fetch.
+      if (callCount === 1) {
+        queueMicrotask(() => {
+          autoUpdaterMock.emit('update-not-available')
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+    const mainWindow = { webContents: { send: vi.fn() } }
+
+    // Why: updater module reads mocked singletons at import time; import after mocks are configured.
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+    let channel: 'stable' | 'prerelease' = 'prerelease'
+    setupAutoUpdater(mainWindow as never, {
+      getLastUpdateCheckAt: () => Date.now(),
+      getReleaseChannel: () => channel
+    })
+
+    // Shift-click once — leaves the session sticky on the RC feed.
+    checkForUpdatesFromMenu({ includePrerelease: true })
+    await vi.waitFor(() => {
+      expect(autoUpdaterMock.allowPrerelease).toBe(true)
+      expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
+    })
+    // Why: wait for the first check to fully settle (state -> 'not-available')
+    // so the second menu call is not short-circuited as in-flight.
+    await vi.waitFor(() => {
+      const calls = mainWindow.webContents.send.mock.calls
+      expect(calls.some((c) => c[0] === 'updater:status' && c[1]?.state === 'not-available')).toBe(
+        true
+      )
+    })
+
+    // Switch the persisted channel back to stable and fire a plain menu check.
+    // The disable path in checkForUpdatesFromMenu must revert allowPrerelease
+    // and let pinDefaultReleaseFeed fetch the stable feed again — without this,
+    // the user's UI revert Stable <- Pre-Release would be ignored until restart.
+    channel = 'stable'
+    checkForUpdatesFromMenu()
+
+    // Why: the disable runs synchronously inside the menu call; assert it
+    // before awaiting the async fetch so a future timing change can't mask the
+    // regression of the no-disable path CodeRabbit flagged.
+    expect(autoUpdaterMock.allowPrerelease).toBe(false)
+
+    await vi.waitFor(() => {
+      expect(fetchNewerReleaseTagsMock).toHaveBeenLastCalledWith('1.3.17', 1, {
+        includePrerelease: false
       })
     })
   })

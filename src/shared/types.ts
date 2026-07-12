@@ -3274,6 +3274,10 @@ export type PersistedUIState = {
   collapsedGroups: string[]
   uiZoomLevel: number
   editorFontZoomLevel: number
+  /** Update feed the auto-updater fetches. 'stable' (default) skips release
+   *  candidates; 'prerelease' opts into rc.* builds. The Shift-click menu
+   *  one-shot overrides this only for a single manual check. */
+  releaseChannel?: 'stable' | 'prerelease'
   worktreeCardProperties: WorktreeCardProperty[]
   /** One-shot migration flag for deriving card properties from the two
    *  user-facing worktree card modes. */
