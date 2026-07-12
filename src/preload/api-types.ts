@@ -2965,6 +2965,7 @@ export type PreloadApi = {
       selector: string
       timeoutMs?: number
     }) => Promise<RuntimeRpcResponse<RuntimeStatus>>
+    retryConnectionsNow: () => Promise<void>
     call: (args: {
       selector: string
       method: string
