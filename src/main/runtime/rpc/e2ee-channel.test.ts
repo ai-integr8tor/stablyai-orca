@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { WebSocket } from 'ws'
-import { E2EEChannel, type E2EEChannelOptions } from './e2ee-channel'
+import { E2EEChannel, sanitizeReportedDeviceName, type E2EEChannelOptions } from './e2ee-channel'
 import { generateKeyPair, deriveSharedKey, encrypt, decrypt, encryptBytes } from './e2ee-crypto'
 
 function publicKeyToBase64(key: Uint8Array): string {
@@ -48,6 +48,15 @@ function doHandshake(ctx: ReturnType<typeof setup>) {
   )
   return sharedKey
 }
+
+describe('sanitizeReportedDeviceName', () => {
+  it('caps by Unicode code point without splitting an emoji', () => {
+    const sanitized = sanitizeReportedDeviceName(`${'x'.repeat(63)}😀z`)
+
+    expect(sanitized).toBe(`${'x'.repeat(63)}😀`)
+    expect(Array.from(sanitized ?? '')).toHaveLength(64)
+  })
+})
 
 describe('E2EEChannel', () => {
   beforeEach(() => {
