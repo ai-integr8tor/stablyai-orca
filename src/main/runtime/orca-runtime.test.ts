@@ -13388,6 +13388,297 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  it('serializes orchestration delivery while background PTY submission is pending', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        spawn,
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'grok',
+        title: 'reviewer'
+      })
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 101)
+
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'first review' })
+      runtime.deliverPendingMessagesForHandle(handle)
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'second review' })
+      runtime.deliverPendingMessagesForHandle(handle)
+
+      // Why: the first payload remains editable input until its delayed Enter.
+      // A second send must not inject or resubmit that in-flight message.
+      const payloadWritesBeforeSubmit = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text !== '\r'
+      )
+      expect(payloadWritesBeforeSubmit).toHaveLength(1)
+      expect(payloadWritesBeforeSubmit[0]?.[1]).toContain('Subject: first review')
+      expect(payloadWritesBeforeSubmit[0]?.[1]).not.toContain('Subject: second review')
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      // The second message stays queued until the agent processes the first
+      // prompt and reaches its next idle transition.
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 102)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 103)
+
+      const payloadWritesAfterFirstSubmit = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text !== '\r'
+      )
+      const enterWritesAfterFirstSubmit = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text === '\r'
+      )
+      expect(payloadWritesAfterFirstSubmit).toHaveLength(2)
+      expect(payloadWritesAfterFirstSubmit[1]?.[1]).toContain('Subject: second review')
+      expect(payloadWritesAfterFirstSubmit[1]?.[1]).not.toContain('Subject: first review')
+      expect(enterWritesAfterFirstSubmit).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      const enterWrites = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text === '\r'
+      )
+      expect(enterWrites).toHaveLength(2)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(0)
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for a new submit cycle after a background PTY Enter fails', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      let failedFirstEnter = false
+      const write = vi.fn((_ptyId: string, text: string) => {
+        if (text === '\r' && !failedFirstEnter) {
+          failedFirstEnter = true
+          return false
+        }
+        return true
+      })
+      const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        spawn,
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'grok',
+        title: 'reviewer'
+      })
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 101)
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'retry review' })
+
+      runtime.deliverPendingMessagesForHandle(handle)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(1)
+
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'next review' })
+      runtime.deliverPendingMessagesForHandle(handle)
+
+      // The first payload is still editable because Enter failed. Retrying in
+      // the same idle epoch must not append either the old or new message.
+      const payloadWritesBeforeManualSubmit = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text !== '\r'
+      )
+      expect(payloadWritesBeforeManualSubmit).toHaveLength(1)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(2)
+
+      // A working transition proves the editable payload was submitted by the
+      // user. The following idle transition may safely deliver only the new row.
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 102)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 103)
+
+      const payloadWritesAfterManualSubmit = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text !== '\r'
+      )
+      expect(payloadWritesAfterManualSubmit).toHaveLength(2)
+      expect(payloadWritesAfterManualSubmit[1]?.[1]).toContain('Subject: next review')
+      expect(payloadWritesAfterManualSubmit[1]?.[1]).not.toContain('Subject: retry review')
+
+      await vi.advanceTimersByTimeAsync(500)
+      const enterWrites = write.mock.calls.filter(
+        ([ptyId, text]) => ptyId === 'pty-bg' && text === '\r'
+      )
+      expect(enterWrites).toHaveLength(2)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(0)
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels the delayed Enter when the background PTY starts working first', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        spawn,
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'grok',
+        title: 'reviewer'
+      })
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 101)
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'manual submit' })
+
+      runtime.deliverPendingMessagesForHandle(handle)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 102)
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(write.mock.calls.filter(([, text]) => text === '\r')).toHaveLength(0)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(0)
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not let an old delayed Enter mutate a replacement PTY delivery', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+      const handle = 'term_replaced'
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'old target' })
+      runtime['deliverPendingMessagesToTarget']({
+        handle,
+        ptyId: 'pty-1',
+        isWritable: () => true,
+        isCursorAgent: false
+      })
+      runtime['deliverPendingMessagesToTarget']({
+        handle,
+        ptyId: 'pty-2',
+        isWritable: () => true,
+        isCursorAgent: false
+      })
+      await vi.advanceTimersByTimeAsync(500)
+
+      const enterTargets = write.mock.calls
+        .filter(([, text]) => text === '\r')
+        .map(([ptyId]) => ptyId)
+      expect(enterTargets).toEqual(['pty-2'])
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(0)
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a confirmed delivery deduplicated when marking it delivered fails once', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const db = new InMemoryOrchestrationMessages()
+      const write = vi.fn().mockReturnValue(true)
+      const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+      const markAsDelivered = db.markAsDelivered.bind(db)
+      vi.spyOn(db, 'markAsDelivered')
+        .mockImplementationOnce(() => {
+          throw new Error('sqlite busy')
+        })
+        .mockImplementation(markAsDelivered)
+      setInMemoryOrchestrationMessages(runtime, db)
+      runtime.setPtyController({
+        spawn,
+        write,
+        kill: vi.fn(),
+        getForegroundProcess: async () => null
+      })
+
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'grok',
+        title: 'reviewer'
+      })
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 101)
+      db.insertMessage({ from: 'term_sender', to: handle, subject: 'confirm once' })
+      runtime.deliverPendingMessagesForHandle(handle)
+
+      runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 102)
+      await vi.advanceTimersByTimeAsync(500)
+      runtime.deliverPendingMessagesForHandle(handle)
+
+      expect(write.mock.calls.filter(([, text]) => text === '\r')).toHaveLength(0)
+      expect(write.mock.calls.filter(([, text]) => text !== '\r')).toHaveLength(1)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(1)
+
+      runtime.onPtyData('pty-bg', '\x1b]0;Claude waiting for permission\x07', 103)
+      expect(db.getUndeliveredUnreadMessages(handle)).toHaveLength(0)
+      db.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not reserve or write a payload when coordinator lookup throws', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const db = new InMemoryOrchestrationMessages()
+    const write = vi.fn().mockReturnValue(true)
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-bg' })
+    setInMemoryOrchestrationMessages(runtime, db)
+    runtime.setPtyController({
+      spawn,
+      write,
+      kill: vi.fn(),
+      getForegroundProcess: async () => null
+    })
+
+    const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      command: 'grok',
+      title: 'reviewer'
+    })
+    runtime.onPtyData('pty-bg', '\x1b]0;Grok working\x07', 100)
+    runtime.onPtyData('pty-bg', '\x1b]0;Grok done\x07', 101)
+    db.insertMessage({ from: 'term_sender', to: handle, subject: 'lookup retry' })
+    vi.spyOn(db, 'getActiveCoordinatorRun')
+      .mockImplementationOnce(() => {
+        throw new Error('sqlite unavailable')
+      })
+      .mockReturnValue(null)
+
+    runtime.deliverPendingMessagesForHandle(handle)
+    expect(write).not.toHaveBeenCalled()
+
+    runtime.deliverPendingMessagesForHandle(handle)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write).toHaveBeenCalledWith('pty-bg', expect.stringContaining('Subject: lookup retry'))
+    db.close()
+  })
+
   it('delivers queued orchestration messages when a background PTY becomes idle', async () => {
     vi.useFakeTimers()
     try {

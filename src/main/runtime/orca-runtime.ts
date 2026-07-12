@@ -2176,6 +2176,12 @@ export class OrcaRuntimeService {
   private ptyForegroundAgentRefreshes = new Map<string, PtyForegroundAgentRefresh>()
   private ptyDelayedForegroundSnapshotTitleObservations = new Map<string, number>()
   private _orchestrationDb: OrchestrationDb | null = null
+  // Why: a failed delayed Enter leaves the payload editable. Retain the exact
+  // PTY/message attempt until submission or teardown proves a safe boundary.
+  private orchestrationDeliveriesInFlight = new Map<
+    string,
+    { ptyId: string; messageIds: string[]; submissionConfirmed: boolean }
+  >()
   private messageWaitersByHandle = new Map<string, Set<MessageWaiter>>()
   // Why: mobile clients subscribe to terminal output via terminal.subscribe.
   // These listeners fire on every onPtyData call, enabling real-time streaming
@@ -6211,6 +6217,12 @@ export class OrcaRuntimeService {
       pty.lastOscTitle = normalizedTitle
       pty.lastOscTitleAt = observedAt
       pty.lastAgentStatus = agentStatus
+      if (agentStatus !== null) {
+        this.confirmOrchestrationDeliveryForPty(
+          ptyId,
+          prevStatus === 'idle' && agentStatus !== 'idle'
+        )
+      }
       this.setPtyManagementTitleFromObservedTitle(pty, normalizedTitle, observedAt)
       ptyRecordChanged = prevTitle !== normalizedTitle || prevStatus !== agentStatus
       if (agentStatus === 'idle' && prevStatus !== 'idle') {
@@ -8056,6 +8068,7 @@ export class OrcaRuntimeService {
   }
 
   onPtyExit(ptyId: string, exitCode: number): void {
+    this.clearOrchestrationDeliveryForPty(ptyId)
     advertisedUrlWatcher.unbindPty(ptyId)
     serveSimStateWatcher.unbindPty(ptyId)
     // Clean up new mobile state for this PTY
@@ -20140,6 +20153,7 @@ export class OrcaRuntimeService {
   private dropDisconnectedPtyRecord(ptyId: string): void {
     // Why: pruning can remove a PTY without the normal exit callback.
     serveSimStateWatcher.unbindPty(ptyId)
+    this.clearOrchestrationDeliveryForPty(ptyId)
     this.ptysById.delete(ptyId)
     this.recentPtyOutputById.delete(ptyId)
     this.clearWaitBlockedCheckState(ptyId)
@@ -21972,6 +21986,15 @@ export class OrcaRuntimeService {
     if (!this._orchestrationDb) {
       return
     }
+    const existingDelivery = this.orchestrationDeliveriesInFlight.get(target.handle)
+    if (existingDelivery) {
+      if (existingDelivery.ptyId === target.ptyId) {
+        return
+      }
+      // Why: a replacement PTY cannot contain the old editable prompt, so the
+      // persisted rows may be attempted against the new target identity.
+      this.orchestrationDeliveriesInFlight.delete(target.handle)
+    }
 
     const unread = this._orchestrationDb.getUndeliveredUnreadMessages(target.handle)
     if (unread.length === 0) {
@@ -21982,6 +22005,10 @@ export class OrcaRuntimeService {
       return
     }
 
+    // Query before writing: a database failure must not leave payload text in
+    // the prompt without enough state to determine how it was submitted.
+    const isActiveCoordinator =
+      this._orchestrationDb.getActiveCoordinatorRun()?.coordinator_handle === target.handle
     const payload = formatMessagesForInjection(unread)
     const wrote = this.ptyController?.write(target.ptyId, payload) ?? false
     if (!wrote) {
@@ -21989,7 +22016,7 @@ export class OrcaRuntimeService {
     }
 
     // The active coordinator prompt is user-owned input, so push-on-idle must not synthesize Enter.
-    if (this._orchestrationDb.getActiveCoordinatorRun()?.coordinator_handle === target.handle) {
+    if (isActiveCoordinator) {
       this._orchestrationDb.markAsDelivered(unread.map((m) => m.id))
       return
     }
@@ -22015,21 +22042,67 @@ export class OrcaRuntimeService {
     // exact bug feedback #2 reported. The two bits must stay independent.
     const { ptyId } = target
     const messageIds = unread.map((m) => m.id)
+    const delivery = { ptyId, messageIds, submissionConfirmed: false }
+    this.orchestrationDeliveriesInFlight.set(target.handle, delivery)
     setTimeout(() => {
       try {
+        if (
+          this.orchestrationDeliveriesInFlight.get(target.handle) !== delivery ||
+          delivery.submissionConfirmed
+        ) {
+          return
+        }
         if (!target.isWritable()) {
           return
         }
         const submitted = this.ptyController?.write(ptyId, '\r') ?? false
         if (submitted) {
+          delivery.submissionConfirmed = true
           this._orchestrationDb?.markAsDelivered(messageIds)
+          if (this.orchestrationDeliveriesInFlight.get(target.handle) === delivery) {
+            this.orchestrationDeliveriesInFlight.delete(target.handle)
+          }
         }
       } catch {
-        // Terminal may have closed during the delay — messages stay queued
-        // (delivered_at still NULL) and will be re-delivered on the next
-        // idle transition.
+        // Keep the attempt reserved: the payload may still be editable. A
+        // working transition confirms manual submission; PTY teardown clears it.
       }
     }, 500)
+  }
+
+  private confirmOrchestrationDeliveryForPty(ptyId: string, submissionObserved: boolean): void {
+    if (!this._orchestrationDb) {
+      return
+    }
+    for (const [handle, delivery] of this.orchestrationDeliveriesInFlight) {
+      if (delivery.ptyId !== ptyId) {
+        continue
+      }
+      if (submissionObserved) {
+        // Cancel the delayed Enter before touching SQLite: persistence can be
+        // retried, but terminal input cannot be safely replayed.
+        delivery.submissionConfirmed = true
+      }
+      if (!delivery.submissionConfirmed) {
+        continue
+      }
+      try {
+        this._orchestrationDb.markAsDelivered(delivery.messageIds)
+        if (this.orchestrationDeliveriesInFlight.get(handle) === delivery) {
+          this.orchestrationDeliveriesInFlight.delete(handle)
+        }
+      } catch {
+        // Preserve the reservation until a later status transition or teardown.
+      }
+    }
+  }
+
+  private clearOrchestrationDeliveryForPty(ptyId: string): void {
+    for (const [handle, delivery] of this.orchestrationDeliveriesInFlight) {
+      if (delivery.ptyId === ptyId) {
+        this.orchestrationDeliveriesInFlight.delete(handle)
+      }
+    }
   }
 
   private resolveWaiter(waiter: TerminalWaiter, result: RuntimeTerminalWait): void {
