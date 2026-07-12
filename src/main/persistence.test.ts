@@ -681,6 +681,12 @@ describe('Store', () => {
     const store = await createStore()
 
     expect(store.getSettings().keepServingOnClose).toBe(false)
+    expect(store.getSettings().minimizeToTrayOnClose).toBe(false)
+    store.flush()
+    expect((readDataFile() as PersistedState).settings).toMatchObject({
+      keepServingOnClose: false,
+      minimizeToTrayOnClose: false
+    })
   })
 
   it('mirrors keepServingOnClose into the legacy minimizeToTrayOnClose alias', async () => {

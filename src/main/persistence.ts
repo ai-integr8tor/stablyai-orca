@@ -3101,6 +3101,20 @@ export class Store {
         ) {
           this.loadNeedsSave = true
         }
+        const storedKeepServingOnClose = parsed.settings?.keepServingOnClose
+        const storedMinimizeToTrayOnClose = parsed.settings?.minimizeToTrayOnClose
+        const keepServingOnClose =
+          storedKeepServingOnClose === undefined
+            ? storedMinimizeToTrayOnClose === true
+            : storedKeepServingOnClose === true
+        if (
+          storedKeepServingOnClose !== keepServingOnClose ||
+          storedMinimizeToTrayOnClose !== keepServingOnClose
+        ) {
+          // Why: older builds read only the legacy alias, so persist one
+          // canonical value for both fields instead of retaining a split pair.
+          this.loadNeedsSave = true
+        }
         result = {
           ...defaults,
           ...parsed,
@@ -3179,19 +3193,14 @@ export class Store {
               parsed.settings?.terminalCustomThemes
             ),
             appIcon: normalizeAppIconId(parsed.settings?.appIcon),
-            // Why: persisted settings can be user-edited or written by older
-            // builds; keep tray-minimize false unless the stored value is true.
-            minimizeToTrayOnClose: parsed.settings?.minimizeToTrayOnClose === true,
+            minimizeToTrayOnClose: keepServingOnClose,
             // Why: keepServingOnClose is the canonical hide-on-close flag and the
             // Windows-only minimizeToTrayOnClose is its legacy alias. Derive from
             // the legacy flag ONLY when keepServingOnClose is absent from disk — a
             // stored explicit false must win over a stale alias, so a desynced pair
             // ({keepServingOnClose:false, minimizeToTrayOnClose:true}) can't
             // re-enable a disabled preference on every launch.
-            keepServingOnClose:
-              parsed.settings?.keepServingOnClose === undefined
-                ? parsed.settings?.minimizeToTrayOnClose === true
-                : parsed.settings?.keepServingOnClose === true,
+            keepServingOnClose,
             showTrayIconWhileClosed: parsed.settings?.showTrayIconWhileClosed === true,
             uiLanguage: normalizeUiLanguage(parsed.settings?.uiLanguage),
             defaultTaskSource: taskProviderSettings.defaultTaskSource,

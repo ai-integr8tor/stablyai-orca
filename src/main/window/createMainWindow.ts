@@ -98,7 +98,7 @@ function syncTrafficLightPosition(win: BrowserWindow, zoomFactor: number): void 
 }
 
 // Why: the hide-on-close notice must name the correct restore path per platform
-// (Dock on macOS, tray on Windows, re-running orca on Linux) instead of the
+// (Dock on macOS, tray on Windows, launching Orca on Linux) instead of the
 // old Windows-only "system tray" wording.
 function keepServingNoticeBody(): string {
   if (process.platform === 'darwin') {
@@ -112,7 +112,7 @@ function keepServingNoticeBody(): string {
   }
   return translateMain(
     'tray.keepServingNotice.linux',
-    'Orca is still running and serving remote clients. Run orca again to reopen.'
+    'Orca is still running and serving remote clients. Launch Orca again to reopen.'
   )
 }
 

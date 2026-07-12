@@ -70,7 +70,7 @@
     },
     "keepServingNotice": {
       "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
-      "linux": "Orca is still running and serving remote clients. Run orca again to reopen."
+      "linux": "Orca is still running and serving remote clients. Launch Orca again to reopen."
     }
   },
   "worktreeJumpPalette": {

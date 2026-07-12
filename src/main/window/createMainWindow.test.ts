@@ -3278,6 +3278,20 @@ describe('createMainWindow', () => {
       expect(webContents.send).not.toHaveBeenCalledWith('window:close-requested', expect.anything())
     })
 
+    it('tells packaged Linux users to launch Orca without naming the screen-reader command', () => {
+      setPlatform('linux')
+      const { windowHandlers } = setupCloseWindow()
+      const store = makeStore(false, false, true)
+
+      createMainWindow(store as never, { getIsQuitting: () => false })
+      windowHandlers.close({ preventDefault: vi.fn() } as never)
+
+      expect(notificationMock).toHaveBeenCalledWith({
+        title: 'Orca',
+        body: 'Orca is still running and serving remote clients. Launch Orca again to reopen.'
+      })
+    })
+
     it('does not hide on darwin when only the legacy alias is set (canonical off)', () => {
       setPlatform('darwin')
       const { windowHandlers, instance } = setupCloseWindow()
