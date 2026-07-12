@@ -6972,6 +6972,18 @@ describe('OrcaRuntimeService', () => {
       expect(runtime.getPtyOutputSequence('pty-1')).toBe(0)
     })
 
+    it('routes working titles to the Codex permission-resume owner', () => {
+      const resumeCodexPermissionWait = vi.fn(() => true)
+      const runtime = new OrcaRuntimeService(store, undefined, { resumeCodexPermissionWait })
+      syncSinglePty(runtime)
+
+      runtime.onPtyData('pty-1', '\x1b]0;Codex - action required\x07', 100)
+      expect(resumeCodexPermissionWait).not.toHaveBeenCalled()
+
+      runtime.onPtyData('pty-1', '\x1b]0;⠋ Codex\x07', 101)
+      expect(resumeCodexPermissionWait).toHaveBeenCalledWith('tab-1:1')
+    })
+
     it('carries the synthetic permission BEL as a bell fact', () => {
       const { runtime, batches } = createSideEffectRuntime()
       syncSinglePty(runtime)

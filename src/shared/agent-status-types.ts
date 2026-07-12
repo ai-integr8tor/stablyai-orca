@@ -1,9 +1,9 @@
 // ─── Explicit agent status (reported via native agent hooks → IPC) ──────────
 // These types define the normalized status that Orca receives from Claude,
 // Codex, and other explicit integrations. Agent state normally comes from
-// hooks; a narrow interrupt fallback may synthesize a final done state when an
-// agent misses its own cancellation hook. We still do not infer status from
-// terminal titles anywhere in the data flow.
+// hooks; narrow interrupt and Codex permission-resume fallbacks may synthesize
+// a transition when the provider omits its corresponding lifecycle hook. We do
+// not use terminal titles as a general status source.
 
 import type { AgentProviderSessionMetadata } from './agent-session-resume'
 import {

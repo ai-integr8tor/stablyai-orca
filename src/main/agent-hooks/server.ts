@@ -524,6 +524,39 @@ export class AgentHookServer {
     )
   }
 
+  resumeCodexPermissionWaitFromTerminalTitle(paneKey: string): boolean {
+    const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)
+    const existing = this.state.lastStatusByPaneKey.get(resolvedPaneKey) as
+      | EnrichedAgentHookEventPayload
+      | undefined
+    if (
+      existing?.payload.agentType !== 'codex' ||
+      existing.payload.state !== 'waiting' ||
+      existing.hookEventName !== 'PermissionRequest' ||
+      Date.now() - existing.receivedAt > AGENT_STATUS_STALE_AFTER_MS
+    ) {
+      return false
+    }
+
+    // Why: Codex emits no execution-start hook after approval; its working
+    // terminal title is the first authoritative signal before PostToolUse.
+    const resumed = this.applyNormalizedStatus({
+      paneKey: resolvedPaneKey,
+      connectionId: existing.connectionId,
+      ...(existing.launchToken ? { launchToken: existing.launchToken } : {}),
+      ...(existing.tabId ? { tabId: existing.tabId } : {}),
+      ...(existing.worktreeId ? { worktreeId: existing.worktreeId } : {}),
+      ...(existing.providerSession ? { providerSession: existing.providerSession } : {}),
+      hookEventName: 'TerminalTitleWorking',
+      payload: {
+        ...existing.payload,
+        state: 'working',
+        interactivePrompt: undefined
+      }
+    })
+    return resumed.payload.state === 'working'
+  }
+
   inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
     if (!isValidPaneKey(request.paneKey)) {
       return false
