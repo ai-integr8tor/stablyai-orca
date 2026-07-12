@@ -289,17 +289,30 @@ export function resolveTerminalShortcutAction(
   // The handling depends on the macOptionAsAlt setting (mirrors Ghostty):
   // - 'true':  xterm handles all Option as Meta natively; nothing to do here.
   // - kitty-protocol pane (any other mode): the TUI asked for modifier-accurate
-  //   keys, so every Option chord is encoded as kitty CSI-u with the physical
-  //   base key (Option+P → \x1b[112;3u). Without this, xterm's kitty encoder
-  //   reports the composed codepoint (alt+π), which no TUI binds — the chord
-  //   neither triggers the hotkey nor types the character (issue: OMP Alt+P /
-  //   Alt+M dead on compose layouts). Dead keys are exempt so composition
-  //   (Option+E → ´) keeps working.
+  //   keys, so Option chords are encoded as kitty CSI-u with the physical base
+  //   key (Option+P → \x1b[112;3u). Without this, xterm's kitty encoder reports
+  //   the composed codepoint (alt+π), which no TUI binds. Layout-produced `@`
+  //   stays text on the compose-side Option key because it is essential input,
+  //   not an Alt shortcut (German Option+L, Turkish Option+Q).
   // - 'false': compensate the three most critical readline shortcuts (B/F/D).
   // - 'left'/'right': the designated Option key acts as full Meta (emit Esc+
   //   for any single letter); the other key composes, with B/F/D compensated.
   if (isMac && !event.metaKey && !event.ctrlKey && event.altKey && macOptionAsAlt !== 'true') {
+    // Why: event.location on a character key reports that key's position
+    // (always 0 for standard keys), NOT which modifier is held. The caller
+    // must track the Option key's own keydown location and pass it as
+    // optionKeyLocation.
+    const isLeftOption = optionKeyLocation === 1
+    const isRightOption = optionKeyLocation === 2
+    const shouldActAsMeta =
+      (macOptionAsAlt === 'left' && isLeftOption) || (macOptionAsAlt === 'right' && isRightOption)
+
     if (event.key !== 'Dead' && isKittyKeyboardActivePane?.()) {
+      // Why: Pi enables kitty mode, whose Alt encoding makes composed `@`
+      // non-textual. Compose-side Option must match native macOS terminals.
+      if (!shouldActAsMeta && event.key === '@') {
+        return { type: 'sendInput', data: event.key }
+      }
       const baseCharacter =
         (event.code ? layoutBaseCharacterForCode?.(event.code) : undefined) ??
         resolveUnshiftedCharacterForCode(event.code)
@@ -312,16 +325,6 @@ export function resolveTerminalShortcutAction(
     }
 
     if (!event.shiftKey) {
-      // Why: event.location on a character key reports that key's position
-      // (always 0 for standard keys), NOT which modifier is held. The caller
-      // must track the Option key's own keydown location and pass it as
-      // optionKeyLocation.
-      const isLeftOption = optionKeyLocation === 1
-      const isRightOption = optionKeyLocation === 2
-
-      const shouldActAsMeta =
-        (macOptionAsAlt === 'left' && isLeftOption) || (macOptionAsAlt === 'right' && isRightOption)
-
       if (shouldActAsMeta) {
         // Emit Esc+key (e.g. Option+B → \x1bb) for letters, digits, and
         // mapped punctuation.
