@@ -37,6 +37,7 @@ import {
 } from '../../runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '../../runtime/runtime-worktree-selector'
 import { getHostedReviewCacheKey, refreshHostedReviewCard } from './hosted-review'
+import { isPositiveHostedReviewNumber } from '../../../../shared/hosted-review'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from './github-cache-key'
 import { moveFocusToRendererBeforeFocusedWebviewHidden } from './browser-webview-cleanup'
 import { toast } from 'sonner'
@@ -350,6 +351,21 @@ function repoHostId(
 ): ExecutionHostId {
   const repo = findRepoForHost(state.repos, repoId, { hostId, settings: state.settings })
   return repo ? getRepoExecutionHostId(repo) : LOCAL_EXECUTION_HOST_ID
+}
+
+function repoHasExecutionHost(
+  state: Pick<AppState, 'repos'>,
+  repoId: string,
+  hostId: ExecutionHostId,
+  ownerWasMissingAtStart: boolean
+): boolean {
+  const repoOwners = state.repos.filter((repo) => repo.id === repoId)
+  // Why: worktrees can load before the repo catalog during startup; only reject
+  // a missing owner when this request previously observed an owned repo.
+  return (
+    (repoOwners.length === 0 && ownerWasMissingAtStart) ||
+    repoOwners.some((repo) => getRepoExecutionHostId(repo) === hostId)
+  )
 }
 
 function toVisibleWorktrees(
@@ -1369,10 +1385,6 @@ function getHostedReviewPushTargetLookup(worktree: Worktree): {
   return null
 }
 
-function isPositiveHostedReviewNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0
-}
-
 type HostedReviewLinkKey =
   | 'linkedPR'
   | 'linkedGitLabMR'
@@ -1892,11 +1904,25 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
 
   // Collect every tab id (and removed file id) we are about to orphan.
   const doomedTabIds = new Set<string>()
-  // Why: some terminal/agent maps are keyed by ptyId, not tabId. Collect the
-  // doomed panes' ptyIds now (while ptyIdsByTabId is still populated) so this
-  // bulk path can evict them the same way shutdownWorktreeTerminals does on the
-  // single-removeWorktree path.
+  // Why: some terminal/agent maps are keyed by ptyId, not tabId. Collect every
+  // durable wake hint too, because slept panes have already left the live index.
   const doomedPtyIds = new Set<string>()
+  const addDoomedPtyId = (ptyId: string | null | undefined): void => {
+    if (!ptyId) {
+      return
+    }
+    doomedPtyIds.add(ptyId)
+  }
+  const addDoomedTabPtyIds = (tabId: string, tabPtyId: string | null | undefined): void => {
+    for (const ptyId of s.ptyIdsByTabId?.[tabId] ?? []) {
+      addDoomedPtyId(ptyId)
+    }
+    addDoomedPtyId(tabPtyId)
+    addDoomedPtyId(s.lastKnownRelayPtyIdByTabId?.[tabId])
+    for (const ptyId of Object.values(s.terminalLayoutsByTabId?.[tabId]?.ptyIdsByLeafId ?? {})) {
+      addDoomedPtyId(ptyId)
+    }
+  }
   const doomedBrowserWorkspaceIds = new Set<string>()
   const doomedPageIds = new Set<string>()
   const removedFileIds = new Set<string>()
@@ -1905,9 +1931,7 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
       doomedTabIds.add(tab.id)
       // Null-tolerant like the omit* helpers below: some callers pass partial
       // state that omits this slice; the production store always inits it to {}.
-      for (const ptyId of s.ptyIdsByTabId?.[tab.id] ?? []) {
-        doomedPtyIds.add(ptyId)
-      }
+      addDoomedTabPtyIds(tab.id, tab.ptyId)
       // Why: a removed worktree's panes are gone for good, so drop their
       // hibernation output epochs from that module-level map (mirrors the
       // hosted-review prune above). A future pane mints a fresh leafId at epoch 0.
@@ -2087,6 +2111,7 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     }
     return next
   })()
+  const nextAgentStatusByPaneKey = omitByPaneKeyTabPrefix(s.agentStatusByPaneKey)
 
   return {
     // Worktree-scoped terminal/tab state
@@ -2117,6 +2142,8 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     pendingStartupByTabId: omitByTabId(s.pendingStartupByTabId),
     codexRestartNoticeByPtyId: omitByPtyId(s.codexRestartNoticeByPtyId),
     migrationUnsupportedByPtyId: omitByPtyId(s.migrationUnsupportedByPtyId),
+    suppressedPtyExitIds: omitByPtyId(s.suppressedPtyExitIds),
+    pendingCodexPaneRestartIds: omitByPtyId(s.pendingCodexPaneRestartIds),
     // Why: these tab/pane-scoped agent-status, unread, and input maps are only
     // cleared on the single removeWorktree path (via shutdownWorktreeTerminals /
     // dropAgentStatusByWorktree / clearPaneForegroundAgentByWorktree, which read
@@ -2127,7 +2154,10 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     // badge). retainedAgentsByPaneKey and runtimeAgentOrchestrationByPaneKey are
     // intentionally omitted here — both self-heal (pruneRetainedAgents on a
     // worktreesByRepo change; the runtime map is replaced wholesale each sync).
-    agentStatusByPaneKey: omitByPaneKeyTabPrefix(s.agentStatusByPaneKey),
+    agentStatusByPaneKey: nextAgentStatusByPaneKey,
+    ...(nextAgentStatusByPaneKey !== s.agentStatusByPaneKey
+      ? { agentStatusEpoch: s.agentStatusEpoch + 1 }
+      : {}),
     agentLaunchConfigByPaneKey: omitByPaneKeyTabPrefix(s.agentLaunchConfigByPaneKey),
     acknowledgedAgentsByPaneKey: omitByPaneKeyTabPrefix(s.acknowledgedAgentsByPaneKey),
     paneForegroundAgentByPaneKey: omitByPaneKeyTabPrefix(s.paneForegroundAgentByPaneKey),
@@ -2253,6 +2283,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     try {
       const ownerState = get()
       const hostId = repoHostId(ownerState, repoId)
+      const ownerWasMissingAtStart = !ownerState.repos.some((repo) => repo.id === repoId)
       const setup = getProjectHostSetupForRepoHost(ownerState, repoId, hostId)
       const result = await listDetectedWorktreesForRepoCoalesced(
         settingsForRepoOwner(ownerState, repoId, hostId),
@@ -2260,6 +2291,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         { executionHostId: hostId }
       )
       set((s) => {
+        if (!repoHasExecutionHost(s, repoId, hostId, ownerWasMissingAtStart)) {
+          return s
+        }
         // Why: detected-only refreshes can overlap host-scoped visible refreshes;
         // keep detected state stamped/merged so SSH/runtime rows are not clobbered.
         const mergedDetected = mergeDetectedWorktreesForHost(
@@ -2287,6 +2321,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     try {
       const ownerState = get()
       const hostId = repoHostId(ownerState, repoId)
+      const ownerWasMissingAtStart = !ownerState.repos.some((repo) => repo.id === repoId)
       const setup = getProjectHostSetupForRepoHost(ownerState, repoId, hostId)
       const settings = settingsForRepoOwner(ownerState, repoId, hostId)
       const detected = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
@@ -2307,6 +2342,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       )
       if (areWorktreesEqual(currentForHost, worktrees)) {
         set((s) => {
+          if (!repoHasExecutionHost(s, repoId, hostId, ownerWasMissingAtStart)) {
+            return s
+          }
           const matchOptions = worktreeHostMatchOptions(s, repoId, hostId)
           const removedIds = getRemovedWorktreeIdsAfterAuthoritativeScan(
             s,
@@ -2360,22 +2398,30 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // to-navigate silently fails because findWorktreeById returns undefined.
       // Keep the stale-but-correct data until the next successful refresh.
       if (!detected.authoritative && worktrees.length === 0 && currentForHost.length > 0) {
-        set((s) => ({
-          detectedWorktreesByRepo: {
-            ...s.detectedWorktreesByRepo,
-            [repoId]: mergeDetectedWorktreesForHost(
-              s.detectedWorktreesByRepo[repoId],
-              detected,
-              hostId,
-              setup,
-              worktreeHostMatchOptions(s, repoId, hostId)
-            )
+        set((s) => {
+          if (!repoHasExecutionHost(s, repoId, hostId, ownerWasMissingAtStart)) {
+            return s
           }
-        }))
+          return {
+            detectedWorktreesByRepo: {
+              ...s.detectedWorktreesByRepo,
+              [repoId]: mergeDetectedWorktreesForHost(
+                s.detectedWorktreesByRepo[repoId],
+                detected,
+                hostId,
+                setup,
+                worktreeHostMatchOptions(s, repoId, hostId)
+              )
+            }
+          }
+        })
         return false
       }
 
       set((s) => {
+        if (!repoHasExecutionHost(s, repoId, hostId, ownerWasMissingAtStart)) {
+          return s
+        }
         // Why: hidden worktrees are not in worktreesByRepo. Purge decisions
         // must diff against the previous authoritative detected list so hiding
         // does not delete state, and deleting a hidden worktree still does.
@@ -2437,6 +2483,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             get().worktreesByRepo[r.id]
           )
           set((s) => {
+            if (!repoHasExecutionHost(s, r.id, hostId, false)) {
+              return s
+            }
             const matchOptions = worktreeHostMatchOptions(s, r.id, hostId)
             const removedIds = getRemovedWorktreeIdsAfterAuthoritativeScan(
               s,
@@ -2522,6 +2571,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             !(list.length === 0 && currentForHost.length > 0 && !detected.authoritative)
           ) {
             set((s) => {
+              if (!repoHasExecutionHost(s, r.id, hostId, false)) {
+                return s
+              }
               const matchOptions = worktreeHostMatchOptions(s, r.id, hostId)
               return {
                 worktreesByRepo: {
@@ -2542,18 +2594,23 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
               }
             })
           } else {
-            set((s) => ({
-              detectedWorktreesByRepo: {
-                ...s.detectedWorktreesByRepo,
-                [r.id]: mergeDetectedWorktreesForHost(
-                  s.detectedWorktreesByRepo[r.id],
-                  detected,
-                  hostId,
-                  setup,
-                  worktreeHostMatchOptions(s, r.id, hostId)
-                )
+            set((s) => {
+              if (!repoHasExecutionHost(s, r.id, hostId, false)) {
+                return s
               }
-            }))
+              return {
+                detectedWorktreesByRepo: {
+                  ...s.detectedWorktreesByRepo,
+                  [r.id]: mergeDetectedWorktreesForHost(
+                    s.detectedWorktreesByRepo[r.id],
+                    detected,
+                    hostId,
+                    setup,
+                    worktreeHostMatchOptions(s, r.id, hostId)
+                  )
+                }
+              }
+            })
           }
           return { repoId: r.id, ok: detected.authoritative, detected }
         } catch (err) {
@@ -3702,8 +3759,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       ? clearOlderHostedReviewLinksForReplacement(updates, existingWorktree)
       : updates
     // Why: manual PR linking only supplies the PR number. Resolve the PR head
-    // branch here so Push targets the review branch, but don't repeat that
-    // network lookup for no-op linkedPR metadata saves.
+    // branch here so Push targets the review branch; re-saving the same PR can
+    // also heal older metadata that lost pushTarget.
     const linkedPrForPushTarget = isPositiveHostedReviewNumber(normalizedUpdates.linkedPR)
       ? normalizedUpdates.linkedPR
       : null
@@ -3711,7 +3768,6 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       linkedPrForPushTarget !== null &&
       normalizedUpdates.pushTarget === undefined &&
       existingWorktree &&
-      existingWorktree.linkedPR !== linkedPrForPushTarget &&
       !existingWorktree.pushTarget
         ? await resolveGitHubReviewPushTarget(
             settingsForWorktreeOwner(get(), worktreeId),

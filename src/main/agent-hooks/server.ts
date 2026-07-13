@@ -59,6 +59,7 @@ import {
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import type { LegacyPaneKeyAliasEntry } from '../../shared/types'
 import { normalizeAgentProviderSession } from '../../shared/agent-session-resume'
+import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
 
 export type { AgentHookSource }
 
@@ -251,6 +252,7 @@ function toAgentStatusIpcPayload(entry: EnrichedAgentHookEventPayload): AgentSta
     receivedAt: entry.receivedAt,
     stateStartedAt: entry.stateStartedAt,
     ...(entry.providerSession ? { providerSession: entry.providerSession } : {}),
+    ...(entry.promptInteractionKey ? { promptInteractionKey: entry.promptInteractionKey } : {}),
     ...entry.payload
   }
 }
@@ -314,6 +316,7 @@ function shouldKeepClaudePermissionVisible(
   if (
     previous?.payload.agentType !== 'claude' ||
     previous.payload.state !== 'waiting' ||
+    previous.hookEventName !== 'PermissionRequest' ||
     next.payload.agentType !== 'claude' ||
     next.payload.state !== 'working'
   ) {
@@ -325,9 +328,8 @@ function shouldKeepClaudePermissionVisible(
   if (isClaudePermissionResumingApprovedTool(previous, next)) {
     return false
   }
-  // Why: Claude can run subagents concurrently in one pane. Keep permission
-  // sticky unless the next hook has a source-level execution id that the
-  // PermissionRequest event itself does not expose.
+  // Why: only real permission requests stay sticky across concurrent subagent
+  // activity; interactive questions clear on the next working hook.
   return true
 }
 
@@ -653,8 +655,22 @@ export class AgentHookServer {
     const previous = this.state.lastStatusByPaneKey.get(payload.paneKey) as
       | EnrichedAgentHookEventPayload
       | undefined
+    const commandCodeNewTurn =
+      previous !== undefined &&
+      isCommandCodeNewTurnWhileWorking({
+        agentType: payload.payload.agentType,
+        previousState: previous.payload.state,
+        incomingState: payload.payload.state,
+        previousPrompt: previous.payload.prompt,
+        incomingPrompt: payload.payload.prompt,
+        hasExplicitPrompt: payload.hasExplicitPrompt,
+        previousPromptInteractionKey: previous.promptInteractionKey,
+        incomingPromptInteractionKey: payload.promptInteractionKey
+      })
     const stateStartedAt =
-      previous && previous.payload.state === payload.payload.state ? previous.stateStartedAt : now
+      previous && previous.payload.state === payload.payload.state && !commandCodeNewTurn
+        ? previous.stateStartedAt
+        : now
     return {
       ...payload,
       receivedAt: now,

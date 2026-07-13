@@ -53,6 +53,7 @@ import type {
   UpdateStatus,
   WorktreeBaseStatusEvent,
   WorktreeDefaultTabsLaunch,
+  WorktreeHeadIdentity,
   WorktreeRemoteBranchConflictEvent
 } from '../shared/types'
 import type { PtyModelRestoreNeededEvent } from '../shared/pty-model-restore-marker'
@@ -130,6 +131,8 @@ import {
 } from '../shared/rich-markdown-context-menu'
 import type {
   SshConnectionState,
+  SshConfigImportResult,
+  SshTargetAddResult,
   SshTarget,
   PortForwardEntry,
   EnrichedDetectedPort
@@ -706,6 +709,9 @@ const api = {
 
     persistSortOrder: (args) => ipcRenderer.invoke('worktrees:persistSortOrder', args),
 
+    getBranchRenameFailureOutput: (args) =>
+      ipcRenderer.invoke('worktrees:getBranchRenameFailureOutput', args),
+
     onChanged: (
       callback: (data: {
         repoId: string
@@ -718,6 +724,24 @@ const api = {
       ) => callback(data)
       ipcRenderer.on('worktrees:changed', listener)
       return () => ipcRenderer.removeListener('worktrees:changed', listener)
+    },
+
+    onGitStatusMetadataChanged: (callback: (data: { repoId: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: { repoId: string }) =>
+        callback(data)
+      ipcRenderer.on('worktrees:gitStatusMetadataChanged', listener)
+      return () => ipcRenderer.removeListener('worktrees:gitStatusMetadataChanged', listener)
+    },
+
+    onHeadIdentitiesChanged: (
+      callback: (data: { repoId: string; identities: WorktreeHeadIdentity[] }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { repoId: string; identities: WorktreeHeadIdentity[] }
+      ) => callback(data)
+      ipcRenderer.on('worktrees:headIdentitiesChanged', listener)
+      return () => ipcRenderer.removeListener('worktrees:headIdentitiesChanged', listener)
     },
 
     onBaseStatus: (callback: (data: WorktreeBaseStatusEvent) => void): (() => void) => {
@@ -1852,6 +1876,9 @@ const api = {
 
     set: (args: Record<string, unknown>): Promise<unknown> =>
       ipcRenderer.invoke('settings:set', args),
+
+    updatePRBotAuthorOverride: (args: { author: string; isBot: boolean }): Promise<unknown> =>
+      ipcRenderer.invoke('settings:update-pr-bot-author-override', args),
 
     listFonts: (): Promise<string[]> => ipcRenderer.invoke('settings:listFonts'),
 
@@ -4036,7 +4063,7 @@ const api = {
     listRemovedTargetLabels: (): Promise<Record<string, string>> =>
       ipcRenderer.invoke('ssh:listRemovedTargetLabels'),
 
-    addTarget: (args: { target: Omit<SshTarget, 'id'> }): Promise<SshTarget> =>
+    addTarget: (args: { target: Omit<SshTarget, 'id'> }): Promise<SshTargetAddResult> =>
       ipcRenderer.invoke('ssh:addTarget', args),
 
     updateTarget: (args: {
@@ -4047,7 +4074,7 @@ const api = {
     removeTarget: (args: { id: string }): Promise<void> =>
       ipcRenderer.invoke('ssh:removeTarget', args),
 
-    importConfig: (args?: { reAdopt?: boolean }): Promise<SshTarget[]> =>
+    importConfig: (args?: { reAdopt?: boolean }): Promise<SshConfigImportResult> =>
       ipcRenderer.invoke('ssh:importConfig', args),
 
     connect: (args: { targetId: string }): Promise<SshConnectionState | null> =>
@@ -4233,6 +4260,13 @@ const api = {
           deviceId: string
         }
     > => ipcRenderer.invoke('mobile:getPairingQR', args),
+
+    getWindowsFirewallStatus: (args?: { address?: string }) =>
+      ipcRenderer.invoke('mobile:getWindowsFirewallStatus', args),
+
+    repairWindowsFirewall: () => ipcRenderer.invoke('mobile:repairWindowsFirewall'),
+
+    openWindowsNetworkSettings: () => ipcRenderer.invoke('mobile:openWindowsNetworkSettings'),
 
     getRuntimePairingUrl: (args?: {
       address?: string
