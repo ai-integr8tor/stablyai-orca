@@ -470,7 +470,7 @@ export default function MonacoEditor({
           state.openFile({
             filePath: t.path,
             relativePath:
-              worktreeRoot && t.path.startsWith(worktreeRoot + '/')
+              worktreeRoot && t.path.startsWith(`${worktreeRoot}/`)
                 ? t.path.slice(worktreeRoot.length + 1)
                 : t.path,
             worktreeId: worktreeId!,
