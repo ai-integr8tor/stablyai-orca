@@ -1521,6 +1521,8 @@ export function RuntimeEnvironmentsPane({
       </Dialog>
 
       <RuntimeServerEditDialog
+        // Why: a fresh editor instance prevents draft values from leaking between servers.
+        key={pendingEdit?.id ?? 'closed'}
         environment={pendingEdit}
         open={pendingEdit !== null}
         saving={isEditing}

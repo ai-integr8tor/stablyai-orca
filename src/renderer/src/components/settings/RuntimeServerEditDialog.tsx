@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { PublicKnownRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import { Button } from '../ui/button'
@@ -44,20 +44,10 @@ export function RuntimeServerEditDialog({
   onOpenChange,
   onSave
 }: RuntimeServerEditDialogProps): React.JSX.Element {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(environment?.name ?? '')
   const [pairingCode, setPairingCode] = useState('')
   const endpoint = environment ? getPreferredPublicRuntimeEndpoint(environment) : null
-  const transportLabel = getRuntimeEndpointTransportLabel(
-    getRuntimeEndpointTransportKind(endpoint)
-  )
-
-  useEffect(() => {
-    if (!open || !environment) {
-      return
-    }
-    setName(environment.name)
-    setPairingCode('')
-  }, [open, environment])
+  const transportLabel = getRuntimeEndpointTransportLabel(getRuntimeEndpointTransportKind(endpoint))
 
   const trimmedName = name.trim()
   const trimmedPairingCode = pairingCode.trim()
