@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useAppStore } from '@/store'
@@ -134,18 +134,25 @@ export default function MobilePage(): React.JSX.Element {
     }
   }, [mountedRef, showPairedDevices])
 
-  // Why: decide intro vs paired on mount from the current device list.
-  useState(() => {
-    // placeholder — replaced by useEffect below; keep loadDevices first
-  })
-
-  const bootstrappedRef = useRef(false)
-  if (!bootstrappedRef.current) {
-    bootstrappedRef.current = true
-  }
-
-  // Initial device load — kept as effect in original; restore below.
-  const initialLoadStarted = useRef(false)
+  // Why: pick the initial stage based on whether any devices are already
+  // paired so returning users don't see the marketing intro every time.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const initialDevices = await loadDevices()
+      if (cancelled) {
+        return
+      }
+      if (initialDevices.length > 0) {
+        showPairedDevices(initialDevices.length)
+      } else {
+        showStage('intro')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadDevices, showPairedDevices, showStage])
 
   const revokeDevice = useCallback(
     async (deviceId: string) => {
@@ -243,22 +250,6 @@ export default function MobilePage(): React.JSX.Element {
   }, [showMobileButton, updateSettings])
 
   useMobilePageEscape(closeMobilePage)
-
-  // Mount bootstrap: load devices then pick intro vs paired.
-  if (!initialLoadStarted.current) {
-    initialLoadStarted.current = true
-    void (async () => {
-      const list = await loadDevices()
-      if (!mountedRef.current) {
-        return
-      }
-      if (list.length > 0) {
-        showPairedDevices(list.length)
-      } else {
-        showStage('intro')
-      }
-    })()
-  }
 
   return (
     <MobilePageContent

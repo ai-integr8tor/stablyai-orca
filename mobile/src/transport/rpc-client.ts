@@ -177,6 +177,11 @@ export function connect(
   const preferredEndpoints = normalizePairingEndpoints(endpoint, options.endpoints)
   const dialPass = new OrderedDialPass()
   dialPass.lastGoodEndpoint = options.lastGoodEndpoint?.trim() || null
+  // Why: persisted last-good from a prior session must seed sticky so the
+  // first open prefers it (KTD2); otherwise cold dial ignores the hint.
+  if (dialPass.lastGoodEndpoint && preferredEndpoints.includes(dialPass.lastGoodEndpoint)) {
+    dialPass.stickyLastGood = true
+  }
   let activeEndpoint = preferredEndpoints[0]!
   let logCounter = 0
   function emitLog(level: ConnectionLogLevel, message: string, detail?: string) {
