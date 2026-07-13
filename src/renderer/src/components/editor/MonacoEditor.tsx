@@ -44,7 +44,13 @@ import {
   getDiffCommentPopoverTop
 } from '../diff-comments/diff-comment-popover-position'
 import { isLinuxUserAgent } from '../terminal-pane/pane-helpers'
-import { installEditorSaveShortcut, installMonacoEditorFindShortcut } from './editor-shortcuts'
+import {
+  installEditorGoToDefinitionShortcut,
+  installEditorSaveShortcut,
+  installMonacoEditorFindShortcut
+} from './editor-shortcuts'
+import { runGoToDefinition } from './go-to-definition-controller'
+import { detectLanguage } from '@/lib/language-detect'
 import { Plus } from 'lucide-react'
 import {
   getMonacoMarkdownSelectionAnnotationTarget,
@@ -182,6 +188,19 @@ export default function MonacoEditor({
       (allDiffComments ?? []).filter((c) => c.filePath === relativePath && isMarkdownComment(c)),
     [allDiffComments, relativePath]
   )
+
+  // Why: there is no worktreeRoot prop — go-to-definition needs an absolute
+  // worktree root to call the symbol index and to translate absolute
+  // definition paths back into tab-relative paths. filePath is absolute and
+  // relativePath is filePath's suffix relative to the worktree root, so the
+  // root is whatever prefix of filePath remains after removing that suffix.
+  const worktreeRoot = useMemo(() => {
+    if (!relativePath || !filePath.endsWith(relativePath)) {
+      return null
+    }
+    const root = filePath.slice(0, filePath.length - relativePath.length).replace(/[\\/]+$/, '')
+    return root || null
+  }, [filePath, relativePath])
 
   // Gutter context menu state
   const [gutterMenuOpen, setGutterMenuOpen] = useState(false)
@@ -422,6 +441,112 @@ export default function MonacoEditor({
           state.showRightSidebarSearch({ query })
         }
       })
+
+      // Why: Monaco has no cross-file editor-opener/model registered in Orca,
+      // so its built-in DefinitionProvider navigation and
+      // `editor.action.peekDefinition` cannot open or preview other worktree
+      // files here. Every entrypoint (context menu, Cmd+B/F12, Cmd+Click)
+      // routes through this single trigger, which drives the open/peek/fallback
+      // decision itself and opens files via the same store flow QuickOpen uses.
+      const triggerGoToDefinition = (): void => {
+        const api = window.api.symbolIndex
+        const model = editorInstance.getModel()
+        const position = editorInstance.getPosition()
+        const symbol = getMonacoCodebaseSearchQuery(
+          model,
+          editorInstance.getSelection(),
+          position
+        )
+        const state = useAppStore.getState()
+        // Why: window.api.symbolIndex is absent in web/mobile mode (no Electron
+        // preload). Degrade straight to Search in Files instead of throwing.
+        if (!api) {
+          if (symbol) {
+            state.showRightSidebarSearch({ query: symbol })
+          }
+          return
+        }
+        const openDefinition = (t: { path: string; line: number; column: number }): void => {
+          state.openFile({
+            filePath: t.path,
+            relativePath:
+              worktreeRoot && t.path.startsWith(worktreeRoot + '/')
+                ? t.path.slice(worktreeRoot.length + 1)
+                : t.path,
+            worktreeId: worktreeId!,
+            language: detectLanguage(t.path),
+            mode: 'edit'
+          })
+          state.setPendingEditorReveal({
+            filePath: t.path,
+            line: t.line,
+            column: t.column,
+            matchLength: 0
+          })
+        }
+        void runGoToDefinition({
+          worktreeId: worktreeId ?? null,
+          worktreeRoot,
+          currentPath: filePath,
+          currentLine: position?.lineNumber ?? 1,
+          symbol,
+          find: async (req) => {
+            // Why: defensively normalize — a falsy/oddly-shaped RPC result
+            // (e.g. the web preload's fallback proxy resolving `undefined`)
+            // must not crash the controller; treat it as "not indexed yet".
+            const res = await api.findDefinitions(req)
+            if (!res || typeof res !== 'object' || !('status' in res)) {
+              return { status: 'indexing', definitions: [] }
+            }
+            return res
+          },
+          openAt: openDefinition,
+          peek: (targets) => {
+            // Why: Orca has no cross-file peek widget, so degrade to opening
+            // the first match and surfacing the rest via Search in Files —
+            // an MVP tradeoff versus a true inline peek/preview.
+            const first = targets[0]
+            if (first) {
+              openDefinition(first)
+            }
+            if (symbol) {
+              state.showRightSidebarSearch({ query: symbol })
+            }
+          },
+          fallback: () => {
+            if (symbol) {
+              state.showRightSidebarSearch({ query: symbol })
+            }
+          }
+        })
+      }
+      const goToDefinitionAction = editorInstance.addAction({
+        id: 'orca.goToDefinition',
+        label: translate(
+          'auto.components.editor.MonacoEditor.goToDefinition',
+          'Go to Definition'
+        ),
+        contextMenuGroupId: 'navigation',
+        contextMenuOrder: 1,
+        run: () => triggerGoToDefinition()
+      })
+      const cleanupGoToDefinitionShortcut = installEditorGoToDefinitionShortcut(
+        editorDomNode,
+        triggerGoToDefinition
+      )
+      // Why: mirrors VS Code's Cmd+Click-to-definition affordance. Kept minimal
+      // (no hover/link-decoration preview) since Monaco's own gesture handling
+      // for this is tied to the DefinitionProvider path we're bypassing.
+      const goToDefinitionMouseDownSub = editorInstance.onMouseDown((e) => {
+        if (
+          (e.event.metaKey || e.event.ctrlKey) &&
+          e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT &&
+          e.target.position
+        ) {
+          editorInstance.setPosition(e.target.position)
+          triggerGoToDefinition()
+        }
+      })
       const onLargeTextPaste = (event: ClipboardEvent): void => {
         handleMonacoLargeTextPaste(editorInstance, event, {
           readOnly: readOnlyRef.current,
@@ -498,10 +623,13 @@ export default function MonacoEditor({
         cursorPositionSub.dispose()
         scrollStateSub.dispose()
         gutterMouseDownSub.dispose()
+        goToDefinitionMouseDownSub.dispose()
         cleanupSaveShortcut()
         cleanupFindShortcut()
+        cleanupGoToDefinitionShortcut()
         editorDomNode.removeEventListener('paste', onLargeTextPaste, { capture: true })
         searchInFilesAction.dispose()
+        goToDefinitionAction.dispose()
         autoHeightSub?.dispose()
         if (autoHeightFrame !== null) {
           window.cancelAnimationFrame(autoHeightFrame)
@@ -560,7 +688,8 @@ export default function MonacoEditor({
       viewStateKey,
       autoHeight,
       autoHeightLineHeight,
-      worktreeId
+      worktreeId,
+      worktreeRoot
     ]
   )
 
