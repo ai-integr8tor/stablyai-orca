@@ -9038,7 +9038,7 @@
         "PluginConsentDialog": {
           "workerTrust": "Background worker — runs its own process",
           "panelTrust": "Panel only — no worker process",
-          "decisionFailed": "Could not save the permission decision.",
+          "decisionFailed": "Could not save the permission decision. Try again.",
           "title": "Review permissions",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
           "reconsent": "Permissions or the worker trust tier changed since you last reviewed this plugin. Review them again before it can run.",
@@ -9069,13 +9069,14 @@
           "remove": "Remove",
           "placeholder": "/Users/you/plugins/my-plugin or C:\\Users\\you\\plugins\\my-plugin",
           "add": "Add path",
-          "saveFailed": "Could not save development plugin paths."
+          "saveFailed": "Could not save development plugin paths.",
+          "pathLabel": "Development plugin folder path"
         },
         "PluginInstallDialog": {
           "localRequired": "Enter the plugin folder path.",
           "gitUrlRequired": "Enter a repository URL.",
           "gitRefRequired": "Add an explicit #ref (tag or commit) so the install is pinned — for example #v0.1.0.",
-          "installFailed": "Plugin installation failed.",
+          "installFailed": "Plugin installation failed. Check the source and try again.",
           "title": "Install plugin",
           "description": "Installing copies the plugin into Orca and shows its permissions for review. No plugin code runs until you enable it.",
           "source": "Install source",
@@ -9118,7 +9119,10 @@
           "remove": "Remove",
           "enableLabel": "Enable {{value0}}",
           "restartCount": " · {{value0}} restarts",
-          "restarting": "Restarting"
+          "restarting": "Restarting",
+          "invalidPluginError": "The plugin manifest or installed files are invalid. Fix the plugin, then refresh.",
+          "runtimeError": "The plugin stopped after an activation or worker error.",
+          "disableLabel": "Disable {{value0}}"
         },
         "PluginsSettingsSection": {
           "loadFailed": "Could not load plugins.",
@@ -9146,6 +9150,18 @@
             "logs": "plugin logs",
             "development": "development plugins"
           }
+        },
+        "pluginError": {
+          "installManifestMissing": "No readable orca-plugin.json was found. Choose the plugin's root folder.",
+          "installManifestInvalid": "orca-plugin.json is invalid. Ask the plugin author to fix the manifest.",
+          "incompatible": "This plugin requires a different Orca version.",
+          "installUnsafePath": "The plugin contains an unsafe file path or symlink and was not installed.",
+          "installLimit": "The plugin exceeds Orca's install size or file-count limits.",
+          "installGit": "Orca could not fetch the pinned Git revision. Check the URL, #ref, access, and system Git setup.",
+          "invalidManifestMissing": "The plugin root is missing orca-plugin.json. Add it, then refresh plugins.",
+          "invalidManifest": "orca-plugin.json is invalid. Fix it, then refresh plugins.",
+          "invalidArtifact": "A declared worker or panel file is missing or unsafe. Fix the plugin files, then refresh.",
+          "consentChanged": "The plugin changed while you were reviewing it. Close this dialog and review the updated permissions."
         }
       },
       "right": {
@@ -10259,6 +10275,9 @@
             "workspaceGone": "Couldn't open log — workspace is no longer available.",
             "notAuthorized": "Couldn't open log — path not authorized.",
             "alreadyEditable": "Log is already open for editing."
+          },
+          "activityBar": {
+            "error": "Error"
           }
         }
       },

@@ -9038,7 +9038,7 @@
         "PluginConsentDialog": {
           "workerTrust": "バックグラウンドワーカー — 独自のプロセスで実行",
           "panelTrust": "パネルのみ — ワーカープロセスなし",
-          "decisionFailed": "権限の選択を保存できませんでした。",
+          "decisionFailed": "権限の選択を保存できませんでした。再試行してください。",
           "title": "権限を確認",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
           "reconsent": "前回このプラグインを確認してから、権限またはワーカーの信頼レベルが変更されました。実行する前にもう一度確認してください。",
@@ -9069,13 +9069,14 @@
           "remove": "削除",
           "placeholder": "/Users/you/plugins/my-plugin or C:\\Users\\you\\plugins\\my-plugin",
           "add": "パスを追加",
-          "saveFailed": "開発用プラグインのパスを保存できませんでした。"
+          "saveFailed": "開発用プラグインのパスを保存できませんでした。",
+          "pathLabel": "開発用プラグインのフォルダーパス"
         },
         "PluginInstallDialog": {
           "localRequired": "プラグインフォルダーのパスを入力してください。",
           "gitUrlRequired": "リポジトリ URL を入力してください。",
           "gitRefRequired": "インストールを固定するため、明示的な #ref（タグまたはコミット）を追加してください。例: #v0.1.0。",
-          "installFailed": "プラグインのインストールに失敗しました。",
+          "installFailed": "プラグインをインストールできませんでした。ソースを確認して再試行してください。",
           "title": "プラグインをインストール",
           "description": "インストールするとプラグインが Orca にコピーされ、確認する権限が表示されます。有効にするまでプラグインのコードは実行されません。",
           "source": "インストール元",
@@ -9118,7 +9119,10 @@
           "remove": "削除",
           "enableLabel": "{{value0}} を有効化",
           "restartCount": " · {{value0}} 回再起動",
-          "restarting": "再起動中"
+          "restarting": "再起動中",
+          "invalidPluginError": "プラグインのマニフェストまたはインストール済みファイルが無効です。修正してから更新してください。",
+          "runtimeError": "有効化またはワーカーのエラー後にプラグインが停止しました。",
+          "disableLabel": "{{value0}}を無効にする"
         },
         "PluginsSettingsSection": {
           "loadFailed": "プラグインを読み込めませんでした。",
@@ -9146,6 +9150,18 @@
             "logs": "プラグインのログ",
             "development": "開発用プラグイン"
           }
+        },
+        "pluginError": {
+          "installManifestMissing": "読み取り可能なorca-plugin.jsonが見つかりません。プラグインのルートフォルダーを選択してください。",
+          "installManifestInvalid": "orca-plugin.jsonが無効です。プラグインの作成者にマニフェストの修正を依頼してください。",
+          "incompatible": "このプラグインには別のバージョンのOrcaが必要です。",
+          "installUnsafePath": "プラグインに安全でないファイルパスまたはシンボリックリンクが含まれているため、インストールされませんでした。",
+          "installLimit": "プラグインがOrcaのインストールサイズまたはファイル数の上限を超えています。",
+          "installGit": "固定されたGitリビジョンを取得できませんでした。URL、#ref、アクセス権、システムGitの設定を確認してください。",
+          "invalidManifestMissing": "プラグインのルートにorca-plugin.jsonがありません。追加してからプラグインを更新してください。",
+          "invalidManifest": "orca-plugin.jsonが無効です。修正してからプラグインを更新してください。",
+          "invalidArtifact": "宣言されたワーカーまたはパネルのファイルがないか、安全ではありません。ファイルを修正してから更新してください。",
+          "consentChanged": "確認中にプラグインが変更されました。このダイアログを閉じて、更新された権限を確認してください。"
         }
       },
       "right": {
@@ -10259,6 +10275,9 @@
             "unavailable": "このプラグインパネルは利用できなくなりました。",
             "loadFailed": "プラグインパネルを読み込めませんでした。",
             "unresponsive": "プラグインパネルが応答しなくなったため停止しました。"
+          },
+          "activityBar": {
+            "error": "エラー"
           }
         }
       },

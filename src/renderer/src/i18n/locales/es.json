@@ -9038,7 +9038,7 @@
         "PluginConsentDialog": {
           "workerTrust": "Proceso en segundo plano — se ejecuta en su propio proceso",
           "panelTrust": "Solo panel — sin proceso en segundo plano",
-          "decisionFailed": "No se pudo guardar la decisión sobre los permisos.",
+          "decisionFailed": "No se pudo guardar la decisión sobre los permisos. Inténtalo de nuevo.",
           "title": "Revisar permisos",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
           "reconsent": "Los permisos o el nivel de confianza del proceso cambiaron desde la última revisión de este plugin. Revísalos de nuevo antes de ejecutarlo.",
@@ -9069,13 +9069,14 @@
           "remove": "Eliminar",
           "placeholder": "/Users/you/plugins/my-plugin or C:\\Users\\you\\plugins\\my-plugin",
           "add": "Añadir ruta",
-          "saveFailed": "No se pudieron guardar las rutas de plugins de desarrollo."
+          "saveFailed": "No se pudieron guardar las rutas de plugins de desarrollo.",
+          "pathLabel": "Ruta de la carpeta del plugin de desarrollo"
         },
         "PluginInstallDialog": {
           "localRequired": "Introduce la ruta de la carpeta del plugin.",
           "gitUrlRequired": "Introduce una URL de repositorio.",
           "gitRefRequired": "Añade una #ref explícita (etiqueta o commit) para fijar la instalación; por ejemplo, #v0.1.0.",
-          "installFailed": "No se pudo instalar el plugin.",
+          "installFailed": "No se pudo instalar el plugin. Comprueba el origen e inténtalo de nuevo.",
           "title": "Instalar plugin",
           "description": "La instalación copia el plugin en Orca y muestra sus permisos para que los revises. No se ejecuta ningún código del plugin hasta que lo actives.",
           "source": "Origen de instalación",
@@ -9118,7 +9119,10 @@
           "remove": "Eliminar",
           "enableLabel": "Activar {{value0}}",
           "restartCount": " · {{value0}} reinicios",
-          "restarting": "Reiniciando"
+          "restarting": "Reiniciando",
+          "invalidPluginError": "El manifiesto o los archivos instalados del plugin no son válidos. Corrige el plugin y actualiza.",
+          "runtimeError": "El plugin se detuvo tras un error de activación o del proceso.",
+          "disableLabel": "Desactivar {{value0}}"
         },
         "PluginsSettingsSection": {
           "loadFailed": "No se pudieron cargar los plugins.",
@@ -9146,6 +9150,18 @@
             "logs": "registros de plugins",
             "development": "plugins de desarrollo"
           }
+        },
+        "pluginError": {
+          "installManifestMissing": "No se encontró un orca-plugin.json legible. Elige la carpeta raíz del plugin.",
+          "installManifestInvalid": "orca-plugin.json no es válido. Pide al autor del plugin que corrija el manifiesto.",
+          "incompatible": "Este plugin requiere otra versión de Orca.",
+          "installUnsafePath": "El plugin contiene una ruta de archivo o un enlace simbólico no seguros y no se instaló.",
+          "installLimit": "El plugin supera los límites de tamaño o cantidad de archivos de Orca.",
+          "installGit": "Orca no pudo obtener la revisión Git fijada. Comprueba la URL, la #ref, el acceso y la configuración de Git del sistema.",
+          "invalidManifestMissing": "A la raíz del plugin le falta orca-plugin.json. Añádelo y actualiza los plugins.",
+          "invalidManifest": "orca-plugin.json no es válido. Corrígelo y actualiza los plugins.",
+          "invalidArtifact": "Falta un archivo de proceso o panel declarado, o no es seguro. Corrige los archivos del plugin y actualiza.",
+          "consentChanged": "El plugin cambió mientras lo revisabas. Cierra este diálogo y revisa los permisos actualizados."
         }
       },
       "right": {
@@ -10259,6 +10275,9 @@
             "unavailable": "Este panel de plugin ya no está disponible.",
             "loadFailed": "No se pudo cargar el panel del plugin.",
             "unresponsive": "El panel del plugin dejó de responder y se suspendió."
+          },
+          "activityBar": {
+            "error": "Error"
           }
         }
       },

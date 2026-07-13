@@ -70,6 +70,7 @@ import { getAdvancedPaneSearchEntries } from '@/components/settings/advanced-sea
 import { getShortcutsPaneSearchEntries } from '@/components/settings/shortcuts-search'
 import { getStatsPaneSearchEntries } from '@/components/stats/stats-search'
 import { getExperimentalPaneSearchEntries } from '@/components/settings/experimental-search'
+import { getPluginsPaneSearchEntries } from '@/components/settings/plugins-search'
 import { getRepositoryPaneSearchEntries } from '@/components/settings/repository-search'
 import { isWebClientLocation } from '@/lib/web-client-location'
 import {
@@ -537,6 +538,21 @@ export function buildSettingsNavigationMetadata({
       searchEntries: getExperimentalPaneSearchEntries(),
       group: 'experimental'
     },
+    ...(showDesktopOnlySettings
+      ? [
+          {
+            id: 'plugins',
+            title: translate('auto.hooks.useSettingsNavigationMetadata.pluginsTitle', 'Plugins'),
+            description: translate(
+              'auto.hooks.useSettingsNavigationMetadata.pluginsDescription',
+              'Install and manage experimental Orca plugins.'
+            ),
+            icon: Blocks,
+            searchEntries: getPluginsPaneSearchEntries(),
+            group: 'experimental'
+          }
+        ]
+      : []),
     ...repos.map((repo) => ({
       id: `repo-${repo.id}`,
       title: repo.displayName,

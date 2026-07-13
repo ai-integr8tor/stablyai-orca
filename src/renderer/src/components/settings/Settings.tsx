@@ -47,6 +47,7 @@ import { NotificationsPane } from './NotificationsPane'
 import { VoicePane } from './VoicePane'
 import { SshPane } from './SshPane'
 import { ExperimentalPane } from './ExperimentalPane'
+import { PluginsSettingsSection } from './PluginsSettingsSection'
 import { AgentsPane } from './AgentsPane'
 import { OrchestrationPane } from './OrchestrationPane'
 import { AccountsPane } from './AccountsPane'
@@ -271,6 +272,7 @@ function Settings(): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const keybindings = useAppStore((s) => s.keybindings)
   const updateSettings = useAppStore((s) => s.updateSettings)
+  const updateSettingsOrThrow = useAppStore((s) => s.updateSettingsOrThrow)
   const switchRuntimeEnvironment = useAppStore((s) => s.switchRuntimeEnvironment)
   const fetchSettings = useAppStore((s) => s.fetchSettings)
   const fetchKeybindings = useAppStore((s) => s.fetchKeybindings)
@@ -1645,6 +1647,14 @@ function Settings(): React.JSX.Element {
                     />
                   ) : null}
                 </SettingsSection>
+
+                {showDesktopOnlySettings ? (
+                  <PluginsSettingsSection
+                    mounted={isSectionMounted('plugins')}
+                    settings={settings}
+                    updateSettings={updateSettingsOrThrow}
+                  />
+                ) : null}
 
                 {repos.map((repo) => {
                   const repoSectionId = `repo-${repo.id}`

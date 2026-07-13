@@ -1,0 +1,275 @@
+import { AlertTriangle, FileText, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import type { PluginHostListEntry, PluginHostLogLine } from '../../../../preload/api-types'
+import { translate } from '@/i18n/i18n'
+import { invalidPluginErrorMessage } from './plugin-error-presentation'
+import { cn } from '@/lib/utils'
+import { Button } from '../ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu'
+import { SettingsSwitch } from './SettingsFormControls'
+
+export type PluginLogsState = {
+  loading: boolean
+  lines?: PluginHostLogLine[]
+  error?: string
+}
+
+type PluginSettingsRowProps = {
+  plugin: PluginHostListEntry
+  busy: boolean
+  logsOpen: boolean
+  logsState?: PluginLogsState
+  onReview: (pluginKey: string) => void
+  onToggleEnabled: (plugin: PluginHostListEntry) => void
+  onToggleLogs: (pluginKey: string) => void
+  onRemoveRequest: (pluginKey: string) => void
+}
+
+function statusPresentation(plugin: PluginHostListEntry): { label: string; className: string } {
+  if (plugin.needsReconsent || plugin.status === 'pending') {
+    return {
+      label: translate('auto.components.settings.PluginSettingsRow.needsReview', 'Needs review'),
+      className: 'border-foreground/20 bg-foreground/8 text-foreground'
+    }
+  }
+  if (plugin.status === 'restarting') {
+    return {
+      label: translate('auto.components.settings.PluginSettingsRow.restarting', 'Restarting'),
+      className: 'border-foreground/20 bg-foreground/8 text-foreground'
+    }
+  }
+  if (plugin.status === 'errored' || plugin.status === 'invalid') {
+    return {
+      label:
+        plugin.status === 'invalid'
+          ? translate('auto.components.settings.PluginSettingsRow.invalid', 'Invalid')
+          : translate('auto.components.settings.PluginSettingsRow.error', 'Error'),
+      className: 'border-destructive/25 bg-destructive/8 text-destructive'
+    }
+  }
+  if (plugin.status === 'disabled') {
+    return {
+      label: translate('auto.components.settings.PluginSettingsRow.disabled', 'Disabled'),
+      className: 'border-border bg-muted/40 text-muted-foreground'
+    }
+  }
+  return {
+    label:
+      plugin.status === 'running'
+        ? translate('auto.components.settings.PluginSettingsRow.running', 'Running')
+        : translate('auto.components.settings.PluginSettingsRow.enabled', 'Enabled'),
+    className: 'border-status-success-border bg-status-success-background text-status-success'
+  }
+}
+
+function sourceLabel(plugin: PluginHostListEntry): string | null {
+  if (!plugin.source) {
+    return null
+  }
+  const commit = plugin.source.resolvedCommit?.slice(0, 10)
+  return commit ? `${plugin.source.reference} @ ${commit}` : plugin.source.reference
+}
+
+function trustTier(plugin: PluginHostListEntry): string {
+  return plugin.hasWorker
+    ? translate('auto.components.settings.PluginSettingsRow.workerTier', 'background worker')
+    : translate('auto.components.settings.PluginSettingsRow.panelTier', 'panel only')
+}
+
+function PluginLogs({ pluginKey, state }: { pluginKey: string; state?: PluginLogsState }) {
+  return (
+    <div className="mt-3 overflow-hidden rounded-md border border-border bg-muted/40">
+      {state?.loading ? (
+        <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" />
+          {translate('auto.components.settings.PluginSettingsRow.loadingLogs', 'Loading logs…')}
+        </div>
+      ) : state?.error ? (
+        <p className="p-3 text-xs text-destructive">{state.error}</p>
+      ) : (
+        <>
+          <pre
+            tabIndex={0}
+            className="max-h-44 overflow-auto p-3 font-mono text-[11px] leading-5 scrollbar-sleek"
+          >
+            {state?.lines?.length
+              ? state.lines
+                  .map(
+                    (entry) =>
+                      `${new Date(entry.ts).toLocaleTimeString()} ${entry.level.padEnd(5)} ${entry.line}`
+                  )
+                  .join('\n')
+              : translate(
+                  'auto.components.settings.PluginSettingsRow.noLogs',
+                  'No log lines recorded.'
+                )}
+          </pre>
+          <div className="flex flex-wrap justify-between gap-2 border-t border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+            <span>
+              {translate(
+                'auto.components.settings.PluginSettingsRow.logCount',
+                'Last {{value0}} of up to 200 retained lines',
+                { value0: state?.lines?.length ?? 0 }
+              )}
+            </span>
+            <span className="font-mono">{pluginKey}</span>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function PluginSettingsRow({
+  plugin,
+  busy,
+  logsOpen,
+  logsState,
+  onReview,
+  onToggleEnabled,
+  onToggleLogs,
+  onRemoveRequest
+}: PluginSettingsRowProps): React.JSX.Element {
+  const status = statusPresentation(plugin)
+  const source = sourceLabel(plugin)
+  const needsReview = plugin.needsReconsent || plugin.status === 'pending'
+  const enabled =
+    plugin.status === 'running' ||
+    plugin.status === 'restarting' ||
+    plugin.status === 'idle' ||
+    plugin.status === 'errored'
+  const switchDisabled = busy || needsReview || plugin.status === 'invalid'
+
+  return (
+    <div
+      className="px-4 py-3 [&+&]:border-t [&+&]:border-border/60"
+      data-plugin-key={plugin.pluginKey}
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-48 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{plugin.name}</span>
+            <span className="font-mono text-xs text-muted-foreground">v{plugin.version}</span>
+            {plugin.isDev ? (
+              <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {translate('auto.components.settings.PluginSettingsRow.dev', 'Dev')}
+              </span>
+            ) : null}
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                status.className
+              )}
+            >
+              <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+              {status.label}
+            </span>
+            {busy ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+          </div>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {plugin.publisher ? `${plugin.publisher} · ` : null}
+            {plugin.pluginKey}
+          </p>
+          {source ? (
+            <p className="mt-1 truncate font-mono text-xs text-muted-foreground" title={source}>
+              {source}
+            </p>
+          ) : null}
+          <p className="mt-1 text-xs text-muted-foreground">
+            {[...plugin.capabilities.map((capability) => capability.kind), trustTier(plugin)].join(
+              ' · '
+            )}
+          </p>
+          {plugin.error ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-destructive">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {plugin.status === 'invalid'
+                  ? invalidPluginErrorMessage(plugin.error)
+                  : translate(
+                      'auto.components.settings.PluginSettingsRow.runtimeError',
+                      'The plugin stopped after an activation or worker error.'
+                    )}
+                {plugin.restarts > 0
+                  ? translate(
+                      'auto.components.settings.PluginSettingsRow.restartCount',
+                      ' · {{value0}} restarts',
+                      { value0: plugin.restarts }
+                    )
+                  : null}
+              </span>
+            </p>
+          ) : null}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {needsReview ? (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={busy}
+              onClick={() => onReview(plugin.pluginKey)}
+            >
+              {translate('auto.components.settings.PluginSettingsRow.review', 'Review permissions')}
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={busy}
+                aria-label={translate(
+                  'auto.components.settings.PluginSettingsRow.moreActions',
+                  'More actions for {{value0}}',
+                  { value0: plugin.name }
+                )}
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onToggleLogs(plugin.pluginKey)}>
+                <FileText />
+                {logsOpen
+                  ? translate('auto.components.settings.PluginSettingsRow.hideLogs', 'Hide logs')
+                  : translate('auto.components.settings.PluginSettingsRow.viewLogs', 'View logs')}
+              </DropdownMenuItem>
+              {!plugin.isDev ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => onRemoveRequest(plugin.pluginKey)}
+                >
+                  <Trash2 />
+                  {translate('auto.components.settings.PluginSettingsRow.remove', 'Remove')}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <SettingsSwitch
+            checked={enabled && !needsReview}
+            disabled={switchDisabled}
+            onChange={() => onToggleEnabled(plugin)}
+            ariaLabel={
+              enabled && !needsReview
+                ? translate(
+                    'auto.components.settings.PluginSettingsRow.disableLabel',
+                    'Disable {{value0}}',
+                    { value0: plugin.name }
+                  )
+                : translate(
+                    'auto.components.settings.PluginSettingsRow.enableLabel',
+                    'Enable {{value0}}',
+                    { value0: plugin.name }
+                  )
+            }
+          />
+        </div>
+      </div>
+      {logsOpen ? <PluginLogs pluginKey={plugin.pluginKey} state={logsState} /> : null}
+    </div>
+  )
+}

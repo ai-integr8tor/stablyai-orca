@@ -9038,7 +9038,7 @@
         "PluginConsentDialog": {
           "workerTrust": "后台工作进程 — 在独立进程中运行",
           "panelTrust": "仅面板 — 无工作进程",
-          "decisionFailed": "无法保存权限决定。",
+          "decisionFailed": "无法保存权限决定。请重试。",
           "title": "检查权限",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
           "reconsent": "自你上次检查此插件以来，权限或工作进程信任级别已更改。请在运行前重新检查。",
@@ -9069,13 +9069,14 @@
           "remove": "移除",
           "placeholder": "/Users/you/plugins/my-plugin or C:\\Users\\you\\plugins\\my-plugin",
           "add": "添加路径",
-          "saveFailed": "无法保存开发插件路径。"
+          "saveFailed": "无法保存开发插件路径。",
+          "pathLabel": "开发插件文件夹路径"
         },
         "PluginInstallDialog": {
           "localRequired": "请输入插件文件夹路径。",
           "gitUrlRequired": "请输入仓库 URL。",
           "gitRefRequired": "请添加明确的 #ref（标签或提交）以固定安装版本，例如 #v0.1.0。",
-          "installFailed": "插件安装失败。",
+          "installFailed": "插件安装失败。请检查来源后重试。",
           "title": "安装插件",
           "description": "安装会将插件复制到 Orca，并显示其权限供你检查。启用插件之前，不会运行任何插件代码。",
           "source": "安装来源",
@@ -9118,7 +9119,10 @@
           "remove": "移除",
           "enableLabel": "启用 {{value0}}",
           "restartCount": " · 重启 {{value0}} 次",
-          "restarting": "正在重新启动"
+          "restarting": "正在重新启动",
+          "invalidPluginError": "插件清单或已安装文件无效。请修复插件后刷新。",
+          "runtimeError": "插件在激活或工作进程出错后停止。",
+          "disableLabel": "停用 {{value0}}"
         },
         "PluginsSettingsSection": {
           "loadFailed": "无法加载插件。",
@@ -9146,6 +9150,18 @@
             "logs": "插件日志",
             "development": "开发插件"
           }
+        },
+        "pluginError": {
+          "installManifestMissing": "未找到可读取的 orca-plugin.json。请选择插件的根文件夹。",
+          "installManifestInvalid": "orca-plugin.json 无效。请让插件作者修复清单。",
+          "incompatible": "此插件需要其他版本的 Orca。",
+          "installUnsafePath": "插件包含不安全的文件路径或符号链接，因此未安装。",
+          "installLimit": "插件超出 Orca 的安装大小或文件数量限制。",
+          "installGit": "Orca 无法获取固定的 Git 修订。请检查 URL、#ref、访问权限和系统 Git 配置。",
+          "invalidManifestMissing": "插件根目录缺少 orca-plugin.json。请添加后刷新插件。",
+          "invalidManifest": "orca-plugin.json 无效。请修复后刷新插件。",
+          "invalidArtifact": "声明的工作进程或面板文件缺失或不安全。请修复插件文件后刷新。",
+          "consentChanged": "插件在你查看时发生了更改。请关闭此对话框并查看更新后的权限。"
         }
       },
       "right": {
@@ -10259,6 +10275,9 @@
             "unavailable": "此插件面板已不可用。",
             "loadFailed": "无法加载插件面板。",
             "unresponsive": "插件面板停止响应，已被暂停。"
+          },
+          "activityBar": {
+            "error": "错误"
           }
         }
       },
