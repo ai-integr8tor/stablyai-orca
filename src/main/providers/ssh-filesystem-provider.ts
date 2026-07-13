@@ -8,8 +8,8 @@ import {
   type SshRawTransferOptions
 } from './ssh-filesystem-file-upload'
 import {
-  notifySshFilesystemUnwatch,
   registerSshFilesystemWatch,
+  stopSshFilesystemWatchRegistration,
   type WatchRegistration
 } from './ssh-filesystem-provider-watch'
 import type {
@@ -65,8 +65,8 @@ export class SshFilesystemProvider implements IFilesystemProvider {
       this.unsubscribeNotifications()
       this.unsubscribeNotifications = null
     }
-    for (const rootPath of this.watchListeners.keys()) {
-      notifySshFilesystemUnwatch(this.mux, rootPath)
+    for (const [rootPath, registration] of this.watchListeners) {
+      stopSshFilesystemWatchRegistration(this.mux, rootPath, registration)
     }
     this.watchListeners.clear()
   }
@@ -317,13 +317,18 @@ export class SshFilesystemProvider implements IFilesystemProvider {
     })) as string[]
   }
 
-  async watch(rootPath: string, callback: (events: FsChangeEvent[]) => void): Promise<() => void> {
+  async watch(
+    rootPath: string,
+    callback: (events: FsChangeEvent[]) => void,
+    options?: { signal?: AbortSignal }
+  ): Promise<() => void> {
     return registerSshFilesystemWatch({
       mux: this.mux,
       disposed: () => this.disposed,
       registrations: this.watchListeners,
       rootPath,
-      callback
+      callback,
+      signal: options?.signal
     })
   }
 }
