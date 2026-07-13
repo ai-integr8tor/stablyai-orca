@@ -420,6 +420,7 @@
           "file": "src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx",
           "assertions": [
             "review, running, completed, error, and retry states preserve the confirmation boundary",
+            "dismissing an in-flight review invalidates its presentation so a late result cannot reopen the dialog",
             "running cleanup cannot be dismissed and continues after unmount while React callbacks remain mount-gated",
             "the visible session inventory refreshes after guarded cleanup settles"
           ]
@@ -447,8 +448,8 @@
           "platform": "macos",
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/shared/pty-inactive-cleanup.test.ts src/main/ipc/pty-inactive-cleanup.test.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.rows.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts src/renderer/src/components/status-bar/resource-session-bindings.test.ts src/renderer/src/components/status-bar/resource-session-count-selector.test.ts src/renderer/src/components/status-bar/mergeSnapshotAndSessions.test.ts",
           "result": "passed",
-          "durationSeconds": 4.84,
-          "summary": "11 focused shared, main IPC, renderer coordinator, hook, dialog, binding, merge, and source-regression files passed with 348 tests."
+          "durationSeconds": 4.94,
+          "summary": "11 focused shared, main IPC, renderer coordinator, hook, dialog, binding, merge, and source-regression files passed with 349 tests."
         }
       ],
       "runtimeBudget": {
@@ -461,7 +462,7 @@
       },
       "redGreenEvidence": {
         "status": "partial",
-        "evidence": "RED runs first failed because the classifier, guarded handlers, coordinator, hook, dialog, and safe Resource Manager wiring did not exist. The prior source also contained an individual unbound-row confirmation bypass and a Promise.allSettled bulk pty.kill map. The consolidated GREEN run passed 11 files and 348 tests in 4.84 seconds; live provider and cross-platform red/green artifacts remain gaps."
+        "evidence": "RED runs first failed because the classifier, guarded handlers, coordinator, hook, dialog, and safe Resource Manager wiring did not exist. The prior source also contained an individual unbound-row confirmation bypass and a Promise.allSettled bulk pty.kill map. Self-review then reproduced a dismissed-review late-result reopen before the operation-generation guard. The consolidated GREEN run passed 11 files and 349 tests in 4.94 seconds; live provider and cross-platform red/green artifacts remain gaps."
       },
       "performanceBudget": {
         "required": false,
