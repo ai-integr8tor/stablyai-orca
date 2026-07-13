@@ -93,6 +93,11 @@ module.exports = {
   // Why: sherpa-onnx native bindings (platform-specific subpackages) must be
   // unpacked because they ship .node addons + .dylib/.so files that cannot be
   // dlopen()'d from inside the asar archive.
+  // Why: the symbol-index parser (src/main/symbol-index/parser.ts) resolves
+  // grammar/runtime wasm files via createRequire(...).resolve() at runtime and
+  // reads them off disk with fs.readFile. Unpack both the web-tree-sitter
+  // runtime wasm and the @vscode/tree-sitter-wasm grammar wasm files so those
+  // paths exist as real files in the packaged app.
   asarUnpack: [
     'out/package.json',
     'out/cli/**',
@@ -117,7 +122,9 @@ module.exports = {
     'node_modules/tweetnacl/**',
     'node_modules/zod/**',
     'node_modules/yaml/**',
-    'node_modules/sherpa-onnx*/**'
+    'node_modules/sherpa-onnx*/**',
+    'node_modules/web-tree-sitter/*.wasm',
+    'node_modules/@vscode/tree-sitter-wasm/wasm/**'
   ],
   afterPack: async (context) => {
     const resourcesDir =
