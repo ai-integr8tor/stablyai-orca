@@ -458,6 +458,13 @@
               "all": "No comments yet."
             }
           }
+        },
+        "bot": {
+          "author": {
+            "overrides": {
+              "6d5d52b53f": "Bot author override limit reached"
+            }
+          }
         }
       },
       "resume": {
@@ -722,6 +729,8 @@
       "GitHubItemDialog": {
         "3ab6ac0fc8": "Preview and edit the selected GitHub issue or pull request.",
         "3cd5ae5b7b": "No files changed.",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry",
         "999b5ad7d9": "Files",
         "4bd1f5b055": "Checks",
         "e30a5470c9": "Conversation",
@@ -1217,6 +1226,8 @@
         "2560588245": "Failed to request reviewer",
         "3450247584": "Comment",
         "6ad2c1ab9c": "No files changed.",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry",
         "4d18310d55": "Files changed",
         "94d95cf1f7": "Checks",
         "9e8d45700e": "Conversation",
@@ -2366,7 +2377,9 @@
             "failed": "Workspaces not removed: {{value0}}",
             "error": "Workspace cleanup failed",
             "skippedAncestor": "Skipped because a nested workspace could not be removed.",
-            "timedOut": "Removing {{value0}} is taking longer than expected. It will keep running in the background."
+            "timedOut": "Removing {{value0}} is taking longer than expected. It will keep running in the background.",
+            "stillRemoving": "Still removing workspaces: {{value0}}",
+            "skippedPendingAncestor": "Skipped because a nested workspace has not finished removing."
           },
           "candidateRow": {
             "gitLabel": "Git",
@@ -2575,7 +2588,7 @@
               "blocked": {
                 "toast": {
                   "97c98f1afe": "Open Setting",
-                  "7cf51f74fd": "Enable TUI clipboard writes in Terminal settings to copy from SSH, tmux, Neovim, or fzf.",
+                  "7cf51f74fd": "Enable TUI clipboard writes in Terminal settings to copy from SSH, tmux, Neovim, fzf, or Grok.",
                   "89eaa3e80b": "Terminal clipboard write blocked"
                 }
               }
@@ -3209,6 +3222,13 @@
           "usagePercentageLabel": {
             "used": "{{value0}}% used",
             "remaining": "{{value0}}% left"
+          },
+          "UsagePercentageDisplayChangeNotice": {
+            "title": "Usage now shows % used",
+            "body": "Prefer remaining? Change it in Settings.",
+            "dismiss": "Dismiss",
+            "openSettings": "Open Settings",
+            "gotIt": "Got it"
           }
         }
       },
@@ -5381,7 +5401,9 @@
           "bf16ef0af2": "Off",
           "3f6892f307": "On",
           "b82f86d7d2": "Rich Markdown Spellcheck",
-          "5195f0b9ef": "Show browser spelling underlines and suggestions while editing rich Markdown."
+          "5195f0b9ef": "Show browser spelling underlines and suggestions while editing rich Markdown.",
+          "7ddd66fede": "Editor Word Wrap",
+          "9b18de6eea": "Wrap long lines in file editors instead of requiring horizontal scrolling."
         },
         "AdvancedNetworkSettingsSection": {
           "3e431564b5": "localhost, 127.0.0.1, *.internal",
@@ -7696,7 +7718,9 @@
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
             "d2d2d929c0": "Rich Markdown Spellcheck",
-            "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
+            "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown.",
+            "e61157e926": "Editor Word Wrap",
+            "005be5c699": "Wrap long lines in file editors instead of requiring horizontal scrolling."
           }
         },
         "git": {
@@ -9004,6 +9028,10 @@
         "AppearanceWindowSidebarSection": {
           "usagePercentageDisplayUsed": "Used",
           "usagePercentageDisplayRemaining": "Remaining"
+        },
+        "TerminalInteractionSection": {
+          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
+          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         }
       },
       "right": {
@@ -9638,7 +9666,9 @@
                 "b13f85d75c": "Timeline",
                 "f5cf324efa": "Comment display options",
                 "5e6e5a13fa": "View",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked.",
+                "b3195cba33": "Unmark author as bot",
+                "f588b46a6c": "Mark author as bot"
               },
               "empty": {
                 "state": {
@@ -9871,7 +9901,11 @@
             "92276aceb7": "Delete",
             "7fb9435c86": "This permanently deletes the directory and its contents on the remote host. This cannot be undone.",
             "23e98f192f": "This permanently deletes the file on the remote host. This cannot be undone.",
-            "8b8ee9d22f": "Couldn't determine which host owns this file. Check the workspace connection and try again."
+            "8b8ee9d22f": "Couldn't determine which host owns this file. Check the workspace connection and try again.",
+            "af1270b90d": "Permanently delete {{count}} items?",
+            "dd029aa5cd": "This permanently deletes the selected items and any directory contents on the remote host. This cannot be undone.",
+            "77fdc36183": "Delete {{count}} items?",
+            "fca915a67a": "Remote items are permanently deleted and cannot be undone. Local items move to the {{value0}}."
           },
           "useFileExplorerHandlers": {
             "32cd9fd991": "Cannot open symlink target"
@@ -10609,6 +10643,17 @@
           "trigger-label": "Network address to advertise",
           "custom-option": "{{address}} (custom)",
           "add-custom": "Add custom address…"
+        },
+        "WindowsFirewallNotice": {
+          "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
+          "repair-failed": "Could not add the Windows Firewall rule",
+          "public-title": "Windows marks this network as public",
+          "missing-title": "Allow phone connections through Windows Firewall",
+          "public-description": "Change this trusted Wi-Fi network to Private before allowing Orca Mobile connections.",
+          "missing-description": "Windows may block the pairing server. Add a rule for this Orca app and TCP port {{port}} on Private networks.",
+          "open-settings": "Open network settings",
+          "waiting": "Waiting for Windows…",
+          "allow": "Allow phone connections"
         }
       },
       "gitlab": {
@@ -11406,7 +11451,9 @@
           "c98ce191da": "This diff has no modified-side file to open",
           "9b80bbe1de": "Open file tab",
           "f0fd4174b5": "Open file tab to use rich markdown editing",
-          "a10d9b8337": "Open file"
+          "a10d9b8337": "Open file",
+          "2076ecfc9c": "Previous change",
+          "631dab0df3": "Next change"
         },
         "EditorPanelMarkdownActionsMenu": {
           "3e0ce48c24": "Export as PDF",

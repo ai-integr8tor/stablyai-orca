@@ -458,6 +458,13 @@
               "all": "コメントはまだありません。"
             }
           }
+        },
+        "bot": {
+          "author": {
+            "overrides": {
+              "6d5d52b53f": "ボット作成者の上書き数が上限に達しました"
+            }
+          }
         }
       },
       "resume": {
@@ -722,6 +729,8 @@
       "GitHubItemDialog": {
         "3ab6ac0fc8": "選択した GitHub Issue または PR をプレビュー・編集します。",
         "3cd5ae5b7b": "ファイルは変更されませんでした。",
+        "filesUnavailable": "変更されたファイルを読み込めませんでした。",
+        "filesRetry": "再試行",
         "999b5ad7d9": "ファイル",
         "4bd1f5b055": "チェック",
         "e30a5470c9": "会話",
@@ -1385,7 +1394,9 @@
         "1ff5d979df": "担当者なし",
         "checkActionRequiredHint": "マージを解除するには、このチェックにGitHub上で手動アクション（例：ワークフロー実行の承認）が必要です。",
         "dd5d9a4f17": "{{value0}}に更新",
-        "71a3c0f9d2": "ワークスペースを開始"
+        "71a3c0f9d2": "ワークスペースを開始",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry"
       },
       "QuickOpen": {
         "1dbd3f59ff": "移動",
@@ -2366,7 +2377,9 @@
             "failed": "削除できなかったワークスペース: {{value0}}",
             "error": "ワークスペースのクリーンアップに失敗しました",
             "skippedAncestor": "ネストされたワークスペースを削除できなかったためスキップしました。",
-            "timedOut": "{{value0}} の削除に予想より時間がかかっています。バックグラウンドで継続されます。"
+            "timedOut": "{{value0}} の削除に予想より時間がかかっています。バックグラウンドで継続されます。",
+            "stillRemoving": "Still removing workspaces: {{value0}}",
+            "skippedPendingAncestor": "Skipped because a nested workspace has not finished removing."
           },
           "candidateRow": {
             "gitLabel": "Git",
@@ -2575,7 +2588,7 @@
               "blocked": {
                 "toast": {
                   "97c98f1afe": "設定を開く",
-                  "7cf51f74fd": "SSH、tmux、Neovim、または fzf からコピーするには、Terminal 設定で TUI クリップボードへの書き込みを有効にします。",
+                  "7cf51f74fd": "SSH、tmux、Neovim、fzf、または Grok からコピーするには、Terminal 設定で TUI クリップボードへの書き込みを有効にします。",
                   "89eaa3e80b": "Terminal のクリップボードへの書き込みがブロックされました"
                 }
               }
@@ -3209,6 +3222,13 @@
           "usagePercentageLabel": {
             "used": "{{value0}}% 使用済み",
             "remaining": "残り {{value0}}%"
+          },
+          "UsagePercentageDisplayChangeNotice": {
+            "title": "Usage now shows % used",
+            "body": "Prefer remaining? Change it in Settings.",
+            "dismiss": "Dismiss",
+            "openSettings": "Open Settings",
+            "gotIt": "Got it"
           }
         }
       },
@@ -5366,7 +5386,9 @@
           "bf16ef0af2": "オフ",
           "3f6892f307": "オン",
           "b82f86d7d2": "Rich Markdown Spellcheck",
-          "5195f0b9ef": "Show browser spelling underlines and suggestions while editing rich Markdown."
+          "5195f0b9ef": "Show browser spelling underlines and suggestions while editing rich Markdown.",
+          "7ddd66fede": "エディターのワードラップ",
+          "9b18de6eea": "水平スクロールを使わずに、ファイルエディターで長い行を折り返します。"
         },
         "AdvancedNetworkSettingsSection": {
           "3e431564b5": "ローカルホスト、127.0.0.1、*.internal",
@@ -7681,7 +7703,9 @@
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
             "d2d2d929c0": "Rich Markdown Spellcheck",
-            "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
+            "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown.",
+            "e61157e926": "エディターのワードラップ",
+            "005be5c699": "水平スクロールを使わずに、ファイルエディターで長い行を折り返します。"
           }
         },
         "git": {
@@ -9004,6 +9028,10 @@
         "AppearanceWindowSidebarSection": {
           "usagePercentageDisplayUsed": "使用済み",
           "usagePercentageDisplayRemaining": "残り"
+        },
+        "TerminalInteractionSection": {
+          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
+          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         }
       },
       "right": {
@@ -9638,7 +9666,9 @@
                 "b13f85d75c": "タイムライン",
                 "f5cf324efa": "Comment display options",
                 "5e6e5a13fa": "表示",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked.",
+                "b3195cba33": "作成者のボット指定を解除",
+                "f588b46a6c": "作成者をボットとして指定"
               },
               "empty": {
                 "state": {
@@ -9871,7 +9901,11 @@
             "92276aceb7": "削除",
             "7fb9435c86": "This permanently deletes the directory and its contents on the remote host. This cannot be undone.",
             "23e98f192f": "This permanently deletes the file on the remote host. This cannot be undone.",
-            "8b8ee9d22f": "このファイルを所有しているホストを特定できませんでした。ワークスペースの接続を確認して、もう一度お試しください。"
+            "8b8ee9d22f": "このファイルを所有しているホストを特定できませんでした。ワークスペースの接続を確認して、もう一度お試しください。",
+            "af1270b90d": "{{count}}個の項目を完全に削除しますか?",
+            "dd029aa5cd": "選択した項目とディレクトリの内容がリモートホスト上で完全に削除されます。この操作は元に戻せません。",
+            "77fdc36183": "Delete {{count}} items?",
+            "fca915a67a": "Remote items are permanently deleted and cannot be undone. Local items move to the {{value0}}."
           },
           "useFileExplorerHandlers": {
             "32cd9fd991": "シンボリックリンクターゲットを開けません"
@@ -10609,6 +10643,17 @@
           "trigger-label": "通知するネットワークアドレス",
           "custom-option": "{{address}}（カスタム）",
           "add-custom": "カスタムアドレスを追加…"
+        },
+        "WindowsFirewallNotice": {
+          "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
+          "repair-failed": "Could not add the Windows Firewall rule",
+          "public-title": "Windows marks this network as public",
+          "missing-title": "Allow phone connections through Windows Firewall",
+          "public-description": "Change this trusted Wi-Fi network to Private before allowing Orca Mobile connections.",
+          "missing-description": "Windows may block the pairing server. Add a rule for this Orca app and TCP port {{port}} on Private networks.",
+          "open-settings": "Open network settings",
+          "waiting": "Waiting for Windows…",
+          "allow": "Allow phone connections"
         }
       },
       "gitlab": {
@@ -11406,7 +11451,9 @@
           "c98ce191da": "この差分には開くための変更側ファイルがありません",
           "9b80bbe1de": "ファイルタブを開く",
           "f0fd4174b5": "ファイル タブを開いてリッチ markdown 編集を使用する",
-          "a10d9b8337": "ファイルを開く"
+          "a10d9b8337": "ファイルを開く",
+          "2076ecfc9c": "前の変更",
+          "631dab0df3": "次の変更"
         },
         "EditorPanelMarkdownActionsMenu": {
           "3e0ce48c24": "PDFとしてエクスポート",
