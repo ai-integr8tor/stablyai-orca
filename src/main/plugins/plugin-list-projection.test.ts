@@ -45,7 +45,7 @@ function serviceWith(
 }
 
 describe('buildPluginList consent identity', () => {
-  it('projects the exact current fingerprint for an optimistic consent write', () => {
+  it('projects the exact current fingerprint for an optimistic consent write', async () => {
     const plugin: ValidDiscoveredPlugin = {
       pluginKey: 'orca-samples.demo',
       rootDir: join(tmpdir(), 'plugins', 'demo'),
@@ -55,14 +55,14 @@ describe('buildPluginList consent identity', () => {
       isDev: true
     }
 
-    expect(buildPluginList(serviceWith(plugin), emptyPluginLockfile())[0]).toMatchObject({
+    expect((await buildPluginList(serviceWith(plugin), emptyPluginLockfile()))[0]).toMatchObject({
       pluginKey: plugin.pluginKey,
       consentFingerprint: 'sha256-current',
       status: 'pending'
     })
   })
 
-  it('projects supervised backoff as restarting instead of running', () => {
+  it('projects supervised backoff as restarting instead of running', async () => {
     const plugin: ValidDiscoveredPlugin = {
       pluginKey: 'orca-samples.demo',
       rootDir: join(tmpdir(), 'plugins', 'demo'),
@@ -73,17 +73,19 @@ describe('buildPluginList consent identity', () => {
     }
 
     expect(
-      buildPluginList(
-        serviceWith(plugin, {
-          activation: 'approved',
-          worker: { state: 'restarting', restarts: 2 }
-        }),
-        emptyPluginLockfile()
+      (
+        await buildPluginList(
+          serviceWith(plugin, {
+            activation: 'approved',
+            worker: { state: 'restarting', restarts: 2 }
+          }),
+          emptyPluginLockfile()
+        )
       )[0]
     ).toMatchObject({ status: 'restarting', restarts: 2 })
   })
 
-  it('does not attribute a shadowing dev plugin to the installed source', () => {
+  it('does not attribute a shadowing dev plugin to the installed source', async () => {
     const plugin: ValidDiscoveredPlugin = {
       pluginKey: 'orca-samples.demo',
       rootDir: join(tmpdir(), 'development', 'demo'),
@@ -107,10 +109,10 @@ describe('buildPluginList consent identity', () => {
       }
     }
 
-    expect(buildPluginList(serviceWith(plugin), lock)[0]).not.toHaveProperty('source')
+    expect((await buildPluginList(serviceWith(plugin), lock))[0]).not.toHaveProperty('source')
   })
 
-  it('does not expose an invalid development plugin absolute path as identity', () => {
+  it('does not expose an invalid development plugin absolute path as identity', async () => {
     const invalid: InvalidDiscoveredPlugin = {
       rootDir: join(tmpdir(), 'private', 'secret-plugin-path'),
       error: 'missing orca-plugin.json',
@@ -121,13 +123,13 @@ describe('buildPluginList consent identity', () => {
       getDiscovered: () => [invalid]
     } as unknown as PluginService
 
-    const projected = buildPluginList(service, emptyPluginLockfile())[0]!
+    const projected = (await buildPluginList(service, emptyPluginLockfile()))[0]!
     expect(projected.pluginKey).toBe('invalid-development-plugin-1')
     expect(projected.name).toBe('invalid-development-plugin-1')
     expect(JSON.stringify(projected)).not.toContain(invalid.rootDir)
   })
 
-  it('projects exact VM lifecycle commands for instructional consent', () => {
+  it('projects exact VM lifecycle commands for instructional consent', async () => {
     const recipeManifest = pluginManifestSchema.parse({
       ...manifest,
       contributes: { vmRecipes: [{ path: 'recipes/cloud.json' }] }
@@ -143,21 +145,23 @@ describe('buildPluginList consent identity', () => {
     }
 
     expect(
-      buildPluginList(
-        serviceWith(plugin, {
-          vmRecipes: [
-            {
-              pluginKey: plugin.pluginKey,
-              recipe: {
-                id: 'cloud',
-                name: 'Cloud',
-                create: './create.sh',
-                destroyDisabled: true
+      (
+        await buildPluginList(
+          serviceWith(plugin, {
+            vmRecipes: [
+              {
+                pluginKey: plugin.pluginKey,
+                recipe: {
+                  id: 'cloud',
+                  name: 'Cloud',
+                  create: './create.sh',
+                  destroyDisabled: true
+                }
               }
-            }
-          ]
-        }),
-        emptyPluginLockfile()
+            ]
+          }),
+          emptyPluginLockfile()
+        )
       )[0]?.vmRecipes
     ).toEqual([
       {
@@ -171,7 +175,7 @@ describe('buildPluginList consent identity', () => {
     ])
   })
 
-  it('projects command handlers and normalized keybindings for consent and dispatch', () => {
+  it('projects command handlers and normalized keybindings for consent and dispatch', async () => {
     const commandManifest = pluginManifestSchema.parse({
       ...manifest,
       contributes: {
@@ -190,20 +194,22 @@ describe('buildPluginList consent identity', () => {
     }
 
     expect(
-      buildPluginList(
-        serviceWith(plugin, {
-          commands: [
-            {
-              pluginKey: plugin.pluginKey,
-              id: 'tasks',
-              title: 'Open Tasks',
-              context: 'worktree',
-              handler: { type: 'built-in', action: 'view.tasks' },
-              keybindings: [{ key: 'Mod+Alt+T', when: 'worktree' }]
-            }
-          ]
-        }),
-        emptyPluginLockfile()
+      (
+        await buildPluginList(
+          serviceWith(plugin, {
+            commands: [
+              {
+                pluginKey: plugin.pluginKey,
+                id: 'tasks',
+                title: 'Open Tasks',
+                context: 'worktree',
+                handler: { type: 'built-in', action: 'view.tasks' },
+                keybindings: [{ key: 'Mod+Alt+T', when: 'worktree' }]
+              }
+            ]
+          }),
+          emptyPluginLockfile()
+        )
       )[0]?.commands
     ).toEqual([
       {
@@ -214,5 +220,29 @@ describe('buildPluginList consent identity', () => {
         keybindings: [{ key: 'Mod+Alt+T', when: 'worktree' }]
       }
     ])
+  })
+
+  it('keeps skill instructions out of the bounded list projection', async () => {
+    const rootDir = join(tmpdir(), 'private', 'skill-pack')
+    const skillManifest = pluginManifestSchema.parse({
+      ...manifest,
+      contributes: { skills: [{ path: 'private-skills' }] }
+    })
+    const plugin: ValidDiscoveredPlugin = {
+      pluginKey: 'orca-samples.demo',
+      rootDir,
+      manifest: skillManifest,
+      consentFingerprint: 'sha256-current',
+      consentContentHash: 'a'.repeat(64),
+      contentHash: null,
+      isDev: true
+    }
+
+    const projected = (await buildPluginList(serviceWith(plugin), emptyPluginLockfile()))[0]!
+
+    expect(projected.hasSkills).toBe(true)
+    expect(projected).not.toHaveProperty('skills')
+    expect(projected).not.toHaveProperty('skillPreviewError')
+    expect(JSON.stringify(projected)).not.toContain(rootDir)
   })
 })

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Loader2 } from 'lucide-react'
 import type { PluginHostListEntry } from '../../../../preload/api-types'
 import { translate } from '@/i18n/i18n'
@@ -6,6 +6,8 @@ import { pluginConsentErrorMessage } from './plugin-error-presentation'
 import { Button } from '../ui/button'
 import { PluginVmRecipeConsentPreview } from './PluginVmRecipeConsentPreview'
 import { PluginKeybindingConsentPreview } from './PluginKeybindingConsentPreview'
+import { PluginSkillConsentPreview } from './PluginSkillConsentPreview'
+import { pluginCapabilityDescription } from './plugin-capability-presentation'
 import {
   Dialog,
   DialogContent,
@@ -24,6 +26,11 @@ type PluginConsentDialogProps = {
   ) => Promise<void>
 }
 
+type SkillPreviewState =
+  | { status: 'loading'; skills: [] }
+  | { status: 'ready'; skills: { name: string; instructions: string }[] }
+  | { status: 'error'; skills: [] }
+
 function trustTier(plugin: PluginHostListEntry): string {
   if (plugin.hasWorker) {
     return translate(
@@ -41,48 +48,6 @@ function trustTier(plugin: PluginHostListEntry): string {
     'auto.components.settings.PluginConsentDialog.panelTrust',
     'Panel or inert content — no worker process'
   )
-}
-
-function capabilityDescription(kind: string, fallback: string): string {
-  switch (kind) {
-    case 'workspace:read':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.workspaceRead',
-        'Read the name, branch, and terminal list of your focused worktree'
-      )
-    case 'terminal:send':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.terminalSend',
-        'Type text into a terminal you can see (always a specific terminal)'
-      )
-    case 'notifications:show':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.notificationsShow',
-        'Show desktop notifications labeled with the plugin name'
-      )
-    case 'storage':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.storage',
-        "Store data in the plugin's own storage folder"
-      )
-    case 'secrets':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.secrets',
-        "Store and read secrets in the plugin's own encrypted vault"
-      )
-    case 'events:subscribe':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.eventsSubscribe',
-        'Get notified when worktrees are created or removed and when agent status changes'
-      )
-    case 'settings:own':
-      return translate(
-        'auto.components.settings.PluginConsentDialog.capability.settingsOwn',
-        "Read and change the plugin's own settings"
-      )
-    default:
-      return fallback
-  }
 }
 
 function hasInstructionalContent(plugin: PluginHostListEntry): boolean {
@@ -118,9 +83,50 @@ export function PluginConsentDialog({
   const keepDisabledRef = useRef<HTMLButtonElement>(null)
   const [busyDecision, setBusyDecision] = useState<'approve' | 'keep-disabled' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [skillPreview, setSkillPreview] = useState<SkillPreviewState>(() =>
+    plugin?.hasSkills ? { status: 'loading', skills: [] } : { status: 'ready', skills: [] }
+  )
+  const skillPreviewBlocked = Boolean(plugin?.hasSkills && skillPreview.status !== 'ready')
+
+  useEffect(() => {
+    if (!plugin?.hasSkills || !plugin.consentFingerprint) {
+      return
+    }
+    const requestId = crypto.randomUUID()
+    let current = true
+    void window.api.plugins
+      .previewConsent(
+        {
+          pluginKey: plugin.pluginKey,
+          reviewedFingerprint: plugin.consentFingerprint
+        },
+        requestId
+      )
+      .then((result) => {
+        if (!current) {
+          return
+        }
+        setSkillPreview(
+          result.ok ? { status: 'ready', skills: result.skills } : { status: 'error', skills: [] }
+        )
+      })
+      .catch(() => {
+        if (current) {
+          setSkillPreview({ status: 'error', skills: [] })
+        }
+      })
+    return () => {
+      current = false
+      window.api.plugins.cancelConsentPreview(requestId)
+    }
+  }, [plugin])
 
   const decide = async (decision: 'approve' | 'keep-disabled'): Promise<void> => {
-    if (!plugin?.consentFingerprint || busyDecision) {
+    if (
+      !plugin?.consentFingerprint ||
+      busyDecision ||
+      (decision === 'approve' && skillPreviewBlocked)
+    ) {
       return
     }
     setBusyDecision(decision)
@@ -146,7 +152,7 @@ export function PluginConsentDialog({
       }}
     >
       <DialogContent
-        className="max-h-[calc(100vh-3rem)] overflow-y-auto scrollbar-sleek sm:max-w-lg"
+        className="plugin-security-chrome max-h-[calc(100vh-3rem)] overflow-y-auto scrollbar-sleek sm:max-w-lg"
         onOpenAutoFocus={(event) => {
           // Why: dismissal is the safety-preserving path, so it receives initial focus.
           event.preventDefault()
@@ -215,7 +221,7 @@ export function PluginConsentDialog({
                     <div key={capability.kind} className="flex items-start gap-2 text-sm leading-6">
                       <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
                       <span>
-                        {capabilityDescription(capability.kind, capability.description)}{' '}
+                        {pluginCapabilityDescription(capability.kind, capability.description)}{' '}
                         <span className="font-mono text-[11px] text-muted-foreground">
                           ({capability.kind})
                         </span>
@@ -255,6 +261,11 @@ export function PluginConsentDialog({
                 </span>
               </div>
             ) : null}
+            <PluginSkillConsentPreview
+              skills={skillPreview.skills}
+              loading={skillPreview.status === 'loading'}
+              error={skillPreview.status === 'error'}
+            />
             <PluginKeybindingConsentPreview commands={plugin.commands} />
             <PluginVmRecipeConsentPreview recipes={plugin.vmRecipes ?? []} />
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
@@ -262,7 +273,7 @@ export function PluginConsentDialog({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={Boolean(busyDecision)}
+                disabled={Boolean(busyDecision) || skillPreviewBlocked}
                 onClick={() => void decide('approve')}
               >
                 {busyDecision === 'approve' ? <Loader2 className="animate-spin" /> : null}

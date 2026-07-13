@@ -3,6 +3,7 @@ import type { PluginHostListEntry } from '../../../../preload/api-types'
 import { translate } from '@/i18n/i18n'
 import { Button } from '../ui/button'
 import { PluginDevelopmentSection } from './PluginDevelopmentSection'
+import { PluginMarketplaceBrowser } from './PluginMarketplaceBrowser'
 import { PluginSettingsRow, type PluginLogsState } from './PluginSettingsRow'
 import { SettingsRow, SettingsSwitch } from './SettingsFormControls'
 
@@ -25,6 +26,8 @@ type PluginSettingsOverviewProps = {
   onToggleEnabled: (plugin: PluginHostListEntry) => void
   onToggleLogs: (pluginKey: string) => void
   onConfigureSkills: (pluginKey: string) => void
+  onMarketplaceInstalled: (pluginKey: string) => Promise<void>
+  onRollbackRequest: (pluginKey: string) => void
   onRemoveRequest: (pluginKey: string) => void
   onUpdateDevPaths: (paths: string[]) => Promise<void>
 }
@@ -48,6 +51,8 @@ export function PluginSettingsOverview({
   onToggleEnabled,
   onToggleLogs,
   onConfigureSkills,
+  onMarketplaceInstalled,
+  onRollbackRequest,
   onRemoveRequest,
   onUpdateDevPaths
 }: PluginSettingsOverviewProps): React.JSX.Element {
@@ -89,6 +94,11 @@ export function PluginSettingsOverview({
         </div>
       ) : (
         <>
+          <PluginMarketplaceBrowser
+            installedPlugins={plugins}
+            onInstalled={onMarketplaceInstalled}
+          />
+          <div className="my-4 border-t border-border/60" />
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
               {translate('auto.components.settings.PluginsSettingsSection.installed', 'Installed')}
@@ -125,6 +135,7 @@ export function PluginSettingsOverview({
                   onToggleEnabled={onToggleEnabled}
                   onToggleLogs={onToggleLogs}
                   onConfigureSkills={onConfigureSkills}
+                  onRollbackRequest={onRollbackRequest}
                   onRemoveRequest={onRemoveRequest}
                 />
               ))}

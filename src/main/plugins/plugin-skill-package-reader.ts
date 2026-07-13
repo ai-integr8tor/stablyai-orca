@@ -10,7 +10,7 @@ const SKILL_DIRECTORY_DEPTH_LIMIT = 16
 const SKILL_PACKAGE_MAX_BYTES = 10 * 1024 * 1024
 const SKILL_CONTRIBUTION_MAX_BYTES = 50 * 1024 * 1024
 const SKILL_PACKAGES_PER_CONTRIBUTION_LIMIT = 128
-const SKILL_MARKDOWN_MAX_BYTES = 256 * 1024
+export const PLUGIN_SKILL_MARKDOWN_MAX_BYTES = 256 * 1024
 
 export type PluginSkillPackageFile = {
   relativePath: string
@@ -21,6 +21,11 @@ export type PluginSkillPackage = {
   skillName: string
   files: PluginSkillPackageFile[]
   contentHash: string
+}
+
+export type PluginSkillPackageRoot = {
+  skillName: string
+  rootDir: string
 }
 
 async function readRegularFile(path: string, maxBytes: number): Promise<Buffer> {
@@ -102,8 +107,8 @@ async function collectPackageFiles(packageRoot: string): Promise<PluginSkillPack
   if (!skillMarkdown) {
     throw new Error(`skill package ${basename(packageRoot)} is missing SKILL.md`)
   }
-  if (skillMarkdown.content.byteLength > SKILL_MARKDOWN_MAX_BYTES) {
-    throw new Error(`SKILL.md exceeds the ${SKILL_MARKDOWN_MAX_BYTES}-byte limit`)
+  if (skillMarkdown.content.byteLength > PLUGIN_SKILL_MARKDOWN_MAX_BYTES) {
+    throw new Error(`SKILL.md exceeds the ${PLUGIN_SKILL_MARKDOWN_MAX_BYTES}-byte limit`)
   }
   return files
 }
@@ -121,10 +126,10 @@ function hashSkillFiles(files: readonly PluginSkillPackageFile[]): string {
   return hash.digest('hex')
 }
 
-export async function readPluginSkillPackages(
+export async function resolvePluginSkillPackageRoots(
   pluginRoot: string,
   contributionPath: string
-): Promise<PluginSkillPackage[]> {
+): Promise<PluginSkillPackageRoot[]> {
   const contributionRoot = await resolveContainedPluginDirectory(pluginRoot, contributionPath)
   const rootEntries = await readdir(contributionRoot, { withFileTypes: true })
   rootEntries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
@@ -132,10 +137,10 @@ export async function readPluginSkillPackages(
     (entry) => entry.name === 'SKILL.md' && entry.isFile()
   )
   const packageRoots = containsSkillMarkdown
-    ? [contributionRoot]
+    ? [{ skillName: basename(contributionRoot), rootDir: contributionRoot }]
     : rootEntries
         .filter((entry) => entry.isDirectory())
-        .map((entry) => join(contributionRoot, entry.name))
+        .map((entry) => ({ skillName: entry.name, rootDir: join(contributionRoot, entry.name) }))
   if (packageRoots.length === 0) {
     throw new Error(`skill contribution ${contributionPath} contains no skill packages`)
   }
@@ -144,15 +149,37 @@ export async function readPluginSkillPackages(
       `skill contribution exceeds the ${SKILL_PACKAGES_PER_CONTRIBUTION_LIMIT}-package limit`
     )
   }
+  return packageRoots
+}
+
+export async function readPluginSkillInstruction(
+  packageRoot: PluginSkillPackageRoot
+): Promise<Buffer> {
+  const entries = await readdir(packageRoot.rootDir, { withFileTypes: true })
+  const instruction = entries.find((entry) => entry.name === 'SKILL.md')
+  if (!instruction?.isFile()) {
+    throw new Error(`skill package ${packageRoot.skillName} is missing SKILL.md`)
+  }
+  return readRegularFile(
+    join(packageRoot.rootDir, instruction.name),
+    PLUGIN_SKILL_MARKDOWN_MAX_BYTES
+  )
+}
+
+export async function readPluginSkillPackages(
+  pluginRoot: string,
+  contributionPath: string
+): Promise<PluginSkillPackage[]> {
+  const packageRoots = await resolvePluginSkillPackageRoots(pluginRoot, contributionPath)
   const packages: PluginSkillPackage[] = []
   let totalBytes = 0
   for (const packageRoot of packageRoots) {
-    const files = await collectPackageFiles(packageRoot)
+    const files = await collectPackageFiles(packageRoot.rootDir)
     totalBytes += files.reduce((total, file) => total + file.content.byteLength, 0)
     if (totalBytes > SKILL_CONTRIBUTION_MAX_BYTES) {
       throw new Error(`skill contribution exceeds the ${SKILL_CONTRIBUTION_MAX_BYTES}-byte limit`)
     }
-    packages.push({ skillName: basename(packageRoot), files, contentHash: hashSkillFiles(files) })
+    packages.push({ skillName: packageRoot.skillName, files, contentHash: hashSkillFiles(files) })
   }
   return packages
 }

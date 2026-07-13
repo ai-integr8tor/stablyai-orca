@@ -54,6 +54,10 @@ import type {
   PluginPanelEntry
 } from '../shared/plugins/plugin-panel-bridge'
 import type { PluginConsentRequest } from '../shared/plugins/plugin-consent-request'
+import type {
+  PluginConsentPreviewRequest,
+  PluginConsentPreviewResult
+} from '../shared/plugins/plugin-consent-preview'
 import type { PluginThemeRegistration } from '../shared/plugins/plugin-theme-artifact'
 import type { PluginLanguagePackRegistration } from '../shared/plugins/plugin-language-pack-artifact'
 import type {
@@ -1010,6 +1014,7 @@ export type PluginMarketplaceHostSourceState = {
     fetchedAt: number
   } | null
   stale: boolean
+  official: boolean
   error?: string
 }
 
@@ -3250,6 +3255,11 @@ export type PreloadApi = {
   }
   plugins: {
     list: () => Promise<PluginHostListEntry[]>
+    previewConsent: (
+      args: PluginConsentPreviewRequest,
+      requestId: string
+    ) => Promise<PluginConsentPreviewResult>
+    cancelConsentPreview: (requestId: string) => void
     listThemes: () => Promise<PluginThemeRegistration[]>
     listLanguagePacks: () => Promise<PluginLanguagePackRegistration[]>
     listIconThemes: () => Promise<PluginIconThemeMetadata[]>

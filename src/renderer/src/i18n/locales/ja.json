@@ -9136,7 +9136,13 @@
           "invalidPluginError": "プラグインのマニフェストまたはインストール済みファイルが無効です。修正してから更新してください。",
           "runtimeError": "有効化またはワーカーのエラー後にプラグインが停止しました。",
           "disableLabel": "{{value0}}を無効にする",
-          "configureSkills": "スキルを設定"
+          "configureSkills": "スキルを設定",
+          "blocked": "ブロック済み",
+          "official": "公式",
+          "bundled": "同梱",
+          "killListMessage": "Orca の安全リストにより、このプラグインは無効化されました：{{value0}}",
+          "viewAdvisory": "勧告を表示",
+          "rollback": "ロールバック"
         },
         "PluginsSettingsSection": {
           "loadFailed": "プラグインを読み込めませんでした。",
@@ -9153,7 +9159,8 @@
           "refresh": "更新",
           "tryAgain": "再試行",
           "empty": "プラグインはインストールされていません。「プラグインをインストール」から、ローカルフォルダーまたは固定された Git ref を追加してください。",
-          "settingsUpdateFailed": "プラグイン設定を保存できませんでした。"
+          "settingsUpdateFailed": "プラグイン設定を保存できませんでした。",
+          "rollbackFailed": "このプラグインをロールバックできませんでした。以前の不変バージョンが存在しない可能性があります。"
         },
         "plugins": {
           "search": {
@@ -9217,6 +9224,98 @@
           "worktree": "ワークスペースがアクティブな場合のみ実行されます。",
           "global": "アクティブなワークスペースがなくてもアプリで実行されます。",
           "shadows": "置き換える操作: {{value0}}"
+        },
+        "PluginMarketplaceBrowser": {
+          "loadFailed": "マーケットプレイスのプラグインを読み込めませんでした。",
+          "refreshFailed": "マーケットプレイスを更新できませんでした。キャッシュ済みの一覧は引き続き利用できます。",
+          "previewFailed": "このプラグインをレビュー用に準備できませんでした。マーケットプレイスを更新して、もう一度お試しください。",
+          "installFailed": "このプラグインをインストールできませんでした。レビューしたソースが変更された可能性があります。",
+          "heading": "マーケットプレイス",
+          "manageSources": "ソースを管理",
+          "refreshing": "更新中…",
+          "refresh": "更新",
+          "loading": "マーケットプレイスのプラグインを読み込み中…",
+          "searchLabel": "マーケットプレイスのプラグインを検索",
+          "searchPlaceholder": "プラグイン、カテゴリ、発行元を検索",
+          "tryAgain": "再試行",
+          "noSources": "公式、コミュニティ、またはプライベートの Git マーケットプレイスを追加してプラグインを参照できます。",
+          "addSource": "マーケットプレイスを追加",
+          "noResults": "この検索に一致するマーケットプレイスのプラグインはありません。",
+          "empty": "設定済みのマーケットプレイスにプラグインは登録されていません。"
+        },
+        "PluginMarketplaceListingRow": {
+          "official": "公式",
+          "bundled": "同梱",
+          "installed": "インストール済み",
+          "marketplace": "{{value0}} · {{value1}}",
+          "blocked": "Orca の安全リストによりブロックされています：{{value0}}",
+          "blockedAction": "ブロック済み",
+          "checkUpdate": "更新を確認",
+          "installedAction": "インストール済み",
+          "review": "レビュー"
+        },
+        "PluginMarketplacePreviewDialog": {
+          "themes": "{{value0}} 件のアプリテーマ",
+          "iconThemes": "{{value0}} 件のアイコンテーマ",
+          "terminalThemes": "{{value0}} 件のターミナルテーマ",
+          "languagePacks": "{{value0}} 件の言語パック",
+          "skills": "{{value0}} 件のスキルパック",
+          "commands": "{{value0}} 件のコマンド",
+          "keybindings": "{{value0}} 件のキーボードショートカット",
+          "vmRecipes": "{{value0}} 件の VM レシピ",
+          "panels": "{{value0}} 件のパネル",
+          "events": "{{value0}} 件のイベント購読",
+          "worker": "バックグラウンドワーカー",
+          "official": "公式",
+          "bundled": "同梱",
+          "subtitle": "{{value0}} v{{value1}} · {{value2}}",
+          "source": "プラグインのソース",
+          "commit": "固定コミット",
+          "marketplaceCommit": "インデックスのコミット",
+          "includes": "内容",
+          "noContributions": "マニフェストのメタデータのみ",
+          "capabilities": "要求するアクセス権",
+          "workerWarning": "権限は、このプラグインによる Orca API の使用方法を制限します。ただしワーカーはこのコンピューター上で通常のプロセスとして実行され、ファイル、ネットワーク、ほかのプロセスに完全にアクセスできます。",
+          "blocked": "Orca の安全リストにより、このプラグインはブロックされています：{{value0}}",
+          "current": "このプラグインと完全に同じ内容がすでにインストールされています。",
+          "cancel": "キャンセル",
+          "update": "プラグインを更新",
+          "install": "プラグインをインストール"
+        },
+        "PluginMarketplaceSourceDialog": {
+          "addFailed": "このマーケットプレイスを追加できませんでした。Git URL、ref、Git 認証情報を確認してください。",
+          "refreshFailed": "このマーケットプレイスを更新できませんでした。最後に有効だったキャッシュ済みインデックスは引き続き利用できます。",
+          "removeFailed": "このマーケットプレイスを削除できませんでした。",
+          "title": "マーケットプレイスのソース",
+          "description": "マーケットプレイスは固定された Git リポジトリです。プライベートリポジトリには、システム Git の既存の認証情報を Orca が使用します。",
+          "urlLabel": "Git URL",
+          "urlDescription": "orca-marketplace.json を含むリポジトリの HTTPS または SSH URL を使用してください。",
+          "refLabel": "Git ref",
+          "refDescription": "ブランチ、タグ、またはコミットを選択します。取得した各インデックスは正確なコミットで記録されます。",
+          "adding": "追加中…",
+          "add": "ソースを追加",
+          "configured": "設定済みのソース",
+          "empty": "マーケットプレイスのソースは設定されていません。",
+          "owner": "所有者：{{value0}}",
+          "pinnedCommit": "{{value0}} に固定",
+          "stale": "更新に失敗しました。最後に有効だったキャッシュ済みインデックスを表示しています。",
+          "refreshLabel": "{{value0}} を更新",
+          "removeLabel": "{{value0}} を削除",
+          "done": "完了",
+          "urlPlaceholder": "https://git.example.com/team/plugins.git",
+          "official": "公式"
+        },
+        "PluginRollbackDialog": {
+          "title": "プラグインをロールバックしますか？",
+          "description": "{{value0}} を無効化し、以前の不変バージョンを復元します。そのバージョンが異なるアクセス権または指示コンテンツを要求する場合、Orca は再レビューを求めます。",
+          "cancel": "キャンセル",
+          "confirm": "プラグインをロールバック"
+        },
+        "PluginSkillConsentPreview": {
+          "heading": "エージェントスキルの指示",
+          "instructionsLabel": "{{value0}} スキルの指示",
+          "loadError": "Orca はすべてのスキル指示を読み取れませんでした。このプラグインは無効のままにし、パッケージを修正してからもう一度確認してください。",
+          "loading": "スキルの手順を読み込んでいます…"
         }
       },
       "right": {

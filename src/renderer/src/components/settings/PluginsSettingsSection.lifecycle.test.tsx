@@ -37,6 +37,7 @@ vi.mock('../ui/dropdown-menu', () => ({
 }))
 
 vi.mock('./PluginInstallDialog', () => ({ PluginInstallDialog: () => null }))
+vi.mock('./PluginMarketplaceBrowser', () => ({ PluginMarketplaceBrowser: () => null }))
 vi.mock('./PluginConsentDialog', () => ({
   PluginConsentDialog: ({
     plugin,
@@ -70,6 +71,16 @@ vi.mock('./PluginRemoveDialog', () => ({
     onConfirm: (key: string) => void
   }) =>
     plugin ? <button onClick={() => onConfirm(plugin.pluginKey)}>Confirm remove</button> : null
+}))
+vi.mock('./PluginRollbackDialog', () => ({
+  PluginRollbackDialog: ({
+    plugin,
+    onConfirm
+  }: {
+    plugin: PluginHostListEntry | null
+    onConfirm: (key: string) => void
+  }) =>
+    plugin ? <button onClick={() => onConfirm(plugin.pluginKey)}>Confirm rollback</button> : null
 }))
 
 const plugin: PluginHostListEntry = {
@@ -150,6 +161,14 @@ function installApi(overrides: Record<string, unknown> = {}): {
         getLogs: vi.fn().mockResolvedValue([]),
         consent: vi.fn().mockResolvedValue([plugin]),
         install: vi.fn(),
+        rollbackMarketplacePlugin: vi.fn().mockResolvedValue({
+          ok: true,
+          pluginKey: plugin.pluginKey,
+          version: plugin.version,
+          contentHash: 'previous-content',
+          consentFingerprint: plugin.consentFingerprint,
+          resolvedCommit: 'previous-commit'
+        }),
         ...overrides
       }
     }
@@ -257,6 +276,44 @@ describe('PluginsSettingsSection lifecycle', () => {
     }
     await act(async () => click(confirm))
     expect(window.api.plugins.remove).toHaveBeenCalledWith({ pluginKey: plugin.pluginKey })
+  })
+
+  it('confirms marketplace rollback before invoking plugin IPC', async () => {
+    const marketplacePlugin: PluginHostListEntry = {
+      ...plugin,
+      source: {
+        kind: 'marketplace',
+        reference: 'https://example.com/notes.git',
+        resolvedCommit: 'current-commit',
+        contentHash: 'current-content',
+        marketplace: {
+          reference: 'https://example.com/marketplace.git',
+          resolvedCommit: 'marketplace-commit'
+        }
+      }
+    }
+    installApi({ list: vi.fn().mockResolvedValue([marketplacePlugin]) })
+    const { container } = await renderSection()
+    const rollbackAction = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Roll back'
+    )
+    if (!rollbackAction) {
+      throw new Error('missing rollback action')
+    }
+
+    await act(async () => click(rollbackAction))
+    expect(window.api.plugins.rollbackMarketplacePlugin).not.toHaveBeenCalled()
+    const confirm = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Confirm rollback'
+    )
+    if (!confirm) {
+      throw new Error('missing rollback confirmation')
+    }
+    await act(async () => click(confirm))
+
+    expect(window.api.plugins.rollbackMarketplacePlugin).toHaveBeenCalledWith({
+      pluginKey: plugin.pluginKey
+    })
   })
 
   it('accepts overlapping mutations in completion order without regressing final state', async () => {

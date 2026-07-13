@@ -2,7 +2,7 @@
 
 import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginHostListEntry } from '../../../../preload/api-types'
 import { PluginConsentDialog } from './PluginConsentDialog'
 
@@ -30,8 +30,21 @@ const plugin: PluginHostListEntry = {
   }
 }
 
+const previewConsent = vi.fn()
+const cancelConsentPreview = vi.fn()
+
+beforeEach(() => {
+  previewConsent.mockReset().mockResolvedValue({ ok: true, skills: [] })
+  cancelConsentPreview.mockReset()
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: { plugins: { previewConsent, cancelConsentPreview } }
+  })
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
+  Reflect.deleteProperty(window, 'api')
 })
 
 async function renderConsent(
@@ -58,6 +71,7 @@ async function renderConsent(
     )
   }
   await act(async () => root.render(<Harness />))
+  await act(() => new Promise<void>((resolve) => queueMicrotask(resolve)))
 }
 
 describe('PluginConsentDialog', () => {
@@ -100,6 +114,7 @@ describe('PluginConsentDialog', () => {
     expect(document.body.textContent).toContain(
       'full access to your files, network, and other processes'
     )
+    expect(document.querySelector('[role="dialog"]')?.classList).toContain('plugin-security-chrome')
     expect(document.activeElement?.textContent).toContain('Keep Disabled')
   })
 
@@ -122,11 +137,83 @@ describe('PluginConsentDialog', () => {
   })
 
   it('discloses that contributed skills run as agent instructions', async () => {
-    await renderConsent({ ...plugin, hasSkills: true }, vi.fn().mockResolvedValue(undefined))
+    previewConsent.mockResolvedValue({
+      ok: true,
+      skills: [
+        {
+          name: 'review-changes',
+          instructions: '# Review changes\n\nInspect every diff before approving it.'
+        }
+      ]
+    })
+    await renderConsent(
+      {
+        ...plugin,
+        hasSkills: true
+      },
+      vi.fn().mockResolvedValue(undefined)
+    )
 
     expect(document.body.textContent).toContain(
       'Agents read those instructions and may act on them with the full authority you give the agent.'
     )
+    expect(document.body.textContent).toContain('review-changes')
+    expect(document.body.textContent).toContain('Inspect every diff before approving it.')
+    expect(document.querySelector('pre')?.getAttribute('aria-label')).toBe(
+      'review-changes skill instructions'
+    )
+    expect(previewConsent).toHaveBeenCalledWith(
+      {
+        pluginKey: plugin.pluginKey,
+        reviewedFingerprint: plugin.consentFingerprint
+      },
+      expect.any(String)
+    )
+  })
+
+  it('keeps enablement blocked when every skill instruction cannot be reviewed', async () => {
+    previewConsent.mockResolvedValue({
+      ok: false,
+      error: 'plugin consent preview unavailable'
+    })
+    await renderConsent({ ...plugin, hasSkills: true }, vi.fn().mockResolvedValue(undefined))
+
+    expect(document.body.textContent).toContain('could not read every skill instruction')
+    const enable = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Enable plugin'
+    )
+    expect(enable?.disabled).toBe(true)
+  })
+
+  it('keeps enablement blocked while skill instructions are loading', async () => {
+    previewConsent.mockReturnValue(new Promise(() => {}))
+    await renderConsent({ ...plugin, hasSkills: true }, vi.fn().mockResolvedValue(undefined))
+
+    expect(document.body.textContent).toContain('Loading skill instructions…')
+    const enable = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Enable plugin'
+    )
+    expect(enable?.disabled).toBe(true)
+  })
+
+  it('cancels a pending skill preview when the dialog unmounts', async () => {
+    previewConsent.mockReturnValue(new Promise(() => {}))
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <PluginConsentDialog
+          plugin={{ ...plugin, hasSkills: true }}
+          onDecision={vi.fn().mockResolvedValue(undefined)}
+        />
+      )
+    })
+    const requestId = previewConsent.mock.calls[0]?.[1]
+
+    await act(async () => root.unmount())
+
+    expect(cancelConsentPreview).toHaveBeenCalledWith(requestId)
   })
 
   it('shows every VM recipe lifecycle command verbatim', async () => {

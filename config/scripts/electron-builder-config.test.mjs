@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,12 +31,26 @@ describe('electron-builder config', () => {
         '!tests{,/**/*}',
         '!Casks{,/**/*}',
         '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,bundle-size-progress.md}',
-        '!out/**/*.test.js'
+        '!out/**/*.test.js',
+        '!resources/plugins/launch/**'
       ])
     )
   })
 
   it('keeps runtime resources available through extraResources', () => {
+    const bundledPluginResources = expect.objectContaining({
+      from: 'resources/plugins/launch',
+      to: 'plugins/launch'
+    })
+    expect(electronBuilderConfig.mac.extraResources).toEqual(
+      expect.arrayContaining([bundledPluginResources])
+    )
+    expect(electronBuilderConfig.linux.extraResources).toEqual(
+      expect.arrayContaining([bundledPluginResources])
+    )
+    expect(electronBuilderConfig.win.extraResources).toEqual(
+      expect.arrayContaining([bundledPluginResources])
+    )
     expect(electronBuilderConfig.mac.extraResources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -356,6 +370,11 @@ describe('electron-builder config', () => {
         const resourcesDir = join(root, 'linux-unpacked', 'resources')
         const launcherPath = join(resourcesDir, 'bin', 'orca-ide')
         await mkdir(join(resourcesDir, 'bin'), { recursive: true })
+        await cp(
+          join(process.cwd(), 'resources', 'plugins', 'launch'),
+          join(resourcesDir, 'plugins', 'launch'),
+          { recursive: true }
+        )
         await mkdir(join(resourcesDir, 'node_modules', 'zod', 'src'), { recursive: true })
         // Why: afterPack now fails hard when the unpacked daemon entry is
         // missing, so the fixture must carry one like a real package layout.

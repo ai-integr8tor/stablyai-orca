@@ -1,21 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
-import type {
-  PluginHostInstallSource,
-  PluginHostListEntry,
-  PluginHostLogLine
-} from '../../../../preload/api-types'
+import type { PluginHostInstallSource, PluginHostListEntry } from '../../../../preload/api-types'
 import type { GlobalSettings } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 import { Button } from '../ui/button'
 import { PluginConsentDialog } from './PluginConsentDialog'
 import { PluginInstallDialog } from './PluginInstallDialog'
 import { PluginRemoveDialog } from './PluginRemoveDialog'
+import { PluginRollbackDialog } from './PluginRollbackDialog'
 import { PluginSkillMappingDialog } from './PluginSkillMappingDialog'
 import { PluginSettingsOverview } from './PluginSettingsOverview'
-import type { PluginLogsState } from './PluginSettingsRow'
 import { getPluginsSectionPresentation } from './plugins-search'
 import { SettingsSection } from './SettingsSection'
+import { usePluginLogs } from './use-plugin-logs'
+import { usePluginMarketplaceLifecycle } from './use-plugin-marketplace-lifecycle'
 
 type PluginsSettingsSectionProps = {
   mounted: boolean
@@ -45,12 +43,8 @@ export function PluginsSettingsSection({
   const [refreshBusy, setRefreshBusy] = useState(false)
   const [devPathsBusy, setDevPathsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [openLogs, setOpenLogs] = useState<Set<string>>(() => new Set())
-  const [logsByPlugin, setLogsByPlugin] = useState<Record<string, PluginLogsState>>({})
   const mountedRef = useRef(false)
   const listRequestRef = useRef(0)
-  const nextLogsRequestRef = useRef(0)
-  const logsRequestRef = useRef<Record<string, number>>({})
 
   const applyPluginList = (nextPlugins: PluginHostListEntry[]): void => {
     const installedPluginKeys = new Set(nextPlugins.map((plugin) => plugin.pluginKey))
@@ -63,19 +57,6 @@ export function PluginsSettingsSection({
     setBusyPluginKeys(
       (current) => new Set([...current].filter((pluginKey) => installedPluginKeys.has(pluginKey)))
     )
-    setOpenLogs(
-      (current) => new Set([...current].filter((pluginKey) => installedPluginKeys.has(pluginKey)))
-    )
-    setLogsByPlugin((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(([pluginKey]) => installedPluginKeys.has(pluginKey))
-      )
-    )
-    for (const pluginKey of Object.keys(logsRequestRef.current)) {
-      if (!installedPluginKeys.has(pluginKey)) {
-        delete logsRequestRef.current[pluginKey]
-      }
-    }
   }
 
   const setPluginListError = (cause: unknown): void => {
@@ -135,9 +116,6 @@ export function PluginsSettingsSection({
       setRefreshBusy(false)
       setDevPathsBusy(false)
       setSettingsError(null)
-      setOpenLogs(new Set())
-      setLogsByPlugin({})
-      logsRequestRef.current = {}
     }
     return () => {
       mountedRef.current = false
@@ -165,6 +143,17 @@ export function PluginsSettingsSection({
       unsubscribe()
     }
   }, [mounted, settings.pluginSystemEnabled])
+
+  const marketplaceLifecycle = usePluginMarketplaceLifecycle({
+    mounted,
+    mountedRef,
+    plugins,
+    applyCompletedMutation,
+    setPluginListError,
+    setConsentPluginId,
+    setBusyPluginKeys
+  })
+  const pluginLogs = usePluginLogs(mounted, mountedRef, plugins)
 
   const sectionPresentation = getPluginsSectionPresentation()
 
@@ -298,51 +287,6 @@ export function PluginsSettingsSection({
     }
   }
 
-  const toggleLogs = (pluginKey: string): void => {
-    if (openLogs.has(pluginKey)) {
-      setOpenLogs((current) => {
-        const next = new Set(current)
-        next.delete(pluginKey)
-        return next
-      })
-      return
-    }
-    setOpenLogs((current) => new Set(current).add(pluginKey))
-    if (logsByPlugin[pluginKey]?.lines) {
-      return
-    }
-    const requestId = ++nextLogsRequestRef.current
-    logsRequestRef.current[pluginKey] = requestId
-    setLogsByPlugin((current) => ({ ...current, [pluginKey]: { loading: true } }))
-    void window.api.plugins
-      .getLogs({ pluginKey })
-      .then((lines: PluginHostLogLine[]) => {
-        if (mountedRef.current && logsRequestRef.current[pluginKey] === requestId) {
-          setLogsByPlugin((current) => ({
-            ...current,
-            [pluginKey]: { loading: false, lines }
-          }))
-        }
-      })
-      .catch((cause: unknown) => {
-        if (mountedRef.current && logsRequestRef.current[pluginKey] === requestId) {
-          setLogsByPlugin((current) => ({
-            ...current,
-            [pluginKey]: {
-              loading: false,
-              error: errorMessage(
-                cause,
-                translate(
-                  'auto.components.settings.PluginsSettingsSection.logsFailed',
-                  'Could not load plugin logs.'
-                )
-              )
-            }
-          }))
-        }
-      })
-  }
-
   const updateDevPaths = async (paths: string[]): Promise<void> => {
     setDevPathsBusy(true)
     setSettingsError(null)
@@ -391,16 +335,18 @@ export function PluginsSettingsSection({
         error={error}
         plugins={plugins}
         busyPluginKeys={busyPluginKeys}
-        openLogs={openLogs}
-        logsByPlugin={logsByPlugin}
+        openLogs={pluginLogs.openLogs}
+        logsByPlugin={pluginLogs.logsByPlugin}
         devPaths={settings.devPluginPaths}
         devPathsBusy={devPathsBusy}
         onToggleFeature={() => void toggleFeature()}
         onRefresh={() => void refresh()}
         onReview={setConsentPluginId}
         onToggleEnabled={(entry) => void toggleEnabled(entry)}
-        onToggleLogs={toggleLogs}
+        onToggleLogs={pluginLogs.toggleLogs}
         onConfigureSkills={setSkillPluginId}
+        onMarketplaceInstalled={marketplaceLifecycle.reloadAfterMutation}
+        onRollbackRequest={marketplaceLifecycle.requestRollback}
         onRemoveRequest={setRemovePluginId}
         onUpdateDevPaths={updateDevPaths}
       />
@@ -415,6 +361,16 @@ export function PluginsSettingsSection({
         busy={Boolean(removePlugin && busyPluginKeys.has(removePlugin.pluginKey))}
         onCancel={() => setRemovePluginId(null)}
         onConfirm={(pluginKey) => void remove(pluginKey)}
+      />
+      <PluginRollbackDialog
+        plugin={marketplaceLifecycle.rollbackPlugin}
+        busy={Boolean(
+          marketplaceLifecycle.rollbackPlugin &&
+          busyPluginKeys.has(marketplaceLifecycle.rollbackPlugin.pluginKey)
+        )}
+        error={marketplaceLifecycle.rollbackError}
+        onCancel={marketplaceLifecycle.cancelRollback}
+        onConfirm={(pluginKey) => void marketplaceLifecycle.confirmRollback(pluginKey)}
       />
       <PluginSkillMappingDialog plugin={skillPlugin} onClose={() => setSkillPluginId(null)} />
     </SettingsSection>

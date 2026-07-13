@@ -9136,7 +9136,13 @@
           "invalidPluginError": "El manifiesto o los archivos instalados del plugin no son válidos. Corrige el plugin y actualiza.",
           "runtimeError": "El plugin se detuvo tras un error de activación o del proceso.",
           "disableLabel": "Desactivar {{value0}}",
-          "configureSkills": "Configurar habilidades"
+          "configureSkills": "Configurar habilidades",
+          "blocked": "Bloqueado",
+          "official": "Oficial",
+          "bundled": "Incluido",
+          "killListMessage": "La lista de seguridad de Orca desactivó este plugin: {{value0}}",
+          "viewAdvisory": "Ver aviso",
+          "rollback": "Revertir"
         },
         "PluginsSettingsSection": {
           "loadFailed": "No se pudieron cargar los plugins.",
@@ -9153,7 +9159,8 @@
           "refresh": "Actualizar",
           "tryAgain": "Intentar de nuevo",
           "empty": "No hay plugins instalados. Usa Instalar plugin para añadir uno desde una carpeta local o una referencia Git fijada.",
-          "settingsUpdateFailed": "No se pudo guardar la configuración de plugins."
+          "settingsUpdateFailed": "No se pudo guardar la configuración de plugins.",
+          "rollbackFailed": "No se pudo revertir este plugin. Es posible que no haya una versión inmutable anterior disponible."
         },
         "plugins": {
           "search": {
@@ -9217,6 +9224,98 @@
           "worktree": "Solo se ejecuta mientras hay un espacio de trabajo activo.",
           "global": "Se ejecuta en la aplicación sin requerir un espacio de trabajo activo.",
           "shadows": "Reemplaza: {{value0}}"
+        },
+        "PluginMarketplaceBrowser": {
+          "loadFailed": "No se pudieron cargar los plugins del marketplace.",
+          "refreshFailed": "No se pudieron actualizar los marketplaces. Los listados en caché siguen disponibles.",
+          "previewFailed": "No se pudo preparar este plugin para revisarlo. Actualiza el marketplace e inténtalo de nuevo.",
+          "installFailed": "No se pudo instalar este plugin. Es posible que la fuente revisada haya cambiado.",
+          "heading": "Marketplace",
+          "manageSources": "Gestionar fuentes",
+          "refreshing": "Actualizando…",
+          "refresh": "Actualizar",
+          "loading": "Cargando plugins del marketplace…",
+          "searchLabel": "Buscar plugins del marketplace",
+          "searchPlaceholder": "Buscar plugins, categorías o editores",
+          "tryAgain": "Intentar de nuevo",
+          "noSources": "Añade un marketplace de Git oficial, comunitario o privado para explorar plugins.",
+          "addSource": "Añadir marketplace",
+          "noResults": "Ningún plugin del marketplace coincide con esta búsqueda.",
+          "empty": "Los marketplaces configurados no incluyen ningún plugin."
+        },
+        "PluginMarketplaceListingRow": {
+          "official": "Oficial",
+          "bundled": "Incluido",
+          "installed": "Instalado",
+          "marketplace": "{{value0}} · {{value1}}",
+          "blocked": "Bloqueado por la lista de seguridad de Orca: {{value0}}",
+          "blockedAction": "Bloqueado",
+          "checkUpdate": "Buscar actualización",
+          "installedAction": "Instalado",
+          "review": "Revisar"
+        },
+        "PluginMarketplacePreviewDialog": {
+          "themes": "{{value0}} temas de la aplicación",
+          "iconThemes": "{{value0}} temas de iconos",
+          "terminalThemes": "{{value0}} temas de terminal",
+          "languagePacks": "{{value0}} paquetes de idioma",
+          "skills": "{{value0}} paquetes de habilidades",
+          "commands": "{{value0}} comandos",
+          "keybindings": "{{value0}} atajos de teclado",
+          "vmRecipes": "{{value0}} recetas de VM",
+          "panels": "{{value0}} paneles",
+          "events": "{{value0}} suscripciones a eventos",
+          "worker": "Proceso en segundo plano",
+          "official": "Oficial",
+          "bundled": "Incluido",
+          "subtitle": "{{value0}} v{{value1}} · {{value2}}",
+          "source": "Fuente del plugin",
+          "commit": "Commit fijado",
+          "marketplaceCommit": "Commit del índice",
+          "includes": "Incluye",
+          "noContributions": "Solo metadatos del manifiesto",
+          "capabilities": "Acceso solicitado",
+          "workerWarning": "Las capacidades limitan cómo usa este plugin la API de Orca. Su proceso sigue ejecutándose como un proceso normal en este ordenador, con acceso completo a tus archivos, red y otros procesos.",
+          "blocked": "La lista de seguridad de Orca bloquea este plugin: {{value0}}",
+          "current": "Este contenido exacto del plugin ya está instalado.",
+          "cancel": "Cancelar",
+          "update": "Actualizar plugin",
+          "install": "Instalar plugin"
+        },
+        "PluginMarketplaceSourceDialog": {
+          "addFailed": "No se pudo añadir este marketplace. Comprueba la URL de Git, la referencia y tus credenciales de Git.",
+          "refreshFailed": "No se pudo actualizar este marketplace. Su último índice válido en caché sigue disponible.",
+          "removeFailed": "No se pudo eliminar este marketplace.",
+          "title": "Fuentes de marketplace",
+          "description": "Los marketplaces son repositorios de Git fijados. Orca usa tus credenciales existentes del Git del sistema para los repositorios privados.",
+          "urlLabel": "Git URL",
+          "urlDescription": "Usa la URL HTTPS o SSH de un repositorio que contenga orca-marketplace.json.",
+          "refLabel": "Referencia de Git",
+          "refDescription": "Elige una rama, etiqueta o commit. Cada índice obtenido se registra en un commit exacto.",
+          "adding": "Añadiendo…",
+          "add": "Añadir fuente",
+          "configured": "Fuentes configuradas",
+          "empty": "No hay fuentes de marketplace configuradas.",
+          "owner": "Propietario: {{value0}}",
+          "pinnedCommit": "Fijado en {{value0}}",
+          "stale": "La actualización falló. Se muestra el último índice válido en caché.",
+          "refreshLabel": "Actualizar {{value0}}",
+          "removeLabel": "Eliminar {{value0}}",
+          "done": "Listo",
+          "urlPlaceholder": "https://git.example.com/team/plugins.git",
+          "official": "Oficial"
+        },
+        "PluginRollbackDialog": {
+          "title": "¿Revertir el plugin?",
+          "description": "Esto desactiva {{value0}} y restaura su versión inmutable anterior. Si esa versión solicita otro acceso o contenido instructivo, Orca requerirá una nueva revisión.",
+          "cancel": "Cancelar",
+          "confirm": "Revertir plugin"
+        },
+        "PluginSkillConsentPreview": {
+          "heading": "Instrucciones de habilidades del agente",
+          "instructionsLabel": "Instrucciones de la habilidad {{value0}}",
+          "loadError": "Orca no pudo leer todas las instrucciones de las habilidades. Mantén este plugin desactivado y revísalo de nuevo después de corregir el paquete.",
+          "loading": "Cargando instrucciones de habilidades…"
         }
       },
       "right": {

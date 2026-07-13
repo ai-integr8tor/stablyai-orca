@@ -1,8 +1,17 @@
-import { AlertTriangle, BookOpen, FileText, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  BookOpen,
+  FileText,
+  Loader2,
+  MoreHorizontal,
+  RotateCcw,
+  Trash2
+} from 'lucide-react'
 import type { PluginHostListEntry, PluginHostLogLine } from '../../../../preload/api-types'
 import { translate } from '@/i18n/i18n'
 import { invalidPluginErrorMessage } from './plugin-error-presentation'
 import { cn } from '@/lib/utils'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -27,10 +36,17 @@ type PluginSettingsRowProps = {
   onToggleEnabled: (plugin: PluginHostListEntry) => void
   onToggleLogs: (pluginKey: string) => void
   onConfigureSkills: (pluginKey: string) => void
+  onRollbackRequest: (pluginKey: string) => void
   onRemoveRequest: (pluginKey: string) => void
 }
 
 function statusPresentation(plugin: PluginHostListEntry): { label: string; className: string } {
+  if (plugin.blockedByKillList) {
+    return {
+      label: translate('auto.components.settings.PluginSettingsRow.blocked', 'Blocked'),
+      className: 'border-destructive/25 bg-destructive/8 text-destructive'
+    }
+  }
   if (plugin.needsReconsent || plugin.status === 'pending') {
     return {
       label: translate('auto.components.settings.PluginSettingsRow.needsReview', 'Needs review'),
@@ -134,6 +150,7 @@ export function PluginSettingsRow({
   onToggleEnabled,
   onToggleLogs,
   onConfigureSkills,
+  onRollbackRequest,
   onRemoveRequest
 }: PluginSettingsRowProps): React.JSX.Element {
   const status = statusPresentation(plugin)
@@ -144,7 +161,8 @@ export function PluginSettingsRow({
     plugin.status === 'restarting' ||
     plugin.status === 'idle' ||
     plugin.status === 'errored'
-  const switchDisabled = busy || needsReview || plugin.status === 'invalid'
+  const switchDisabled =
+    busy || needsReview || plugin.status === 'invalid' || Boolean(plugin.blockedByKillList)
 
   return (
     <div
@@ -157,9 +175,19 @@ export function PluginSettingsRow({
             <span className="text-sm font-medium">{plugin.name}</span>
             <span className="font-mono text-xs text-muted-foreground">v{plugin.version}</span>
             {plugin.isDev ? (
-              <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
                 {translate('auto.components.settings.PluginSettingsRow.dev', 'Dev')}
-              </span>
+              </Badge>
+            ) : null}
+            {plugin.official ? (
+              <Badge variant="outline">
+                {translate('auto.components.settings.PluginSettingsRow.official', 'Official')}
+              </Badge>
+            ) : null}
+            {plugin.bundled ? (
+              <Badge variant="secondary">
+                {translate('auto.components.settings.PluginSettingsRow.bundled', 'Bundled')}
+              </Badge>
             ) : null}
             <span
               className={cn(
@@ -186,6 +214,34 @@ export function PluginSettingsRow({
               ' · '
             )}
           </p>
+          {plugin.blockedByKillList ? (
+            <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-destructive">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {translate(
+                  'auto.components.settings.PluginSettingsRow.killListMessage',
+                  "Orca's safety list disabled this plugin: {{value0}}",
+                  { value0: plugin.blockedByKillList.reason }
+                )}
+                {plugin.blockedByKillList.advisoryUrl ? (
+                  <>
+                    {' '}
+                    <a
+                      href={plugin.blockedByKillList.advisoryUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      {translate(
+                        'auto.components.settings.PluginSettingsRow.viewAdvisory',
+                        'View advisory'
+                      )}
+                    </a>
+                  </>
+                ) : null}
+              </span>
+            </p>
+          ) : null}
           {plugin.error ? (
             <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-destructive">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -249,7 +305,13 @@ export function PluginSettingsRow({
                   )}
                 </DropdownMenuItem>
               ) : null}
-              {!plugin.isDev ? (
+              {plugin.source?.kind === 'marketplace' ? (
+                <DropdownMenuItem onSelect={() => onRollbackRequest(plugin.pluginKey)}>
+                  <RotateCcw />
+                  {translate('auto.components.settings.PluginSettingsRow.rollback', 'Roll back')}
+                </DropdownMenuItem>
+              ) : null}
+              {!plugin.isDev && !plugin.bundled ? (
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => onRemoveRequest(plugin.pluginKey)}
