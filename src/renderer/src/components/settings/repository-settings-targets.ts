@@ -13,6 +13,13 @@ export function getRepositoryLocalCommandsSectionId(
   return `${getRepositorySettingsTargetPrefix(repoId, hostId)}-local-commands`
 }
 
+export function getRepositoryDisplayNameSectionId(
+  repoId: string,
+  hostId?: ExecutionHostId
+): string {
+  return `${getRepositorySettingsTargetPrefix(repoId, hostId)}-display-name`
+}
+
 export function getRepositoryIconSectionId(repoId: string, hostId?: ExecutionHostId): string {
   return `${getRepositorySettingsTargetPrefix(repoId, hostId)}-icon`
 }

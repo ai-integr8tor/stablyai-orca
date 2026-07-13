@@ -891,14 +891,16 @@ function Settings(): React.JSX.Element {
           })
           return
         }
-        const parsedHost = parseExecutionHostId(getRepoExecutionHostId(repo))
+        const repoHostId = getRepoExecutionHostId(repo)
+        const parsedHost = parseExecutionHostId(repoHostId)
         try {
           const result = await checkRuntimeHooks(
             {
               activeRuntimeEnvironmentId:
                 parsedHost?.kind === 'runtime' ? parsedHost.environmentId : null
             },
-            repo.id
+            repo.id,
+            repoHostId
           )
           if (stale || requestSeq !== repoHooksRequestSeqRef.current) {
             return

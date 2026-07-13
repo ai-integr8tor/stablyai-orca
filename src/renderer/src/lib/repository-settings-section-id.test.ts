@@ -39,6 +39,13 @@ describe('repository Settings section identity', () => {
     })
   })
 
+  it('falls back to the raw identity when the host segment cannot be decoded', () => {
+    expect(parseRepositorySettingsSectionId('repo-%E0%A4%A:owner/project')).toEqual({
+      repoId: '%E0%A4%A:owner/project',
+      hostId: null
+    })
+  })
+
   it('resolves legacy bare sections to the local row when a remote duplicate exists', () => {
     expect(findRepoForSettingsSection([remoteRepo, localRepo], `repo-${localRepo.id}`)).toBe(
       localRepo

@@ -1,5 +1,16 @@
 import { getRepositoryLocalCommandsSectionId } from '@/components/settings/repository-settings-targets'
-import type { ExecutionHostId } from '../../../../shared/execution-host'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
+import type { Repo } from '../../../../shared/types'
+
+export function findSetupScriptSettingsRepo(
+  repos: readonly Repo[],
+  repoId: string,
+  repoHostId: ExecutionHostId
+): Repo | null {
+  return (
+    repos.find((repo) => repo.id === repoId && getRepoExecutionHostId(repo) === repoHostId) ?? null
+  )
+}
 
 export function openSetupScriptSettings(input: {
   repoId: string

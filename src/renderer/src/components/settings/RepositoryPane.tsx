@@ -22,7 +22,10 @@ import { RepositorySourceControlAiSection } from './RepositorySourceControlAiSec
 import { SearchableSetting } from './SearchableSetting'
 import { matchesSettingsSearch } from './settings-search'
 import { useAppStore } from '../../store'
-import { getRepositoryIconSectionId } from './repository-settings-targets'
+import {
+  getRepositoryDisplayNameSectionId,
+  getRepositoryIconSectionId
+} from './repository-settings-targets'
 import { RepositoryIconPicker } from './RepositoryIconPicker'
 import { getRepositoryPaneSearchEntries } from './repository-search'
 import { RepositoryHostSetupsSection } from './RepositoryHostSetupsSection'
@@ -78,6 +81,7 @@ export function RepositoryPane({
 }: RepositoryPaneProps): React.JSX.Element {
   const isFolder = isFolderRepo(repo)
   const repoHostId = getRepoExecutionHostId(repo)
+  const displayNameInputId = getRepositoryDisplayNameSectionId(repo.id, repoHostId)
   const searchQuery = useAppStore((state) => state.settingsSearchQuery)
   const settings = useAppStore((state) => state.settings)
   const runtimeSessionSummary = useAppStore(
@@ -268,14 +272,11 @@ export function RepositoryPane({
           className="space-y-2"
           forceVisible={forceFullPaneForRepoMatch}
         >
-          <Label
-            htmlFor={`repo-display-name-${repoHostId}-${repo.id}`}
-            className="text-sm font-semibold"
-          >
+          <Label htmlFor={displayNameInputId} className="text-sm font-semibold">
             {translate('auto.components.settings.RepositoryPane.c7ef4415de', 'Display Name')}
           </Label>
           <RepoSettingsDraftInput
-            id={`repo-display-name-${repoHostId}-${repo.id}`}
+            id={displayNameInputId}
             repoId={repo.id}
             storeValue={repo.displayName}
             onTextChange={(text) => updateRepo(repo.id, { displayName: text })}

@@ -4531,13 +4531,11 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                             <DropdownMenuItem
                               onSelect={() => {
                                 if (row.repo) {
+                                  const repoHostId = getRepoExecutionHostId(row.repo)
                                   handleOpenRepoSettings(
                                     row.repo.id,
-                                    getRepoExecutionHostId(row.repo),
-                                    getRepositoryIconSectionId(
-                                      row.repo.id,
-                                      getRepoExecutionHostId(row.repo)
-                                    )
+                                    repoHostId,
+                                    getRepositoryIconSectionId(row.repo.id, repoHostId)
                                   )
                                 }
                               }}
