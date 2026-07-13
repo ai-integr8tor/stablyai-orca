@@ -19,5 +19,17 @@ describe('ResourceUsageStatusSegment session polling', () => {
     // with large preserved-session sets. Keep it on explicit Resource Manager use.
     expect(openEffectIndex).toBeGreaterThanOrEqual(0)
     expect(refreshIndex).toBeGreaterThan(openEffectIndex)
+    expect(source).not.toContain('window.api.pty.hasChildProcesses')
+    expect(source).not.toContain('window.api.pty.confirmForegroundProcess')
+  })
+
+  it('routes unbound cleanup through review and keeps individual confirmation', () => {
+    const source = readFileSync(SOURCE_PATH, 'utf8')
+
+    expect(source).toContain('useResourceSessionCleanupReview')
+    expect(source).toContain('setKillConfirm(session)')
+    expect(source).not.toContain('if (!session.bound)')
+    expect(source).not.toContain('Promise.allSettled(orphans.map')
+    expect(source).not.toContain('window.api.pty.kill(session.sessionId)')
   })
 })

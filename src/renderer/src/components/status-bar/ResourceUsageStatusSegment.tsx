@@ -73,11 +73,12 @@ import {
   getResourceManagerTooltipLines
 } from './resource-manager-terminal-copy'
 import {
-  buildResourceSessionBindingIndex,
   countUnboundDaemonSessions,
   type ResourceSessionBindingInputs
 } from './resource-session-bindings'
 import { createClosedResourceSessionCountSelector } from './resource-session-count-selector'
+import { ResourceSessionCleanupDialog } from './ResourceSessionCleanupDialog'
+import { useResourceSessionCleanupReview } from './use-resource-session-cleanup-review'
 import { translate } from '@/i18n/i18n'
 
 const POLL_MS = 2_000
@@ -360,7 +361,7 @@ function sortProjectGroups(groups: UnifiedProjectGroup[], sort: SortOption): Uni
 // ─── Session row ────────────────────────────────────────────────────
 
 // Exported (with WorktreeRow) for row-level regression tests pinning the kill
-// affordance and remote-chip presentation for SSH/orphan rows.
+// affordance and remote-chip presentation for SSH/unbound rows.
 export function SessionRow({
   session,
   worktreeId,
@@ -413,8 +414,8 @@ export function SessionRow({
       {/* Why: kill X lives inside the shared trailing gutter so CPU/Memory
           columns stay aligned with the column header (whose gutter is empty).
           Bound sessions hide the X until the row is hovered/focused (calm
-          list); orphan sessions show it always so the "this is reclaimable"
-          affordance survives. Mirrors Settings > Manage Sessions. */}
+          list); unbound sessions show it always because they have no row
+          navigation target. Every path still requires confirmation. */}
       <span className={ROW_TRAILING_GUTTER_CLS}>
         <button
           type="button"
@@ -816,6 +817,13 @@ export function ResourceUsageStatusSegment({
   const popoverBodyRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyFocusFrameRef = useRef<number | null>(null)
   const mountedRef = useMountedRef()
+  const handleCleanupSessionsLoaded = useCallback((nextSessions: DaemonSession[]): void => {
+    setSessions(nextSessions)
+    setSessionsError(false)
+  }, [])
+  const sessionCleanupReview = useResourceSessionCleanupReview({
+    onSessionsLoaded: handleCleanupSessionsLoaded
+  })
 
   const cancelPopoverBodyFocusFrame = useCallback((): void => {
     if (popoverBodyFocusFrameRef.current === null) {
@@ -997,9 +1005,9 @@ export function ResourceUsageStatusSegment({
     ]
   )
 
-  // Why: orphan detection needs daemon inventory. Keep it open-only so the
+  // Why: unbound detection needs daemon inventory. Keep it open-only so the
   // closed badge never reintroduces a background global session scan.
-  const orphanCount = useMemo(() => {
+  const unboundCount = useMemo(() => {
     if (!open || !workspaceSessionReady) {
       return 0
     }
@@ -1097,49 +1105,11 @@ export function ResourceUsageStatusSegment({
     queueMicrotask(() => openModal('workspace-cleanup'))
   }, [openModal])
 
-  const handleKillSession = useCallback(
-    (session: UnifiedSessionRow): void => {
-      // Why: orphan sessions have no tab in this Orca instance, so there's
-      // no "unsaved work in that pane" the user could lose by killing them.
-      // Skip the confirm dialog for orphans and fire the kill straight away
-      // (with optimistic removal) — same UX as a one-off kill from the
-      // bulk "Kill orphan terminals" button. Bound sessions still confirm.
-      if (!session.bound) {
-        setSessions((prev) => prev.filter((s) => s.id !== session.sessionId))
-        // Why: await the kill before refreshing — otherwise the optimistic
-        // removal races a refresh that re-reads the daemon list before the
-        // kill lands and re-adds the row that was just removed.
-        void (async () => {
-          try {
-            await window.api.pty.kill(session.sessionId)
-          } catch {
-            /* already dead */
-          }
-          await refreshSessions()
-        })()
-        return
-      }
-      setKillConfirm(session)
-    },
-    [refreshSessions]
-  )
-
-  const handleKillOrphans = useCallback(async () => {
-    if (!workspaceSessionReady) {
-      return
-    }
-    const bound = buildResourceSessionBindingIndex(resourceSessionBindings).boundPtyIds
-    const orphans = sessions.filter((s) => !bound.has(s.id))
-    if (orphans.length === 0) {
-      return
-    }
-    // Why: optimistic removal so rows disappear immediately instead of waiting
-    // for the next explicit daemon-side list refresh.
-    const orphanIds = new Set(orphans.map((s) => s.id))
-    setSessions((prev) => prev.filter((s) => !orphanIds.has(s.id)))
-    await Promise.allSettled(orphans.map((s) => window.api.pty.kill(s.id)))
-    void refreshSessions()
-  }, [sessions, resourceSessionBindings, workspaceSessionReady, refreshSessions])
+  const handleKillSession = useCallback((session: UnifiedSessionRow): void => {
+    // Why: renderer binding absence is not process-idle evidence. Individual
+    // unbound rows use the same explicit force-kill confirmation as bound rows.
+    setKillConfirm(session)
+  }, [])
 
   const runKillConfirmed = useCallback(async () => {
     if (!killConfirm) {
@@ -1222,8 +1192,8 @@ export function ResourceUsageStatusSegment({
                   <Terminal className="size-3 text-muted-foreground" />
                   <span className="text-[11px] tabular-nums text-muted-foreground">
                     {triggerSessionCount}
-                    {orphanCount > 0 && (
-                      <span className="text-yellow-500 ml-0.5">({orphanCount})</span>
+                    {unboundCount > 0 && (
+                      <span className="text-yellow-500 ml-0.5">({unboundCount})</span>
                     )}
                   </span>
                 </>
@@ -1435,18 +1405,18 @@ export function ResourceUsageStatusSegment({
                 </TooltipContent>
               </Tooltip>
             </div>
-            {orphanCount > 0 && (
+            {unboundCount > 0 && (
               <span className="shrink-0 text-yellow-500" aria-live="polite">
-                {orphanCount === 1
+                {unboundCount === 1
                   ? translate(
                       'auto.components.status.bar.ResourceUsageStatusSegment.30ff2c3c31',
-                      '{{value0}} orphan',
-                      { value0: orphanCount }
+                      '{{value0}} unbound',
+                      { value0: unboundCount }
                     )
                   : translate(
                       'auto.components.status.bar.ResourceUsageStatusSegment.b8f4a2c1d0e3',
-                      '{{value0}} orphans',
-                      { value0: orphanCount }
+                      '{{value0}} unbound',
+                      { value0: unboundCount }
                     )}
               </span>
             )}
@@ -1456,7 +1426,7 @@ export function ResourceUsageStatusSegment({
         {/* Why: pin body to a constant 420px so the popover surface doesn't
             jump as worktrees expand/collapse or as sessions come and go. The
             inner tree owns its own scroll. The footer renders below this
-            shell when orphan-bulk-kill is available. */}
+            shell when unbound-session review is available. */}
         <div
           ref={setPopoverBodyNode}
           tabIndex={-1}
@@ -1588,22 +1558,22 @@ export function ResourceUsageStatusSegment({
               aria-hidden
             />
           </button>
-          {orphanCount > 0 ? (
+          {unboundCount > 0 ? (
             <button
               type="button"
-              onClick={() => void handleKillOrphans()}
+              onClick={() => void sessionCleanupReview.review()}
               className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
             >
-              {orphanCount === 1
+              {unboundCount === 1
                 ? translate(
                     'auto.components.status.bar.ResourceUsageStatusSegment.c7e3b1a0d9f2',
-                    'Kill {{value0}} orphan terminal',
-                    { value0: orphanCount }
+                    'Review {{value0}} unbound terminal',
+                    { value0: unboundCount }
                   )
                 : translate(
                     'auto.components.status.bar.ResourceUsageStatusSegment.d8f4c2b1e0a3',
-                    'Kill {{value0}} orphan terminals',
-                    { value0: orphanCount }
+                    'Review {{value0}} unbound terminals',
+                    { value0: unboundCount }
                   )}
             </button>
           ) : null}
@@ -1690,6 +1660,12 @@ export function ResourceUsageStatusSegment({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ResourceSessionCleanupDialog
+        state={sessionCleanupReview.state}
+        onClose={sessionCleanupReview.close}
+        onRetry={() => void sessionCleanupReview.retry()}
+        onConfirm={() => void sessionCleanupReview.confirm()}
+      />
       <DaemonActionDialog api={daemonActions} />
     </Popover>
   )
