@@ -2933,7 +2933,7 @@
             "1b24a32d3a": "메모리",
             "298f4be7f2": "CPU",
             "2aa2de6cb9": "이름",
-            "30ff2c3c31": "고아 {{value0}}개",
+            "30ff2c3c31": "바인딩되지 않은 터미널 {{value0}}개",
             "6449a95c78": "Orca 추적 프로세스가 사용 중인 이 시스템의 물리적 RAM 크기입니다.",
             "e7ccce7e87": "시스템 RAM",
             "9e2525c89f": "Orca가 보유한 상주 메모리와 각 작업 트리 terminals 아래의 프로세스입니다.",
@@ -2967,9 +2967,9 @@
             "d406915b78": "렌더러",
             "81cd37af99": "기본",
             "fa6d36758d": "세션 {{value0}} 종료",
-            "b8f4a2c1d0e3": "고아 {{value0}}개",
-            "c7e3b1a0d9f2": "고아 terminal {{value0}}개 종료",
-            "d8f4c2b1e0a3": "고아 terminals {{value0}}개 종료",
+            "b8f4a2c1d0e3": "바인딩되지 않은 터미널 {{value0}}개",
+            "c7e3b1a0d9f2": "바인딩되지 않은 터미널 {{value0}}개 검토",
+            "d8f4c2b1e0a3": "바인딩되지 않은 터미널 {{value0}}개 검토",
             "e9a5d3c2b1f0": "{{value0}}을(를) 종료할까요?"
           },
           "SshStatusSegment": {
@@ -3248,7 +3248,10 @@
             "killOne": "Kill 1 inactive terminal",
             "killMany": "Kill {{value0}} inactive terminals",
             "close": "Close",
-            "retry": "Retry"
+            "retry": "Retry",
+            "errorSessionNotReady": "작업 공간 세션을 아직 불러오는 중입니다.",
+            "errorReview": "현재 터미널 활동을 확인할 수 없습니다.",
+            "errorCleanup": "비활성 터미널을 정리할 수 없습니다."
           }
         }
       },

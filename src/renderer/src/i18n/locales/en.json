@@ -2933,7 +2933,7 @@
             "1b24a32d3a": "Memory",
             "298f4be7f2": "CPU",
             "2aa2de6cb9": "Name",
-            "30ff2c3c31": "{{value0}} orphan",
+            "30ff2c3c31": "{{value0}} unbound terminal",
             "6449a95c78": "How much of this machine's physical RAM the Orca-tracked processes are sitting on.",
             "e7ccce7e87": "of system RAM",
             "9e2525c89f": "Resident memory held by Orca plus the processes under each worktree's terminals.",
@@ -2967,9 +2967,9 @@
             "d406915b78": "Renderer",
             "81cd37af99": "Main",
             "fa6d36758d": "Kill session {{value0}}",
-            "b8f4a2c1d0e3": "{{value0}} orphans",
-            "c7e3b1a0d9f2": "Kill {{value0}} orphan terminal",
-            "d8f4c2b1e0a3": "Kill {{value0}} orphan terminals",
+            "b8f4a2c1d0e3": "{{value0}} unbound terminals",
+            "c7e3b1a0d9f2": "Review {{value0}} unbound terminal",
+            "d8f4c2b1e0a3": "Review {{value0}} unbound terminals",
             "e9a5d3c2b1f0": "Kill {{value0}}?"
           },
           "SshStatusSegment": {
@@ -3248,7 +3248,10 @@
             "killOne": "Kill 1 inactive terminal",
             "killMany": "Kill {{value0}} inactive terminals",
             "close": "Close",
-            "retry": "Retry"
+            "retry": "Retry",
+            "errorSessionNotReady": "Workspace sessions are still loading.",
+            "errorReview": "Unable to check current terminal activity.",
+            "errorCleanup": "Unable to clean up inactive terminals."
           }
         }
       },

@@ -2933,7 +2933,7 @@
             "1b24a32d3a": "记忆",
             "298f4be7f2": "中央处理器",
             "2aa2de6cb9": "姓名",
-            "30ff2c3c31": "{{value0}} 个孤立项",
+            "30ff2c3c31": "{{value0}} 个未绑定终端",
             "6449a95c78": "Orca 跟踪的进程占用了该计算机的物理 RAM 的大小。",
             "e7ccce7e87": "系统内存",
             "9e2525c89f": "Orca 持有的常驻内存加上每个工作树终端下的进程。",
@@ -2967,9 +2967,9 @@
             "d406915b78": "渲染器",
             "81cd37af99": "主进程",
             "fa6d36758d": "终止会话 {{value0}}",
-            "b8f4a2c1d0e3": "{{value0}} 个孤立项",
-            "c7e3b1a0d9f2": "终止 {{value0}} 个孤立终端",
-            "d8f4c2b1e0a3": "终止 {{value0}} 个孤立终端",
+            "b8f4a2c1d0e3": "{{value0}} 个未绑定终端",
+            "c7e3b1a0d9f2": "检查 {{value0}} 个未绑定终端",
+            "d8f4c2b1e0a3": "检查 {{value0}} 个未绑定终端",
             "e9a5d3c2b1f0": "终止 {{value0}}？"
           },
           "SshStatusSegment": {
@@ -3248,7 +3248,10 @@
             "killOne": "Kill 1 inactive terminal",
             "killMany": "Kill {{value0}} inactive terminals",
             "close": "Close",
-            "retry": "Retry"
+            "retry": "Retry",
+            "errorSessionNotReady": "工作区会话仍在加载中。",
+            "errorReview": "无法检查当前终端活动。",
+            "errorCleanup": "无法清理非活动终端。"
           }
         }
       },

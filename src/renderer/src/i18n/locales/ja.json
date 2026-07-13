@@ -2933,7 +2933,7 @@
             "1b24a32d3a": "メモリ",
             "298f4be7f2": "CPU",
             "2aa2de6cb9": "名前",
-            "30ff2c3c31": "{{value0}} 件の孤立",
+            "30ff2c3c31": "未バインドのターミナル {{value0}} 件",
             "6449a95c78": "Orca が追跡するプロセスがこのマシンの物理 RAM にどれだけの量を配置しているか。",
             "e7ccce7e87": "システムRAMの",
             "9e2525c89f": "Orca が保持する常駐メモリと各ワークツリーの terminals 下のプロセス。",
@@ -2967,9 +2967,9 @@
             "d406915b78": "レンダラー",
             "81cd37af99": "主要",
             "fa6d36758d": "セッション {{value0}} を強制終了",
-            "b8f4a2c1d0e3": "{{value0}} 件の孤立",
-            "c7e3b1a0d9f2": "孤立した terminal {{value0}} 件を終了",
-            "d8f4c2b1e0a3": "孤立した terminals {{value0}} 件を終了",
+            "b8f4a2c1d0e3": "未バインドのターミナル {{value0}} 件",
+            "c7e3b1a0d9f2": "未バインドのターミナル {{value0}} 件を確認",
+            "d8f4c2b1e0a3": "未バインドのターミナル {{value0}} 件を確認",
             "e9a5d3c2b1f0": "{{value0}} を終了しますか？"
           },
           "SshStatusSegment": {
@@ -3248,7 +3248,10 @@
             "killOne": "Kill 1 inactive terminal",
             "killMany": "Kill {{value0}} inactive terminals",
             "close": "Close",
-            "retry": "Retry"
+            "retry": "Retry",
+            "errorSessionNotReady": "ワークスペースのセッションを読み込み中です。",
+            "errorReview": "現在のターミナルのアクティビティを確認できません。",
+            "errorCleanup": "非アクティブなターミナルをクリーンアップできません。"
           }
         }
       },

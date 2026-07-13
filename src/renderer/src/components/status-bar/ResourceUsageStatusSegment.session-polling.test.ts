@@ -31,5 +31,7 @@ describe('ResourceUsageStatusSegment session polling', () => {
     expect(source).not.toContain('if (!session.bound)')
     expect(source).not.toContain('Promise.allSettled(orphans.map')
     expect(source).not.toContain('window.api.pty.kill(session.sessionId)')
+    expect(source).toContain("'{{value0}} unbound terminal'")
+    expect(source).toContain("'{{value0}} unbound terminals'")
   })
 })

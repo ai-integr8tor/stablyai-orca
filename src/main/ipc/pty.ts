@@ -4959,12 +4959,21 @@ export function registerPtyHandlers(
     runtime?.clearHeadlessTerminalBuffer(args.id).catch(() => {})
   })
 
-  const shutdownPty = async (args: { id: string; keepHistory?: boolean }): Promise<void> => {
+  const shutdownPty = async (args: {
+    id: string
+    keepHistory?: boolean
+    disconnectedSshPolicy: 'tombstone' | 'fail-closed'
+  }): Promise<void> => {
     const ownedConnectionId = ptyOwnership.get(args.id)
     const parsedSshId = ownedConnectionId === undefined ? parseAppSshPtyId(args.id) : null
     const connectionId = ownedConnectionId ?? parsedSshId?.connectionId
     const provider = connectionId ? sshProviders.get(connectionId) : tryGetProviderForPty(args.id)
     if (!provider && connectionId) {
+      if (args.disconnectedSshPolicy === 'fail-closed') {
+        // Why: guarded cleanup cannot prove a disconnected remote PTY stopped;
+        // tombstoning it would report success while the agent may still run.
+        throw new Error('PTY provider disconnected before guarded shutdown')
+      }
       // Why: detached SSH PTYs intentionally keep ownership after their
       // provider is unregistered; hydrated app-scoped ids can also arrive
       // before ownership is rebuilt. Tombstone instead of falling back local.
@@ -5001,7 +5010,7 @@ export function registerPtyHandlers(
   }
 
   ipcMain.handle('pty:kill', async (_event, args: { id: string; keepHistory?: boolean }) =>
-    shutdownPty(args)
+    shutdownPty({ ...args, disconnectedSshPolicy: 'tombstone' })
   )
 
   ipcMain.handle('pty:inspectInactiveCleanup', async (_event, args: { ids?: unknown }) => {
@@ -5032,7 +5041,11 @@ export function registerPtyHandlers(
             return { id, outcome: 'gone' }
           }
           try {
-            await shutdownPty({ id, keepHistory: false })
+            await shutdownPty({
+              id,
+              keepHistory: false,
+              disconnectedSshPolicy: 'fail-closed'
+            })
             return { id, outcome: 'killed' }
           } catch {
             return { id, outcome: 'failed' }

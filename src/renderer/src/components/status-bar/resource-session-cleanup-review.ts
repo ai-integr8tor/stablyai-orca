@@ -29,6 +29,11 @@ export type ResourceSessionCleanupResult = {
   failedCount: number
 }
 
+export type ResourceSessionCleanupErrorCode =
+  | 'session-not-ready'
+  | 'review-failed'
+  | 'cleanup-failed'
+
 export type ResourceSessionCleanupReviewState =
   | { phase: 'closed' }
   | { phase: 'reviewing' }
@@ -42,7 +47,7 @@ export type ResourceSessionCleanupReviewState =
   | {
       phase: 'error'
       operation: 'review' | 'cleanup'
-      message: string
+      code: ResourceSessionCleanupErrorCode
       review?: ResourceSessionCleanupReview
     }
 
@@ -75,6 +80,16 @@ export async function reviewResourceSessionCleanup(
     // are excluded using current renderer ownership, not click-time state.
     const { boundPtyIds } = requireReadyBindingIndex(dependencies.readBindings)
     const reviewedIds = sessions.map((session) => session.id).filter((id) => !boundPtyIds.has(id))
+    if (reviewedIds.length === 0) {
+      return {
+        reviewedIds: [],
+        inspections: [],
+        inactiveIds: [],
+        activeCount: 0,
+        unknownCount: 0,
+        goneCount: 0
+      }
+    }
     const returned = await dependencies.inspectInactiveCleanup(reviewedIds)
     const returnedById = new Map(returned.map((inspection) => [inspection.id, inspection]))
     const inspections = reviewedIds.map(
@@ -100,6 +115,19 @@ export async function reviewResourceSessionCleanup(
     }
     throw new Error(RESOURCE_SESSION_CLEANUP_REVIEW_ERROR)
   }
+}
+
+export function getResourceSessionCleanupErrorCode(
+  error: unknown,
+  operation: 'review' | 'cleanup'
+): ResourceSessionCleanupErrorCode {
+  if (
+    error instanceof Error &&
+    error.message === RESOURCE_SESSION_CLEANUP_SESSION_NOT_READY_ERROR
+  ) {
+    return 'session-not-ready'
+  }
+  return operation === 'review' ? 'review-failed' : 'cleanup-failed'
 }
 
 function summarizeOutcomes(

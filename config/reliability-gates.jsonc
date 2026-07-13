@@ -511,7 +511,7 @@
         "daemon",
         "ssh"
       ],
-      "coverageNotes": "Deterministic macOS tests cover shared shell classification, grouped provider inventory, local/daemon guarded shutdown, parsed and owned disconnected-SSH protection, renderer reconciliation, confirmation UI, and removal of the former direct-kill bypass. An isolated built-Electron smoke test creates real unbound daemon sessions and proves cleanup kills an idle shell while an active process survives and accepts later input. Shell-name fixtures include POSIX, PowerShell, CMD, and Git Bash forms, but live Linux, Windows, WSL, and SSH process evidence remains uncollected.",
+      "coverageNotes": "Deterministic macOS tests cover shared shell classification, grouped provider inventory, local/daemon guarded shutdown, parsed and owned disconnected-SSH protection including a disconnect after inspection, renderer reconciliation, confirmation UI, and removal of the former direct-kill bypass. An isolated built-Electron smoke test creates real unbound daemon sessions and proves cleanup kills an idle shell while an active process survives and accepts later input. Shell-name fixtures include POSIX, PowerShell, CMD, and Git Bash forms, but live Linux, Windows, WSL, and SSH process evidence remains uncollected.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/issues/8459",
         "https://github.com/stablyai/orca/issues/8457"
@@ -552,6 +552,7 @@
           "assertions": [
             "guarded cleanup kills only the freshly confirmed idle shell and protects the active agent",
             "a disconnected app-scoped SSH ID remains protected without falling back to the local provider",
+            "an SSH provider that disconnects after inspection fails closed instead of tombstoning the remote session",
             "reviewed sessions are revalidated at cleanup time, gone sessions skip shutdown, and independent shutdown failures settle"
           ]
         },
@@ -592,7 +593,7 @@
           "assertions": [
             "real unbound daemon sessions become distinguishable as inactive shell and active foreground process",
             "guarded cleanup kills only the idle shell while the active session remains present",
-            "the protected active session accepts and renders later terminal input"
+            "the protected active session executes later input and emits a split command-output marker that typed echo cannot satisfy"
           ]
         }
       ],
@@ -603,8 +604,8 @@
           "platform": "macos",
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/shared/pty-inactive-cleanup.test.ts src/main/ipc/pty-inactive-cleanup.test.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.rows.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts src/renderer/src/components/status-bar/resource-session-bindings.test.ts src/renderer/src/components/status-bar/resource-session-count-selector.test.ts src/renderer/src/components/status-bar/mergeSnapshotAndSessions.test.ts",
           "result": "passed",
-          "durationSeconds": 4.94,
-          "summary": "11 focused shared, main IPC, renderer coordinator, hook, dialog, binding, merge, and source-regression files passed with 349 tests."
+          "durationSeconds": 7.92,
+          "summary": "11 focused shared, main IPC, renderer coordinator, hook, dialog, binding, merge, and source-regression files passed with 353 tests."
         },
         {
           "date": "2026-07-13",
@@ -612,8 +613,8 @@
           "platform": "macos",
           "command": "ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/resource-session-unbound-cleanup-safety.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
           "result": "passed",
-          "durationSeconds": 46.2,
-          "summary": "An isolated E2E-mode Electron build passed one real daemon-backed cleanup smoke test in 6.4 seconds after a 33.84-second renderer build. The idle unbound shell was killed, the active unbound session was protected, and that session accepted later input."
+          "durationSeconds": 60,
+          "summary": "An isolated E2E-mode Electron build passed one real daemon-backed cleanup smoke test in 7.1 seconds after rebuilding current main, preload, and renderer bundles. The idle unbound shell was killed, the active unbound session was protected, and that session executed later input proven by a split marker absent from the typed command echo."
         },
         {
           "date": "2026-07-13",
@@ -621,8 +622,8 @@
           "platform": "macos",
           "command": "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/resource-session-unbound-cleanup-safety.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
           "result": "passed",
-          "durationSeconds": 6,
-          "summary": "The same isolated built-Electron smoke test passed again without rebuilding; the test body completed in 5.3 seconds."
+          "durationSeconds": 11.6,
+          "summary": "The strengthened split-marker smoke test passed again without rebuilding; the test body completed in 10.8 seconds."
         }
       ],
       "runtimeBudget": {
@@ -635,7 +636,7 @@
       },
       "redGreenEvidence": {
         "status": "partial",
-        "evidence": "RED runs first failed because the classifier, guarded handlers, coordinator, hook, dialog, and safe Resource Manager wiring did not exist. The prior source also contained an individual unbound-row confirmation bypass and a Promise.allSettled bulk pty.kill map. Self-review then reproduced a dismissed-review late-result reopen before the operation-generation guard. The consolidated GREEN run passed 11 files and 349 tests in 4.94 seconds, followed by two passing built-Electron real-daemon smoke runs; packaged and cross-platform red/green artifacts remain gaps."
+        "evidence": "RED runs first failed because the classifier, guarded handlers, coordinator, hook, dialog, and safe Resource Manager wiring did not exist. The prior source also contained an individual unbound-row confirmation bypass and a Promise.allSettled bulk pty.kill map. Self-review then reproduced a dismissed-review late-result reopen and an SSH provider disconnect after inspection before the respective generation and fail-closed guards. The consolidated GREEN run passed 11 files and 353 tests in 7.92 seconds, followed by passing built-Electron real-daemon smoke runs; packaged and cross-platform red/green artifacts remain gaps."
       },
       "performanceBudget": {
         "required": false,
