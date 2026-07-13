@@ -127,6 +127,10 @@ import { acquireWebviewsDragPassthrough } from '../browser-pane/webview-registry
 import { recordCreatedTerminalPaneSplit } from './terminal-pane-split-completion'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { seedStartupSessionRestoredBanner } from './session-restored-banner-pane-state'
+import {
+  clearTerminalFontSizeOverride,
+  hydrateTerminalFontSizeOverride
+} from './terminal-font-size-overrides'
 
 export function recordRuntimeCreatedTerminalPaneSplit(
   createdPane: unknown,
@@ -794,6 +798,7 @@ export function useTerminalPaneLifecycle({
       // Split actions so the new PTY inherits the source pane's live cwd.
       // Split-pane CWD inheritance — see docs/ssh-split-pane-inherit-cwd.md.
       onPaneCreated: (pane, spawnHints) => {
+        hydrateTerminalFontSizeOverride(pane, paneFontSizesRef.current)
         // Install mode 2031 parser handlers before PTY attach so the child's
         // initial CSI ?2031h (sent at startup) is captured.
         const mode2031Disposables = installMode2031Handlers({
@@ -1295,6 +1300,7 @@ export function useTerminalPaneLifecycle({
           clearTerminalPaneUnread(paneKey)
           useAppStore.getState().dropAgentStatus(paneKey)
           useAppStore.getState().clearPaneForegroundAgent(paneKey)
+          clearTerminalFontSizeOverride(leafId)
         }
         if (transport) {
           if (isDetachedToTab) {
@@ -1721,6 +1727,23 @@ export function useTerminalPaneLifecycle({
       const tabStillExists = Boolean(
         currentWorktreeTabs?.some((candidate) => candidate.id === tabId)
       )
+      if (!tabStillExists) {
+        for (const pane of manager.getPanes()) {
+          const ptyId = paneTransports.get(pane.id)?.getPtyId() ?? null
+          // Why: a mirrored replacement can take ownership during this unmount;
+          // preserve its zoom just as the transport path preserves its PTY.
+          if (
+            !shouldDetachPaneTransportOnUnmount({
+              tabStillExists,
+              tabId,
+              ptyId,
+              worktreeTabs: currentWorktreeTabs
+            })
+          ) {
+            clearTerminalFontSizeOverride(pane.leafId)
+          }
+        }
+      }
       unregisterRuntimeTab()
       if (resizeRaf !== null) {
         cancelAnimationFrame(resizeRaf)
