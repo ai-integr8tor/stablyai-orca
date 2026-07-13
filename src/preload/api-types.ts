@@ -2843,6 +2843,7 @@ export type PreloadApi = {
         scrollToBottomIfOutputSinceLastView?: boolean
       }) => void
     ) => () => void
+    openOrcaDeepLink: (url: string) => void
     onFocusEditorTab: (
       callback: (data: { tabId: string; worktreeId: string }) => void
     ) => () => void

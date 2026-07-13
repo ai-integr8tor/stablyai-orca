@@ -3557,6 +3557,11 @@ const api = {
       ipcRenderer.on('ui:focusTerminal', listener)
       return () => ipcRenderer.removeListener('ui:focusTerminal', listener)
     },
+    // Forward an in-terminal orca:// deep-link click to the main router, which
+    // focuses the target tab via the same action as `terminal focus`.
+    openOrcaDeepLink: (url: string): void => {
+      ipcRenderer.send('ui:openOrcaDeepLink', url)
+    },
     onFocusEditorTab: (
       callback: (data: { tabId: string; worktreeId: string }) => void
     ): (() => void) => {
