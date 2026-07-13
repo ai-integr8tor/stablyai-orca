@@ -42,7 +42,7 @@ async function inspectProviderTargets(
   provider: PtyInactiveCleanupProvider,
   ids: string[]
 ): Promise<Map<string, PtyCleanupSafety>> {
-  const safetyById = new Map(ids.map((id) => [id, 'unknown' as const]))
+  const safetyById = new Map<string, PtyCleanupSafety>(ids.map((id) => [id, 'unknown']))
   let liveIds: Set<string>
   try {
     liveIds = new Set((await provider.listProcesses()).map((process) => process.id))
