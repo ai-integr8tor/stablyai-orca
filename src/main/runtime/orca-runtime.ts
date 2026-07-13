@@ -14646,6 +14646,7 @@ export class OrcaRuntimeService {
     displayName?: string
     telemetrySource?: WorkspaceCreateTelemetrySource
     workspaceStatus?: string
+    claudeAccountId?: string | null
     manualOrder?: number
     sparseCheckout?: { directories: string[]; presetId?: string }
     pushTarget?: GitPushTarget
@@ -14667,6 +14668,7 @@ export class OrcaRuntimeService {
     }
 
     const repo = await this.resolveRepoSelector(args.repoSelector)
+    this.assertCurrentManagedClaudeAccountPins([{ claudeAccountId: args.claudeAccountId }])
     const createSettings = this.store.getSettings()
     const requestedAgent = args.startupAgent ?? args.createdWithAgent
     const requestedAgentEnabled =
@@ -14704,6 +14706,7 @@ export class OrcaRuntimeService {
       const settings = createSettings
       const instanceId = randomUUID()
       const worktreeId = getRuntimeFolderWorkspaceInstanceId(repo, instanceId)
+      const claudeAccountId = this.normalizeManagedClaudeAccountPinForCreate(args.claudeAccountId)
       const meta = this.store.setWorktreeMeta(worktreeId, {
         instanceId,
         ...getProjectHostSetupWorktreeMeta(this.store.getProjectHostSetups?.() ?? [], repo),
@@ -14742,7 +14745,8 @@ export class OrcaRuntimeService {
         ...(effectiveCreatedWithAgent ? { createdWithAgent: effectiveCreatedWithAgent } : {}),
         ...(args.comment !== undefined ? { comment: args.comment } : {}),
         ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
-        ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
+        ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {}),
+        ...(claudeAccountId !== undefined ? { claudeAccountId } : {})
       })
       const worktree = mergeRuntimeFolderWorkspace(repo, worktreeId, meta)
       this.invalidateResolvedWorktreeCache()
@@ -15268,6 +15272,7 @@ export class OrcaRuntimeService {
       : shouldSetDisplayName(effectiveRequestedName, branchName, effectiveSanitizedName)
         ? { displayName: effectiveRequestedName }
         : {}
+    const claudeAccountId = this.normalizeManagedClaudeAccountPinForCreate(args.claudeAccountId)
     const meta = this.store.setWorktreeMeta(worktreeId, {
       // Why: worktree IDs are path-derived. If a path is deleted outside Orca
       // and later recreated, creation must mint a fresh instance identity so
@@ -15323,7 +15328,8 @@ export class OrcaRuntimeService {
       ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
       ...(args.comment !== undefined ? { comment: args.comment } : {}),
       ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
-      ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
+      ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {}),
+      ...(claudeAccountId !== undefined ? { claudeAccountId } : {})
     })
     const worktree = mergeWorktree(repo.id, created, meta)
     const {
@@ -15636,6 +15642,7 @@ export class OrcaRuntimeService {
       comment?: string
       displayName?: string
       workspaceStatus?: string
+      claudeAccountId?: string | null
       manualOrder?: number
       sparseCheckout?: { directories: string[]; presetId?: string }
       pushTarget?: GitPushTarget
@@ -15691,6 +15698,7 @@ export class OrcaRuntimeService {
         ...(args.linkedGiteaPR != null ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
         ...(args.pushTarget ? { pushTarget: args.pushTarget } : {}),
         ...(args.workspaceStatus ? { workspaceStatus: args.workspaceStatus as never } : {}),
+        ...(args.claudeAccountId !== undefined ? { claudeAccountId: args.claudeAccountId } : {}),
         ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
         ...(args.createdWithAgent ? { createdWithAgent: args.createdWithAgent } : {}),
         ...(args.pendingFirstAgentMessageRename === true
@@ -16384,7 +16392,7 @@ export class OrcaRuntimeService {
     return { base, behind: drift.behind, recentSubjects }
   }
 
-  async updateManagedWorktreeMeta(
+  private async prepareManagedWorktreeMetaUpdate(
     worktreeSelector: string,
     updates: Omit<Partial<WorktreeMeta>, 'pushTarget'> & {
       pushTarget?: GitPushTarget | null
@@ -16399,6 +16407,7 @@ export class OrcaRuntimeService {
     }
     const worktree = await this.resolveWorktreeSelector(worktreeSelector)
     const { lineage, ...metaUpdates } = updates
+    this.assertCurrentManagedClaudeAccountPins([metaUpdates])
     const shouldClearPushTarget =
       Object.prototype.hasOwnProperty.call(metaUpdates, 'pushTarget') &&
       metaUpdates.pushTarget === null
@@ -16419,9 +16428,67 @@ export class OrcaRuntimeService {
       // pushTarget:null is an explicit request to remove persisted target metadata.
       persistedMetaUpdates.pushTarget = undefined
     }
+    return { worktree, lineage, persistedMetaUpdates }
+  }
+
+  private assertCurrentManagedClaudeAccountPins(
+    updates: readonly { claudeAccountId?: string | null }[]
+  ): void {
+    const requestedIds = new Set(
+      updates
+        .map((entry) => entry.claudeAccountId)
+        .filter((accountId): accountId is string => typeof accountId === 'string')
+    )
+    if (requestedIds.size === 0) {
+      return
+    }
+    const currentIds = new Set(
+      this.requireAccountServices()
+        .claudeAccounts.listAccounts()
+        .accounts.map((account) => account.id)
+    )
+    for (const accountId of requestedIds) {
+      if (!currentIds.has(accountId)) {
+        throw new Error('That Claude account no longer exists.')
+      }
+    }
+  }
+
+  private normalizeManagedClaudeAccountPinForCreate(
+    accountId: string | null | undefined
+  ): string | null | undefined {
+    if (typeof accountId !== 'string') {
+      return accountId
+    }
+    return this.requireAccountServices()
+      .claudeAccounts.listAccounts()
+      .accounts.some((account) => account.id === accountId)
+      ? accountId
+      : null
+  }
+
+  async updateManagedWorktreeMeta(
+    worktreeSelector: string,
+    updates: Omit<Partial<WorktreeMeta>, 'pushTarget'> & {
+      pushTarget?: GitPushTarget | null
+      lineage?: {
+        parentWorktree?: string
+        noParent?: boolean
+      }
+    }
+  ) {
+    if (!this.store) {
+      throw new Error('runtime_unavailable')
+    }
+    const { worktree, lineage, persistedMetaUpdates } = await this.prepareManagedWorktreeMetaUpdate(
+      worktreeSelector,
+      updates
+    )
+    let nextLineage: WorktreeLineage | null | undefined
+    let nextWorkspaceLineage: WorkspaceLineage | null | undefined
     if (lineage?.noParent === true) {
-      this.store.removeWorktreeLineage?.(worktree.id)
-      this.store.removeWorkspaceLineage?.(worktreeWorkspaceKey(worktree.id))
+      nextLineage = null
+      nextWorkspaceLineage = null
     } else if (lineage?.parentWorktree) {
       const parent = await this.resolveWorktreeSelector(lineage.parentWorktree)
 
@@ -16439,7 +16506,7 @@ export class OrcaRuntimeService {
         )
       }
       const createdAt = Date.now()
-      this.store.setWorktreeLineage(worktree.id, {
+      nextLineage = {
         worktreeId: worktree.id,
         worktreeInstanceId: worktree.instanceId,
         parentWorktreeId: parent.id,
@@ -16447,8 +16514,8 @@ export class OrcaRuntimeService {
         origin: 'manual',
         capture: { source: 'manual-action', confidence: 'explicit' },
         createdAt
-      })
-      this.store.setWorkspaceLineage?.({
+      }
+      nextWorkspaceLineage = {
         childWorkspaceKey: worktreeWorkspaceKey(worktree.id),
         childInstanceId: worktree.instanceId,
         parentWorkspaceKey: worktreeWorkspaceKey(parent.id),
@@ -16456,7 +16523,20 @@ export class OrcaRuntimeService {
         origin: 'manual',
         capture: { source: 'manual-action', confidence: 'explicit' },
         createdAt
-      })
+      }
+    }
+    // Why: lineage resolution can outlive account removal; revalidate after
+    // every await and before any synchronous lineage or metadata write.
+    this.assertCurrentManagedClaudeAccountPins([persistedMetaUpdates])
+    if (nextLineage === null) {
+      this.store.removeWorktreeLineage?.(worktree.id)
+    } else if (nextLineage) {
+      this.store.setWorktreeLineage?.(worktree.id, nextLineage)
+    }
+    if (nextWorkspaceLineage === null) {
+      this.store.removeWorkspaceLineage?.(worktreeWorkspaceKey(worktree.id))
+    } else if (nextWorkspaceLineage) {
+      this.store.setWorkspaceLineage?.(nextWorkspaceLineage)
     }
     this.store.setWorktreeMeta(worktree.id, stripOrcaProvenanceMetaUpdates(persistedMetaUpdates))
     // Why: unlike renderer-initiated optimistic updates, CLI callers need an
@@ -16464,6 +16544,37 @@ export class OrcaRuntimeService {
     this.invalidateResolvedWorktreeCache()
     this.notifyWorktreesChanged(worktree.repoId)
     return await this.showManagedWorktree(`id:${worktree.id}`)
+  }
+
+  async updateManagedWorktreesMeta(
+    entries: {
+      worktreeSelector: string
+      updates: Omit<Partial<WorktreeMeta>, 'pushTarget'> & {
+        pushTarget?: GitPushTarget | null
+      }
+    }[]
+  ): Promise<{ updated: number }> {
+    if (!this.store) {
+      throw new Error('runtime_unavailable')
+    }
+    // Why: resolve selectors and validate every account before the first write;
+    // a bad row must not leave a multi-select update partially persisted.
+    const prepared = await Promise.all(
+      entries.map((entry) =>
+        this.prepareManagedWorktreeMetaUpdate(entry.worktreeSelector, entry.updates)
+      )
+    )
+    this.assertCurrentManagedClaudeAccountPins(
+      prepared.map(({ persistedMetaUpdates }) => persistedMetaUpdates)
+    )
+    for (const { worktree, persistedMetaUpdates } of prepared) {
+      this.store.setWorktreeMeta(worktree.id, stripOrcaProvenanceMetaUpdates(persistedMetaUpdates))
+    }
+    this.invalidateResolvedWorktreeCache()
+    for (const repoId of new Set(prepared.map(({ worktree }) => worktree.repoId))) {
+      this.notifyWorktreesChanged(repoId)
+    }
+    return { updated: prepared.length }
   }
 
   persistManagedWorktreeSortOrder(orderedIds: string[]): { updated: number } {
