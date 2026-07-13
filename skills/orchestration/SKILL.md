@@ -109,7 +109,7 @@ orca orchestration reply --id <msg_id> --body <text> --json
 
 - The required return path overrides words such as "handoff." If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered. Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined. Never fall back to raw `terminal send`. Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route. Use `terminal send` only when no response is expected and ownership transfers, then stop monitoring.
 - `check --wait` returns one message at a time. If N workers may finish together, loop N times and dispatch newly ready tasks after each completion.
-- Group addresses include `@all`, `@idle`, `@claude`, `@codex`, `@opencode`, `@gemini`, `@droid`, `@grok`, and `@worktree:<id>`.
+- Group addresses include `@all`, `@idle`, `@claude`, `@codex`, `@opencode`, `@gemini`, `@droid`, `@grok`, `@cursor`, and `@worktree:<id>`.
 - Message types include `status`, `dispatch`, `worker_done`, `merge_ready`, `escalation`, `handoff`, `decision_gate`, and `heartbeat`.
 - Use group addresses only for messages that are genuinely useful to many terminals, such as `status` broadcasts or intentional fan-out questions. Do not send dispatch lifecycle messages to groups.
 - `worker_done` must target the concrete coordinator handle from the live preamble. It is completion authority for one dispatch; group fanout would create false lifecycle mail in unrelated terminals.
