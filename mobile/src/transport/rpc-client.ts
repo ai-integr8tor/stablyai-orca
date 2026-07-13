@@ -29,16 +29,18 @@ import {
 import { describeSocketEvent } from './socket-event-debug'
 import { isRpcResponse } from './rpc-response-shape'
 import { websocketPayloadToUint8 } from './websocket-payload-bytes'
+import { OrderedDialPass } from './ordered-endpoint-dial'
+import { redactedEndpoint } from './rpc-client-endpoint-redact'
+import { normalizePairingEndpoints } from './types'
+import {
+  rejectConnectWaiters as rejectAllConnectWaiters,
+  waitForConnectedState,
+  type ConnectWaiter
+} from './rpc-client-connect-waiters'
 
 type PendingRequest = {
   resolve: (response: RpcResponse) => void
   reject: (error: Error) => void
-}
-
-type ConnectWaiter = {
-  resolve: () => void
-  reject: (error: Error) => void
-  timeout: ReturnType<typeof setTimeout> | null
 }
 
 type SendRequestOptions = {
@@ -147,6 +149,14 @@ export type ConnectOptions = {
   // detailed connection log. Useful when 'Connecting…' hangs forever
   // (e.g. broken Tailscale route) and you need to see *where* it's stuck.
   onLog?: ConnectionLogSink
+  /** Preferred advertise order; defaults to `[endpoint]`. */
+  endpoints?: readonly string[]
+  /** Sticky reconnect hint only — never written into host.endpoint (KTD9). */
+  lastGoodEndpoint?: string | null
+  /** Per-endpoint open timeout; pair-time uses a shorter budget (KTD4). */
+  connectTimeoutMs?: number
+  /** Fires with the endpoint that completed auth — persist last-good via host-store. */
+  onDialSuccess?: (endpoint: string) => void
 }
 
 export function connect(
@@ -162,6 +172,12 @@ export function connect(
       : (optionsOrLegacy ?? {})
   const onStateChange = options.onStateChange
   const onLog = options.onLog
+  const onDialSuccess = options.onDialSuccess
+  const connectTimeoutMs = options.connectTimeoutMs ?? CONNECT_TIMEOUT_MS
+  const preferredEndpoints = normalizePairingEndpoints(endpoint, options.endpoints)
+  const dialPass = new OrderedDialPass()
+  dialPass.lastGoodEndpoint = options.lastGoodEndpoint?.trim() || null
+  let activeEndpoint = preferredEndpoints[0]!
   let logCounter = 0
   function emitLog(level: ConnectionLogLevel, message: string, detail?: string) {
     if (!onLog) {
@@ -223,13 +239,7 @@ export function connect(
   let stateEnteredAt = Date.now()
 
   function rejectConnectWaiters(reason: string) {
-    const error = new Error(reason)
-    for (const waiter of connectWaiters.splice(0)) {
-      if (waiter.timeout) {
-        clearTimeout(waiter.timeout)
-      }
-      waiter.reject(error)
-    }
+    rejectAllConnectWaiters(connectWaiters, reason)
   }
 
   function setState(next: ConnectionState) {
@@ -245,13 +255,15 @@ export function connect(
       to: next,
       dweltMs: dwelt,
       attempt: reconnectAttempt,
-      endpoint: redactedEndpoint(endpoint)
+      endpoint: redactedEndpoint(activeEndpoint)
     })
     if (next === 'connected') {
       lastConnectedAt = Date.now()
       // Why: a clean handshake proves the token is valid — clear the auth
       // retry budget so a future isolated rejection gets the full budget again.
       authRejectionCount = 0
+      dialPass.markConnected(activeEndpoint)
+      onDialSuccess?.(activeEndpoint)
       for (const waiter of connectWaiters.splice(0)) {
         if (waiter.timeout) {
           clearTimeout(waiter.timeout)
@@ -268,48 +280,14 @@ export function connect(
     }
   }
 
-  // Why: don't dump device tokens / full URLs into log scrolls; truncate to
-  // the host:port so reconnect lifecycles are still readable.
-  function redactedEndpoint(ep: string): string {
-    try {
-      const m = ep.match(/^wss?:\/\/([^/]+)/i)
-      return m ? m[1] : 'unknown'
-    } catch {
-      return 'unknown'
-    }
-  }
-
   function waitForConnected(timeoutMs?: number): Promise<void> {
-    if (state === 'connected') {
-      return Promise.resolve()
-    }
-    if (intentionallyClosed) {
-      return Promise.reject(new Error('Client closed'))
-    }
-    if (state === 'reconnecting' && reconnectAttempt >= GIVE_UP_AFTER_ATTEMPTS) {
-      // Why: past the retry cap the loop only trickles every 90s — callers
-      // must fail fast rather than hang on a host that's been unreachable
-      // for minutes. A trickle dial that succeeds flips state to 'connected'
-      // and later requests go through normally.
-      return Promise.reject(new Error('Connection retry limit reached'))
-    }
-    return new Promise((resolve, reject) => {
-      const waiter: ConnectWaiter = { resolve, reject, timeout: null }
-      if (timeoutMs !== undefined) {
-        // Why: explicit per-request timeouts must include offline/reconnect
-        // waiting, not only the RPC after the socket becomes connected.
-        waiter.timeout = setTimeout(
-          () => {
-            const index = connectWaiters.indexOf(waiter)
-            if (index !== -1) {
-              connectWaiters.splice(index, 1)
-            }
-            reject(new Error('Timed out while connecting to the remote Orca runtime.'))
-          },
-          Math.max(0, timeoutMs)
-        )
-      }
-      connectWaiters.push(waiter)
+    return waitForConnectedState({
+      state,
+      intentionallyClosed,
+      reconnectAttempt,
+      giveUpAfterAttempts: GIVE_UP_AFTER_ATTEMPTS,
+      waiters: connectWaiters,
+      timeoutMs
     })
   }
 
@@ -317,16 +295,27 @@ export function connect(
     return `rpc-${++requestCounter}-${Date.now()}`
   }
 
-  function openConnection() {
+  function openConnection(opts: { continuePass?: boolean } = {}) {
     if (intentionallyClosed) {
       return
+    }
+
+    if (!opts.continuePass) {
+      activeEndpoint = dialPass.begin(
+        preferredEndpoints,
+        dialPass.resolveOpenMode(lastConnectedAt, reconnectAttempt)
+      )
+    } else {
+      activeEndpoint = dialPass.activeOrFallback(preferredEndpoints)
     }
 
     const now = Date.now()
     wsConstructionCounter++
     console.log('[net] openConnection', {
       attempt: reconnectAttempt,
-      endpoint: redactedEndpoint(endpoint),
+      endpoint: redactedEndpoint(activeEndpoint),
+      passIndex: dialPass.index,
+      passLength: dialPass.order.length,
       // Why: process-poisoning diagnostic. If wsCount is high (e.g. >50)
       // and every recent open fails with 1006, suspect RN/OkHttp internal
       // pool corruption that only force-quit clears. Compare msSinceLast*
@@ -344,10 +333,10 @@ export function connect(
     emitLog(
       'info',
       reconnectAttempt > 0 ? `Reconnecting (attempt ${reconnectAttempt + 1})` : 'Opening WebSocket',
-      endpoint
+      activeEndpoint
     )
 
-    ws = new WebSocket(endpoint)
+    ws = new WebSocket(activeEndpoint)
     const openingWs = ws
     const ignoreStaleSocketEvent = (eventName: string): boolean => {
       if (ws === openingWs) {
@@ -371,19 +360,20 @@ export function connect(
       if (ws === openingWs && openingWs.readyState === WEBSOCKET_CONNECTING_STATE) {
         console.log('[net] connect-timeout fired (onopen never arrived)', {
           attempt: reconnectAttempt,
-          timeoutMs: CONNECT_TIMEOUT_MS
+          timeoutMs: connectTimeoutMs,
+          endpoint: redactedEndpoint(activeEndpoint)
         })
         emitLog(
           'error',
           'WebSocket connect timeout',
-          `No TCP/WS handshake within ${CONNECT_TIMEOUT_MS / 1000}s — endpoint unreachable?`
+          `No TCP/WS handshake within ${connectTimeoutMs / 1000}s — endpoint unreachable?`
         )
         openingWs.close()
         if (ws === openingWs) {
           handleSocketClosed(openingWs, { timedOut: true })
         }
       }
-    }, CONNECT_TIMEOUT_MS)
+    }, connectTimeoutMs)
 
     ws.onopen = () => {
       if (ignoreStaleSocketEvent('open')) {
@@ -665,7 +655,7 @@ export function connect(
         state,
         attempt: reconnectAttempt,
         intentionallyClosed,
-        endpoint: redactedEndpoint(endpoint),
+        endpoint: redactedEndpoint(activeEndpoint),
         constructToCloseMs,
         aliveMs,
         inboundIdleMs,
@@ -725,10 +715,32 @@ export function connect(
       timedOut: !!opts.timedOut,
       pendingCount: pending.size,
       streamCount: streamListeners.size,
-      attempt: reconnectAttempt
+      attempt: reconnectAttempt,
+      passIndex: dialPass.index,
+      passLength: dialPass.order.length
     })
-    emitLog('warn', 'WebSocket closed', 'Will attempt to reconnect')
     rejectAllPending('Connection interrupted')
+
+    // Why: open/timeout failures walk the ordered list inside one pass; auth
+    // failures never reach here via handleAuthRejection's pin path (KTD2/KTD3).
+    if (!dialPass.authPinnedEndpoint && dialPass.active) {
+      const nextEndpoint = dialPass.advance()
+      if (nextEndpoint) {
+        activeEndpoint = nextEndpoint
+        emitLog(
+          'warn',
+          'WebSocket closed',
+          `Trying next endpoint (${dialPass.index + 1}/${dialPass.order.length})`
+        )
+        openConnection({ continuePass: true })
+        return
+      }
+    }
+
+    // Why: only clear sticky on an in-pass dial miss — a live-session drop must
+    // keep last-good sticky for the next reconnect (KTD2).
+    dialPass.endPass()
+    emitLog('warn', 'WebSocket closed', 'Will attempt to reconnect')
     setState('reconnecting')
     scheduleReconnect()
   }
@@ -742,11 +754,13 @@ export function connect(
     activeBrowserScreencastRequestId = null
     pendingBrowserScreencastRequestId = null
     authRejectionCount++
+    // Why: token is host-scoped — auth fail must not advance to the next IP.
+    dialPass.pinAuth(activeEndpoint)
     if (authRejectionCount < AUTH_RETRY_BUDGET) {
       console.log('[net] auth rejected — retrying handshake', {
         attempt: authRejectionCount,
         budget: AUTH_RETRY_BUDGET,
-        endpoint: redactedEndpoint(endpoint)
+        endpoint: redactedEndpoint(activeEndpoint)
       })
       emitLog(
         'warn',
@@ -771,9 +785,14 @@ export function connect(
     }
     console.log('[net] auth rejected — budget exhausted, latching auth-failed', {
       attempt: authRejectionCount,
-      endpoint: redactedEndpoint(endpoint)
+      endpoint: redactedEndpoint(activeEndpoint)
     })
+    dialPass.clearAuthPin()
     intentionallyClosed = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     ws?.close()
     ws = null
     setState('auth-failed')
