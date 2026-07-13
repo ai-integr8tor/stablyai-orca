@@ -19,7 +19,8 @@ import {
   normalizeKeybinding,
   normalizeKeybindingArrayForAction,
   normalizeKeybindingListForAction,
-  normalizeKeybindingList
+  normalizeKeybindingList,
+  KEYBINDING_DEFINITIONS
 } from './keybindings'
 import type { KeybindingActionId, KeybindingPlatform } from './keybindings'
 import { ALL_TUI_AGENTS } from './tui-agent-display-names'
@@ -643,6 +644,20 @@ describe('keybindings', () => {
     expect(definition?.searchKeywords).toEqual(
       expect.arrayContaining(['sleeping', 'workspaces', 'filter'])
     )
+  })
+
+  describe('editor.goToDefinition keybinding', () => {
+    it('is defined in the editor scope with default Mod+B and F12', () => {
+      const entry = KEYBINDING_DEFINITIONS.find((d) => d.id === 'editor.goToDefinition')
+      expect(entry, 'editor.goToDefinition must exist').toBeDefined()
+      expect(entry!.scope).toBe('editor')
+      expect(entry!.defaultBindings.darwin).toContain('Mod+B')
+      expect(entry!.defaultBindings.darwin).toContain('F12')
+    })
+    it('does not introduce default keybinding conflicts', () => {
+      expect(findKeybindingConflicts('linux')).toEqual([])
+      expect(findKeybindingConflicts('darwin')).toEqual([])
+    })
   })
 
   it('defines floating workspace panel action metadata', () => {
