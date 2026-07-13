@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
 export const PAIRING_OFFER_VERSION = 2
+// Why: QR payloads grow with each endpoint; ECC M / 256px stays scannable at a
+// small ordered list (Tailscale + LAN + a couple customs).
+export const MAX_PAIRING_ENDPOINTS = 4
 const PairingScopeSchema = z.enum(['mobile', 'runtime'])
 const BASE64URL_16_PATTERN = /^[A-Za-z0-9_-]{16}$/
 const BASE64URL_43_PATTERN = /^[A-Za-z0-9_-]{43}$/
@@ -56,6 +59,9 @@ export function createPairingOfferSchema(now: () => number = () => Date.now()) {
     .object({
       v: z.literal(PAIRING_OFFER_VERSION),
       endpoint: z.string().min(1),
+      // Why: additive ordered failover list for new mobile clients. Old apps ignore
+      // unknown fields / only read `endpoint`, so keep `endpoint` as the primary.
+      endpoints: z.array(z.string().min(1)).min(1).optional(),
       deviceToken: z.string().min(1),
       // Why: the desktop's Curve25519 public key is pinned by the pairing
       // offer, while relayHostId is verified from its decoded bytes later.
