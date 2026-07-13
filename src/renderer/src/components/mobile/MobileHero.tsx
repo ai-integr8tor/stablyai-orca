@@ -45,8 +45,8 @@ type HeroFlowProps = {
   onRegeneratePairing: () => void
   onCopyPairingCode: () => void
   networkInterfaces: readonly MobileNetworkInterface[]
-  selectedAddress: string | undefined
-  onSelectedAddressChange: (address: string) => void
+  selectedAddresses: readonly string[]
+  onSelectedAddressesChange: (addresses: string[]) => void
   onRefreshNetworkInterfaces: () => void
   refreshingNetworkInterfaces: boolean
   onBack: () => void
@@ -72,8 +72,8 @@ export function HeroFlow({
   onRegeneratePairing,
   onCopyPairingCode,
   networkInterfaces,
-  selectedAddress,
-  onSelectedAddressChange,
+  selectedAddresses,
+  onSelectedAddressesChange,
   onRefreshNetworkInterfaces,
   refreshingNetworkInterfaces,
   onBack,
@@ -281,34 +281,40 @@ export function HeroFlow({
             </div>
             <div className="mp-pairing-controls">
               <div className="mp-network-row">
-                <span className="mp-network-label">
-                  {translate('auto.components.mobile.MobileHero.dfd2aa9d5d', 'Network')}
-                </span>
+                <div className="mp-network-row-header">
+                  <span className="mp-network-label">
+                    {translate('auto.components.mobile.MobileHero.dfd2aa9d5d', 'Network addresses')}
+                  </span>
+                  <button
+                    type="button"
+                    className={cn(
+                      'mp-network-refresh',
+                      refreshingNetworkInterfaces && 'is-spinning'
+                    )}
+                    onClick={onRefreshNetworkInterfaces}
+                    disabled={refreshingNetworkInterfaces}
+                    aria-label={translate(
+                      'auto.components.mobile.MobileHero.85067b9e06',
+                      'Refresh network interfaces'
+                    )}
+                    title={translate(
+                      'auto.components.mobile.MobileHero.85067b9e06',
+                      'Refresh network interfaces'
+                    )}
+                  >
+                    <RefreshCw className="size-3.5" />
+                  </button>
+                </div>
                 <NetworkInterfacePicker
                   networkInterfaces={networkInterfaces}
-                  selectedAddress={selectedAddress}
-                  onSelectedAddressChange={onSelectedAddressChange}
-                  // Why: direct-first and local-only pairing both advertise a
-                  // local route; keeping it visible also prevents mode shifts.
+                  selectedAddresses={selectedAddresses}
+                  onSelectedAddressesChange={onSelectedAddressesChange}
+                  // Why: keep the picker reachable when interface discovery is
+                  // empty — "Add custom address…" is the only path to enter a
+                  // manual Tailscale hostname / static IP.
                   disabled={false}
                   className="mp-network-select"
                 />
-                <button
-                  type="button"
-                  className={cn('mp-network-refresh', refreshingNetworkInterfaces && 'is-spinning')}
-                  onClick={onRefreshNetworkInterfaces}
-                  disabled={refreshingNetworkInterfaces}
-                  aria-label={translate(
-                    'auto.components.mobile.MobileHero.85067b9e06',
-                    'Refresh network interfaces'
-                  )}
-                  title={translate(
-                    'auto.components.mobile.MobileHero.85067b9e06',
-                    'Refresh network interfaces'
-                  )}
-                >
-                  <RefreshCw className="size-3.5" />
-                </button>
               </div>
 
               <div className="mp-inline-actions">
@@ -327,7 +333,7 @@ export function HeroFlow({
               </div>
               <WindowsFirewallNotice
                 pairingReady={pairQrDataUrl != null}
-                address={selectedAddress}
+                address={selectedAddresses[0]}
                 className="mt-3"
               />
             </div>

@@ -5795,17 +5795,17 @@
         },
         "MobileNetworkInterfaceSection": {
           "63d5e4ae1e": "Regenerate the QR code and scan it from the Orca mobile app.",
-          "87985ba6f5": "In this Network Interface menu, choose the Tailscale address, usually a 100.x.y.z IP.",
+          "87985ba6f5": "Select the Tailscale address (usually a 100.x.y.z IP) first, then optionally your LAN address as a fallback.",
           "1f7c26d36a": "Sign in to the same tailnet on both devices.",
           "668016be7a": "on your computer and phone.",
           "1dc87a7fbc": "Tailscale",
           "51d29927eb": "Install",
-          "9fc5d203ff": "Orca Mobile connects directly to this computer. To use it away from the same local network, put your computer and phone on the same private overlay network, then generate the QR code with that network address selected.",
+          "9fc5d203ff": "Orca Mobile connects directly to this computer. To use it away from the same local network, put your computer and phone on the same private overlay network, then generate the QR code with that network address selected first. Add your LAN address as a fallback for when you are home and Tailscale is slow.",
           "39fad211d9": "Connect outside your Wi-Fi with a tailnet",
           "a9db5d771d": "Refresh network interfaces",
           "b2c384cfd6": "No interfaces found",
-          "d536b5e20d": "Choose which network address to advertise in the QR code. Use your LAN address for same-network pairing, or an overlay network address (Tailscale, ZeroTier) for cross-network access.",
-          "406a35121c": "Network Interface",
+          "d536b5e20d": "Choose one or more network addresses to advertise in the QR code, in priority order. Put Tailscale first and your LAN second so the phone can fall back when Tailscale is unreachable.",
+          "406a35121c": "Network addresses",
           "c541f67790": "Generate QR Code",
           "1e64659126": "Regenerate"
         },
@@ -7944,8 +7944,8 @@
               "c690e3ee38": "tailscale",
               "a023683767": "interface",
               "7b37c2e557": "network",
-              "3190ef67a4": "Choose which network address to use for mobile pairing.",
-              "d96c315227": "Network Interface",
+              "3190ef67a4": "Choose ordered network addresses to advertise for mobile pairing.",
+              "d96c315227": "Network addresses",
               "7d01f93ec0": "connected",
               "5e8fda4d7f": "paired",
               "905c65a308": "revoke",
@@ -10539,7 +10539,7 @@
           "85067b9e06": "Refresh network interfaces",
           "ca85e595a7": "No interfaces found",
           "79d2f480da": "Network interface to advertise",
-          "dfd2aa9d5d": "Network",
+          "dfd2aa9d5d": "Network addresses",
           "2f077ef4eb": ", and scan the code.",
           "3aa7bb2d8b": "Pair Desktop",
           "d1495e5e64": "Open Orca Mobile, tap",
@@ -10715,6 +10715,13 @@
           "blocked-title": "Windows may be blocking Orca Mobile",
           "blocked-description": "An existing inbound Block rule can override the pairing exception. Repair removes conflicting TCP rules for this Orca app, then allows port {{port}} on Private networks.",
           "repair": "Repair firewall access"
+        },
+        "OrderedNetworkAddressPicker": {
+          "priority-hint": "Priority is top to bottom — the phone tries these addresses in order.",
+          "list-label": "Network addresses to advertise",
+          "custom-option": "{{address}} (custom)",
+          "move-up": "Move {{address}} up",
+          "move-down": "Move {{address}} down"
         }
       },
       "gitlab": {
