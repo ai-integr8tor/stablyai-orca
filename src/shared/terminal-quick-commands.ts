@@ -1,5 +1,6 @@
 import { isTuiAgent, TUI_AGENT_CONFIG } from './tui-agent-config'
 import type {
+  OrcaQuickCommandTemplate,
   TerminalAgentQuickCommand,
   TerminalCommandQuickCommand,
   TerminalQuickCommand,
@@ -7,7 +8,7 @@ import type {
   TerminalQuickCommandScope
 } from './types'
 
-const MAX_QUICK_COMMANDS = 40
+export const MAX_QUICK_COMMANDS = 40
 const MAX_QUICK_COMMAND_LABEL_LENGTH = 80
 const MAX_QUICK_COMMAND_REPO_ID_LENGTH = 200
 const MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH = 4000
@@ -155,6 +156,53 @@ export function normalizeTerminalQuickCommands(input: unknown): TerminalQuickCom
   }
 
   return normalized
+}
+
+// Why: project commands from orca.yaml are derived data, never persisted into
+// user settings; the id prefix is how UI and trust gating tell them apart.
+export const PROJECT_QUICK_COMMAND_ID_PREFIX = 'orca-yaml:'
+
+export function isProjectTerminalQuickCommand(command: TerminalQuickCommand): boolean {
+  return command.id.startsWith(PROJECT_QUICK_COMMAND_ID_PREFIX)
+}
+
+function projectQuickCommandIdBase(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return `${PROJECT_QUICK_COMMAND_ID_PREFIX}${slug || 'command'}`
+}
+
+/**
+ * Project the `quickCommands` templates from a repo's orca.yaml into
+ * repo-scoped quick commands. Ids are label-derived (stable across reorders);
+ * duplicate labels get numeric suffixes from normalization.
+ */
+export function getProjectTerminalQuickCommands(
+  templates: readonly OrcaQuickCommandTemplate[] | undefined,
+  repoId: string
+): TerminalQuickCommand[] {
+  if (!templates || templates.length === 0 || !repoId) {
+    return []
+  }
+  const scope: TerminalQuickCommandScope = { type: 'repo', repoId }
+  const candidates = templates.map((template) => {
+    const base = {
+      id: projectQuickCommandIdBase(template.label),
+      label: template.label,
+      scope
+    }
+    return template.action === 'agent-prompt'
+      ? { ...base, action: 'agent-prompt' as const, agent: template.agent, prompt: template.prompt }
+      : {
+          ...base,
+          action: 'terminal-command' as const,
+          command: template.command,
+          appendEnter: template.appendEnter !== false
+        }
+  })
+  return normalizeTerminalQuickCommands(candidates).filter(isTerminalQuickCommandComplete)
 }
 
 export function buildTerminalQuickCommandInput(command: TerminalCommandQuickCommand): string {

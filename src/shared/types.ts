@@ -1985,6 +1985,7 @@ export type OrcaHooks = {
   }
   issueCommand?: string // Shared default command for linked GitHub issues
   defaultTabs?: OrcaDefaultTabTemplate[] // Terminal tabs to create once for a new worktree
+  quickCommands?: OrcaQuickCommandTemplate[] // Project-shared terminal quick commands
   environmentRecipes?: OrcaVmRecipe[] // Project-scoped per-workspace environment recipes
   environmentRecipeDiagnostics?: OrcaVmRecipeDiagnostic[] // Non-fatal validation issues from environmentRecipes
 }
@@ -1994,6 +1995,23 @@ export type OrcaDefaultTabTemplate = {
   color?: string
   command?: string
 }
+
+// Why: `agent` stays a plain string at parse time so hosts running a different
+// Orca version than the client don't drop entries; the client filters
+// unsupported agents when projecting to TerminalQuickCommand.
+export type OrcaQuickCommandTemplate =
+  | {
+      action: 'terminal-command'
+      label: string
+      command: string
+      appendEnter?: boolean
+    }
+  | {
+      action: 'agent-prompt'
+      label: string
+      agent: string
+      prompt: string
+    }
 
 export type OrcaVmRecipe = {
   id: string
@@ -3563,6 +3581,7 @@ export type PersistedTrustedOrcaHookRepo = {
   archive?: PersistedTrustedOrcaHookEntry
   issueCommand?: PersistedTrustedOrcaHookEntry
   vmRecipe?: PersistedTrustedOrcaHookEntry
+  quickCommands?: PersistedTrustedOrcaHookEntry
 }
 
 export type PersistedTrustedOrcaHooks = Record<string, PersistedTrustedOrcaHookRepo>

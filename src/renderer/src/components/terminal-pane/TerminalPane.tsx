@@ -156,6 +156,10 @@ import { selectTerminalTabAgentTypesByLeaf } from './terminal-tab-agent-type-ind
 
 const NATIVE_CHAT_ROOT_SELECTOR = '[data-native-chat-root="true"]'
 
+// Why: stable fallback so the store selector doesn't produce a fresh array
+// (and re-render) on every call while a repo has no project commands cached.
+const EMPTY_PROJECT_QUICK_COMMANDS: TerminalQuickCommand[] = []
+
 function isInsideNativeChatRoot(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(NATIVE_CHAT_ROOT_SELECTOR) !== null
 }
@@ -927,6 +931,16 @@ export default function TerminalPane({
   const globalQuickCommands = validQuickCommands.filter(
     (command) => getTerminalQuickCommandScope(command).type === 'global'
   )
+  const projectQuickCommands =
+    useAppStore((s) =>
+      quickCommandRepoId !== null ? s.projectQuickCommandsByRepo[quickCommandRepoId] : undefined
+    ) ?? EMPTY_PROJECT_QUICK_COMMANDS
+  const loadProjectQuickCommands = useAppStore((s) => s.loadProjectQuickCommands)
+  useEffect(() => {
+    if (quickCommandRepoId !== null) {
+      void loadProjectQuickCommands(quickCommandRepoId)
+    }
+  }, [quickCommandRepoId, loadProjectQuickCommands])
   const quickCommandGroupId =
     useAppStore(
       (s) =>
@@ -3163,6 +3177,7 @@ export default function TerminalPane({
         onToggleNativeChat={handleContextMenuToggleNativeChat}
         onCopyAgentSessionContext={() => void contextMenu.onCopyAgentSessionContext()}
         repoQuickCommands={repoQuickCommands}
+        projectQuickCommands={projectQuickCommands}
         globalQuickCommands={globalQuickCommands}
         quickCommandRepoLabel={quickCommandRepoLabel}
         onQuickCommand={contextMenu.onQuickCommand}

@@ -57,6 +57,7 @@ import {
 import { reconcileReadoptedSshWorktreesByRepo } from './readopted-ssh-worktree-rows'
 import { splitRepoReorderByHost } from './repo-reorder-host-split'
 import { omitSparsePresetsForRepos } from './sparse-presets'
+import { omitProjectQuickCommandsForRepos } from './project-quick-commands'
 import {
   findRepoForHost,
   getRepoHostIdentity,
@@ -2613,7 +2614,8 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           repos,
           projects,
           projectHostSetups,
-          ...omitSparsePresetsForRepos(s, removedRepoIds)
+          ...omitSparsePresetsForRepos(s, removedRepoIds),
+          ...omitProjectQuickCommandsForRepos(s, removedRepoIds)
         }
       })
       return { ...result, repo }
@@ -2900,6 +2902,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           // Why: drop the removed repos' sparse-preset maps so they don't outlive
           // the repo for the renderer's whole session.
           ...omitSparsePresetsForRepos(s, removedRepoIds),
+          ...omitProjectQuickCommandsForRepos(s, removedRepoIds),
           ...mergeProjectCompatibilityForHostRepoChange({
             previous: { projects: s.projects, projectHostSetups: s.projectHostSetups },
             nextRepos,

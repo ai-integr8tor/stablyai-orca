@@ -1,7 +1,9 @@
 import { parse } from 'yaml'
+import { MAX_QUICK_COMMANDS } from './terminal-quick-commands'
 import type {
   OrcaDefaultTabTemplate,
   OrcaHooks,
+  OrcaQuickCommandTemplate,
   OrcaVmRecipe,
   OrcaVmRecipeDiagnostic
 } from './types'
@@ -46,6 +48,44 @@ function normalizeDefaultTabs(value: unknown): OrcaDefaultTabTemplate[] {
       }
     })
     .filter((entry): entry is OrcaDefaultTabTemplate => entry !== null)
+}
+
+function normalizeQuickCommands(value: unknown): OrcaQuickCommandTemplate[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry): OrcaQuickCommandTemplate | null => {
+      const record = asRecord(entry)
+      if (!record) {
+        return null
+      }
+      const label = asTrimmedString(record.label)
+      if (!label) {
+        return null
+      }
+      if (record.action === 'agent-prompt') {
+        const agent = asTrimmedString(record.agent)
+        const prompt = typeof record.prompt === 'string' ? record.prompt.trimEnd() : ''
+        if (!agent || !prompt.trim()) {
+          return null
+        }
+        return { action: 'agent-prompt', label, agent, prompt }
+      }
+      const command = typeof record.command === 'string' ? record.command.trimEnd() : ''
+      if (!command.trim()) {
+        return null
+      }
+      return {
+        action: 'terminal-command',
+        label,
+        command,
+        ...(record.appendEnter === false ? { appendEnter: false } : {})
+      }
+    })
+    .filter((entry): entry is OrcaQuickCommandTemplate => entry !== null)
+    .slice(0, MAX_QUICK_COMMANDS)
 }
 
 type VmRecipeParseResult = {
@@ -143,6 +183,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
   const archive = scriptsRecord ? asTrimmedString(scriptsRecord.archive) : undefined
   const issueCommand = asTrimmedString(record.issueCommand)
   const defaultTabs = normalizeDefaultTabs(record.defaultTabs)
+  const quickCommands = normalizeQuickCommands(record.quickCommands)
   const environmentRecipeParse = normalizeVmRecipes(record.environmentRecipes)
   const environmentRecipes = environmentRecipeParse.recipes
   const environmentRecipeDiagnostics = environmentRecipeParse.diagnostics
@@ -152,6 +193,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
     !archive &&
     !issueCommand &&
     defaultTabs.length === 0 &&
+    quickCommands.length === 0 &&
     environmentRecipes.length === 0 &&
     environmentRecipeDiagnostics.length === 0
   ) {
@@ -165,6 +207,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
     },
     ...(issueCommand ? { issueCommand } : {}),
     ...(defaultTabs.length > 0 ? { defaultTabs } : {}),
+    ...(quickCommands.length > 0 ? { quickCommands } : {}),
     ...(environmentRecipes.length > 0 ? { environmentRecipes } : {}),
     ...(environmentRecipeDiagnostics.length > 0 ? { environmentRecipeDiagnostics } : {})
   }
