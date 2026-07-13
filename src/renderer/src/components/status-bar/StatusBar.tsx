@@ -979,14 +979,14 @@ export function InlineUsageBars({
       ? {
           key: 'session',
           used: clampUsedPercent(limits.session.usedPercent),
-          label: translate('auto.components.status.bar.StatusBar.d79c3362c4', '5h')
+          label: formatWindowLabel(limits.session.windowMinutes)
         }
       : null,
     limits.weekly
       ? {
           key: 'weekly',
           used: clampUsedPercent(limits.weekly.usedPercent),
-          label: translate('auto.components.status.bar.StatusBar.5c938d39ac', 'wk')
+          label: formatWindowLabel(limits.weekly.windowMinutes)
         }
       : null,
     limits.fableWeekly
@@ -1218,10 +1218,14 @@ function ProviderSegment({
       : null
   ].filter((w): w is { key: string; window: RateLimitWindow; label: string } => w !== null)
 
+  const primaryVisibleWindow = visibleWindows[0]?.window
+
   return (
     <span className="inline-flex items-center gap-1.5">
       <ProviderIcon provider={provider} />
-      {p.session && !compact && <MiniBar usedPct={clampUsedPercent(p.session.usedPercent)} />}
+      {primaryVisibleWindow && !compact && (
+        <MiniBar usedPct={clampUsedPercent(primaryVisibleWindow.usedPercent)} />
+      )}
       {visibleWindows.map((window, index) => (
         <React.Fragment key={window.key}>
           {index > 0 && <span className="text-muted-foreground">·</span>}
