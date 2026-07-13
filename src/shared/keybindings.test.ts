@@ -654,6 +654,10 @@ describe('keybindings', () => {
       expect(entry!.defaultBindings.darwin).toContain('Mod+B')
       expect(entry!.defaultBindings.darwin).toContain('F12')
     })
+    it('allows the bare F12 default to be rebound in Settings, like editor.nextChange', () => {
+      const entry = KEYBINDING_DEFINITIONS.find((d) => d.id === 'editor.goToDefinition')
+      expect(entry!.allowBareKeybindings).toBe(true)
+    })
     it('does not introduce default keybinding conflicts', () => {
       expect(findKeybindingConflicts('linux')).toEqual([])
       expect(findKeybindingConflicts('darwin')).toEqual([])
