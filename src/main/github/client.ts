@@ -51,6 +51,7 @@ import {
   release,
   getOwnerRepo,
   getIssueOwnerRepo,
+  getOriginOwnerRepo,
   getOwnerRepoForRemote,
   resolvePRRepositoryCandidates,
   resolveIssueSource,
@@ -1051,8 +1052,12 @@ async function resolvePrWorkItemSource(
   connectionId?: string | null,
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<ResolvedPrWorkItemSource> {
+  // Why: originCandidate must stay the raw `origin` remote (not upstream-first),
+  // so the renderer can compare it against upstream to decide whether to show the
+  // issue-source selector. getOwnerRepo is now upstream-first, so use the
+  // origin-specific resolver here.
   const [originCandidate, upstreamCandidate] = await Promise.all([
-    getOwnerRepo(repoPath, connectionId, localGitOptions),
+    getOriginOwnerRepo(repoPath, connectionId, localGitOptions),
     getOwnerRepoForRemote(repoPath, 'upstream', connectionId, localGitOptions)
   ])
   const source =
@@ -1647,7 +1652,7 @@ export async function getRepoUpstream(
 ): Promise<OwnerRepo | null> {
   const localGitArgs = hostedReviewLocalGitOptionArgs(options)
   const localGitOptions = localGitArgs[0] ?? {}
-  const origin = await getOwnerRepo(repoPath, connectionId, ...localGitArgs)
+  const origin = await getOriginOwnerRepo(repoPath, connectionId, ...localGitArgs)
   if (!origin) {
     return null
   }
@@ -1844,7 +1849,7 @@ export async function createGitHubPullRequest(
     }
   }
 
-  const ownerRepo = await getOwnerRepo(
+  const ownerRepo = await getOriginOwnerRepo(
     repoPath,
     connectionId,
     ...hostedReviewLocalGitOptionArgs(options)
@@ -2004,12 +2009,13 @@ export async function getWorkItem(
         return issue
       }
     } catch (err) {
-      // Why: the issue lookup now targets `upstream` while the PR lookup targets `origin`,
-      // so a transient upstream failure (5xx, rate limit, network flake) on issue #N would
-      // silently fall through to origin's PR #N — potentially a completely unrelated item.
-      // Only fall through when the issue genuinely doesn't exist (404); re-throw everything
-      // else so the outer catch returns null and the caller sees a real failure instead of
-      // a wrong item. classifyGhError centralizes the 404/"not found" pattern-matching.
+      // Why: issue and PR lookups both resolve upstream-first, so a transient
+      // upstream failure (5xx, rate limit, network flake) on issue #N would
+      // silently fall through to PR #N — a different item that happens to share
+      // the number. Only fall through when the issue genuinely doesn't exist
+      // (404); re-throw everything else so the outer catch returns null and the
+      // caller sees a real failure instead of a wrong item. classifyGhError
+      // centralizes the 404/"not found" pattern-matching.
       const stderr = err instanceof Error ? err.message : String(err)
       if (classifyGhError(stderr).type !== 'not_found') {
         throw err

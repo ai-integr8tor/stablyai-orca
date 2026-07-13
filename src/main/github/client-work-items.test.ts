@@ -4,6 +4,7 @@ const {
   execFileAsyncMock,
   ghExecFileAsyncMock,
   getOwnerRepoMock,
+  getOriginOwnerRepoMock,
   getIssueOwnerRepoMock,
   getOwnerRepoForRemoteMock,
   resolveIssueSourceMock,
@@ -16,6 +17,7 @@ const {
   execFileAsyncMock: vi.fn(),
   ghExecFileAsyncMock: vi.fn(),
   getOwnerRepoMock: vi.fn(),
+  getOriginOwnerRepoMock: vi.fn(),
   getIssueOwnerRepoMock: vi.fn(),
   getOwnerRepoForRemoteMock: vi.fn(),
   resolveIssueSourceMock: vi.fn(),
@@ -47,6 +49,11 @@ vi.mock('./gh-utils', () => ({
       ? {}
       : { cwd: context.repoPath, ...(context.wslDistro ? { wslDistro: context.wslDistro } : {}) },
   getOwnerRepo: getOwnerRepoMock,
+  // Why: resolvePrWorkItemSource resolves the raw origin candidate via
+  // getOriginOwnerRepo (distinct from upstream-first getOwnerRepo). Keep a
+  // separate mock; it delegates to getOwnerRepoMock by default (see beforeEach)
+  // so existing origin-candidate setups keep working.
+  getOriginOwnerRepo: getOriginOwnerRepoMock,
   getIssueOwnerRepo: getIssueOwnerRepoMock,
   getOwnerRepoForRemote: getOwnerRepoForRemoteMock,
   resolveIssueSource: resolveIssueSourceMock,
@@ -81,6 +88,7 @@ describe('listWorkItems', () => {
     execFileAsyncMock.mockReset()
     ghExecFileAsyncMock.mockReset()
     getOwnerRepoMock.mockReset()
+    getOriginOwnerRepoMock.mockReset()
     getIssueOwnerRepoMock.mockReset()
     getOwnerRepoForRemoteMock.mockReset()
     resolveIssueSourceMock.mockReset()
@@ -98,6 +106,12 @@ describe('listWorkItems', () => {
       source: await getIssueOwnerRepoMock(),
       fellBack: false
     }))
+    // Why: originCandidate is resolved via getOriginOwnerRepo. Delegate to
+    // getOwnerRepoMock by default so existing tests that queue the origin PR
+    // repo on getOwnerRepoMock keep working unchanged.
+    getOriginOwnerRepoMock.mockImplementation((...args: unknown[]) =>
+      (getOwnerRepoMock as (...a: unknown[]) => Promise<unknown>)(...args)
+    )
     getOwnerRepoForRemoteMock.mockResolvedValue(null)
     _resetOwnerRepoCache()
     _resetMergeQueueCacheForTests()
