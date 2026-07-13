@@ -458,6 +458,13 @@
               "all": "还没有评论。"
             }
           }
+        },
+        "bot": {
+          "author": {
+            "overrides": {
+              "6d5d52b53f": "已达到机器人作者覆盖上限"
+            }
+          }
         }
       },
       "resume": {
@@ -722,6 +729,8 @@
       "GitHubItemDialog": {
         "3ab6ac0fc8": "预览并编辑选定的 GitHub 议题或拉取请求。",
         "3cd5ae5b7b": "没有更改任何文件。",
+        "filesUnavailable": "无法加载更改的文件。",
+        "filesRetry": "重试",
         "999b5ad7d9": "文件",
         "4bd1f5b055": "检查项",
         "e30a5470c9": "对话",
@@ -1385,7 +1394,9 @@
         "1ff5d979df": "未分配任何人",
         "checkActionRequiredHint": "此检查需要在 GitHub 上执行手动操作（例如，批准工作流运行），然后才能解除合并阻止。",
         "dd5d9a4f17": "{{value0}}更新",
-        "71a3c0f9d2": "启动工作区"
+        "71a3c0f9d2": "启动工作区",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry"
       },
       "QuickOpen": {
         "1dbd3f59ff": "移动",
@@ -2366,7 +2377,9 @@
             "failed": "未删除工作区：{{value0}}",
             "error": "工作区清理失败",
             "skippedAncestor": "由于无法删除嵌套工作区，已跳过。",
-            "timedOut": "删除 {{value0}} 的时间比预期长。它将在后台继续运行。"
+            "timedOut": "删除 {{value0}} 的时间比预期长。它将在后台继续运行。",
+            "stillRemoving": "Still removing workspaces: {{value0}}",
+            "skippedPendingAncestor": "Skipped because a nested workspace has not finished removing."
           },
           "candidateRow": {
             "gitLabel": "Git",
@@ -2575,7 +2588,7 @@
               "blocked": {
                 "toast": {
                   "97c98f1afe": "打开设置",
-                  "7cf51f74fd": "在终端设置中启用 TUI 剪贴板写入，以从 SSH、tmux、Neovim 或 fzf 进行复制。",
+                  "7cf51f74fd": "在终端设置中启用 TUI 剪贴板写入，以从 SSH、tmux、Neovim、fzf 或 Grok 进行复制。",
                   "89eaa3e80b": "终端剪贴板写入被阻止"
                 }
               }
@@ -3209,6 +3222,13 @@
           "usagePercentageLabel": {
             "used": "已用 {{value0}}%",
             "remaining": "剩余 {{value0}}%"
+          },
+          "UsagePercentageDisplayChangeNotice": {
+            "title": "Usage now shows % used",
+            "body": "Prefer remaining? Change it in Settings.",
+            "dismiss": "Dismiss",
+            "openSettings": "Open Settings",
+            "gotIt": "Got it"
           }
         }
       },
@@ -5366,7 +5386,9 @@
           "bf16ef0af2": "关闭",
           "3f6892f307": "开启",
           "b82f86d7d2": "Rich Markdown Spellcheck",
-          "5195f0b9ef": "在编辑富 Markdown 时显示浏览器拼写下划线和建议。"
+          "5195f0b9ef": "在编辑富 Markdown 时显示浏览器拼写下划线和建议。",
+          "7ddd66fede": "编辑器自动换行",
+          "9b18de6eea": "在文件编辑器中自动换行长行，而无需水平滚动。"
         },
         "AdvancedNetworkSettingsSection": {
           "3e431564b5": "本地主机，127.0.0.1，*.internal",
@@ -7644,7 +7666,9 @@
             "defaultProjectRuntime": "默认项目运行时",
             "defaultProjectRuntimeDescription": "选择本地 Windows 项目继承的运行时。",
             "d2d2d929c0": "Rich Markdown Spellcheck",
-            "4497e2e2bb": "在编辑富 Markdown 时显示浏览器拼写下划线和建议。"
+            "4497e2e2bb": "在编辑富 Markdown 时显示浏览器拼写下划线和建议。",
+            "e61157e926": "编辑器自动换行",
+            "005be5c699": "在文件编辑器中自动换行长行，而无需水平滚动。"
           }
         },
         "git": {
@@ -9004,6 +9028,10 @@
         "AppearanceWindowSidebarSection": {
           "usagePercentageDisplayUsed": "已用",
           "usagePercentageDisplayRemaining": "剩余"
+        },
+        "TerminalInteractionSection": {
+          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
+          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
         }
       },
       "right": {
@@ -9638,7 +9666,9 @@
                 "b13f85d75c": "时间线",
                 "f5cf324efa": "评论显示选项",
                 "5e6e5a13fa": "查看",
-                "actionRequiredHint": "此检查需要在 GitHub 上执行手动操作（例如批准工作流运行）后才能解除合并阻止。"
+                "actionRequiredHint": "此检查需要在 GitHub 上执行手动操作（例如批准工作流运行）后才能解除合并阻止。",
+                "b3195cba33": "取消将作者标记为机器人",
+                "f588b46a6c": "将作者标记为机器人"
               },
               "empty": {
                 "state": {
@@ -9873,7 +9903,9 @@
             "23e98f192f": "这会永久删除远程主机上的文件。此操作无法撤销。",
             "8b8ee9d22f": "无法确定哪个主机拥有此文件。请检查工作区连接后重试。",
             "af1270b90d": "永久删除 {{count}} 项？",
-            "dd029aa5cd": "这会永久删除远程主机上所选的各项及任何目录内容。此操作无法撤销。"
+            "dd029aa5cd": "这会永久删除远程主机上所选的各项及任何目录内容。此操作无法撤销。",
+            "77fdc36183": "Delete {{count}} items?",
+            "fca915a67a": "Remote items are permanently deleted and cannot be undone. Local items move to the {{value0}}."
           },
           "useFileExplorerHandlers": {
             "32cd9fd991": "无法打开符号链接目标"
@@ -10611,6 +10643,17 @@
           "trigger-label": "要公布的网络地址",
           "custom-option": "{{address}}（自定义）",
           "add-custom": "添加自定义地址…"
+        },
+        "WindowsFirewallNotice": {
+          "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
+          "repair-failed": "Could not add the Windows Firewall rule",
+          "public-title": "Windows marks this network as public",
+          "missing-title": "Allow phone connections through Windows Firewall",
+          "public-description": "Change this trusted Wi-Fi network to Private before allowing Orca Mobile connections.",
+          "missing-description": "Windows may block the pairing server. Add a rule for this Orca app and TCP port {{port}} on Private networks.",
+          "open-settings": "Open network settings",
+          "waiting": "Waiting for Windows…",
+          "allow": "Allow phone connections"
         }
       },
       "gitlab": {
@@ -11408,7 +11451,9 @@
           "c98ce191da": "此差异没有可打开的修改端文件",
           "9b80bbe1de": "打开文件选项卡",
           "f0fd4174b5": "打开文件选项卡以使用丰富的 Markdown 编辑",
-          "a10d9b8337": "打开文件"
+          "a10d9b8337": "打开文件",
+          "2076ecfc9c": "上一个更改",
+          "631dab0df3": "下一个更改"
         },
         "EditorPanelMarkdownActionsMenu": {
           "3e0ce48c24": "导出为 PDF",

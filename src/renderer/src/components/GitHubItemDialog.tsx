@@ -127,6 +127,7 @@ import {
   getPrCommentAudienceFilters,
   type PRCommentAudienceFilter
 } from '@/lib/pr-comment-audience'
+import { usePRBotAuthorOverrides } from '@/lib/pr-bot-author-overrides'
 import {
   getPRCommentGroupCount,
   getPRCommentGroupId,
@@ -3124,10 +3125,14 @@ function ConversationTab({
   const [bodyEditing, setBodyEditing] = useState(false)
   const [bodySaving, setBodySaving] = useState(false)
   const canUseRepoMutationContext = canUseGitHubRepoContext(repoPath, sourceContext)
-  const commentCounts = useMemo(() => getPRCommentAudienceCounts(comments), [comments])
+  const botAuthorOverrides = usePRBotAuthorOverrides()
+  const commentCounts = useMemo(
+    () => getPRCommentAudienceCounts(comments, botAuthorOverrides),
+    [botAuthorOverrides, comments]
+  )
   const visibleComments = useMemo(
-    () => filterPRCommentsByAudience(comments, commentFilter),
-    [commentFilter, comments]
+    () => filterPRCommentsByAudience(comments, commentFilter, botAuthorOverrides),
+    [botAuthorOverrides, commentFilter, comments]
   )
   const visibleCommentGroups = useMemo(() => groupPRComments(visibleComments), [visibleComments])
   const resolvedTimelineItems = timelineItems ?? EMPTY_GITHUB_ISSUE_TIMELINE_ITEMS
@@ -7088,6 +7093,7 @@ export default function GitHubItemDialog({
   const comments = details?.comments ?? []
   const timelineItems = details?.timelineItems ?? []
   const files = details?.files ?? []
+  const filesUnavailable = details?.filesUnavailable ?? false
   const checks = details?.checks ?? []
   const [pendingViewedPaths, setPendingViewedPaths] = useState<Set<string>>(() => new Set())
   // Why: clipboard IPC can resolve after the dialog unmounts; skip copied-state
@@ -7784,6 +7790,21 @@ export default function GitHubItemDialog({
                     {loading && files.length === 0 ? (
                       <div className="flex items-center justify-center py-10">
                         <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : filesUnavailable && files.length === 0 ? (
+                      // Why: the file fetch failed (rate limit, auth, unresolved
+                      // remote); offer a retry instead of implying the PR is empty.
+                      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+                        <div className="text-[12px] text-muted-foreground">
+                          {translate(
+                            'auto.components.GitHubItemDialog.filesUnavailable',
+                            "Couldn't load changed files."
+                          )}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={invalidateCurrentDetailsCache}>
+                          <RefreshCw className="size-3.5" />
+                          {translate('auto.components.GitHubItemDialog.filesRetry', 'Retry')}
+                        </Button>
                       </div>
                     ) : files.length === 0 ? (
                       <div className="px-4 py-10 text-center text-[12px] text-muted-foreground">
