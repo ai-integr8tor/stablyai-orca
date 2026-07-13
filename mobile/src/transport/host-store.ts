@@ -231,6 +231,7 @@ function toStored(host: HostProfile): StoredHostProfile {
     id: host.id,
     name: host.name,
     endpoint: host.endpoint,
+    ...(host.lastGoodEndpoint ? { lastGoodEndpoint: host.lastGoodEndpoint } : {}),
     publicKeyB64: host.publicKeyB64,
     lastConnected: host.lastConnected
   }
@@ -371,6 +372,29 @@ export async function updateLastConnected(hostId: string): Promise<void> {
     // Why: last-connected is a best-effort timestamp and callers fire it with
     // `void`. Swallow unreadable-storage failures so they don't surface as an
     // unhandled promise rejection.
+  }
+}
+
+export async function updateHostLastGoodEndpoint(
+  hostId: string,
+  lastGoodEndpoint: string
+): Promise<void> {
+  const trimmed = lastGoodEndpoint.trim()
+  if (!trimmed) {
+    return
+  }
+  try {
+    await mutateStoredHosts((hosts) => {
+      const index = hosts.findIndex((h) => h.id === hostId)
+      if (index < 0) {
+        return hosts
+      }
+      const next = hosts.slice()
+      next[index] = { ...next[index]!, lastGoodEndpoint: trimmed }
+      return next
+    })
+  } catch {
+    // Why: last-good is a reconnect hint; callers fire it best-effort like lastConnected.
   }
 }
 
