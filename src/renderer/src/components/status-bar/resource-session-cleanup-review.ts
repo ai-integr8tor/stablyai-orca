@@ -164,8 +164,10 @@ export async function executeResourceSessionCleanup(
     const liveIds = new Set(sessions.map((session) => session.id))
     const reviewedIds = new Set(review.reviewedIds)
     const eligibleIds: string[] = []
-    let protectedCount = 0
-    let goneCount = 0
+    // Why: completion accounts for every reviewed session, while only initially
+    // inactive candidates are eligible for the fresh safety revalidation below.
+    let protectedCount = review.activeCount + review.unknownCount
+    let goneCount = review.goneCount
 
     for (const id of review.inactiveIds) {
       if (!reviewedIds.has(id)) {
