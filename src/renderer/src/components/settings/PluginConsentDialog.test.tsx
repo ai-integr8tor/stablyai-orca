@@ -15,6 +15,8 @@ const plugin: PluginHostListEntry = {
   status: 'pending',
   needsReconsent: false,
   isDev: false,
+  official: false,
+  bundled: false,
   capabilities: [{ kind: 'worker', description: 'Run a background worker process' }],
   panels: [],
   commands: [],

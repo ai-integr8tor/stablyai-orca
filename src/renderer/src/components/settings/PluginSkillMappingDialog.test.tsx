@@ -17,6 +17,8 @@ const plugin: PluginHostListEntry = {
   status: 'idle',
   needsReconsent: false,
   isDev: false,
+  official: false,
+  bundled: false,
   capabilities: [],
   panels: [],
   commands: [],

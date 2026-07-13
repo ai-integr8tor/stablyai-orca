@@ -81,6 +81,8 @@ const plugin: PluginHostListEntry = {
   status: 'idle',
   needsReconsent: false,
   isDev: false,
+  official: false,
+  bundled: false,
   capabilities: [{ kind: 'panels', description: 'Add a Notes panel' }],
   panels: [],
   commands: [],

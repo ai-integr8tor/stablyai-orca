@@ -23,6 +23,10 @@ import { normalizePluginIdList } from '../../shared/plugins/plugin-consent-state
 import { isAllowedPluginGitUrl } from '../../shared/plugins/plugin-install-lockfile'
 import type { PluginSkillStoreSnapshot } from '../../shared/plugins/plugin-skill-store'
 import { authorizePluginSkillMapping } from '../plugins/plugin-skill-mapping-authority'
+import {
+  registerPluginMarketplaceHandlers,
+  type PluginMarketplaceHandlerServices
+} from './plugin-marketplaces'
 
 export function parsePluginConsentArgs(args: unknown): z.infer<typeof pluginConsentRequestSchema> {
   return pluginConsentRequestSchema.parse(args)
@@ -93,7 +97,8 @@ function rendererPanelOwner(webContentsId: number): string {
 export function registerPluginHandlers(
   store: Store,
   pluginService: PluginService,
-  runtime: OrcaRuntimeService | null
+  runtime: OrcaRuntimeService | null,
+  marketplaceServices?: PluginMarketplaceHandlerServices
 ): void {
   // The runtime IS the delegate: the structural PluginRuntimeDelegate type
   // keeps the facade electron-free while main binds the real service.
@@ -220,10 +225,23 @@ export function registerPluginHandlers(
     const parsed = parsePluginInstallArgs(args)
     const pluginsDir = getUserPluginsDir(pluginService.options.userDataPath)
     const hostVersion = pluginService.options.hostVersion
+    const blockedPluginReason = (pluginKey: string): string | null =>
+      pluginService.options.getPluginKillListEntry?.(pluginKey)?.reason ?? null
     const result =
       parsed.kind === 'local-path'
-        ? await installPluginFromLocalPath({ pluginsDir, sourcePath: parsed.path, hostVersion })
-        : await installPluginFromGit({ pluginsDir, url: parsed.url, ref: parsed.ref, hostVersion })
+        ? await installPluginFromLocalPath({
+            pluginsDir,
+            sourcePath: parsed.path,
+            hostVersion,
+            blockedPluginReason
+          })
+        : await installPluginFromGit({
+            pluginsDir,
+            url: parsed.url,
+            ref: parsed.ref,
+            hostVersion,
+            blockedPluginReason
+          })
     if (result.ok) {
       await pluginService.refresh()
     }
@@ -268,4 +286,7 @@ export function registerPluginHandlers(
     await pluginService.refresh()
     return listPluginsForClients(pluginService)
   })
+  if (marketplaceServices) {
+    registerPluginMarketplaceHandlers(pluginService, marketplaceServices)
+  }
 }
