@@ -137,4 +137,30 @@ describe('PluginWorkerController activation authority', () => {
     expect(startedWorker.dispose).toHaveBeenCalledOnce()
     await subject.dispose()
   })
+
+  it('rejects workers that register declarative action aliases', async () => {
+    const base = await plugin()
+    const subjectPlugin: ValidDiscoveredPlugin = {
+      ...base,
+      manifest: pluginManifestSchema.parse({
+        ...base.manifest,
+        contributes: {
+          ...base.manifest.contributes,
+          commands: [{ id: 'tasks', title: 'Tasks', action: 'view.tasks' }]
+        }
+      })
+    }
+    const startedWorker = worker(['tasks'])
+    const subject = controller({
+      factory: vi.fn<PluginWorkerFactory>().mockResolvedValue(startedWorker),
+      verify: async () => undefined,
+      isApproved: () => true
+    })
+
+    await expect(subject.ensure(subjectPlugin)).rejects.toThrow(
+      'registered undeclared command tasks'
+    )
+    expect(startedWorker.dispose).toHaveBeenCalledOnce()
+    await subject.dispose()
+  })
 })

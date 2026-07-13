@@ -125,7 +125,8 @@
       "fe21e8f6f5": "戻る ({{value0}})",
       "064bd07810": "戻る",
       "ce37cf5279": "サイドバーの切り替え ({{value0}})",
-      "e4b9e7dff7": "サイドバーの切り替え"
+      "e4b9e7dff7": "サイドバーの切り替え",
+      "pluginCommandFailed": "プラグインのコマンドを実行できませんでした。"
     },
     "web": {
       "WebConnect": {
@@ -582,6 +583,9 @@
             "de50bef680": "macOS が Orca の通知をブロックしています"
           }
         }
+      },
+      "pluginCommandKeybindings": {
+        "group": "Plugins"
       }
     },
     "hooks": {
@@ -1857,7 +1861,8 @@
         "workspaceTabMissing": "タブはもう存在しません",
         "projectsGroupsHeader": "プロジェクトとグループ",
         "projectBadge": "プロジェクト",
-        "repoGroupBadge": "リポジトリグループ"
+        "repoGroupBadge": "リポジトリグループ",
+        "pluginCommandFailed": "プラグインのコマンドを実行できませんでした。"
       },
       "github": {
         "pr": {
@@ -6430,7 +6435,9 @@
           "search_terminal_themes": "terminal テーマを検索",
           "cb330ef7f8": "{{value0}}の",
           "c822571b2e": "「{{value0}}」に一致",
-          "3119c012a5": "文字列"
+          "3119c012a5": "文字列",
+          "plugin_themes": "プラグインテーマ",
+          "contributed_by": "{{value0}} による提供"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -6472,7 +6479,8 @@
           "25b0004fbf": "Terminal がアクティブです",
           "781cb74d22": "terminal ペインから実行します。",
           "cb02e00202": "ターミナル",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "ショートカットは利用できなくなりました。"
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "引数",
@@ -8971,7 +8979,7 @@
           "copy": "コピー",
           "copied": "コピーされました",
           "recipes": "レシピ",
-          "recipesHelp": "agent が orca.yaml に追加したレシピがここに表示され、ワー​​クスペースを起動できるようになります。",
+          "recipesHelp": "orca.yaml と有効なプラグインのレシピがここに表示され、ワークスペースを起動できます。",
           "refresh": "一時的な VM レシピを更新する",
           "checking": "レシピを確認中...",
           "none": "レシピはまだ見つかりません。"
@@ -9037,11 +9045,13 @@
         },
         "PluginConsentDialog": {
           "workerTrust": "バックグラウンドワーカー — 独自のプロセスで実行",
-          "panelTrust": "パネルのみ — ワーカープロセスなし",
+          "panelTrust": "パネルまたは非実行コンテンツ — ワーカープロセスなし",
           "decisionFailed": "権限の選択を保存できませんでした。再試行してください。",
           "title": "権限を確認",
+          "mixedTitle": "アクセスとコンテンツを確認",
+          "instructionalTitle": "プラグインのコンテンツを確認",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
-          "reconsent": "前回このプラグインを確認してから、権限またはワーカーの信頼レベルが変更されました。実行する前にもう一度確認してください。",
+          "reconsent": "前回このプラグインを確認してから、権限、ワーカーの信頼レベル、または指示コンテンツが変更されました。実行する前にもう一度確認してください。",
           "source": "ソース",
           "unknownSource": "利用不可",
           "commit": "コミット",
@@ -9052,6 +9062,7 @@
           "enable": "プラグインを有効化",
           "keepDisabled": "無効のままにする",
           "panelWarning": "これらの権限は、プラグインによる Orca API の使用を制限します。このプラグインにはワーカープロセスがありません。",
+          "instructionalWarning": "このプラグインにはワーカープロセスがありません。ただし、その指示コンテンツは、あなたやエージェントが使用したときに操作を実行させる可能性があります。有効にする前に、以下の指示とコマンドを確認してください。",
           "capability": {
             "workspaceRead": "選択中のワークツリーの名前、ブランチ、ターミナル一覧を読み取る",
             "terminalSend": "表示中の特定のターミナルにテキストを入力する",
@@ -9060,7 +9071,9 @@
             "secrets": "プラグイン専用の暗号化保管庫にシークレットを保存し、読み取る",
             "eventsSubscribe": "ワークツリーの作成・削除やエージェント状態の変更時に通知を受け取る",
             "settingsOwn": "プラグイン自身の設定を読み取り、変更する"
-          }
+          },
+          "skillWarning": "このプラグインは指示を含むスキルをインストールします。エージェントはその指示を読み、付与されたすべての権限で操作する場合があります。",
+          "instructionalTrust": "指示コンテンツ — 後でユーザーまたはエージェントの権限で実行"
         },
         "PluginDevelopmentSection": {
           "pathRequired": "プラグインフォルダーのパスを入力してください。",
@@ -9122,7 +9135,8 @@
           "restarting": "再起動中",
           "invalidPluginError": "プラグインのマニフェストまたはインストール済みファイルが無効です。修正してから更新してください。",
           "runtimeError": "有効化またはワーカーのエラー後にプラグインが停止しました。",
-          "disableLabel": "{{value0}}を無効にする"
+          "disableLabel": "{{value0}}を無効にする",
+          "configureSkills": "スキルを設定"
         },
         "PluginsSettingsSection": {
           "loadFailed": "プラグインを読み込めませんでした。",
@@ -9162,6 +9176,47 @@
           "invalidManifest": "orca-plugin.jsonが無効です。修正してからプラグインを更新してください。",
           "invalidArtifact": "宣言されたワーカーまたはパネルのファイルがないか、安全ではありません。ファイルを修正してから更新してください。",
           "consentChanged": "確認中にプラグインが変更されました。このダイアログを閉じて、更新された権限を確認してください。"
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "プラグインテーマ",
+            "description": "有効な Orca プラグインのテーマを適用します。",
+            "builtIn": "組み込みテーマを使用"
+          },
+          "pluginIconTheme": {
+            "title": "アイコンテーマ",
+            "description": "有効な Orca プラグインのファイル、フォルダー、サイドバー、エージェント用アイコンを使用します。",
+            "builtIn": "組み込みアイコンを使用"
+          }
+        },
+        "PluginSkillMappingDialog": {
+          "agentSkillsProvider": "共有エージェントスキル",
+          "loadFailed": "スキルのインストール設定を読み込めませんでした。",
+          "saveFailed": "スキルのインストール設定を更新できませんでした。",
+          "title": "スキルのインストール先を選択",
+          "description": "ユーザースキルはすべてのプロジェクトで利用できます。リポジトリスキルは登録済みのローカルプロジェクトにのみコピーされます。SSH 同期は後のフェーズで対応します。",
+          "loading": "スキル設定を読み込み中…",
+          "noSkills": "スキルを設定する前にこのプラグインを有効にしてください。",
+          "userScope": "ユーザープロファイル",
+          "disabled": "インストールしない",
+          "cancel": "キャンセル",
+          "save": "保存"
+        },
+        "PluginVmRecipeConsentPreview": {
+          "create": "作成",
+          "suspend": "一時停止",
+          "resume": "再開",
+          "destroy": "破棄",
+          "warning": "このプラグインは VM レシピをインストールします。対応するライフサイクル操作を使用すると、Orca は以下のコマンドをローカルのデスクトップホストで実行します。",
+          "commandLabel": "{{value0}} · {{value1}}コマンド",
+          "heading": "VM レシピのコマンド"
+        },
+        "PluginKeybindingConsentPreview": {
+          "warning": "このプラグインはキーボードショートカットを追加します。有効な間は、一致する Orca のショートカットよりプラグインのショートカットが優先されます。",
+          "heading": "キーボードショートカット",
+          "worktree": "ワークスペースがアクティブな場合のみ実行されます。",
+          "global": "アクティブなワークスペースがなくてもアプリで実行されます。",
+          "shadows": "置き換える操作: {{value0}}"
         }
       },
       "right": {
@@ -12220,6 +12275,10 @@
                 "project": "プロジェクト"
               }
             }
+          },
+          "pluginQuickActions": {
+            "description": "{{value0}} プラグインのコマンド",
+            "keyword": "プラグインのコマンド"
           }
         }
       },

@@ -125,7 +125,8 @@
       "fe21e8f6f5": "돌아가기({{value0}})",
       "064bd07810": "돌아가기",
       "ce37cf5279": "사이드바 표시/숨기기({{value0}})",
-      "e4b9e7dff7": "사이드바 표시/숨기기"
+      "e4b9e7dff7": "사이드바 표시/숨기기",
+      "pluginCommandFailed": "플러그인 명령을 실행할 수 없습니다."
     },
     "web": {
       "WebConnect": {
@@ -582,6 +583,9 @@
             "de50bef680": "macOS가 Orca 알림을 차단하고 있습니다"
           }
         }
+      },
+      "pluginCommandKeybindings": {
+        "group": "Plugins"
       }
     },
     "hooks": {
@@ -1857,7 +1861,8 @@
         "workspaceTabMissing": "탭이 더 이상 존재하지 않습니다",
         "projectsGroupsHeader": "프로젝트 및 그룹",
         "projectBadge": "프로젝트",
-        "repoGroupBadge": "리포지토리 그룹"
+        "repoGroupBadge": "리포지토리 그룹",
+        "pluginCommandFailed": "플러그인 명령을 실행할 수 없습니다."
       },
       "github": {
         "pr": {
@@ -6393,7 +6398,9 @@
           "builtin_themes": "기본 제공",
           "imported_from": "{{value0}}에서 가져옴",
           "imported_themes": "가져옴",
-          "search_terminal_themes": "terminal 테마 검색"
+          "search_terminal_themes": "terminal 테마 검색",
+          "plugin_themes": "플러그인 테마",
+          "contributed_by": "{{value0}}에서 제공"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -6435,7 +6442,8 @@
           "25b0004fbf": "Terminal 활성",
           "781cb74d22": "terminal 패널에서 실행됩니다.",
           "cb02e00202": "터미널",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "단축키를 더 이상 사용할 수 없습니다."
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "인수",
@@ -8971,7 +8979,7 @@
           "copy": "복사",
           "copied": "복사됨",
           "recipes": "조리법",
-          "recipesHelp": "agent가 orca.yaml에 추가하는 레시피가 여기에 표시되어 워크스페이스를 시작할 준비가 됩니다.",
+          "recipesHelp": "orca.yaml과 활성화된 플러그인의 레시피가 여기에 표시되어 워크스페이스를 시작할 수 있습니다.",
           "refresh": "임시 VM 레시피 새로 고침",
           "checking": "레시피 확인 중...",
           "none": "아직 레시피를 찾을 수 없습니다."
@@ -9037,11 +9045,13 @@
         },
         "PluginConsentDialog": {
           "workerTrust": "백그라운드 워커 — 별도 프로세스에서 실행",
-          "panelTrust": "패널 전용 — 워커 프로세스 없음",
+          "panelTrust": "패널 또는 비실행 콘텐츠 — 워커 프로세스 없음",
           "decisionFailed": "권한 결정을 저장할 수 없습니다. 다시 시도하세요.",
           "title": "권한 검토",
+          "mixedTitle": "액세스 및 콘텐츠 검토",
+          "instructionalTitle": "플러그인 콘텐츠 검토",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
-          "reconsent": "이 플러그인을 마지막으로 검토한 후 권한 또는 워커 신뢰 수준이 변경되었습니다. 실행하기 전에 다시 검토하세요.",
+          "reconsent": "이 플러그인을 마지막으로 검토한 후 권한, 워커 신뢰 수준 또는 지침 콘텐츠가 변경되었습니다. 실행하기 전에 다시 검토하세요.",
           "source": "소스",
           "unknownSource": "사용할 수 없음",
           "commit": "커밋",
@@ -9052,6 +9062,7 @@
           "enable": "플러그인 활성화",
           "keepDisabled": "비활성화 유지",
           "panelWarning": "이 권한은 플러그인이 Orca API를 사용하는 방식을 제한합니다. 이 플러그인에는 워커 프로세스가 없습니다.",
+          "instructionalWarning": "이 플러그인에는 워커 프로세스가 없습니다. 하지만 사용자나 에이전트가 사용할 때 지침 콘텐츠로 인해 작업이 실행될 수 있습니다. 활성화하기 전에 아래 지침과 명령을 검토하세요.",
           "capability": {
             "workspaceRead": "선택한 워크트리의 이름, 브랜치 및 터미널 목록 읽기",
             "terminalSend": "표시된 특정 터미널에 텍스트 입력",
@@ -9060,7 +9071,9 @@
             "secrets": "플러그인 전용 암호화 보관소에서 비밀 정보 저장 및 읽기",
             "eventsSubscribe": "워크트리가 생성 또는 제거되거나 에이전트 상태가 변경될 때 알림 받기",
             "settingsOwn": "플러그인 자체 설정 읽기 및 변경"
-          }
+          },
+          "skillWarning": "이 플러그인은 지침이 포함된 스킬을 설치합니다. 에이전트는 해당 지침을 읽고 사용자가 부여한 모든 권한으로 작업할 수 있습니다.",
+          "instructionalTrust": "지침 콘텐츠 — 나중에 사용자 또는 에이전트 권한으로 실행"
         },
         "PluginDevelopmentSection": {
           "pathRequired": "플러그인 폴더 경로를 입력하세요.",
@@ -9122,7 +9135,8 @@
           "restarting": "다시 시작 중",
           "invalidPluginError": "플러그인 매니페스트 또는 설치된 파일이 올바르지 않습니다. 수정한 후 새로 고치세요.",
           "runtimeError": "활성화 또는 워커 오류 후 플러그인이 중지되었습니다.",
-          "disableLabel": "{{value0}} 비활성화"
+          "disableLabel": "{{value0}} 비활성화",
+          "configureSkills": "스킬 구성"
         },
         "PluginsSettingsSection": {
           "loadFailed": "플러그인을 불러올 수 없습니다.",
@@ -9162,6 +9176,47 @@
           "invalidManifest": "orca-plugin.json이 올바르지 않습니다. 수정한 후 플러그인을 새로 고치세요.",
           "invalidArtifact": "선언된 워커 또는 패널 파일이 없거나 안전하지 않습니다. 파일을 수정한 후 새로 고치세요.",
           "consentChanged": "검토하는 동안 플러그인이 변경되었습니다. 이 대화상자를 닫고 업데이트된 권한을 검토하세요."
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "플러그인 테마",
+            "description": "활성화된 Orca 플러그인의 테마를 적용합니다.",
+            "builtIn": "기본 제공 테마 사용"
+          },
+          "pluginIconTheme": {
+            "title": "아이콘 테마",
+            "description": "활성화된 Orca 플러그인의 파일, 폴더, 사이드바 및 에이전트 아이콘을 사용합니다.",
+            "builtIn": "기본 제공 아이콘 사용"
+          }
+        },
+        "PluginSkillMappingDialog": {
+          "agentSkillsProvider": "공유 에이전트 스킬",
+          "loadFailed": "스킬 설치 설정을 불러올 수 없습니다.",
+          "saveFailed": "스킬 설치 설정을 업데이트할 수 없습니다.",
+          "title": "스킬 설치 위치 선택",
+          "description": "사용자 스킬은 모든 프로젝트에서 사용할 수 있습니다. 저장소 스킬은 등록된 로컬 프로젝트에만 복사되며 SSH 동기화는 이후 단계에서 제공됩니다.",
+          "loading": "스킬 설정 불러오는 중…",
+          "noSkills": "스킬을 구성하기 전에 이 플러그인을 활성화하세요.",
+          "userScope": "사용자 프로필",
+          "disabled": "설치하지 않음",
+          "cancel": "취소",
+          "save": "저장"
+        },
+        "PluginVmRecipeConsentPreview": {
+          "create": "생성",
+          "suspend": "일시 중지",
+          "resume": "재개",
+          "destroy": "삭제",
+          "warning": "이 플러그인은 VM 레시피를 설치합니다. 해당 수명 주기 작업을 사용하면 Orca가 아래 명령을 로컬 데스크톱 호스트에서 실행합니다.",
+          "commandLabel": "{{value0}} · {{value1}} 명령",
+          "heading": "VM 레시피 명령"
+        },
+        "PluginKeybindingConsentPreview": {
+          "warning": "이 플러그인은 키보드 단축키를 추가합니다. 플러그인이 활성화된 동안 일치하는 Orca 단축키보다 플러그인 단축키가 우선합니다.",
+          "heading": "키보드 단축키",
+          "worktree": "워크스페이스가 활성화된 동안에만 실행됩니다.",
+          "global": "활성 워크스페이스 없이 앱에서 실행됩니다.",
+          "shadows": "대체 항목: {{value0}}"
         }
       },
       "right": {
@@ -12220,6 +12275,10 @@
                 "project": "프로젝트"
               }
             }
+          },
+          "pluginQuickActions": {
+            "description": "{{value0}} 플러그인 명령",
+            "keyword": "플러그인 명령"
           }
         }
       },

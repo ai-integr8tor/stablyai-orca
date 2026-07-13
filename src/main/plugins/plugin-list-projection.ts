@@ -7,6 +7,8 @@ import { pluginPanelTabKey } from '../../shared/plugins/plugin-manifest'
 import type { PluginLockfile } from '../../shared/plugins/plugin-install-lockfile'
 import { isInvalidDiscoveredPlugin } from './plugin-discovery'
 import type { PluginService } from './plugin-service'
+import { listPluginVmRecipeCommands } from '../../shared/plugins/plugin-vm-recipe-artifact'
+import type { PluginCommandAliasActionId } from '../../shared/plugins/plugin-command-actions'
 
 /**
  * Wire projection of installed plugins for the renderer and serve RPC.
@@ -45,8 +47,21 @@ export type PluginListEntry = {
   isDev: boolean
   capabilities: { kind: PluginCapabilityKind; description: string }[]
   panels: PluginListPanelEntry[]
-  commands: { id: string; title: string }[]
+  commands: {
+    id: string
+    title: string
+    context: 'global' | 'worktree'
+    handler: { type: 'built-in'; action: PluginCommandAliasActionId } | { type: 'worker' }
+    keybindings: { key: string; when: 'global' | 'worktree' }[]
+  }[]
   hasWorker: boolean
+  hasSkills: boolean
+  vmRecipes: {
+    id: string
+    name: string
+    description?: string
+    commands: { phase: 'create' | 'suspend' | 'resume' | 'destroy'; command: string }[]
+  }[]
   restarts: number
   source?: {
     kind: 'local-path' | 'git'
@@ -80,6 +95,8 @@ export function buildPluginList(service: PluginService, lock: PluginLockfile): P
         panels: [],
         commands: [],
         hasWorker: false,
+        hasSkills: false,
+        vmRecipes: [],
         restarts: 0
       }
     }
@@ -132,11 +149,21 @@ export function buildPluginList(service: PluginService, lock: PluginLockfile): P
         ...(panel.icon ? { icon: panel.icon } : {}),
         tabKey: pluginPanelTabKey(plugin.pluginKey, panel.id)
       })),
-      commands: plugin.manifest.contributes.commands.map((command) => ({
+      commands: service.contentPacks.commands.preview(plugin.pluginKey).map((command) => ({
         id: command.id,
-        title: command.title
+        title: command.title,
+        context: command.context,
+        handler: command.handler,
+        keybindings: command.keybindings
       })),
       hasWorker: Boolean(plugin.manifest.main),
+      hasSkills: plugin.manifest.contributes.skills.length > 0,
+      vmRecipes: service.contentPacks.vmRecipes.preview(plugin.pluginKey).map(({ recipe }) => ({
+        id: recipe.id,
+        name: recipe.name,
+        ...(recipe.description ? { description: recipe.description } : {}),
+        commands: listPluginVmRecipeCommands(recipe)
+      })),
       restarts: worker.restarts,
       ...(lockEntry
         ? {

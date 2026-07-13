@@ -125,7 +125,8 @@
       "fe21e8f6f5": "Go back ({{value0}})",
       "064bd07810": "Go back",
       "ce37cf5279": "Toggle sidebar ({{value0}})",
-      "e4b9e7dff7": "Toggle sidebar"
+      "e4b9e7dff7": "Toggle sidebar",
+      "pluginCommandFailed": "Could not run the plugin command."
     },
     "web": {
       "WebConnect": {
@@ -582,6 +583,9 @@
             "de50bef680": "macOS is blocking Orca notifications"
           }
         }
+      },
+      "pluginCommandKeybindings": {
+        "group": "Plugins"
       }
     },
     "hooks": {
@@ -1857,7 +1861,8 @@
         "workspaceTabMissing": "Tab no longer exists",
         "projectsGroupsHeader": "Projects & Groups",
         "projectBadge": "Project",
-        "repoGroupBadge": "Repo group"
+        "repoGroupBadge": "Repo group",
+        "pluginCommandFailed": "Could not run the plugin command."
       },
       "github": {
         "pr": {
@@ -6445,7 +6450,9 @@
           "search_terminal_themes": "Search terminal themes",
           "cb330ef7f8": " of {{value0}}",
           "c822571b2e": " matching \"{{value0}}\"",
-          "3119c012a5": "string"
+          "3119c012a5": "string",
+          "plugin_themes": "Plugin themes",
+          "contributed_by": "Contributed by {{value0}}"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -6487,7 +6494,8 @@
           "25b0004fbf": "Terminal active",
           "781cb74d22": "Runs from terminal panes.",
           "cb02e00202": "Terminal",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "Shortcut is no longer available."
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "args",
@@ -8971,7 +8979,7 @@
           "copy": "Copy",
           "copied": "Copied",
           "recipes": "Recipes",
-          "recipesHelp": "Recipes your agent adds to orca.yaml show up here, ready to launch a workspace on.",
+          "recipesHelp": "Recipes from orca.yaml and enabled plugins show up here, ready to launch a workspace on.",
           "refresh": "Refresh ephemeral VM recipes",
           "checking": "Checking recipes...",
           "none": "No recipes found yet."
@@ -9037,11 +9045,13 @@
         },
         "PluginConsentDialog": {
           "workerTrust": "Background worker — runs its own process",
-          "panelTrust": "Panel only — no worker process",
+          "panelTrust": "Panel or inert content — no worker process",
           "decisionFailed": "Could not save the permission decision. Try again.",
           "title": "Review permissions",
+          "mixedTitle": "Review access and content",
+          "instructionalTitle": "Review plugin content",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
-          "reconsent": "Permissions or the worker trust tier changed since you last reviewed this plugin. Review them again before it can run.",
+          "reconsent": "Permissions, the worker trust tier, or instructional content changed since you last reviewed this plugin. Review it again before it can run.",
           "source": "Source",
           "unknownSource": "Not available",
           "commit": "Commit",
@@ -9052,6 +9062,7 @@
           "enable": "Enable plugin",
           "keepDisabled": "Keep Disabled",
           "panelWarning": "These permissions limit how the plugin uses Orca's API. This plugin has no worker process.",
+          "instructionalWarning": "This plugin has no worker process. Its instructional content can still cause actions when you or an agent use it. Review the instructions and commands below before enabling it.",
           "capability": {
             "workspaceRead": "Read the name, branch, and terminal list of your focused worktree",
             "terminalSend": "Type text into a terminal you can see (always a specific terminal)",
@@ -9060,7 +9071,9 @@
             "secrets": "Store and read secrets in the plugin's own encrypted vault",
             "eventsSubscribe": "Get notified when worktrees are created or removed and when agent status changes",
             "settingsOwn": "Read and change the plugin's own settings"
-          }
+          },
+          "skillWarning": "This plugin installs instructional skills. Agents read those instructions and may act on them with the full authority you give the agent.",
+          "instructionalTrust": "Instructional content — runs later under user or agent authority"
         },
         "PluginDevelopmentSection": {
           "pathRequired": "Enter a plugin folder path.",
@@ -9122,7 +9135,8 @@
           "restarting": "Restarting",
           "invalidPluginError": "The plugin manifest or installed files are invalid. Fix the plugin, then refresh.",
           "runtimeError": "The plugin stopped after an activation or worker error.",
-          "disableLabel": "Disable {{value0}}"
+          "disableLabel": "Disable {{value0}}",
+          "configureSkills": "Configure skills"
         },
         "PluginsSettingsSection": {
           "loadFailed": "Could not load plugins.",
@@ -9162,6 +9176,47 @@
           "invalidManifest": "orca-plugin.json is invalid. Fix it, then refresh plugins.",
           "invalidArtifact": "A declared worker or panel file is missing or unsafe. Fix the plugin files, then refresh.",
           "consentChanged": "The plugin changed while you were reviewing it. Close this dialog and review the updated permissions."
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "Plugin theme",
+            "description": "Apply a theme from an enabled Orca plugin.",
+            "builtIn": "Use built-in theme"
+          },
+          "pluginIconTheme": {
+            "title": "Icon theme",
+            "description": "Use file, folder, sidebar, and agent icons from an enabled Orca plugin.",
+            "builtIn": "Use built-in icons"
+          }
+        },
+        "PluginSkillMappingDialog": {
+          "agentSkillsProvider": "Shared agent skills",
+          "loadFailed": "Could not load skill installation settings.",
+          "saveFailed": "Could not update skill installation settings.",
+          "title": "Choose where skills are installed",
+          "description": "User skills are available across projects. Repository skills are copied only into a registered local project; SSH synchronization arrives in a later phase.",
+          "loading": "Loading skill settings…",
+          "noSkills": "Enable this plugin before configuring its skills.",
+          "userScope": "User profile",
+          "disabled": "Do not install",
+          "cancel": "Cancel",
+          "save": "Save"
+        },
+        "PluginVmRecipeConsentPreview": {
+          "create": "Create",
+          "suspend": "Suspend",
+          "resume": "Resume",
+          "destroy": "Destroy",
+          "warning": "This plugin installs VM recipes. Orca runs the commands below on your local desktop host when you use the matching lifecycle action.",
+          "commandLabel": "{{value0}} · {{value1}} command",
+          "heading": "VM recipe commands"
+        },
+        "PluginKeybindingConsentPreview": {
+          "warning": "This plugin adds keyboard shortcuts. Plugin shortcuts take priority over matching Orca shortcuts while the plugin is enabled.",
+          "heading": "Keyboard shortcuts",
+          "worktree": "Runs only while a workspace is active.",
+          "global": "Runs in the app without requiring an active workspace.",
+          "shadows": "Replaces: {{value0}}"
         }
       },
       "right": {
@@ -12220,6 +12275,10 @@
                 "project": "Project"
               }
             }
+          },
+          "pluginQuickActions": {
+            "description": "{{value0}} plugin command",
+            "keyword": "plugin command"
           }
         }
       },

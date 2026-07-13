@@ -8,6 +8,11 @@ export type ActivePluginPanel = PluginHostPanel & {
   pluginName: string
 }
 
+export type ActivePluginCommand = PluginHostListEntry['commands'][number] & {
+  pluginKey: string
+  pluginName: string
+}
+
 export type PluginPanelsFetchStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type PluginPanelHealth = 'healthy' | 'error'
 
@@ -157,6 +162,37 @@ export function collectInstalledPluginTabKeys(
   return new Set(plugins.flatMap((plugin) => plugin.panels.map((panel) => panel.tabKey)))
 }
 
+export function collectActivePluginCommands(
+  plugins: readonly PluginHostListEntry[]
+): ActivePluginCommand[] {
+  return plugins
+    .filter(
+      (plugin) =>
+        plugin.status === 'running' || plugin.status === 'restarting' || plugin.status === 'idle'
+    )
+    .flatMap((plugin) =>
+      plugin.commands.map((command) => ({
+        ...command,
+        pluginKey: plugin.pluginKey,
+        pluginName: plugin.name
+      }))
+    )
+}
+
+export function collectEditablePluginCommands(
+  plugins: readonly PluginHostListEntry[]
+): ActivePluginCommand[] {
+  return plugins
+    .filter((plugin) => ['running', 'restarting', 'idle', 'errored'].includes(plugin.status))
+    .flatMap((plugin) =>
+      plugin.commands.map((command) => ({
+        ...command,
+        pluginKey: plugin.pluginKey,
+        pluginName: plugin.name
+      }))
+    )
+}
+
 /** Panel contributions of enabled plugins, loading the list on first use. */
 export function usePluginPanels(): ActivePluginPanel[] {
   const plugins = usePluginPanelsStore((s) => s.plugins)
@@ -166,4 +202,23 @@ export function usePluginPanels(): ActivePluginPanel[] {
   // Why: derive in useMemo (not the selector) so the store snapshot stays
   // referentially stable and doesn't retrigger useSyncExternalStore loops.
   return useMemo(() => collectActivePluginPanels(plugins), [plugins])
+}
+
+/** Commands of enabled plugins, sharing the authoritative plugin-list refresh. */
+export function usePluginCommands(): ActivePluginCommand[] {
+  const plugins = usePluginPanelsStore((state) => state.plugins)
+  useEffect(() => {
+    ensurePluginPanelsLoaded()
+  }, [])
+  return useMemo(() => collectActivePluginCommands(plugins), [plugins])
+}
+
+/** Enabled commands remain editable while a chord conflict has errored the
+ * plugin, so a saved override can recover both conflicting plugins. */
+export function useEditablePluginCommands(): ActivePluginCommand[] {
+  const plugins = usePluginPanelsStore((state) => state.plugins)
+  useEffect(() => {
+    ensurePluginPanelsLoaded()
+  }, [])
+  return useMemo(() => collectEditablePluginCommands(plugins), [plugins])
 }

@@ -43,7 +43,7 @@ import { OrcaRuntimeService, type RuntimeWorktreeLifecycleEvent } from './runtim
 import { OrcaRuntimeRpcServer } from './runtime/runtime-rpc'
 import { awaitRuntimeFileWatcherUnsubscribes } from './runtime/orca-runtime-files'
 import { clearRuntimeMetadataIfOwned } from './runtime/runtime-metadata'
-import { ensureMainI18n, setMainUiLanguage } from './i18n/main-i18n'
+import { ensureMainI18n, setMainPluginLanguagePacks, setMainUiLanguage } from './i18n/main-i18n'
 import {
   getNextDefaultOnAppearanceSettingValue,
   registerAppMenu,
@@ -1938,6 +1938,7 @@ app.whenReady().then(async () => {
     getDisabledPlugins: () => normalizePluginIdList(store?.getSettings().disabledPlugins),
     getPluginConsents: () => normalizePluginConsents(store?.getSettings().pluginConsents),
     getDevPluginPaths: () => normalizePluginIdList(store?.getSettings().devPluginPaths),
+    getKeybindings: () => keybindings?.getOverrides() ?? {},
     hostEntryPath: resolvePluginHostEntryPath(app.getAppPath(), app.isPackaged)
   })
   // Why: headless `orca serve` clients reach plugins through the runtime RPC
@@ -1963,10 +1964,16 @@ app.whenReady().then(async () => {
     .catch((error) => {
       console.warn('[plugins] failed to initialize plugin service:', error)
     })
-  pluginService.onChanged(() => {
+  pluginService.onChanged((event) => {
+    if (
+      event.contentPacksChanged &&
+      setMainPluginLanguagePacks(pluginService?.contentPacks.languagePacks.list() ?? [])
+    ) {
+      void setMainUiLanguage(store!.getSettings().uiLanguage).then(() => rebuildAppMenu())
+    }
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
-        window.webContents.send('plugins:changed')
+        window.webContents.send('plugins:changed', event)
       }
     }
   })

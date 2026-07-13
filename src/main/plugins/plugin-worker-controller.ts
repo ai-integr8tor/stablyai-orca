@@ -86,7 +86,9 @@ export class PluginWorkerController {
         throw new Error(`plugin ${plugin.pluginKey} changed or was disabled during activation`)
       }
       const declaredCommands = new Set(
-        plugin.manifest.contributes.commands.map((command) => command.id)
+        plugin.manifest.contributes.commands
+          .filter((command) => command.action === undefined)
+          .map((command) => command.id)
       )
       const undeclaredCommand = handle.commands.find((command) => !declaredCommands.has(command))
       if (undeclaredCommand) {

@@ -54,6 +54,18 @@ import type {
   PluginPanelEntry
 } from '../shared/plugins/plugin-panel-bridge'
 import type { PluginConsentRequest } from '../shared/plugins/plugin-consent-request'
+import type { PluginThemeRegistration } from '../shared/plugins/plugin-theme-artifact'
+import type { PluginLanguagePackRegistration } from '../shared/plugins/plugin-language-pack-artifact'
+import type {
+  PluginSkillContributionMapping,
+  PluginSkillStoreSnapshot
+} from '../shared/plugins/plugin-skill-store'
+import type {
+  PluginIconThemeMetadata,
+  PluginIconThemeRegistration
+} from '../shared/plugins/plugin-icon-theme-artifact'
+import type { PluginTerminalThemeRegistration } from '../shared/plugins/plugin-terminal-theme-artifact'
+import type { PluginChangeEvent } from '../shared/plugins/plugin-change-event'
 import type {
   LocalhostWorktreeLabelResult,
   LocalhostWorktreeLabelRoute
@@ -937,8 +949,24 @@ export type PluginHostListEntry = {
   isDev: boolean
   capabilities: { kind: string; description: string }[]
   panels: PluginHostPanel[]
-  commands: { id: string; title: string }[]
+  commands: {
+    id: string
+    title: string
+    context: 'global' | 'worktree'
+    handler: { type: 'built-in'; action: string } | { type: 'worker' }
+    keybindings: { key: string; when: 'global' | 'worktree' }[]
+  }[]
   hasWorker: boolean
+  hasSkills?: boolean
+  vmRecipes?: {
+    id: string
+    name: string
+    description?: string
+    commands: {
+      phase: 'create' | 'suspend' | 'resume' | 'destroy'
+      command: string
+    }[]
+  }[]
   restarts: number
   source?: {
     kind: 'local-path' | 'git'
@@ -3172,6 +3200,13 @@ export type PreloadApi = {
   }
   plugins: {
     list: () => Promise<PluginHostListEntry[]>
+    listThemes: () => Promise<PluginThemeRegistration[]>
+    listLanguagePacks: () => Promise<PluginLanguagePackRegistration[]>
+    listIconThemes: () => Promise<PluginIconThemeMetadata[]>
+    loadIconTheme: (id: string) => Promise<PluginIconThemeRegistration | null>
+    listTerminalThemes: () => Promise<PluginTerminalThemeRegistration[]>
+    listSkillStore: () => Promise<PluginSkillStoreSnapshot>
+    setSkillMapping: (mapping: PluginSkillContributionMapping) => Promise<PluginSkillStoreSnapshot>
     /** Records the consent-dialog answer; approval is keyed to the plugin's
      *  current capability and trusted-worker fingerprint. */
     consent: (args: PluginConsentRequest) => Promise<PluginHostListEntry[]>
@@ -3199,8 +3234,8 @@ export type PreloadApi = {
     getLogs: (args: { pluginKey: string }) => Promise<PluginHostLogLine[]>
     /** Re-discovers after settings edits (feature flag, dev paths). */
     refresh: () => Promise<PluginHostListEntry[]>
-    /** Fires whenever installed plugins, worker states, or panels change. */
-    onChanged: (callback: () => void) => () => void
+    /** Fires whenever installed plugins, worker states, panels, or content packs change. */
+    onChanged: (callback: (event: PluginChangeEvent) => void) => () => void
   }
   agentStatus: {
     /** Listen for agent status updates forwarded from native hook receivers. */

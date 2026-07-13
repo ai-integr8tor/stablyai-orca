@@ -22,6 +22,7 @@ let markerPaths: string[] = []
 let consents: Record<string, string> = {}
 
 function dummyManifest(index: number): PluginManifest {
+  const key = String.fromCharCode('A'.charCodeAt(0) + index)
   return pluginManifestSchema.parse({
     manifestVersion: 1,
     id: `dummy-${index}`,
@@ -30,8 +31,25 @@ function dummyManifest(index: number): PluginManifest {
     version: '1.0.0',
     engines: { orca: '>=1.0.0' },
     pluginApi: 1,
-    main: 'main.mjs',
-    contributes: { panels: [], commands: [], events: [] },
+    contributes: {
+      panels: [],
+      commands: [
+        {
+          id: 'open',
+          title: `Open Startup Dummy ${index}`,
+          action: 'view.tasks'
+        }
+      ],
+      events: [],
+      keybindings: [{ command: 'open', key: `Mod+Alt+${key}` }],
+      themes: [
+        {
+          id: `startup-${index}`,
+          label: `Startup Theme ${index}`,
+          path: 'theme.json'
+        }
+      ]
+    },
     capabilities: []
   })
 }
@@ -48,8 +66,11 @@ async function installDummy(index: number): Promise<{ pluginKey: string; markerP
     writeFile(join(pluginDir, 'current'), contentHash),
     writeFile(join(versionDir, PLUGIN_MANIFEST_FILENAME), JSON.stringify(manifest)),
     writeFile(
-      join(versionDir, 'main.mjs'),
-      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(markerPath)}, 'executed'); export default async function activate() { return {}; }`
+      join(versionDir, 'theme.json'),
+      JSON.stringify({
+        base: index % 2 === 0 ? 'dark' : 'light',
+        tokens: { '--background': index % 2 === 0 ? '#111111' : '#eeeeee' }
+      })
     )
   ])
   consents[pluginKey] = fingerprintPluginConsent(manifest)
@@ -74,7 +95,7 @@ describe('plugin startup budget', () => {
     await rm(userDataPath, { recursive: true, force: true })
   })
 
-  it('stays below 50ms P95 with 20 approved plugins and executes no plugin code', async () => {
+  it('stays below 50ms P95 with 20 approved content packs and executes no plugin code', async () => {
     const workerFactory = vi.fn<PluginWorkerFactory>(async () => {
       throw new Error('startup must not create a plugin worker')
     })

@@ -129,7 +129,10 @@ import {
   timeRendererStartupSyncStep
 } from './startup/startup-diagnostics'
 import { shouldRenderPetOverlay } from './components/pet/pet-overlay-visibility'
-import { applyDocumentTheme } from './lib/document-theme'
+import { applyDocumentTheme, applyPluginAppTheme } from './lib/document-theme'
+import { usePluginThemes } from './store/plugin-themes'
+import { usePluginIconThemes, usePluginIconThemeStore } from './store/plugin-icon-themes'
+import { usePluginTerminalThemes } from './store/plugin-terminal-themes'
 import { getSystemPrefersDark } from './lib/terminal-theme'
 import { publishTerminalViewAttributesAtAppStart } from './components/terminal-pane/terminal-appearance'
 import { isEditableTarget } from './lib/editable-target'
@@ -163,6 +166,11 @@ import {
   type KeybindingContext,
   type PhysicalModifierToken
 } from '../../shared/keybindings'
+import { PLUGIN_COMMAND_ALIAS_ACTION_IDS } from '../../shared/plugins/plugin-command-actions'
+import { registerAppCommandDispatcher } from '@/lib/app-command-dispatch'
+import { executePluginCommand } from '@/lib/plugin-command-execution'
+import { findPluginCommandForKeybinding } from '@/lib/plugin-command-keybindings'
+import { usePluginCommands } from '@/store/plugin-panels'
 import { toRuntimeExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import {
   ModifierDoubleTapDetector,
@@ -499,6 +507,7 @@ function App(): React.JSX.Element {
     hasRequestedBackgroundTerminalWorktreeMount
   )
   const keybindings = useAppStore((s) => s.keybindings)
+  const pluginCommands = usePluginCommands()
   const updateStatus = useAppStore((s) => s.updateStatus)
   const activeContextualTourId = useAppStore((s) => s.activeContextualTourId)
   const leftSidebarShortcutLabel = useShortcutLabel('sidebar.left.toggle')
@@ -653,10 +662,18 @@ function App(): React.JSX.Element {
   const rightSidebarExplorerView = useAppStore((s) => s.rightSidebarExplorerView)
   const isFullScreen = useAppStore((s) => s.isFullScreen)
   const settings = useAppStore((s) => s.settings)
+  const pluginThemes = usePluginThemes()
+  usePluginIconThemes()
+  const pluginTerminalThemes = usePluginTerminalThemes()
+  const setActivePluginIconTheme = usePluginIconThemeStore((state) => state.setActiveId)
+  const activePluginTheme = useMemo(
+    () => pluginThemes.find((theme) => theme.id === settings?.pluginAppTheme) ?? null,
+    [pluginThemes, settings?.pluginAppTheme]
+  )
   const systemPrefersDark = useSystemPrefersDark()
   const leftSidebarStyle = useMemo(
-    () => resolveLeftSidebarStyleVariables(settings, systemPrefersDark),
-    [settings, systemPrefersDark]
+    () => resolveLeftSidebarStyleVariables(settings, systemPrefersDark, pluginTerminalThemes),
+    [settings, systemPrefersDark, pluginTerminalThemes]
   ) as React.CSSProperties | undefined
   const dictationState = useAppStore((s) => s.dictationState)
   const hasSshCredentialRequest = useAppStore((s) => s.sshCredentialQueue.length > 0)
@@ -666,6 +683,17 @@ function App(): React.JSX.Element {
     settings?.primarySelectionMiddleClickPaste
   )
   usePrimarySelectionPaste(primarySelectionMiddleClickPaste)
+
+  useEffect(() => {
+    setActivePluginIconTheme(settings?.pluginIconTheme ?? null)
+  }, [setActivePluginIconTheme, settings?.pluginIconTheme])
+
+  useEffect(() => {
+    // Why: plugin palette changes do not mutate settings, but paired clients
+    // and hidden terminals still need the newly effective terminal colors.
+    publishTerminalViewAttributesAtAppStart(useAppStore.getState().settings, getSystemPrefersDark())
+    scheduleRuntimeGraphSync()
+  }, [pluginTerminalThemes])
   useAppMenuPaste()
   useLargeTextControlPaste()
   const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
@@ -1481,10 +1509,12 @@ function App(): React.JSX.Element {
       return
     }
 
-    if (settings.theme === 'dark') {
+    applyPluginAppTheme(activePluginTheme)
+    const themePreference = activePluginTheme?.base ?? settings.theme
+    if (themePreference === 'dark') {
       applyDocumentTheme('dark')
       return undefined
-    } else if (settings.theme === 'light') {
+    } else if (themePreference === 'light') {
       applyDocumentTheme('light')
       return undefined
     } else {
@@ -1500,7 +1530,7 @@ function App(): React.JSX.Element {
       mq.addEventListener('change', handler)
       return () => mq.removeEventListener('change', handler)
     }
-  }, [settings])
+  }, [activePluginTheme, settings])
 
   useEffect(() => {
     document.documentElement.style.setProperty(
@@ -1570,6 +1600,7 @@ function App(): React.JSX.Element {
     floatingTerminalOpen,
     floatingVisibleTabCount,
     keybindings,
+    pluginCommands,
     terminalShortcutPolicy: settings?.terminalShortcutPolicy,
     setFloatingTerminalOpenWithFocus,
     workspaceChromeActive,
@@ -1585,6 +1616,7 @@ function App(): React.JSX.Element {
     floatingTerminalOpen,
     floatingVisibleTabCount,
     keybindings,
+    pluginCommands,
     terminalShortcutPolicy: settings?.terminalShortcutPolicy,
     setFloatingTerminalOpenWithFocus,
     workspaceChromeActive,
@@ -1593,6 +1625,196 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const doubleTapDetector = new ModifierDoubleTapDetector()
+
+    const createRegisteredCommandHandlers = (
+      input?: ShortcutDispatchInput,
+      keybindingContext: KeybindingContext = 'app'
+    ): Map<KeybindingActionId, () => boolean> => {
+      const {
+        activeView,
+        activeWorktreeId,
+        actions,
+        floatingTerminalEnabled,
+        floatingTerminalOpen,
+        terminalShortcutPolicy,
+        keybindings,
+        setFloatingTerminalOpenWithFocus,
+        workspaceChromeActive,
+        creationLayoutActive
+      } = globalShortcutStateRef.current
+      const floatingWorkspaceFocused = isFloatingWorkspacePanelFocused()
+      const canRevealRightSidebar = !creationLayoutActive && canShowRightSidebarForView(activeView)
+      const claim = (actionId: KeybindingActionId, run: () => void): boolean => {
+        input?.preventDefault()
+        if (
+          input &&
+          keybindingContext === 'terminal' &&
+          (terminalShortcutPolicy ?? 'orca-first') === 'orca-first'
+        ) {
+          showTerminalShortcutCaptureNotification({
+            actionId,
+            platform: shortcutPlatform,
+            keybindings
+          })
+        }
+        run()
+        return true
+      }
+
+      return new Map<KeybindingActionId, () => boolean>([
+        [
+          'worktree.history.back',
+          () => {
+            if (creationLayoutActive || !shouldShowWorktreeHistoryControls(activeView)) {
+              return false
+            }
+            return claim('worktree.history.back', () => useAppStore.getState().goBackWorktree())
+          }
+        ],
+        [
+          'worktree.history.forward',
+          () => {
+            if (creationLayoutActive || !shouldShowWorktreeHistoryControls(activeView)) {
+              return false
+            }
+            return claim('worktree.history.forward', () =>
+              useAppStore.getState().goForwardWorktree()
+            )
+          }
+        ],
+        ['sidebar.left.toggle', () => claim('sidebar.left.toggle', () => actions.toggleSidebar())],
+        [
+          'sidebar.sleepingWorkspaces.toggle',
+          () =>
+            claim('sidebar.sleepingWorkspaces.toggle', () => {
+              const store = useAppStore.getState()
+              const nextShowSleeping = !store.showSleepingWorkspaces
+              store.setShowSleepingWorkspaces(nextShowSleeping)
+              if (nextShowSleeping) {
+                store.setSidebarOpen(true)
+              }
+            })
+        ],
+        [
+          'floatingWorkspace.maximize',
+          () => {
+            if (floatingTerminalOpen || !floatingTerminalEnabled) {
+              return false
+            }
+            return claim('floatingWorkspace.maximize', () => {
+              requestFloatingTerminalOpenMaximized()
+              setFloatingTerminalOpenWithFocus(true)
+            })
+          }
+        ],
+        [
+          'tab.rename',
+          () => {
+            const store = useAppStore.getState()
+            if (
+              !workspaceChromeActive ||
+              floatingWorkspaceFocused ||
+              store.activeTabType !== 'terminal' ||
+              !store.activeTabId
+            ) {
+              return false
+            }
+            return claim('tab.rename', () => store.setRenamingTabId(store.activeTabId!))
+          }
+        ],
+        [
+          'workspace.rename',
+          () => {
+            if (!workspaceChromeActive || floatingWorkspaceFocused || !activeWorktreeId) {
+              return false
+            }
+            return claim('workspace.rename', () => {
+              useAppStore.getState().setSidebarOpen(true)
+              requestScrollToCurrentWorkspaceRevealAndRename()
+            })
+          }
+        ],
+        [
+          'workspace.openBoard',
+          () => {
+            if (activeView === 'settings') {
+              return false
+            }
+            return claim('workspace.openBoard', () => {
+              useAppStore.getState().setSidebarOpen(true)
+              window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+            })
+          }
+        ],
+        [
+          'view.tasks',
+          () => {
+            const store = useAppStore.getState()
+            if (activeView === 'settings' || !store.repos.some((repo) => isGitRepoKind(repo))) {
+              return false
+            }
+            return claim('view.tasks', () => store.openTaskPage())
+          }
+        ],
+        [
+          'sidebar.right.toggle',
+          () =>
+            canRevealRightSidebar
+              ? claim('sidebar.right.toggle', () => actions.toggleRightSidebar())
+              : false
+        ],
+        [
+          'sidebar.explorer.toggle',
+          () =>
+            canRevealRightSidebar
+              ? claim('sidebar.explorer.toggle', () => actions.showRightSidebarFiles())
+              : false
+        ],
+        [
+          'sidebar.search.toggle',
+          () =>
+            canRevealRightSidebar
+              ? claim('sidebar.search.toggle', () => actions.showRightSidebarSearch())
+              : false
+        ],
+        [
+          'sidebar.sourceControl.toggle',
+          () => {
+            if (!canRevealRightSidebar || document.querySelector('[data-terminal-search-root]')) {
+              return false
+            }
+            return claim('sidebar.sourceControl.toggle', () => {
+              actions.setRightSidebarTab('source-control')
+              actions.setRightSidebarOpen(true)
+            })
+          }
+        ],
+        [
+          'sidebar.checks.toggle',
+          () =>
+            canRevealRightSidebar
+              ? claim('sidebar.checks.toggle', () => {
+                  actions.setRightSidebarTab('checks')
+                  actions.setRightSidebarOpen(true)
+                })
+              : false
+        ],
+        [
+          'sidebar.ports.toggle',
+          () =>
+            canRevealRightSidebar
+              ? claim('sidebar.ports.toggle', () => {
+                  actions.setRightSidebarTab('ports')
+                  actions.setRightSidebarOpen(true)
+                })
+              : false
+        ]
+      ])
+    }
+
+    const unregisterAppCommandDispatcher = registerAppCommandDispatcher((actionId) =>
+      (createRegisteredCommandHandlers().get(actionId) ?? (() => false))()
+    )
 
     const dispatchShortcutInput = (input: ShortcutDispatchInput): void => {
       const {
@@ -1603,9 +1825,9 @@ function App(): React.JSX.Element {
         floatingTerminalOpen,
         floatingVisibleTabCount,
         keybindings,
+        pluginCommands,
         terminalShortcutPolicy,
         setFloatingTerminalOpenWithFocus,
-        workspaceChromeActive,
         creationLayoutActive
       } = globalShortcutStateRef.current
 
@@ -1728,25 +1950,6 @@ function App(): React.JSX.Element {
         return
       }
 
-      // Cmd/Ctrl+Alt+Arrow — worktree history back/forward. This stays before
-      // right-sidebar shortcuts because it is navigation, not sidebar reveal.
-      if (matchShortcut('worktree.history.back') || matchShortcut('worktree.history.forward')) {
-        // Why: Back/Forward traverse mixed worktree + page visits, so the
-        // shortcut is active wherever the titlebar button cluster is (terminal
-        // or stack-backed pages). Still suppressed in Settings.
-        if (creationLayoutActive || !shouldShowWorktreeHistoryControls(activeView)) {
-          return
-        }
-        input.preventDefault()
-        const store = useAppStore.getState()
-        if (matchShortcut('worktree.history.back')) {
-          store.goBackWorktree()
-        } else {
-          store.goForwardWorktree()
-        }
-        return
-      }
-
       // Why: only short-circuit chords the floating panel's own keydown
       // handler claims (Cmd/Ctrl+T, Cmd/Ctrl+W, Cmd/Ctrl+Shift+B/M). Other
       // app-level mod shortcuts (B, L, Shift+E/F/G) have no panel-level
@@ -1764,147 +1967,33 @@ function App(): React.JSX.Element {
         }
       }
 
-      // Cmd/Ctrl+B — toggle left sidebar
-      if (matchShortcut('sidebar.left.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.left.toggle')
-        actions.toggleSidebar()
-        return
-      }
-
-      // Toggle the "show sleeping workspaces" sidebar filter without opening the
-      // filters menu (issue #5209). When revealing them, open the left sidebar
-      // so the now-visible sleeping worktrees are actually reachable.
-      if (matchShortcut('sidebar.sleepingWorkspaces.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.sleepingWorkspaces.toggle')
-        const store = useAppStore.getState()
-        const nextShowSleeping = !store.showSleepingWorkspaces
-        store.setShowSleepingWorkspaces(nextShowSleeping)
-        if (nextShowSleeping) {
-          store.setSidebarOpen(true)
-        }
-        return
-      }
-
-      // Why: rename the active terminal tab. Cmd+R is free in the app/terminal
-      // focus zone because the browser pane owns its own Cmd+R reload and that
-      // focus never reaches this renderer-window handler. Only terminal tabs
-      // have an inline title editor, so other active tab types fall through.
-      if (workspaceChromeActive && !floatingWorkspaceFocused && matchShortcut('tab.rename')) {
-        const store = useAppStore.getState()
-        if (store.activeTabType === 'terminal' && store.activeTabId) {
+      // Plugin chords are user-reviewed instructional content. They win over
+      // built-in defaults only in app focus; terminal/editor/browser handlers
+      // retain their own shortcut authority.
+      if (context === 'app') {
+        const pluginCommand = findPluginCommandForKeybinding(
+          pluginCommands,
+          input,
+          shortcutPlatform,
+          keybindings,
+          Boolean(activeWorktreeId)
+        )
+        if (pluginCommand) {
           input.preventDefault()
-          notifyTerminalCapture('tab.rename')
-          store.setRenamingTabId(store.activeTabId)
+          void executePluginCommand(pluginCommand, 'plugin-keybinding').catch(() => {
+            toast.error(
+              translate('auto.App.pluginCommandFailed', 'Could not run the plugin command.')
+            )
+          })
           return
         }
       }
 
-      // Why: open the active worktree's inline title editor. Open/reveal it
-      // first so the card is mounted and visible even when sidebar filters or
-      // collapse state would otherwise hide it.
-      if (
-        workspaceChromeActive &&
-        !floatingWorkspaceFocused &&
-        matchShortcut('workspace.rename') &&
-        activeWorktreeId
-      ) {
-        input.preventDefault()
-        notifyTerminalCapture('workspace.rename')
-        const store = useAppStore.getState()
-        store.setSidebarOpen(true)
-        requestScrollToCurrentWorkspaceRevealAndRename()
-        return
-      }
-
-      if (matchShortcut('workspace.openBoard') && activeView !== 'settings') {
-        input.preventDefault()
-        notifyTerminalCapture('workspace.openBoard')
-        const store = useAppStore.getState()
-        store.setSidebarOpen(true)
-        window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
-        return
-      }
-
-      // Why: Cmd/Ctrl+N is handled via the main-process before-input-event
-      // allowlist (see window-shortcut-policy.ts / useIpcEvents.ts) so it works
-      // globally — including when focus lives inside the markdown rich editor
-      // (contentEditable) or a browser guest webContents, both of which bypass
-      // this renderer-side window keydown listener.
-
-      // Why: full-page navigation surfaces should not reveal the right sidebar;
-      // they are designed as distraction-free content areas.
-      if (matchShortcut('view.tasks') && activeView !== 'settings') {
-        const store = useAppStore.getState()
-        if (store.repos.some((repo) => isGitRepoKind(repo))) {
-          input.preventDefault()
-          notifyTerminalCapture('view.tasks')
-          store.openTaskPage()
-        }
-        return
-      }
-
-      if (!canRevealRightSidebar) {
-        return
-      }
-
-      // Cmd/Ctrl+L — toggle right sidebar
-      if (matchShortcut('sidebar.right.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.right.toggle')
-        actions.toggleRightSidebar()
-        return
-      }
-
-      // Cmd/Ctrl+Shift+E — toggle right sidebar / explorer tab
-      if (matchShortcut('sidebar.explorer.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.explorer.toggle')
-        actions.showRightSidebarFiles()
-        return
-      }
-
-      // Cmd/Ctrl+Shift+F — toggle right sidebar / search tab
-      if (matchShortcut('sidebar.search.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.search.toggle')
-        openSearchSidebar(null)
-        return
-      }
-
-      // Cmd/Ctrl+Shift+G — toggle right sidebar / source control tab.
-      // Skip when terminal search is open — Cmd+Shift+G means "find previous"
-      // in that context (handled by keyboard-handlers.ts). Both listeners share
-      // the window capture phase and registration order can vary with React
-      // effect re-runs, so a DOM check is the reliable coordination mechanism.
-      if (matchShortcut('sidebar.sourceControl.toggle')) {
-        if (document.querySelector('[data-terminal-search-root]')) {
+      const handlers = createRegisteredCommandHandlers(input, context)
+      for (const actionId of PLUGIN_COMMAND_ALIAS_ACTION_IDS) {
+        if (matchShortcut(actionId) && handlers.get(actionId)?.()) {
           return
         }
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.sourceControl.toggle')
-        actions.setRightSidebarTab('source-control')
-        actions.setRightSidebarOpen(true)
-        return
-      }
-
-      if (matchShortcut('sidebar.checks.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.checks.toggle')
-        actions.setRightSidebarTab('checks')
-        actions.setRightSidebarOpen(true)
-        return
-      }
-
-      // Cmd+Shift+I — toggle right sidebar / ports tab (macOS only).
-      // Why: Ctrl+Shift+I is the built-in DevTools accelerator on Windows/Linux;
-      // intercepting it would break an essential developer tool.
-      if (matchShortcut('sidebar.ports.toggle')) {
-        input.preventDefault()
-        notifyTerminalCapture('sidebar.ports.toggle')
-        actions.setRightSidebarTab('ports')
-        actions.setRightSidebarOpen(true)
       }
     }
 
@@ -1970,6 +2059,7 @@ function App(): React.JSX.Element {
     window.addEventListener('keyup', onKeyUp, { capture: true })
     window.addEventListener('blur', onBlur)
     return () => {
+      unregisterAppCommandDispatcher()
       window.removeEventListener('keydown', onKeyDown, { capture: true })
       window.removeEventListener('keyup', onKeyUp, { capture: true })
       window.removeEventListener('blur', onBlur)

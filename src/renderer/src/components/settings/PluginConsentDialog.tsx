@@ -4,6 +4,8 @@ import type { PluginHostListEntry } from '../../../../preload/api-types'
 import { translate } from '@/i18n/i18n'
 import { pluginConsentErrorMessage } from './plugin-error-presentation'
 import { Button } from '../ui/button'
+import { PluginVmRecipeConsentPreview } from './PluginVmRecipeConsentPreview'
+import { PluginKeybindingConsentPreview } from './PluginKeybindingConsentPreview'
 import {
   Dialog,
   DialogContent,
@@ -23,15 +25,22 @@ type PluginConsentDialogProps = {
 }
 
 function trustTier(plugin: PluginHostListEntry): string {
-  return plugin.hasWorker
-    ? translate(
-        'auto.components.settings.PluginConsentDialog.workerTrust',
-        'Background worker — runs its own process'
-      )
-    : translate(
-        'auto.components.settings.PluginConsentDialog.panelTrust',
-        'Panel only — no worker process'
-      )
+  if (plugin.hasWorker) {
+    return translate(
+      'auto.components.settings.PluginConsentDialog.workerTrust',
+      'Background worker — runs its own process'
+    )
+  }
+  if (hasInstructionalContent(plugin)) {
+    return translate(
+      'auto.components.settings.PluginConsentDialog.instructionalTrust',
+      'Instructional content — runs later under user or agent authority'
+    )
+  }
+  return translate(
+    'auto.components.settings.PluginConsentDialog.panelTrust',
+    'Panel or inert content — no worker process'
+  )
 }
 
 function capabilityDescription(kind: string, fallback: string): string {
@@ -74,6 +83,30 @@ function capabilityDescription(kind: string, fallback: string): string {
     default:
       return fallback
   }
+}
+
+function hasInstructionalContent(plugin: PluginHostListEntry): boolean {
+  return (
+    plugin.hasSkills ||
+    (plugin.vmRecipes?.length ?? 0) > 0 ||
+    plugin.commands.some((command) => command.keybindings.length > 0)
+  )
+}
+
+function consentTitle(plugin: PluginHostListEntry): string {
+  if (!hasInstructionalContent(plugin)) {
+    return translate('auto.components.settings.PluginConsentDialog.title', 'Review permissions')
+  }
+  if (plugin.hasWorker || plugin.capabilities.length > 0) {
+    return translate(
+      'auto.components.settings.PluginConsentDialog.mixedTitle',
+      'Review access and content'
+    )
+  }
+  return translate(
+    'auto.components.settings.PluginConsentDialog.instructionalTitle',
+    'Review plugin content'
+  )
 }
 
 export function PluginConsentDialog({
@@ -123,12 +156,7 @@ export function PluginConsentDialog({
         {plugin ? (
           <>
             <DialogHeader>
-              <DialogTitle>
-                {translate(
-                  'auto.components.settings.PluginConsentDialog.title',
-                  'Review permissions'
-                )}
-              </DialogTitle>
+              <DialogTitle>{consentTitle(plugin)}</DialogTitle>
               <DialogDescription>
                 {translate(
                   'auto.components.settings.PluginConsentDialog.subtitle',
@@ -141,7 +169,7 @@ export function PluginConsentDialog({
               <p className="border-l-2 border-foreground/25 py-0.5 pl-3 text-sm leading-6">
                 {translate(
                   'auto.components.settings.PluginConsentDialog.reconsent',
-                  'Permissions or the worker trust tier changed since you last reviewed this plugin. Review them again before it can run.'
+                  'Permissions, the worker trust tier, or instructional content changed since you last reviewed this plugin. Review it again before it can run.'
                 )}
               </p>
             ) : null}
@@ -174,27 +202,29 @@ export function PluginConsentDialog({
               </dt>
               <dd>{trustTier(plugin)}</dd>
             </dl>
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                {translate(
-                  'auto.components.settings.PluginConsentDialog.capabilities',
-                  'This plugin can'
-                )}
-              </p>
+            {plugin.capabilities.length > 0 ? (
               <div className="space-y-2">
-                {plugin.capabilities.map((capability) => (
-                  <div key={capability.kind} className="flex items-start gap-2 text-sm leading-6">
-                    <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
-                    <span>
-                      {capabilityDescription(capability.kind, capability.description)}{' '}
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        ({capability.kind})
+                <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                  {translate(
+                    'auto.components.settings.PluginConsentDialog.capabilities',
+                    'This plugin can'
+                  )}
+                </p>
+                <div className="space-y-2">
+                  {plugin.capabilities.map((capability) => (
+                    <div key={capability.kind} className="flex items-start gap-2 text-sm leading-6">
+                      <Check className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
+                      <span>
+                        {capabilityDescription(capability.kind, capability.description)}{' '}
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          ({capability.kind})
+                        </span>
                       </span>
-                    </span>
-                  </div>
-                ))}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
             <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3.5 py-3 text-sm leading-6">
               <AlertTriangle className="mt-1 size-4 shrink-0" />
               <span>
@@ -203,12 +233,30 @@ export function PluginConsentDialog({
                       'auto.components.settings.PluginConsentDialog.warning',
                       "These permissions limit how the plugin uses Orca's API. Its worker still runs as a normal process on your computer with full access to your files, network, and other processes."
                     )
-                  : translate(
-                      'auto.components.settings.PluginConsentDialog.panelWarning',
-                      "These permissions limit how the plugin uses Orca's API. This plugin has no worker process."
-                    )}
+                  : hasInstructionalContent(plugin)
+                    ? translate(
+                        'auto.components.settings.PluginConsentDialog.instructionalWarning',
+                        'This plugin has no worker process. Its instructional content can still cause actions when you or an agent use it. Review the instructions and commands below before enabling it.'
+                      )
+                    : translate(
+                        'auto.components.settings.PluginConsentDialog.panelWarning',
+                        "These permissions limit how the plugin uses Orca's API. This plugin has no worker process."
+                      )}
               </span>
             </div>
+            {plugin.hasSkills ? (
+              <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3.5 py-3 text-sm leading-6">
+                <AlertTriangle className="mt-1 size-4 shrink-0" />
+                <span>
+                  {translate(
+                    'auto.components.settings.PluginConsentDialog.skillWarning',
+                    'This plugin installs instructional skills. Agents read those instructions and may act on them with the full authority you give the agent.'
+                  )}
+                </span>
+              </div>
+            ) : null}
+            <PluginKeybindingConsentPreview commands={plugin.commands} />
+            <PluginVmRecipeConsentPreview recipes={plugin.vmRecipes ?? []} />
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
             <DialogFooter>
               <Button

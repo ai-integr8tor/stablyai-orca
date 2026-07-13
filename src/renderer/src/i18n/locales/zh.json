@@ -125,7 +125,8 @@
       "fe21e8f6f5": "返回 ({{value0}})",
       "064bd07810": "返回",
       "ce37cf5279": "切换侧边栏 ({{value0}})",
-      "e4b9e7dff7": "切换侧边栏"
+      "e4b9e7dff7": "切换侧边栏",
+      "pluginCommandFailed": "无法运行插件命令。"
     },
     "web": {
       "WebConnect": {
@@ -582,6 +583,9 @@
             "de50bef680": "macOS 正在阻止 Orca 通知"
           }
         }
+      },
+      "pluginCommandKeybindings": {
+        "group": "Plugins"
       }
     },
     "hooks": {
@@ -1857,7 +1861,8 @@
         "workspaceTabMissing": "标签页不再存在",
         "projectsGroupsHeader": "项目和分组",
         "projectBadge": "项目",
-        "repoGroupBadge": "仓库组"
+        "repoGroupBadge": "仓库组",
+        "pluginCommandFailed": "无法运行插件命令。"
       },
       "github": {
         "pr": {
@@ -6393,7 +6398,9 @@
           "builtin_themes": "内置",
           "imported_from": "从 {{value0}} 导入",
           "imported_themes": "已导入",
-          "search_terminal_themes": "搜索终端主题"
+          "search_terminal_themes": "搜索终端主题",
+          "plugin_themes": "插件主题",
+          "contributed_by": "由 {{value0}} 提供"
         },
         "SettingsSidebar": {
           "e0900f83e7": "SSH",
@@ -6435,7 +6442,8 @@
           "25b0004fbf": "终端活跃",
           "781cb74d22": "从终端窗格运行。",
           "cb02e00202": "终端",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "此快捷键已不再可用。"
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "参数",
@@ -8971,7 +8979,7 @@
           "copy": "复制",
           "copied": "已复制",
           "recipes": "环境模板",
-          "recipesHelp": "智能体添加到 orca.yaml 的环境模板会显示在这里，可用于启动工作区。",
+          "recipesHelp": "orca.yaml 和已启用插件中的配方会显示在这里，可用于启动工作区。",
           "refresh": "刷新临时 VM 环境模板",
           "checking": "正在检查环境模板...",
           "none": "还没有找到环境模板。"
@@ -9037,11 +9045,13 @@
         },
         "PluginConsentDialog": {
           "workerTrust": "后台工作进程 — 在独立进程中运行",
-          "panelTrust": "仅面板 — 无工作进程",
+          "panelTrust": "面板或惰性内容 — 无工作进程",
           "decisionFailed": "无法保存权限决定。请重试。",
           "title": "检查权限",
+          "mixedTitle": "检查访问权限和内容",
+          "instructionalTitle": "检查插件内容",
           "subtitle": "{{value0}} v{{value1}} · {{value2}}",
-          "reconsent": "自你上次检查此插件以来，权限或工作进程信任级别已更改。请在运行前重新检查。",
+          "reconsent": "自你上次检查此插件以来，权限、工作进程信任级别或指令内容已更改。请在运行前重新检查。",
           "source": "来源",
           "unknownSource": "不可用",
           "commit": "提交",
@@ -9052,6 +9062,7 @@
           "enable": "启用插件",
           "keepDisabled": "保持禁用",
           "panelWarning": "这些权限限制插件使用 Orca API 的方式。此插件没有工作进程。",
+          "instructionalWarning": "此插件没有工作进程。但当你或智能体使用其指令内容时，仍可能触发操作。启用前请检查以下指令和命令。",
           "capability": {
             "workspaceRead": "读取当前工作树的名称、分支和终端列表",
             "terminalSend": "在可见的指定终端中输入文本",
@@ -9060,7 +9071,9 @@
             "secrets": "在插件自己的加密保管库中保存和读取机密信息",
             "eventsSubscribe": "在创建或移除工作树以及智能体状态变化时接收通知",
             "settingsOwn": "读取和更改插件自己的设置"
-          }
+          },
+          "skillWarning": "此插件会安装包含指令的技能。智能体会读取这些指令，并可能使用你授予智能体的全部权限执行操作。",
+          "instructionalTrust": "指令内容 — 稍后以用户或智能体权限运行"
         },
         "PluginDevelopmentSection": {
           "pathRequired": "请输入插件文件夹路径。",
@@ -9122,7 +9135,8 @@
           "restarting": "正在重新启动",
           "invalidPluginError": "插件清单或已安装文件无效。请修复插件后刷新。",
           "runtimeError": "插件在激活或工作进程出错后停止。",
-          "disableLabel": "停用 {{value0}}"
+          "disableLabel": "停用 {{value0}}",
+          "configureSkills": "配置技能"
         },
         "PluginsSettingsSection": {
           "loadFailed": "无法加载插件。",
@@ -9162,6 +9176,47 @@
           "invalidManifest": "orca-plugin.json 无效。请修复后刷新插件。",
           "invalidArtifact": "声明的工作进程或面板文件缺失或不安全。请修复插件文件后刷新。",
           "consentChanged": "插件在你查看时发生了更改。请关闭此对话框并查看更新后的权限。"
+        },
+        "AppearanceInterfaceSection": {
+          "pluginTheme": {
+            "title": "插件主题",
+            "description": "应用已启用的 Orca 插件所提供的主题。",
+            "builtIn": "使用内置主题"
+          },
+          "pluginIconTheme": {
+            "title": "图标主题",
+            "description": "使用已启用 Orca 插件提供的文件、文件夹、侧边栏和智能体图标。",
+            "builtIn": "使用内置图标"
+          }
+        },
+        "PluginSkillMappingDialog": {
+          "agentSkillsProvider": "共享智能体技能",
+          "loadFailed": "无法加载技能安装设置。",
+          "saveFailed": "无法更新技能安装设置。",
+          "title": "选择技能安装位置",
+          "description": "用户技能可用于所有项目。仓库技能只会复制到已注册的本地项目中；SSH 同步将在后续阶段提供。",
+          "loading": "正在加载技能设置…",
+          "noSkills": "请先启用此插件，再配置其技能。",
+          "userScope": "用户配置",
+          "disabled": "不安装",
+          "cancel": "取消",
+          "save": "保存"
+        },
+        "PluginVmRecipeConsentPreview": {
+          "create": "创建",
+          "suspend": "暂停",
+          "resume": "恢复",
+          "destroy": "销毁",
+          "warning": "此插件会安装 VM 配方。当你使用对应的生命周期操作时，Orca 会在本地桌面主机上运行以下命令。",
+          "commandLabel": "{{value0}} · {{value1}}命令",
+          "heading": "VM 配方命令"
+        },
+        "PluginKeybindingConsentPreview": {
+          "warning": "此插件会添加键盘快捷键。插件启用期间，插件快捷键优先于相同的 Orca 快捷键。",
+          "heading": "键盘快捷键",
+          "worktree": "仅在有活动工作区时运行。",
+          "global": "无需活动工作区即可在应用中运行。",
+          "shadows": "替代：{{value0}}"
         }
       },
       "right": {
@@ -12220,6 +12275,10 @@
                 "project": "项目"
               }
             }
+          },
+          "pluginQuickActions": {
+            "description": "{{value0}} 插件命令",
+            "keyword": "插件命令"
           }
         }
       },

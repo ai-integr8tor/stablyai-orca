@@ -1,6 +1,31 @@
 import { z } from 'zod'
 import { pluginCapabilitySchema } from './plugin-capabilities'
-import { isSafePluginRelativePath } from './plugin-path-safety'
+import {
+  PLUGIN_AGENT_PROFILE_LIMIT,
+  PLUGIN_ICON_THEME_LIMIT,
+  PLUGIN_KEYBINDING_LIMIT,
+  PLUGIN_LANGUAGE_PACK_LIMIT,
+  PLUGIN_SKILL_LIMIT,
+  PLUGIN_THEME_LIMIT,
+  PLUGIN_TERMINAL_THEME_LIMIT,
+  PLUGIN_VM_RECIPE_LIMIT,
+  pluginAgentProfileContributionSchema,
+  pluginIconThemeContributionSchema,
+  pluginKeybindingContributionSchema,
+  pluginLanguagePackContributionSchema,
+  pluginSkillContributionSchema,
+  pluginThemeContributionSchema,
+  pluginTerminalThemeContributionSchema,
+  pluginVmRecipeContributionSchema
+} from './plugin-content-pack-contributions'
+import {
+  isPluginManifestId,
+  isSafePluginId,
+  pluginCommandIdSchema,
+  pluginIdSchema,
+  pluginRelativePathSchema
+} from './plugin-manifest-fields'
+import { validatePluginManifestContributions } from './plugin-manifest-contribution-validation'
 
 /**
  * Plugin manifest v1 (`orca-plugin.json` at the plugin root). The
@@ -14,41 +39,10 @@ import { isSafePluginRelativePath } from './plugin-path-safety'
  * v1 freezes (see the plugin roadmap).
  */
 
-// Why: ids become filesystem paths, IPC channel fragments, and sidebar tab
-// keys — restrict to kebab-case so they never need escaping downstream.
-const PLUGIN_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SEMVER_RE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-export const PLUGIN_ID_MAX_LENGTH = 64
 export const PLUGIN_PANEL_LIMIT = 64
 export const PLUGIN_COMMAND_LIMIT = 256
-
-// Why: kebab-case alone still admits names that are dangerous as object keys
-// ('constructor' passes the regex). Ported from community PR #5801.
-const DANGEROUS_PLUGIN_NAMES = new Set(['__proto__', 'prototype', 'constructor'])
-
-export function isSafePluginId(id: string): boolean {
-  return (
-    typeof id === 'string' &&
-    id.length <= PLUGIN_ID_MAX_LENGTH &&
-    PLUGIN_ID_RE.test(id) &&
-    !DANGEROUS_PLUGIN_NAMES.has(id)
-  )
-}
-
-const pluginIdSchema = z
-  .string()
-  .refine(isSafePluginId, 'must be kebab-case (a-z, 0-9, dashes) and not a reserved name')
-
-// Why: entry paths are resolved against the plugin root; reject absolute
-// paths, drive prefixes, and traversal so a manifest cannot point outside its
-// own directory. (Symlink escapes are caught separately by realpath
-// containment when the file is read.)
-const relativeEntrySchema = z
-  .string()
-  .min(1)
-  .max(1024)
-  .refine(isSafePluginRelativePath, 'must be a portable relative path inside the plugin directory')
 
 // Why: v0 supports only the ">=x.y.z" form. A closed grammar keeps the gate
 // predictable; richer ranges can be added without breaking old manifests.
@@ -63,20 +57,15 @@ const panelContributionSchema = z.object({
   /** Lucide icon name rendered in the right-sidebar activity bar. */
   icon: z.string().min(1).max(64).optional(),
   /** HTML entry rendered inside a sandboxed panel frame. */
-  entry: relativeEntrySchema
+  entry: pluginRelativePathSchema
 })
-
-// Why: commands use a namespaced API identity (`publisher.actionName`), not
-// the filesystem-safe kebab grammar used by plugin and panel directory keys.
-export const pluginCommandIdSchema = z
-  .string()
-  .min(1)
-  .max(256)
-  .regex(/^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/, 'must be a portable command id')
 
 const commandContributionSchema = z.object({
   id: pluginCommandIdSchema,
-  title: z.string().min(1).max(256)
+  title: z.string().min(1).max(256),
+  context: z.enum(['global', 'worktree']).optional(),
+  /** Built-in action aliases remain declarative and do not activate a worker. */
+  action: pluginCommandIdSchema.optional()
 })
 
 /** Domain events a plugin can subscribe to in v0. Closed set: server-side
@@ -108,76 +97,72 @@ export const pluginManifestSchema = z
       .object({ name: z.string().min(1).max(256), url: z.string().max(2048).optional() })
       .optional(),
     repository: z.string().max(2048).optional(),
-    icon: relativeEntrySchema.optional(),
+    icon: pluginRelativePathSchema.optional(),
     /** Minimum host version gate; the host refuses to load below it. */
     engines: z.object({ orca: orcaEngineRangeSchema }),
     /** Host-API major version this plugin targets. */
     pluginApi: z.literal(1),
     /** Node entry executed inside the out-of-process plugin worker. */
-    main: relativeEntrySchema.optional(),
+    main: pluginRelativePathSchema.optional(),
     contributes: z
       .object({
         panels: z.array(panelContributionSchema).max(PLUGIN_PANEL_LIMIT).default([]),
         commands: z.array(commandContributionSchema).max(PLUGIN_COMMAND_LIMIT).default([]),
-        events: z.array(eventContributionSchema).max(PLUGIN_EVENT_SUBSCRIPTION_LIMIT).default([])
+        events: z.array(eventContributionSchema).max(PLUGIN_EVENT_SUBSCRIPTION_LIMIT).default([]),
+        themes: z.array(pluginThemeContributionSchema).max(PLUGIN_THEME_LIMIT).default([]),
+        iconThemes: z
+          .array(pluginIconThemeContributionSchema)
+          .max(PLUGIN_ICON_THEME_LIMIT)
+          .default([]),
+        terminalThemes: z
+          .array(pluginTerminalThemeContributionSchema)
+          .max(PLUGIN_TERMINAL_THEME_LIMIT)
+          .default([]),
+        languagePacks: z
+          .array(pluginLanguagePackContributionSchema)
+          .max(PLUGIN_LANGUAGE_PACK_LIMIT)
+          .default([]),
+        skills: z.array(pluginSkillContributionSchema).max(PLUGIN_SKILL_LIMIT).default([]),
+        keybindings: z
+          .array(pluginKeybindingContributionSchema)
+          .max(PLUGIN_KEYBINDING_LIMIT)
+          .default([]),
+        vmRecipes: z
+          .array(pluginVmRecipeContributionSchema)
+          .max(PLUGIN_VM_RECIPE_LIMIT)
+          .default([]),
+        agents: z
+          .array(pluginAgentProfileContributionSchema)
+          .max(PLUGIN_AGENT_PROFILE_LIMIT)
+          .default([])
       })
-      .default({ panels: [], commands: [], events: [] }),
+      .default(() => ({
+        panels: [],
+        commands: [],
+        events: [],
+        themes: [],
+        iconThemes: [],
+        terminalThemes: [],
+        languagePacks: [],
+        skills: [],
+        keybindings: [],
+        vmRecipes: [],
+        agents: []
+      })),
     capabilities: z.array(pluginCapabilitySchema).max(32).default([])
   })
-  .superRefine((manifest, ctx) => {
-    const rejectDuplicateIds = (
-      entries: readonly { id: string }[],
-      path: 'panels' | 'commands'
-    ): void => {
-      const seen = new Set<string>()
-      for (const [index, entry] of entries.entries()) {
-        if (seen.has(entry.id)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['contributes', path, index, 'id'],
-            message: `duplicate ${path} id: ${entry.id}`
-          })
-        }
-        seen.add(entry.id)
-      }
-    }
-    rejectDuplicateIds(manifest.contributes.panels, 'panels')
-    rejectDuplicateIds(manifest.contributes.commands, 'commands')
-    // Commands and event subscriptions are handled by the worker entry, so a
-    // manifest declaring them without `main` is inert — fail at parse time
-    // instead of silently never dispatching.
-    if (!manifest.main && manifest.contributes.commands.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['main'],
-        message: 'required when contributes.commands is non-empty'
-      })
-    }
-    if (!manifest.main && manifest.contributes.events.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['main'],
-        message: 'required when contributes.events is non-empty'
-      })
-    }
-    // Event subscriptions must be visible at consent time: require the
-    // capability so the consent dialog lists what the plugin will observe.
-    if (
-      manifest.contributes.events.length > 0 &&
-      !manifest.capabilities.some((capability) => capability.kind === 'events:subscribe')
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['capabilities'],
-        message: 'events:subscribe capability required when contributes.events is non-empty'
-      })
-    }
-  })
+  .superRefine(validatePluginManifestContributions)
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>
 export type PluginPanelContribution = z.infer<typeof panelContributionSchema>
 export type PluginCommandContribution = z.infer<typeof commandContributionSchema>
 export type PluginEventContribution = z.infer<typeof eventContributionSchema>
+
+export {
+  isSafePluginId,
+  PLUGIN_ID_MAX_LENGTH,
+  pluginCommandIdSchema
+} from './plugin-manifest-fields'
 
 export const PLUGIN_MANIFEST_FILENAME = 'orca-plugin.json'
 
@@ -245,6 +230,6 @@ export function isPluginPanelTabKey(tab: string): tab is `plugin:${string}` {
     !!qualifiedKey &&
     !!panelId &&
     isQualifiedPluginKey(qualifiedKey) &&
-    PLUGIN_ID_RE.test(panelId)
+    isPluginManifestId(panelId)
   )
 }

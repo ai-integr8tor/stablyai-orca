@@ -159,7 +159,9 @@ export function registerCoreHandlers(
     registerAutomationHandlers(store, automations)
   }
   if (keybindings) {
-    registerKeybindingHandlers(keybindings)
+    registerKeybindingHandlers(keybindings, () => {
+      void pluginService?.reconcileActivationState()
+    })
   }
   if (pluginService) {
     registerPluginHandlers(store, pluginService, runtime)
@@ -186,7 +188,7 @@ export function registerCoreHandlers(
   registerFilesystemWatcherHandlers()
   registerRuntimeHandlers(runtime)
   registerRuntimeEnvironmentHandlers(store)
-  registerEphemeralVmHandlers(store)
+  registerEphemeralVmHandlers(store, pluginService)
   registerAiVaultHandlers({
     getAdditionalCodexHomePaths: lifecycleOptions.getAdditionalAiVaultCodexHomePaths,
     getActiveRuntimeAiVaultHostInfos: () =>
