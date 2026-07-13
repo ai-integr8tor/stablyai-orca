@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
 import { shouldRetryPaneSpawnOnSshReconnect } from './ssh-reconnect-pane-retry'
+import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
 import { applyUIZoom } from '@/lib/ui-zoom'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -116,7 +117,7 @@ import {
 import {
   observeAgentHookCompletionForNotification,
   resetAgentHookCompletionNotificationCoordinators,
-  syncAgentHookCompletionNotificationSettings
+  syncAgentHookCompletionNotificationsForStoreUpdate
 } from './agent-hook-completion-notifications'
 import { shouldSuppressCodexAutoApprovalStatus } from '@/components/terminal-pane/codex-auto-approval-notification-suppression'
 import { showTerminalShortcutCaptureNotification } from '@/lib/terminal-shortcut-capture-notification'
@@ -126,6 +127,8 @@ import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner
 import { translate } from '@/i18n/i18n'
 import { closeTerminalTab } from '@/components/terminal/terminal-tab-actions'
 import { initialAgentTabViewModeProps } from '@/lib/native-chat-initial-view-mode'
+import { getConnectionIdFromState } from '@/lib/connection-context'
+import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 
 function getShortcutPlatform(): NodeJS.Platform {
   if (navigator.userAgent.includes('Mac')) {
@@ -1139,6 +1142,22 @@ export function useIpcEvents(): void {
       )
     )
 
+    if (window.api.worktrees.onHeadIdentitiesChanged) {
+      unsubs.push(
+        window.api.worktrees.onHeadIdentitiesChanged((data) => {
+          if (isRuntimeEnvironmentActive()) {
+            // Why: local worktree events carry local repo ids (see onChanged).
+            return
+          }
+          const state = useAppStore.getState()
+          applyWorktreeHeadIdentities(data, {
+            getWorktreesForRepo: (repoId) => state.worktreesByRepo[repoId],
+            updateWorktreeGitIdentity: state.updateWorktreeGitIdentity
+          })
+        })
+      )
+    }
+
     unsubs.push(
       window.api.worktrees.onBaseStatus((event) => {
         if (isRuntimeEnvironmentActive()) {
@@ -1224,7 +1243,7 @@ export function useIpcEvents(): void {
     // the desktop re-hydrates and the sidebar reflects it live — bi-directional.
     unsubs.push(
       window.api.ui.onStateChanged((ui) => {
-        useAppStore.getState().hydratePersistedUI(ui)
+        useAppStore.getState().hydratePersistedUI(ui, 'sync')
       })
     )
 
@@ -1484,7 +1503,11 @@ export function useIpcEvents(): void {
                       ? {
                           launchAgent,
                           ...initialAgentTabViewModeProps(store.settings, {
-                            agent: launchAgent
+                            agent: launchAgent,
+                            nativeChatTranscriptIsLocalReadable:
+                              isNativeChatTranscriptLocalReadable(
+                                getConnectionIdFromState(store, worktreeId)
+                              )
                           })
                         }
                       : {}),
@@ -1666,7 +1689,10 @@ export function useIpcEvents(): void {
                 ...(shouldActivate ? {} : { activate: false, recordInteraction: false }),
                 launchAgent: data.launchAgent,
                 ...initialAgentTabViewModeProps(store.settings, {
-                  agent: data.launchAgent
+                  agent: data.launchAgent,
+                  nativeChatTranscriptIsLocalReadable: isNativeChatTranscriptLocalReadable(
+                    getConnectionIdFromState(store, worktreeId)
+                  )
                 }),
                 ...(data.cwd ? { startupCwd: data.cwd } : {})
               }
@@ -2943,7 +2969,10 @@ export function useIpcEvents(): void {
         // here silently dropped the native question card on web/mobile clients.
         interactivePrompt: data.interactivePrompt,
         lastAssistantMessage: data.lastAssistantMessage,
-        interrupted: data.interrupted
+        interrupted: data.interrupted,
+        // Why: same trap as interactivePrompt — this rebuild is a field
+        // whitelist, so the subagent child rows vanish if omitted here.
+        subagents: data.subagents
       })
       if (!payload) {
         return 'dropped'
@@ -3034,7 +3063,15 @@ export function useIpcEvents(): void {
       const statusPayload = data.orchestration
         ? { ...resolvedPayload, orchestration: data.orchestration }
         : resolvedPayload
+      const statusPayloadWithTurnBoundary = data.promptInteractionKey
+        ? { ...statusPayload, promptInteractionKey: data.promptInteractionKey }
+        : statusPayload
       const existingStatus = store.agentStatusByPaneKey[data.paneKey]
+      if (existingStatus && data.receivedAt < existingStatus.updatedAt) {
+        // Why: the store rejects out-of-order status rows; keep notification and
+        // terminal lifecycle effects on the same accepted event boundary.
+        return 'dropped'
+      }
       const identity = resolveAgentStatusIdentity({
         existing: existingStatus
           ? {
@@ -3075,7 +3112,7 @@ export function useIpcEvents(): void {
       const statusWorktreeId = data.worktreeId ?? owningWorktreeId
       store.setAgentStatus(
         data.paneKey,
-        statusPayload,
+        statusPayloadWithTurnBoundary,
         terminalTitle,
         {
           updatedAt: data.receivedAt,
@@ -3218,10 +3255,10 @@ export function useIpcEvents(): void {
     // renderer state.
     requestAgentStatusSnapshotIfReady()
     unsubs.push(
-      useAppStore.subscribe(() => {
+      useAppStore.subscribe((state, previousState) => {
         requestAgentStatusSnapshotIfReady()
         flushPendingAgentStatuses()
-        syncAgentHookCompletionNotificationSettings()
+        syncAgentHookCompletionNotificationsForStoreUpdate(state, previousState)
       })
     )
 
@@ -3231,7 +3268,7 @@ export function useIpcEvents(): void {
           kind: 'fit'
           event: {
             ptyId: string
-            mode: 'mobile-fit' | 'desktop-fit'
+            mode: 'mobile-fit' | 'remote-desktop-fit' | 'desktop-fit'
             cols: number
             rows: number
           }
