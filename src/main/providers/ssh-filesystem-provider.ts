@@ -22,7 +22,6 @@ import type {
 import type { DirEntry, FsChangeEvent, SearchOptions, SearchResult } from '../../shared/types'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
 import type { WorkspaceSpaceDirectoryScanResult } from '../../shared/workspace-space-types'
-const WORKSPACE_SPACE_SCAN_TIMEOUT_MS = 130_000
 
 export class SshFilesystemProvider implements IFilesystemProvider {
   private connectionId: string
