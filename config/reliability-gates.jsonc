@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-12",
+  "updatedAt": "2026-07-13",
   "policy": {
     "maturityLevels": [
       "experimental",
@@ -333,6 +333,153 @@
         "Daemon adapter listing failures remain suppressed by the existing management API, so reported daemon counts are not authoritative verification of every process."
       ],
       "demotionRule": "Keep experimental or demote to protection none if the gate flakes, permits a late-created tab or unrelated PTY to close, or exceeds the 50 ms maximum close-batch budget without a tracked product or harness bug."
+    },
+    {
+      "id": "terminal-session.unbound-cleanup-safety",
+      "title": "Unbound terminal cleanup protects live and unverified PTY sessions",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "shared-main-renderer-contract",
+      "surfaces": [
+        "Resource Manager",
+        "terminal lifecycle",
+        "PTY process inspection",
+        "daemon session cleanup",
+        "SSH session cleanup"
+      ],
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "providers": [
+        "local",
+        "daemon",
+        "ssh",
+        "wsl"
+      ],
+      "coveredPlatforms": [
+        "macos"
+      ],
+      "coveredProviders": [
+        "local",
+        "daemon",
+        "ssh"
+      ],
+      "coverageNotes": "Deterministic macOS tests cover shared shell classification, grouped provider inventory, local/daemon guarded shutdown, parsed and owned disconnected-SSH protection, renderer reconciliation, confirmation UI, and removal of the former direct-kill bypass. Shell-name fixtures include POSIX, PowerShell, CMD, and Git Bash forms, but live Linux, Windows, WSL, and SSH process evidence remains uncollected.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/issues/8459",
+        "https://github.com/stablyai/orca/issues/8457"
+      ],
+      "invariant": "Renderer absence alone never authorizes PTY shutdown; ordinary unbound-session cleanup closes only sessions that remain in the reviewed renderer intersection and are freshly confirmed by their owning provider as a known shell with no child processes. Active, unknown, disconnected, newly bound, newly created, and already-gone sessions are protected or skipped.",
+      "oracle": "Review a fresh provider inventory against renderer bindings read after the inventory resolves, freeze only those reviewed IDs, intersect them again immediately before confirmation, then reclassify in main from a fresh owning-provider inventory plus child and foreground evidence. Assert shutdown is called only for inactive results through the existing exact PTY lifecycle, while active, unknown, disconnected, gone, newly bound, and later-created sessions never reach shutdown.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/shared/pty-inactive-cleanup.test.ts src/main/ipc/pty-inactive-cleanup.test.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.rows.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts src/renderer/src/components/status-bar/resource-session-bindings.test.ts src/renderer/src/components/status-bar/resource-session-count-selector.test.ts src/renderer/src/components/status-bar/mergeSnapshotAndSessions.test.ts"
+      ],
+      "testFiles": [
+        "src/shared/pty-inactive-cleanup.test.ts",
+        "src/main/ipc/pty-inactive-cleanup.test.ts",
+        "src/main/ipc/pty.test.ts",
+        "src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts",
+        "src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx",
+        "src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx",
+        "src/renderer/src/components/status-bar/ResourceUsageStatusSegment.rows.test.tsx",
+        "src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts",
+        "src/renderer/src/components/status-bar/resource-session-bindings.test.ts",
+        "src/renderer/src/components/status-bar/resource-session-count-selector.test.ts",
+        "src/renderer/src/components/status-bar/mergeSnapshotAndSessions.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/ipc/pty-inactive-cleanup.test.ts",
+          "assertions": [
+            "known idle POSIX and Windows shell forms require negative child evidence before becoming inactive",
+            "non-shell foreground or positive child evidence remains active even when the other inspection rejects",
+            "missing providers, null foreground, failed inventory, and partial negative evidence remain unknown",
+            "each provider inventory runs once and absent IDs become gone"
+          ]
+        },
+        {
+          "file": "src/main/ipc/pty.test.ts",
+          "assertions": [
+            "guarded cleanup kills only the freshly confirmed idle shell and protects the active agent",
+            "a disconnected app-scoped SSH ID remains protected without falling back to the local provider",
+            "reviewed sessions are revalidated at cleanup time, gone sessions skip shutdown, and independent shutdown failures settle"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts",
+          "assertions": [
+            "bindings are read after fresh session inventory and reviewed IDs are immutable",
+            "newly bound and gone reviewed sessions are excluded before guarded cleanup while later-created sessions are never chased",
+            "final killed, protected, gone, and failed outcomes are counted without overclaiming"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx",
+          "assertions": [
+            "review, running, completed, error, and retry states preserve the confirmation boundary",
+            "running cleanup cannot be dismissed and continues after unmount while React callbacks remain mount-gated",
+            "the visible session inventory refreshes after guarded cleanup settles"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx",
+          "assertions": [
+            "the dialog distinguishes inactive candidates from active or unverified protected sessions",
+            "no destructive action is enabled while reviewing, running, errored, or when no inactive candidate exists",
+            "completed copy reports only aggregate verified outcomes and exposes no process IDs"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts",
+          "assertions": [
+            "individual unbound rows route through explicit confirmation and the former direct pty.kill bypass is absent",
+            "Resource Manager has no renderer bulk-kill map and adds no child or foreground polling to its open or closed inventory effect"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-13",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/shared/pty-inactive-cleanup.test.ts src/main/ipc/pty-inactive-cleanup.test.ts src/main/ipc/pty.test.ts src/renderer/src/components/status-bar/resource-session-cleanup-review.test.ts src/renderer/src/components/status-bar/use-resource-session-cleanup-review.test.tsx src/renderer/src/components/status-bar/ResourceSessionCleanupDialog.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.rows.test.tsx src/renderer/src/components/status-bar/ResourceUsageStatusSegment.session-polling.test.ts src/renderer/src/components/status-bar/resource-session-bindings.test.ts src/renderer/src/components/status-bar/resource-session-count-selector.test.ts src/renderer/src/components/status-bar/mergeSnapshotAndSessions.test.ts",
+          "result": "passed",
+          "durationSeconds": 4.84,
+          "summary": "11 focused shared, main IPC, renderer coordinator, hook, dialog, binding, merge, and source-regression files passed with 348 tests."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 15,
+        "scope": "focused shared, main IPC, renderer coordinator, and Resource Manager tests"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "New deterministic local coverage; CI and soak history are not yet available."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "RED runs first failed because the classifier, guarded handlers, coordinator, hook, dialog, and safe Resource Manager wiring did not exist. The prior source also contained an individual unbound-row confirmation bypass and a Promise.allSettled bulk pty.kill map. The consolidated GREEN run passed 11 files and 348 tests in 4.84 seconds; live provider and cross-platform red/green artifacts remain gaps."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "No background process inspection was added. Provider inventory and process confirmation run only after an explicit review or confirmation action, are grouped once per provider, and normalize batches to at most 500 unique IDs."
+      },
+      "promotionCriteria": [
+        "Run the focused gate for at least 100 consecutive CI passes or 14 days across required platforms.",
+        "Add packaged macOS evidence with disposable idle and active sessions, including input survival for the protected process.",
+        "Add live SSH and WSL evidence, plus native Linux and Windows process inspection and cleanup evidence.",
+        "Exercise provider disconnect during the review-to-confirm interval in a packaged app."
+      ],
+      "knownGaps": [
+        "The current evidence is deterministic contract coverage, not a packaged Electron Resource Manager interaction.",
+        "Live SSH disconnect and remote process survival are not yet exercised; disconnected routing is covered with provider-contract doubles.",
+        "WSL, native Linux, and native Windows process inspection are not live-tested in this run.",
+        "The separate serve/headless-to-GUI lifecycle defect remains tracked by issue #8457 and is intentionally outside this gate."
+      ],
+      "demotionRule": "Keep experimental or demote to protection none if cleanup calls shutdown without fresh inactive evidence, falls back a disconnected SSH ID to local, adds background process polling, or bypasses confirmation for an individual unbound row."
     },
     {
       "id": "terminal-session.startup-cwd-missing-dir-recovery",
