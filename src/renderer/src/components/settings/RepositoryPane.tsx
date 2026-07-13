@@ -7,6 +7,7 @@ import type {
   RepoHookSettings
 } from '../../../../shared/types'
 import { getRepoKindLabel, isFolderRepo } from '../../../../shared/repo-kind'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
@@ -76,6 +77,7 @@ export function RepositoryPane({
   updateProject
 }: RepositoryPaneProps): React.JSX.Element {
   const isFolder = isFolderRepo(repo)
+  const repoHostId = getRepoExecutionHostId(repo)
   const searchQuery = useAppStore((state) => state.settingsSearchQuery)
   const settings = useAppStore((state) => state.settings)
   const runtimeSessionSummary = useAppStore(
@@ -266,11 +268,14 @@ export function RepositoryPane({
           className="space-y-2"
           forceVisible={forceFullPaneForRepoMatch}
         >
-          <Label htmlFor={`repo-display-name-${repo.id}`} className="text-sm font-semibold">
+          <Label
+            htmlFor={`repo-display-name-${repoHostId}-${repo.id}`}
+            className="text-sm font-semibold"
+          >
             {translate('auto.components.settings.RepositoryPane.c7ef4415de', 'Display Name')}
           </Label>
           <RepoSettingsDraftInput
-            id={`repo-display-name-${repo.id}`}
+            id={`repo-display-name-${repoHostId}-${repo.id}`}
             repoId={repo.id}
             storeValue={repo.displayName}
             onTextChange={(text) => updateRepo(repo.id, { displayName: text })}
@@ -295,7 +300,7 @@ export function RepositoryPane({
             'favicon'
           ]}
           className="space-y-2"
-          id={getRepositoryIconSectionId(repo.id)}
+          id={getRepositoryIconSectionId(repo.id, repoHostId)}
           forceVisible={forceFullPaneForRepoMatch}
         >
           <RepositoryIconPicker repo={repo} updateRepo={updateRepo} />

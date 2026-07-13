@@ -14,6 +14,7 @@ import {
 } from '@/lib/setup-script-prompt'
 import { checkRuntimeHooks, inspectRuntimeSetupScriptImports } from '@/runtime/runtime-hooks-client'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import type { SetupScriptImportCandidate } from '../../../../shared/setup-script-imports'
 import { buildSetupScriptPromptActionTelemetry } from '../../../../shared/setup-script-telemetry'
 import { SetupScriptPromptCardShell } from './SetupScriptPromptCardShell'
@@ -99,14 +100,18 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
 
   const openLocalCommandSettings = useCallback(
     (repoId: string) => {
+      if (!activeRepo || activeRepo.id !== repoId) {
+        return
+      }
       openSetupScriptSettings({
         repoId,
+        repoHostId: getRepoExecutionHostId(activeRepo),
         setSettingsSearchQuery,
         openSettingsTarget,
         openSettingsPage
       })
     },
-    [openSettingsPage, openSettingsTarget, setSettingsSearchQuery]
+    [activeRepo, openSettingsPage, openSettingsTarget, setSettingsSearchQuery]
   )
 
   const handleRetryInspection = useCallback(() => {

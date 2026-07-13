@@ -80,6 +80,7 @@ import { RepoBadgeMark } from '@/components/repo/RepoBadgeLabel'
 import { buildSidebarHostOptions } from '@/components/sidebar/sidebar-host-options'
 import { getPaletteHostBadge, type PaletteHostBadge } from '@/components/cmd-j/palette-host-badge'
 import { useSettingsNavigationMetadata } from '@/hooks/useSettingsNavigationMetadata'
+import { parseRepositorySettingsSectionId } from '@/lib/repository-settings-section-id'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import {
   buildCmdJActionResults,
@@ -114,7 +115,7 @@ import {
 } from '@/lib/github-work-item-source-lookup'
 import type { SettingsNavTarget } from '@/lib/settings-navigation-types'
 import { getHostDisplayLabelOverrides } from '../../../shared/host-setting-overrides'
-import { isRuntimeOwnedSshTargetId } from '../../../shared/execution-host'
+import { isRuntimeOwnedSshTargetId, type ExecutionHostId } from '../../../shared/execution-host'
 import type { BrowserPage, BrowserWorkspace, Worktree } from '../../../shared/types'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import { buildTaskSourceContextFromRepo } from '../../../shared/task-source-context'
@@ -316,10 +317,16 @@ function findBrowserSelection(
 function getSettingsTargetFromSectionId(sectionId: string): {
   pane: SettingsNavTarget
   repoId: string | null
+  repoHostId?: ExecutionHostId
   sectionId?: string
 } {
-  if (sectionId.startsWith('repo-')) {
-    return { pane: 'repo', repoId: sectionId.slice('repo-'.length) }
+  const repoIdentity = parseRepositorySettingsSectionId(sectionId)
+  if (repoIdentity) {
+    return {
+      pane: 'repo',
+      repoId: repoIdentity.repoId,
+      ...(repoIdentity.hostId ? { repoHostId: repoIdentity.hostId } : {})
+    }
   }
   return { pane: sectionId as SettingsNavTarget, repoId: null }
 }

@@ -7,6 +7,7 @@ import { useAppStore } from '@/store'
 import { useAllWorktrees } from '@/store/selectors'
 import { getDefaultRepoHookSettings } from '../../../../shared/constants'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import type { Repo, RepoHookSettings, Worktree } from '../../../../shared/types'
 import { getRepositoryLocalCommandsSectionId } from '../settings/repository-settings-targets'
 import {
@@ -117,7 +118,8 @@ export function SetupScriptAction(): React.JSX.Element {
     openSettingsTarget({
       pane: 'repo',
       repoId: repo.id,
-      sectionId: getRepositoryLocalCommandsSectionId(repo.id)
+      repoHostId: getRepoExecutionHostId(repo),
+      sectionId: getRepositoryLocalCommandsSectionId(repo.id, getRepoExecutionHostId(repo))
     })
     closeModal()
     openSettingsPage()

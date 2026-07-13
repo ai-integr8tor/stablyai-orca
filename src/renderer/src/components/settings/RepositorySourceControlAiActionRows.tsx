@@ -1,6 +1,7 @@
 import type React from 'react'
 import { Terminal } from 'lucide-react'
 import type { TuiAgent } from '../../../../shared/types'
+import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { CUSTOM_AGENT_ID } from '../../../../shared/commit-message-agent-spec'
 import type {
   RepoSourceControlAiOverrides,
@@ -43,6 +44,7 @@ import { translate } from '@/i18n/i18n'
 
 type RepositorySourceControlAiActionRowsProps = {
   repoId: string
+  repoHostId: ExecutionHostId
   repoAi: RepoSourceControlAiOverrides
   source: SourceControlAiSettings
   defaultTuiAgent: TuiAgent | 'blank' | null | undefined
@@ -59,6 +61,7 @@ type RepositorySourceControlAiActionRowsProps = {
 
 export function RepositorySourceControlAiActionRows({
   repoId,
+  repoHostId,
   repoAi,
   source,
   defaultTuiAgent,
@@ -106,10 +109,11 @@ export function RepositorySourceControlAiActionRows({
         return (
           <div
             key={actionId}
-            id={getRepositorySourceControlAiActionRecipeSectionId(repoId, actionId)}
+            id={getRepositorySourceControlAiActionRecipeSectionId(repoId, actionId, repoHostId)}
             data-settings-section={getRepositorySourceControlAiActionRecipeSectionId(
               repoId,
-              actionId
+              actionId,
+              repoHostId
             )}
             className="scroll-mt-8 space-y-3 rounded-md border border-border px-3 py-3"
           >

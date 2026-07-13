@@ -120,6 +120,7 @@ describe('RepositorySourceControlAiActionRows', () => {
     const markup = renderToStaticMarkup(
       React.createElement(RepositorySourceControlAiActionRows, {
         repoId: 'repo-1',
+        repoHostId: 'local',
         repoAi: {
           actionOverrides: {
             fixCommitFailure: {

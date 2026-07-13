@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
-import { getExecutionHostLabel } from '../../../../shared/execution-host'
+import {
+  getExecutionHostLabel,
+  getRepoExecutionHostId,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import { buildExecutionHostRegistry } from '../../../../shared/execution-host-registry'
 import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
 import type { Repo } from '../../../../shared/types'
@@ -67,8 +71,9 @@ export function RepositoryHostSetupsSection({
   const projectHostSetupProjection = useAppStore((state) =>
     getProjectHostSetupProjectionFromState(state)
   )
+  const selectedRepoHostId = getRepoExecutionHostId(repo)
   const selectedProjectHostSetup = projectHostSetupProjection.setups.find(
-    (setup) => setup.repoId === repo.id
+    (setup) => setup.repoId === repo.id && setup.hostId === selectedRepoHostId
   )
   const projectHostSetups = selectedProjectHostSetup
     ? projectHostSetupProjection.setups.filter(
@@ -82,9 +87,9 @@ export function RepositoryHostSetupsSection({
   })
   const hostOptionById = new Map(hostOptions.map((option) => [option.id, option]))
   const [deletingSetupId, setDeletingSetupId] = useState<string | null>(null)
-  const openSetup = (repoId: string) => {
+  const openSetup = (repoId: string, repoHostId: ExecutionHostId) => {
     openSettingsPage()
-    openSettingsTarget({ pane: 'repo', repoId })
+    openSettingsTarget({ pane: 'repo', repoId, repoHostId })
   }
 
   if (
@@ -116,12 +121,15 @@ export function RepositoryHostSetupsSection({
                 {translate('auto.components.settings.RepositoryPane.viewingHost', 'Viewing host')}
               </span>
               <Select
-                value={repo.id}
-                onValueChange={(repoId) => {
-                  if (repoId === repo.id) {
+                value={selectedProjectHostSetup?.id}
+                onValueChange={(setupId) => {
+                  const setup = openableProjectHostSetups.find(
+                    (candidate) => candidate.id === setupId
+                  )
+                  if (!setup || setup.id === selectedProjectHostSetup?.id) {
                     return
                   }
-                  openSetup(repoId)
+                  openSetup(setup.repoId, setup.hostId)
                 }}
               >
                 <SelectTrigger className="h-8 w-44 min-w-0 text-xs">
@@ -129,7 +137,7 @@ export function RepositoryHostSetupsSection({
                 </SelectTrigger>
                 <SelectContent>
                   {openableProjectHostSetups.map((setup) => (
-                    <SelectItem key={setup.id} value={setup.repoId}>
+                    <SelectItem key={setup.id} value={setup.id}>
                       <span className="block min-w-0 truncate">
                         {hostOptionById.get(setup.hostId)?.label ??
                           getExecutionHostLabel(setup.hostId)}
@@ -150,7 +158,7 @@ export function RepositoryHostSetupsSection({
       </div>
       <div className="divide-y divide-border rounded-md border border-border">
         {projectHostSetups.map((setup) => {
-          const isCurrentSetup = setup.repoId === repo.id
+          const isCurrentSetup = setup.id === selectedProjectHostSetup?.id
           const canOpenSetup = setup.repoId.trim().length > 0
           const canRemoveSetup = !canOpenSetup && deletingSetupId !== setup.id
           return (
@@ -189,7 +197,7 @@ export function RepositoryHostSetupsSection({
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    openSetup(setup.repoId)
+                    openSetup(setup.repoId, setup.hostId)
                   }}
                 >
                   {translate('auto.components.settings.RepositoryPane.openSetup', 'Open')}

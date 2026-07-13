@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Bot, Mic, Network } from 'lucide-react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,7 +35,8 @@ function makeSetupGuideProgress(
 
 function renderSidebar(
   activeSectionId = 'orchestration',
-  settings: GlobalSettings = getDefaultSettings('/tmp')
+  settings: GlobalSettings = getDefaultSettings('/tmp'),
+  repoSections: ComponentProps<typeof SettingsSidebar>['repoSections'] = []
 ): string {
   return renderToStaticMarkup(
     <TooltipProvider>
@@ -78,8 +80,8 @@ function renderSidebar(
             ]
           }
         ]}
-        repoSections={[]}
-        hasRepos={false}
+        repoSections={repoSections}
+        hasRepos={repoSections.length > 0}
         searchQuery=""
         onBack={vi.fn()}
         onSearchChange={vi.fn()}
@@ -115,6 +117,30 @@ describe('SettingsSidebar', () => {
     expect(markup).toContain('Not installed')
     expect(markup).toContain('Installed')
     expect(markup).toContain('Optional')
+  })
+
+  it('labels remote same-name project settings with their host', () => {
+    const markup = renderSidebar(
+      'repo-runtime%3Ahome-mac:shared-repo',
+      getDefaultSettings('/tmp'),
+      [
+        {
+          id: 'repo-shared-repo',
+          title: 'Projects',
+          icon: Network
+        },
+        {
+          id: 'repo-runtime%3Ahome-mac:shared-repo',
+          title: 'Projects',
+          icon: Network,
+          hostLabel: 'Home Mac'
+        }
+      ]
+    )
+
+    // The group heading plus two host-scoped rows all use the same project name.
+    expect(markup.match(/>Projects</g)).toHaveLength(3)
+    expect(markup).toContain('Home Mac')
   })
 
   it('does not render the setup guide row before progress readiness settles', () => {

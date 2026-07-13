@@ -147,6 +147,54 @@ describe('RepositoryHostSetupsSection', () => {
     expect(container.textContent).toContain(LOCAL_HOST_LABEL)
   })
 
+  it('opens the correct host when project setups share one repo id', () => {
+    const openSettingsPage = vi.fn()
+    const openSettingsTarget = vi.fn()
+    const localRepo = makeRepo({
+      id: 'shared-repo',
+      displayName: 'Projects',
+      path: '/Users/alice/Projects',
+      executionHostId: 'local'
+    })
+    const remoteRepo = makeRepo({
+      id: 'shared-repo',
+      displayName: 'Projects',
+      path: '/Users/alice/Projects',
+      executionHostId: 'runtime:home-mac'
+    })
+    useAppStore.setState({
+      repos: [localRepo, remoteRepo],
+      projects: [makeProject({ id: 'repo:shared-repo', sourceRepoIds: ['shared-repo'] })],
+      projectHostSetups: [
+        makeSetup({
+          id: 'local-setup',
+          projectId: 'repo:shared-repo',
+          repoId: 'shared-repo',
+          hostId: 'local',
+          path: '/Users/alice/Projects'
+        }),
+        makeSetup({
+          id: 'remote-setup',
+          projectId: 'repo:shared-repo',
+          repoId: 'shared-repo',
+          hostId: 'runtime:home-mac',
+          path: '/Users/alice/Projects'
+        })
+      ],
+      openSettingsPage,
+      openSettingsTarget
+    })
+
+    renderSection(localRepo)
+    clickButton('Open')
+
+    expect(openSettingsTarget).toHaveBeenCalledWith({
+      pane: 'repo',
+      repoId: 'shared-repo',
+      repoHostId: 'runtime:home-mac'
+    })
+  })
+
   it('opens the selected host setup settings pane through the setup repo id', () => {
     const openSettingsPage = vi.fn()
     const openSettingsTarget = vi.fn()
@@ -197,7 +245,11 @@ describe('RepositoryHostSetupsSection', () => {
     })
 
     expect(openSettingsPage).toHaveBeenCalledTimes(1)
-    expect(openSettingsTarget).toHaveBeenCalledWith({ pane: 'repo', repoId: 'remote-repo' })
+    expect(openSettingsTarget).toHaveBeenCalledWith({
+      pane: 'repo',
+      repoId: 'remote-repo',
+      repoHostId: 'ssh:openclaw%202'
+    })
   })
 
   it('removes independent setup metadata instead of opening an empty repo target', async () => {
@@ -328,7 +380,11 @@ describe('RepositoryHostSetupsSection', () => {
       displayName: 'Orca'
     })
     expect(openSettingsPage).toHaveBeenCalledTimes(1)
-    expect(openSettingsTarget).toHaveBeenCalledWith({ pane: 'repo', repoId: 'remote-repo' })
+    expect(openSettingsTarget).toHaveBeenCalledWith({
+      pane: 'repo',
+      repoId: 'remote-repo',
+      repoHostId: 'ssh:openclaw%202'
+    })
   })
 
   it('clones the project onto another known host from settings', async () => {
@@ -403,7 +459,11 @@ describe('RepositoryHostSetupsSection', () => {
       displayName: 'Orca'
     })
     expect(openSettingsPage).toHaveBeenCalledTimes(1)
-    expect(openSettingsTarget).toHaveBeenCalledWith({ pane: 'repo', repoId: 'remote-repo' })
+    expect(openSettingsTarget).toHaveBeenCalledWith({
+      pane: 'repo',
+      repoId: 'remote-repo',
+      repoHostId: 'ssh:openclaw%202'
+    })
   })
 
   it('creates pending setup metadata for a known host without requiring a path', async () => {

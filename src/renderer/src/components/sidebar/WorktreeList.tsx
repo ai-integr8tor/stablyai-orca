@@ -632,7 +632,7 @@ type VirtualizedWorktreeViewportProps = {
   toggleGroup: (key: string) => void
   collapsedGroups: Set<string>
   handleCreateForRepo: (projectId: string) => void
-  handleOpenRepoSettings: (projectId: string, sectionId?: string) => void
+  handleOpenRepoSettings: (projectId: string, hostId: ExecutionHostId, sectionId?: string) => void
   handleOpenWorktreeVisibility: (projectId: string) => void
   handleShowImportedWorktrees: (projectId: string) => void
   handleKeepImportedWorktreesHidden: (projectId: string) => void
@@ -4515,7 +4515,10 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                             <DropdownMenuItem
                               onSelect={() => {
                                 if (row.repo) {
-                                  handleOpenRepoSettings(row.repo.id)
+                                  handleOpenRepoSettings(
+                                    row.repo.id,
+                                    getRepoExecutionHostId(row.repo)
+                                  )
                                 }
                               }}
                             >
@@ -4530,7 +4533,11 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                                 if (row.repo) {
                                   handleOpenRepoSettings(
                                     row.repo.id,
-                                    getRepositoryIconSectionId(row.repo.id)
+                                    getRepoExecutionHostId(row.repo),
+                                    getRepositoryIconSectionId(
+                                      row.repo.id,
+                                      getRepoExecutionHostId(row.repo)
+                                    )
                                   )
                                 }
                               }}
@@ -6034,8 +6041,13 @@ const WorktreeList = React.memo(function WorktreeList({
   )
 
   const handleOpenRepoSettings = useCallback(
-    (projectId: string, sectionId?: string) => {
-      openSettingsTarget({ pane: 'repo', repoId: projectId, ...(sectionId ? { sectionId } : {}) })
+    (projectId: string, repoHostId: ExecutionHostId, sectionId?: string) => {
+      openSettingsTarget({
+        pane: 'repo',
+        repoId: projectId,
+        repoHostId,
+        ...(sectionId ? { sectionId } : {})
+      })
       openSettingsPage()
     },
     [openSettingsPage, openSettingsTarget]

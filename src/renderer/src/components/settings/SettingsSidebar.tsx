@@ -34,7 +34,7 @@ type NavGroup = {
 
 type RepoNavSection = NavSection & {
   badgeColor?: string
-  isRemote?: boolean
+  hostLabel?: string
   repoIcon?: RepoIcon | null
   upstream?: GitHubRepositoryIdentity | null
 }
@@ -305,12 +305,12 @@ export function SettingsSidebar({
                       />
                       <span className="truncate">{section.title}</span>
                       <RepoForkIndicator upstream={section.upstream} />
-                      {section.isRemote && (
-                        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-                          <Server className="size-3" />
-                          {translate('auto.components.settings.SettingsSidebar.e0900f83e7', 'SSH')}
+                      {section.hostLabel ? (
+                        <span className="ml-auto inline-flex min-w-0 shrink items-center gap-1 text-[10px] text-muted-foreground">
+                          <Server className="size-3 shrink-0" />
+                          <span className="truncate">{section.hostLabel}</span>
                         </span>
-                      )}
+                      ) : null}
                     </button>
                   )
                 })}

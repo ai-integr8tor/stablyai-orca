@@ -766,6 +766,7 @@ export type UISlice = {
   settingsNavigationTarget: {
     pane: SettingsNavTarget
     repoId: string | null
+    repoHostId?: ExecutionHostId
     sectionId?: string
     intent?: 'add-quick-command'
   } | null
