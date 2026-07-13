@@ -10717,11 +10717,10 @@
           "repair": "Repair firewall access"
         },
         "OrderedNetworkAddressPicker": {
-          "priority-hint": "Priority is top to bottom — the phone tries these addresses in order.",
+          "priority-hint": "Priority is top to bottom — drag selected addresses to change the order the phone tries them.",
           "list-label": "Network addresses to advertise",
           "custom-option": "{{address}} (custom)",
-          "move-up": "Move {{address}} up",
-          "move-down": "Move {{address}} down"
+          "drag-handle": "Drag to reorder {{address}}"
         }
       },
       "gitlab": {
