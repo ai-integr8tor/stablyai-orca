@@ -1316,6 +1316,7 @@ const BRACKETED_PASTE_QUIET_MS = 1500
 const DRAFT_PASTE_READY_TIMEOUT_MS = 8000
 const MOBILE_TERMINAL_SURFACE_TIMEOUT_MS = 10_000
 const MOBILE_TERMINAL_READY_FALLBACK_MS = 1000
+const RENDERER_TERMINAL_HANDLE_CLAIM_TIMEOUT_MS = 30_000
 const RECENT_PTY_OUTPUT_LIMIT = 64 * 1024
 const RECENT_PTY_PATH_CANDIDATE_LIMIT = 1024
 const RECENT_PTY_PATH_CANDIDATE_MAX_BYTES = 4 * 1024
@@ -2240,6 +2241,10 @@ export class OrcaRuntimeService {
   private handleByLeafKey = new Map<string, string>()
   private handleByPtyId = new Map<string, string>()
   private pendingRendererTerminalHandles = new Set<string>()
+  private pendingRendererTerminalHandleExpiryTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >()
   private detachedPreAllocatedLeaves = new Map<string, RuntimeLeafRecord>()
   private graphSyncCallbacks: (() => void)[] = []
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
@@ -6066,14 +6071,37 @@ export class OrcaRuntimeService {
   }
 
   claimRendererTerminalHandle(handle: unknown): string | null {
-    if (typeof handle !== 'string' || !this.pendingRendererTerminalHandles.delete(handle)) {
+    if (typeof handle !== 'string' || !this.pendingRendererTerminalHandles.has(handle)) {
       return null
     }
+    this.releaseRendererTerminalHandle(handle)
     return handle
   }
 
   releaseRendererTerminalHandle(handle: string): void {
     this.pendingRendererTerminalHandles.delete(handle)
+    const expiryTimer = this.pendingRendererTerminalHandleExpiryTimers.get(handle)
+    if (expiryTimer) {
+      clearTimeout(expiryTimer)
+      this.pendingRendererTerminalHandleExpiryTimers.delete(handle)
+    }
+  }
+
+  private scheduleRendererTerminalHandleRelease(handle: string): void {
+    if (
+      !this.pendingRendererTerminalHandles.has(handle) ||
+      this.pendingRendererTerminalHandleExpiryTimers.has(handle)
+    ) {
+      return
+    }
+    // Why: renderer graph publication can precede the queued PTY spawn, but an
+    // abandoned successful create must not leave a permanent trusted env token.
+    const expiryTimer = setTimeout(() => {
+      this.pendingRendererTerminalHandles.delete(handle)
+      this.pendingRendererTerminalHandleExpiryTimers.delete(handle)
+    }, RENDERER_TERMINAL_HANDLE_CLAIM_TIMEOUT_MS)
+    expiryTimer.unref?.()
+    this.pendingRendererTerminalHandleExpiryTimers.set(handle, expiryTimer)
   }
 
   registerPreAllocatedHandleForPty(ptyId: string, handle: string): void {
@@ -19120,6 +19148,7 @@ export class OrcaRuntimeService {
     const rendererTerminalHandle = shouldRendererCreateInitialGrid
       ? this.reserveRendererTerminalHandle()
       : null
+    let rendererCreateSucceeded = false
     try {
       const reply = await new Promise<{ tabId: string; leafId?: string; title: string }>(
         (resolve, reject) => {
@@ -19181,6 +19210,12 @@ export class OrcaRuntimeService {
       if (rendererTerminalHandle && handle !== rendererTerminalHandle) {
         throw new Error('Terminal renderer registered an unexpected handle')
       }
+      if (rendererTerminalHandle) {
+        // Why: the renderer acknowledges graph creation before React's queued
+        // terminal mount necessarily reaches pty:spawn in the main process.
+        this.scheduleRendererTerminalHandleRelease(rendererTerminalHandle)
+      }
+      rendererCreateSucceeded = true
       return {
         handle,
         tabId: reply.tabId,
@@ -19189,7 +19224,7 @@ export class OrcaRuntimeService {
         surface: 'visible'
       }
     } finally {
-      if (rendererTerminalHandle) {
+      if (rendererTerminalHandle && !rendererCreateSucceeded) {
         this.releaseRendererTerminalHandle(rendererTerminalHandle)
       }
     }
