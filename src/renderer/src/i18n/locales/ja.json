@@ -69,8 +69,8 @@
       "body": "Orcaはシステムトレイで実行中です"
     },
     "keepServingNotice": {
-      "macos": "Orca is still running and serving remote clients. Reopen it from the Dock.",
-      "linux": "Orca is still running and serving remote clients. Launch Orca again to reopen."
+      "macos": "Orca は引き続き実行され、リモートクライアントにサービスを提供しています。Dock から再度開けます。",
+      "linux": "Orca は引き続き実行され、リモートクライアントにサービスを提供しています。Orca をもう一度起動して開いてください。"
     }
   },
   "worktreeJumpPalette": {
@@ -5000,13 +5000,13 @@
           "gitIgnoredGlossary": ".gitignore に一致するファイル。",
           "statusBarDescription": "Choose which indicators appear in the status bar.",
           "keepServingOnClose": {
-            "title": "Keep Serving on Close",
-            "description": "When enabled, closing the window keeps Orca running so remote, mobile, and SSH clients stay served, instead of quitting."
+            "title": "閉じた後もサービスを継続",
+            "description": "有効にすると、ウインドウを閉じても Orca は終了せず、リモート、モバイル、SSH クライアントへのサービスを継続します。"
           },
           "showTrayIconWhileClosed": {
-            "title": "Show Menu Bar Icon While Closed",
-            "description": "Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.",
-            "launchNote": "Takes effect the next time you launch Orca."
+            "title": "ウインドウを閉じている間、メニューバーにアイコンを表示",
+            "description": "ウインドウを閉じている間もメニューバーにアイコンを表示し、そこから Orca を再度開いたり終了したりできます。",
+            "launchNote": "次回 Orca を起動したときに反映されます。"
           }
         },
         "AutoRenameBranchFromWorkSetting": {
