@@ -122,7 +122,19 @@ type BackendUsageResponse = {
     primary_window?: BackendRateLimitWindow | null
     secondary_window?: BackendRateLimitWindow | null
   } | null
+  spend_control?: {
+    individual_limit?:
+      | (BackendRateLimitWindow & {
+          remaining_percent?: number
+          reset_after_seconds?: number
+        })
+      | null
+  } | null
   rate_limit_reset_credits?: BackendRateLimitResetCreditsResponse | null
+}
+
+type BackendRateLimitFetchResult = ProviderRateLimits & {
+  backendPlanType?: string
 }
 
 type BackendConsumeRateLimitResetCreditResponse = {
@@ -517,7 +529,7 @@ function mapBackendUsageWindow(
 
 async function fetchViaBackend(
   options?: FetchCodexRateLimitsOptions
-): Promise<ProviderRateLimits | null> {
+): Promise<BackendRateLimitFetchResult | null> {
   const signal = createBackendRequestSignal(options?.signal)
   const auth = await getCodexBackendAuthHeaders(options, signal)
   if (!auth || signal.aborted) {
@@ -540,9 +552,15 @@ async function fetchViaBackend(
   if (typeof payload.plan_type !== 'string') {
     return null
   }
+  const primaryWindow = mapBackendUsageWindow(payload.rate_limit?.primary_window, 300)
+  const businessSession =
+    payload.plan_type === 'business'
+      ? mapBackendUsageWindow(payload.spend_control?.individual_limit, 300)
+      : null
   return {
+    backendPlanType: payload.plan_type,
     provider: 'codex',
-    session: mapBackendUsageWindow(payload.rate_limit?.primary_window, 300),
+    session: primaryWindow ?? businessSession,
     weekly: mapBackendUsageWindow(payload.rate_limit?.secondary_window, 10080),
     ...(payload.rate_limit_reset_credits !== undefined
       ? {
@@ -1056,17 +1074,22 @@ export async function fetchCodexRateLimits(
     }
   }
 
+  const isWslManagedCodexHome = Boolean(
+    options?.codexHomePath && parseWslUncPath(options.codexHomePath)
+  )
+
   // Path A (WSL): use Codex's own backend usage contract. Host accounts retain
   // app-server's token-refresh/custom-CA behavior; WSL avoids starting a login
   // shell just to reconstruct the CLI environment for a routine poll.
-  if (options?.codexHomePath && parseWslUncPath(options.codexHomePath)) {
+  if (isWslManagedCodexHome) {
     try {
       const backendResult = await fetchViaBackend(options)
       if (options?.signal?.aborted) {
         return abortedCodexRateLimitResult()
       }
       if (backendResult) {
-        const withResetCredits = await withBackendRateLimitResetCredits(backendResult, options)
+        const { backendPlanType: _backendPlanType, ...backendLimits } = backendResult
+        const withResetCredits = await withBackendRateLimitResetCredits(backendLimits, options)
         return options?.signal?.aborted ? abortedCodexRateLimitResult() : withResetCredits
       }
     } catch {
@@ -1085,6 +1108,41 @@ export async function fetchCodexRateLimits(
       return abortedCodexRateLimitResult()
     }
     if (rpcResult.status === 'ok' || rpcResult.status === 'unavailable') {
+      if (
+        !isWslManagedCodexHome &&
+        rpcResult.status === 'ok' &&
+        !rpcResult.session &&
+        !rpcResult.weekly
+      ) {
+        try {
+          const backendResult = await fetchViaBackend(options)
+          if (options?.signal?.aborted) {
+            return abortedCodexRateLimitResult()
+          }
+          if (backendResult) {
+            const { backendPlanType, ...backendLimits } = backendResult
+            if (backendPlanType === 'business' && (backendLimits.session || backendLimits.weekly)) {
+              const supplementedResult = { ...rpcResult, ...backendLimits }
+              if (backendLimits.rateLimitResetCredits === null) {
+                if (rpcResult.rateLimitResetCredits !== undefined) {
+                  supplementedResult.rateLimitResetCredits = rpcResult.rateLimitResetCredits
+                } else {
+                  delete supplementedResult.rateLimitResetCredits
+                }
+              }
+              const withResetCredits = await withBackendRateLimitResetCredits(
+                supplementedResult,
+                options
+              )
+              return options?.signal?.aborted ? abortedCodexRateLimitResult() : withResetCredits
+            }
+          }
+        } catch {
+          if (options?.signal?.aborted) {
+            return abortedCodexRateLimitResult()
+          }
+        }
+      }
       const withResetCredits = await withBackendRateLimitResetCredits(rpcResult, options)
       return options?.signal?.aborted ? abortedCodexRateLimitResult() : withResetCredits
     }

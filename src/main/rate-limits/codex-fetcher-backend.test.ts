@@ -1,5 +1,7 @@
+import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import businessUsageFixture from './codex-business-wham-usage-8664.fixture.json'
 
 const { childSpawnMock, readFileMock, ptySpawnMock } = vi.hoisted(() => ({
   childSpawnMock: vi.fn(),
@@ -15,6 +17,20 @@ vi.mock('./codex-auth-presence', () => ({
 }))
 
 import { consumeCodexRateLimitResetCredit, fetchCodexRateLimits } from './codex-fetcher'
+
+function makeRpcChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter
+    stderr: EventEmitter
+    stdin: { write: ReturnType<typeof vi.fn> }
+    kill: ReturnType<typeof vi.fn>
+  }
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.stdin = { write: vi.fn() }
+  child.kill = vi.fn()
+  return child
+}
 
 describe('Codex backend rate-limit requests', () => {
   beforeEach(() => {
@@ -93,6 +109,93 @@ describe('Codex backend rate-limit requests', () => {
         signal: expect.any(AbortSignal)
       })
     )
+  })
+
+  it('maps the Business spend-control usage fixture into the session window', async () => {
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ tokens: { access_token: 'access-token', account_id: 'account-id' } })
+    )
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, json: async () => businessUsageFixture } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+
+    await expect(
+      fetchCodexRateLimits({
+        codexHomePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\.codex'
+      })
+    ).resolves.toMatchObject({
+      session: { usedPercent: 39, windowMinutes: 300, resetsAt: 1_785_542_400_000 },
+      weekly: null,
+      status: 'ok'
+    })
+  })
+
+  it('does not retry the Business supplement after a WSL backend miss', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
+    const rpcChild = makeRpcChild()
+    childSpawnMock.mockReturnValue(rpcChild)
+    readFileMock.mockResolvedValue(
+      JSON.stringify({ tokens: { access_token: 'access-token', account_id: 'account-id' } })
+    )
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ available_count: 0, credits: [] })
+      } as Response)
+    rpcChild.stdin.write.mockImplementation((line: string) => {
+      const msg = JSON.parse(line) as { id?: number; method?: string }
+      if (msg.method === 'initialize') {
+        setTimeout(() => {
+          rpcChild.stdout.emit(
+            'data',
+            Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: {} })}\n`)
+          )
+        }, 0)
+      }
+      if (msg.method === 'account/rateLimits/read') {
+        setTimeout(() => {
+          rpcChild.stdout.emit(
+            'data',
+            Buffer.from(
+              `${JSON.stringify({
+                jsonrpc: '2.0',
+                id: msg.id,
+                result: { rateLimits: {} }
+              })}\n`
+            )
+          )
+        }, 0)
+      }
+    })
+
+    try {
+      const resultPromise = fetchCodexRateLimits({
+        codexHomePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\.local\\share\\orca\\account\\home'
+      })
+      await vi.advanceTimersByTimeAsync(1)
+      await vi.advanceTimersByTimeAsync(1)
+
+      await expect(resultPromise).resolves.toMatchObject({
+        session: null,
+        weekly: null,
+        status: 'ok'
+      })
+
+      const usageCalls = vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => url === 'https://chatgpt.com/backend-api/wham/usage')
+      expect(usageCalls).toHaveLength(1)
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        configurable: true,
+        value: originalPlatform
+      })
+    }
   })
 
   it('aborts callers while sharing one stalled backend auth read', async () => {
