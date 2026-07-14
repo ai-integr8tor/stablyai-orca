@@ -6978,6 +6978,22 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  describe('Codex permission resume routing', () => {
+    it('routes only the transition into a working title', () => {
+      const resumeCodexPermissionWait = vi.fn(() => true)
+      const runtime = new OrcaRuntimeService(store, undefined, { resumeCodexPermissionWait })
+      syncSinglePty(runtime)
+
+      runtime.onPtyData('pty-1', '\x1b]0;Codex - action required\x07', 100)
+      expect(resumeCodexPermissionWait).not.toHaveBeenCalled()
+
+      runtime.onPtyData('pty-1', '\x1b]0;⠋ Codex\x07', 101)
+      runtime.onPtyData('pty-1', '\x1b]0;⠙ Codex\x07', 102)
+      expect(resumeCodexPermissionWait).toHaveBeenCalledTimes(1)
+      expect(resumeCodexPermissionWait).toHaveBeenCalledWith('tab-1:1')
+    })
+  })
+
   // ─── pty:sideEffect channel (terminal-side-effect-authority.md, slice 2) ──
   describe('terminal side-effect fact channel', () => {
     function createSideEffectRuntime(): {

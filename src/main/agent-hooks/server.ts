@@ -28,6 +28,7 @@ import {
   HOOK_REQUEST_SLOWLORIS_MS,
   markClaudeLeadTurnInterrupted,
   MAX_PANE_KEY_LEN,
+  isAskUserQuestionTool,
   normalizeHookPayload,
   parseFormEncodedBody,
   readRequestBody,
@@ -317,6 +318,11 @@ function shouldKeepClaudePermissionVisible(
     previous?.payload.agentType !== 'claude' ||
     previous.payload.state !== 'waiting' ||
     previous.hookEventName !== 'PermissionRequest' ||
+    // Why: AskUserQuestion is auto-allowed but still emits a PermissionRequest
+    // (carrying no tool_use_id) right after its PreToolUse, so its wait can't be
+    // cleared by a resuming-tool id match. It's an interactive question, not an
+    // Allow/Deny gate — clear it on the answer's 'working' hook, never pin it.
+    isAskUserQuestionTool(previous.payload.toolName) ||
     next.payload.agentType !== 'claude' ||
     next.payload.state !== 'working'
   ) {
@@ -518,6 +524,41 @@ export class AgentHookServer {
     return Array.from(this.state.lastStatusByPaneKey.values(), (entry) =>
       toAgentStatusIpcPayload(entry as EnrichedAgentHookEventPayload)
     )
+  }
+
+  /** Resume a fresh Codex permission wait when terminal activity proves the
+   * approved command started before Codex can emit its completion hook. */
+  resumeCodexPermissionWaitFromTerminalTitle(paneKey: string): boolean {
+    const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)
+    const existing = this.state.lastStatusByPaneKey.get(resolvedPaneKey) as
+      | EnrichedAgentHookEventPayload
+      | undefined
+    if (
+      existing?.payload.agentType !== 'codex' ||
+      existing.payload.state !== 'waiting' ||
+      existing.hookEventName !== 'PermissionRequest' ||
+      Date.now() - existing.receivedAt > AGENT_STATUS_STALE_AFTER_MS
+    ) {
+      return false
+    }
+
+    // Why: Codex emits no execution-start hook after approval; its working
+    // terminal title is the first authoritative signal before PostToolUse.
+    const resumed = this.applyNormalizedStatus({
+      paneKey: resolvedPaneKey,
+      connectionId: existing.connectionId,
+      ...(existing.launchToken ? { launchToken: existing.launchToken } : {}),
+      ...(existing.tabId ? { tabId: existing.tabId } : {}),
+      ...(existing.worktreeId ? { worktreeId: existing.worktreeId } : {}),
+      ...(existing.providerSession ? { providerSession: existing.providerSession } : {}),
+      hookEventName: 'TerminalTitleWorking',
+      payload: {
+        ...existing.payload,
+        state: 'working',
+        interactivePrompt: undefined
+      }
+    })
+    return resumed.payload.state === 'working'
   }
 
   inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
