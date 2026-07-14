@@ -275,6 +275,7 @@ import type {
   GitHubPRMergeMethod,
   GitHubIssueUpdate,
   GitHubWorkItem,
+  IssueSourcePreference,
   GitLabTodo,
   GitLabWorkItem,
   JiraCreateField,
@@ -496,6 +497,7 @@ function getTaskPageRepoCacheInput(repo: Repo): {
   path: string
   executionHostId?: string | null
   sourceCacheScope?: string | null
+  issueSourcePreference?: IssueSourcePreference
 } {
   const sourceContext = getTaskPageRepoSourceContext(repo, 'github')
   return {
@@ -503,7 +505,8 @@ function getTaskPageRepoCacheInput(repo: Repo): {
     path: repo.path,
     executionHostId: repo.executionHostId,
     sourceCacheScope:
-      sourceContext?.provider === 'github' ? getTaskSourceCacheScope(sourceContext) : null
+      sourceContext?.provider === 'github' ? getTaskSourceCacheScope(sourceContext) : null,
+    issueSourcePreference: repo.issueSourcePreference
   }
 }
 
