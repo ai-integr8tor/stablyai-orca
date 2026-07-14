@@ -14,7 +14,12 @@ import { createBackgroundSleepingAgentWakeDispatcher } from '@/lib/wake-sleeping
 import { OPEN_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
 import { SPLIT_TERMINAL_PANE_EVENT, CLOSE_TERMINAL_PANE_EVENT } from '@/constants/terminal'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
-import type { SplitTerminalPaneDetail, CloseTerminalPaneDetail } from '@/constants/terminal'
+import { mintStablePaneId } from '@/lib/pane-manager/mint-stable-pane-id'
+import type {
+  SplitTerminalPaneAcknowledgement,
+  SplitTerminalPaneDetail,
+  CloseTerminalPaneDetail
+} from '@/constants/terminal'
 import { getVisibleWorktreeIds } from '@/components/sidebar/visible-worktrees'
 import { activateTabNumberShortcut } from '@/lib/tab-number-shortcuts'
 import { nextEditorFontZoomLevel, computeEditorFontSize } from '@/lib/editor-font-zoom'
@@ -24,6 +29,12 @@ import type {
   UpdateStatus,
   WorkspaceSessionState
 } from '../../../shared/types'
+import {
+  addOrchestrationTerminalGridLeaf,
+  collectTerminalLayoutLeafIds,
+  getOrchestrationGridAppendSourceLeafIds,
+  ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS
+} from '../../../shared/orchestration-terminal-grid'
 import type {
   RemoteWorkspacePatchResult,
   RemoteWorkspaceSnapshot
@@ -292,6 +303,373 @@ function activateTerminalInitiatedWorktree(store: AppState, worktreeId: string):
   store.markWorktreeVisited(worktreeId)
   if (!store.isNavigatingHistory) {
     store.recordWorktreeVisit(worktreeId)
+  }
+}
+
+const TERMINAL_SURFACE_ACTION_TIMEOUT_MS = 9_000
+
+export type TerminalSurfaceActionCancellationReason =
+  | 'action-failed'
+  | 'cancelled'
+  | 'ipc-events-disposed'
+  | 'surface-unmounted'
+  | 'tab-removed'
+  | 'timeout'
+
+type TerminalSurfaceActionCallbacks = {
+  onConsumed?: () => void
+  onCancelled?: (reason: TerminalSurfaceActionCancellationReason, error?: unknown) => void
+}
+
+type PendingTerminalSurfaceAction = {
+  tabId: string
+  action: () => void
+  callbacks: TerminalSurfaceActionCallbacks
+  timeoutId: ReturnType<typeof setTimeout> | null
+  settled: boolean
+}
+
+const terminalSurfaceConsumerCountByTabId = new Map<string, number>()
+const pendingTerminalSurfaceActionsByTabId = new Map<string, Set<PendingTerminalSurfaceAction>>()
+
+function invokeTerminalSurfaceSettlement(callback: () => void): void {
+  try {
+    callback()
+  } catch {
+    // Why: the action outcome is already final; a reply failure must not
+    // reclassify success as cancellation or strand consumer cleanup.
+  }
+}
+
+function removePendingTerminalSurfaceAction(pending: PendingTerminalSurfaceAction): void {
+  const tabActions = pendingTerminalSurfaceActionsByTabId.get(pending.tabId)
+  tabActions?.delete(pending)
+  if (tabActions?.size === 0) {
+    pendingTerminalSurfaceActionsByTabId.delete(pending.tabId)
+  }
+}
+
+function consumeTerminalSurfaceAction(pending: PendingTerminalSurfaceAction): void {
+  if (pending.settled) {
+    return
+  }
+  pending.settled = true
+  removePendingTerminalSurfaceAction(pending)
+  if (pending.timeoutId !== null) {
+    globalThis.clearTimeout(pending.timeoutId)
+  }
+  try {
+    pending.action()
+  } catch (error) {
+    invokeTerminalSurfaceSettlement(() => pending.callbacks.onCancelled?.('action-failed', error))
+    return
+  }
+  invokeTerminalSurfaceSettlement(() => pending.callbacks.onConsumed?.())
+}
+
+function cancelTerminalSurfaceAction(
+  pending: PendingTerminalSurfaceAction,
+  reason: TerminalSurfaceActionCancellationReason
+): void {
+  if (pending.settled) {
+    return
+  }
+  pending.settled = true
+  removePendingTerminalSurfaceAction(pending)
+  if (pending.timeoutId !== null) {
+    globalThis.clearTimeout(pending.timeoutId)
+  }
+  invokeTerminalSurfaceSettlement(() => pending.callbacks.onCancelled?.(reason))
+}
+
+export function queueTerminalSurfaceAction(
+  tabId: string,
+  action: () => void,
+  callbacks: TerminalSurfaceActionCallbacks = {}
+): () => void {
+  if ((terminalSurfaceConsumerCountByTabId.get(tabId) ?? 0) > 0) {
+    try {
+      action()
+    } catch (error) {
+      invokeTerminalSurfaceSettlement(() => callbacks.onCancelled?.('action-failed', error))
+      return () => undefined
+    }
+    invokeTerminalSurfaceSettlement(() => callbacks.onConsumed?.())
+    return () => undefined
+  }
+
+  const pending: PendingTerminalSurfaceAction = {
+    tabId,
+    action,
+    callbacks,
+    timeoutId: null,
+    settled: false
+  }
+  pending.timeoutId = globalThis.setTimeout(() => {
+    cancelTerminalSurfaceAction(pending, 'timeout')
+  }, TERMINAL_SURFACE_ACTION_TIMEOUT_MS)
+  const tabActions = pendingTerminalSurfaceActionsByTabId.get(tabId) ?? new Set()
+  tabActions.add(pending)
+  pendingTerminalSurfaceActionsByTabId.set(tabId, tabActions)
+  return () => cancelTerminalSurfaceAction(pending, 'cancelled')
+}
+
+export function cancelPendingTerminalSurfaceActions(
+  tabId: string,
+  reason: TerminalSurfaceActionCancellationReason
+): void {
+  const pending = [...(pendingTerminalSurfaceActionsByTabId.get(tabId) ?? [])]
+  for (const action of pending) {
+    cancelTerminalSurfaceAction(action, reason)
+  }
+}
+
+export function registerTerminalSurfaceActionConsumer(tabId: string): () => void {
+  terminalSurfaceConsumerCountByTabId.set(
+    tabId,
+    (terminalSurfaceConsumerCountByTabId.get(tabId) ?? 0) + 1
+  )
+  for (const pending of pendingTerminalSurfaceActionsByTabId.get(tabId) ?? []) {
+    consumeTerminalSurfaceAction(pending)
+  }
+
+  let registered = true
+  return () => {
+    if (!registered) {
+      return
+    }
+    registered = false
+    const nextCount = (terminalSurfaceConsumerCountByTabId.get(tabId) ?? 1) - 1
+    if (nextCount > 0) {
+      terminalSurfaceConsumerCountByTabId.set(tabId, nextCount)
+      return
+    }
+    terminalSurfaceConsumerCountByTabId.delete(tabId)
+    cancelPendingTerminalSurfaceActions(tabId, 'surface-unmounted')
+  }
+}
+
+function hasTerminalSurfaceActionConsumer(tabId: string): boolean {
+  return (terminalSurfaceConsumerCountByTabId.get(tabId) ?? 0) > 0
+}
+
+type SuccessfulTerminalPaneSplit = Extract<SplitTerminalPaneAcknowledgement, { status: 'success' }>
+
+function terminalTransactionErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function preserveTerminalTransactionError(
+  operationError: unknown,
+  cleanupError: unknown,
+  cleanupLabel: string
+): AggregateError {
+  return new AggregateError(
+    [operationError, cleanupError],
+    `${terminalTransactionErrorMessage(operationError)}; ${cleanupLabel}: ${terminalTransactionErrorMessage(cleanupError)}`
+  )
+}
+
+function rollbackAcknowledgedTerminalPaneSplit(result: SuccessfulTerminalPaneSplit): void {
+  let firstError: unknown
+  try {
+    result.rollback()
+    return
+  } catch (error) {
+    firstError = error
+  }
+  try {
+    // Why: low-level teardown keeps the rollback unlatched after cleanup throws;
+    // retry before this acknowledgement becomes unreachable to avoid a live orphan.
+    result.rollback()
+  } catch (retryError) {
+    throw new AggregateError(
+      [firstError, retryError],
+      `Terminal split rollback failed twice: ${terminalTransactionErrorMessage(firstError)}; ${terminalTransactionErrorMessage(retryError)}`
+    )
+  }
+}
+
+function rollbackAcknowledgedTerminalPaneSplits(
+  acknowledgements: readonly SplitTerminalPaneAcknowledgement[]
+): void {
+  const cleanupErrors: unknown[] = []
+  for (const acknowledgement of acknowledgements) {
+    if (acknowledgement.status !== 'success') {
+      continue
+    }
+    try {
+      rollbackAcknowledgedTerminalPaneSplit(acknowledgement)
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+  if (cleanupErrors.length === 1) {
+    throw cleanupErrors[0]
+  }
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'Terminal split rollbacks failed')
+  }
+}
+
+function dispatchAcknowledgedTerminalPaneSplit(
+  detail: SplitTerminalPaneDetail
+): SuccessfulTerminalPaneSplit {
+  const acknowledgements: SplitTerminalPaneAcknowledgement[] = []
+  const acknowledgedDetail: SplitTerminalPaneDetail = {
+    ...detail,
+    acknowledge: (result) => {
+      acknowledgements.push(result)
+    }
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent<SplitTerminalPaneDetail>(SPLIT_TERMINAL_PANE_EVENT, {
+        detail: acknowledgedDetail
+      })
+    )
+  } catch (error) {
+    try {
+      rollbackAcknowledgedTerminalPaneSplits(acknowledgements)
+    } catch (cleanupError) {
+      throw preserveTerminalTransactionError(error, cleanupError, 'split rollback failed')
+    }
+    throw error
+  }
+
+  if (acknowledgements.length !== 1) {
+    const acknowledgementError = new Error(
+      acknowledgements.length === 0
+        ? `Terminal split event for ${detail.tabId} was not acknowledged`
+        : `Terminal split event for ${detail.tabId} was acknowledged ${acknowledgements.length} times`
+    )
+    try {
+      rollbackAcknowledgedTerminalPaneSplits(acknowledgements)
+    } catch (cleanupError) {
+      throw preserveTerminalTransactionError(
+        acknowledgementError,
+        cleanupError,
+        'split rollback failed'
+      )
+    }
+    throw acknowledgementError
+  }
+  const acknowledgement = acknowledgements[0]!
+  if (acknowledgement.status === 'failure') {
+    throw acknowledgement.error instanceof Error
+      ? acknowledgement.error
+      : new Error(String(acknowledgement.error))
+  }
+  return acknowledgement
+}
+
+function runTerminalSurfaceActionTransaction(
+  commit: (
+    store: AppState,
+    registerSplit: (split: SuccessfulTerminalPaneSplit) => void
+  ) => (() => void) | undefined
+): void {
+  const actionStore = useAppStore.getState()
+  const stateBeforeAction = { ...actionStore }
+  let split: SuccessfulTerminalPaneSplit | undefined
+  let afterCommit: (() => void) | undefined
+  try {
+    afterCommit = commit(actionStore, (nextSplit) => {
+      if (split) {
+        const duplicateSplitError = new Error(
+          'Terminal surface action registered more than one split'
+        )
+        try {
+          rollbackAcknowledgedTerminalPaneSplit(nextSplit)
+        } catch (cleanupError) {
+          throw preserveTerminalTransactionError(
+            duplicateSplitError,
+            cleanupError,
+            'duplicate split rollback failed'
+          )
+        }
+        throw duplicateSplitError
+      }
+      split = nextSplit
+    })
+  } catch (error) {
+    let cleanupError: unknown
+    try {
+      // Why: the pane owns PTY/parser/DOM resources outside Zustand, so it must
+      // disappear before the renderer snapshot becomes canonical again.
+      if (split) {
+        rollbackAcknowledgedTerminalPaneSplit(split)
+      }
+    } catch (rollbackError) {
+      cleanupError = rollbackError
+    } finally {
+      useAppStore.setState(stateBeforeAction, true)
+    }
+    if (cleanupError !== undefined) {
+      throw preserveTerminalTransactionError(error, cleanupError, 'split rollback failed')
+    }
+    throw error
+  }
+  try {
+    split?.afterCommit?.()
+  } catch {
+    // Why: the pane and store are committed; telemetry is best-effort and must
+    // not tear down a live terminal after the transaction boundary.
+  }
+  try {
+    afterCommit?.()
+  } catch {
+    // Why: focus is best-effort after the split event commits; losing focus
+    // must not cancel a live pane or reclassify its successful request.
+  }
+}
+
+function cancelAllPendingTerminalSurfaceActions(
+  reason: TerminalSurfaceActionCancellationReason
+): void {
+  for (const tabId of pendingTerminalSurfaceActionsByTabId.keys()) {
+    cancelPendingTerminalSurfaceActions(tabId, reason)
+  }
+}
+
+function terminalSurfaceActionFailureMessage(
+  tabId: string,
+  reason: TerminalSurfaceActionCancellationReason,
+  error?: unknown
+): string {
+  if (reason === 'action-failed' && error instanceof Error) {
+    return error.message
+  }
+  switch (reason) {
+    case 'timeout':
+      return `Terminal surface ${tabId} did not mount before the split deadline`
+    case 'tab-removed':
+      return `Terminal tab ${tabId} was removed before the split was applied`
+    case 'surface-unmounted':
+      return `Terminal surface ${tabId} was torn down before the split was applied`
+    case 'ipc-events-disposed':
+      return `Terminal creation was cancelled while the renderer was shutting down`
+    case 'action-failed':
+      return `Terminal split failed for ${tabId}`
+    case 'cancelled':
+      return `Terminal split was cancelled for ${tabId}`
+  }
+}
+
+export function cancelTerminalSurfaceActionsForRemovedTabs(
+  state: Pick<AppState, 'tabsByWorktree'>
+): void {
+  if (pendingTerminalSurfaceActionsByTabId.size === 0) {
+    return
+  }
+  const liveTabIds = new Set(
+    Object.values(state.tabsByWorktree).flatMap((tabs) => tabs.map((tab) => tab.id))
+  )
+  for (const tabId of pendingTerminalSurfaceActionsByTabId.keys()) {
+    if (!liveTabIds.has(tabId)) {
+      cancelPendingTerminalSurfaceActions(tabId, 'tab-removed')
+    }
   }
 }
 
@@ -838,6 +1216,11 @@ function getWorktreeRuntimeEnvironmentId(worktreeId: string | null | undefined):
 export function useIpcEvents(): void {
   useEffect(() => {
     const unsubs: (() => void)[] = []
+    unsubs.push(
+      useAppStore.subscribe(() => {
+        cancelTerminalSurfaceActionsForRemovedTabs(useAppStore.getState())
+      })
+    )
     const backgroundSleepingAgentWakeDispatcher = createBackgroundSleepingAgentWakeDispatcher()
     unsubs.push(backgroundSleepingAgentWakeDispatcher.dispose)
     type PendingAgentStatusEvent = {
@@ -1452,8 +1835,10 @@ export function useIpcEvents(): void {
           tabId,
           leafId,
           splitFromLeafId,
+          splitSourceLeafIds,
           splitDirection,
-          splitTelemetrySource
+          splitTelemetrySource,
+          placement
         }) => {
           try {
             if (isRuntimeEnvironmentActive()) {
@@ -1472,7 +1857,8 @@ export function useIpcEvents(): void {
             const terminalPresentation = resolveTerminalPresentation({ presentation, activate })
             const shouldActivate = terminalPresentation === 'focused'
             const shouldSurfaceOwner = terminalPresentation !== 'background'
-            if (shouldActivate) {
+            const isSplitReveal = Boolean(ptyId && tabId && leafId && splitFromLeafId)
+            if (shouldActivate && !isSplitReveal) {
               activateTerminalInitiatedWorktree(store, worktreeId)
             }
             const worktreeTabs = store.tabsByWorktree[worktreeId] ?? []
@@ -1483,7 +1869,6 @@ export function useIpcEvents(): void {
                     (store.ptyIdsByTabId[candidate.id] ?? []).includes(ptyId)
                 )
               : undefined
-            const isSplitReveal = Boolean(ptyId && tabId && leafId && splitFromLeafId)
             const splitTargetTab = isSplitReveal
               ? worktreeTabs.find((candidate) => candidate.id === tabId)
               : undefined
@@ -1555,11 +1940,11 @@ export function useIpcEvents(): void {
                 `[onCreateTerminal] tabId hint ${tabId} ignored for ptyId ${ptyId}; existing tab ${tab.id} adopted instead (hook attribution will degrade for this terminal)`
               )
             }
-            if (shouldActivate) {
+            if (shouldActivate && !isSplitReveal) {
               store.setActiveTabType('terminal')
               store.setActiveTab(tab.id)
             }
-            if (shouldSurfaceOwner) {
+            if (shouldSurfaceOwner && !isSplitReveal) {
               store.revealWorktreeInSidebar(worktreeId)
               focusTerminalInitiatedTab(tab.id, leafId)
             }
@@ -1572,52 +1957,142 @@ export function useIpcEvents(): void {
             }
             if (leafId && ptyId) {
               const launchPaneKey = tryMakePaneKey(tab.id, leafId)
-              if (launchConfig) {
-                if (launchPaneKey) {
-                  store.registerAgentLaunchConfig(launchPaneKey, launchConfig, {
-                    ...(launchAgent ? { agentType: launchAgent } : {}),
-                    ...(launchToken ? { launchToken } : {}),
-                    tabId: tab.id,
-                    leafId
-                  })
-                }
-              } else if (!splitFromLeafId && launchPaneKey) {
-                store.clearAgentLaunchConfig(launchPaneKey)
-              }
               if (splitFromLeafId) {
-                // Why: runtime-spawned split PTYs already carry the parent tab's
-                // paneKey. Reusing the existing tab preserves native split-pane
-                // behavior instead of letting createTab mint a collision tab.
-                store.updateTabPtyId(tab.id, ptyId)
-                const existingLayout = store.terminalLayoutsByTabId?.[tab.id]
-                const sourcePtyId = existingLayout?.ptyIdsByLeafId?.[splitFromLeafId]
-                store.setTabLayout(
+                let committedLayout: TerminalLayoutSnapshot | undefined
+                // Why: a hidden surface can accumulate multiple appends; each
+                // consumer must derive its split from the prior committed action.
+                queueTerminalSurfaceAction(
                   tab.id,
-                  addSplitLeafToLayout(
-                    existingLayout,
-                    splitFromLeafId,
-                    leafId,
-                    ptyId,
-                    splitDirection ?? 'horizontal',
-                    title,
-                    shouldActivate
-                  )
+                  () => {
+                    runTerminalSurfaceActionTransaction((actionStore, registerSplit) => {
+                      const actionPresentation = resolveTerminalPresentation({
+                        presentation,
+                        activate
+                      })
+                      const actionShouldActivate = actionPresentation === 'focused'
+                      const actionShouldSurfaceOwner = actionPresentation !== 'background'
+                      const existingLayout = actionStore.terminalLayoutsByTabId?.[tab.id]
+                      const isOrchestrationGrid = placement === 'orchestration-grid'
+                      const currentLeafIds = collectTerminalLayoutLeafIds(existingLayout?.root)
+                      const currentGridSourceLeafIds = isOrchestrationGrid
+                        ? getOrchestrationGridAppendSourceLeafIds(existingLayout?.root)
+                        : undefined
+                      const sourceLeafId = isOrchestrationGrid
+                        ? currentGridSourceLeafIds?.at(-1)
+                        : splitFromLeafId
+                      if (!sourceLeafId) {
+                        throw new Error(`Terminal grid ${tab.id} has no append source`)
+                      }
+                      const direction = isOrchestrationGrid
+                        ? currentLeafIds.length % ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS === 0
+                          ? 'horizontal'
+                          : 'vertical'
+                        : (splitDirection ?? 'horizontal')
+                      const sourcePtyId = existingLayout?.ptyIdsByLeafId?.[sourceLeafId]
+                      const startup = command
+                        ? {
+                            command,
+                            ...(env ? { env } : {}),
+                            ...(launchConfig ? { launchConfig } : {}),
+                            ...(launchToken ? { launchToken } : {}),
+                            ...(launchAgent ? { launchAgent } : {})
+                          }
+                        : undefined
+                      const layout = isOrchestrationGrid
+                        ? addOrchestrationTerminalGridLeaf(existingLayout, {
+                            leafId,
+                            ptyId,
+                            title,
+                            activate: actionShouldActivate
+                          })
+                        : addSplitLeafToLayout(
+                            existingLayout,
+                            sourceLeafId,
+                            leafId,
+                            ptyId,
+                            direction,
+                            title,
+                            actionShouldActivate
+                          )
+                      const focusLeafId =
+                        isOrchestrationGrid && !actionShouldActivate
+                          ? existingLayout?.activeLeafId
+                          : leafId
+                      const detail: SplitTerminalPaneDetail = {
+                        tabId: tab.id,
+                        paneRuntimeId: -1,
+                        direction,
+                        sourceLeafId,
+                        ...(isOrchestrationGrid
+                          ? { sourceLeafIds: currentGridSourceLeafIds }
+                          : splitSourceLeafIds
+                            ? { sourceLeafIds: splitSourceLeafIds }
+                            : {}),
+                        sourcePtyId,
+                        telemetrySource: splitTelemetrySource,
+                        newLeafId: leafId,
+                        ptyId,
+                        ...(startup ? { startup } : {}),
+                        activate: actionShouldActivate,
+                        ...(isOrchestrationGrid ? { orchestrationGrid: true } : {})
+                      }
+                      const split = dispatchAcknowledgedTerminalPaneSplit(detail)
+                      registerSplit(split)
+                      actionStore.setTabLayout(tab.id, layout)
+                      committedLayout = layout
+                      // Why: this is the first point where both the pane and its
+                      // layout are committed. Publishing now lets the trusted
+                      // transport adoption skip a second tab-ownership write.
+                      actionStore.updateTabPtyId(tab.id, ptyId)
+                      return () => {
+                        // Why: worktree activation can schedule terminal/GitHub work
+                        // and persist unread clearing, so it must stay post-ack.
+                        if (actionShouldActivate) {
+                          activateTerminalInitiatedWorktree(useAppStore.getState(), worktreeId)
+                          useAppStore.getState().setActiveTabType('terminal')
+                          useAppStore.getState().setActiveTab(tab.id)
+                        }
+                        if (actionShouldSurfaceOwner) {
+                          useAppStore.getState().revealWorktreeInSidebar(worktreeId)
+                          focusTerminalInitiatedTab(tab.id, focusLeafId)
+                        }
+                      }
+                    })
+                  },
+                  requestId
+                    ? {
+                        onConsumed: () => {
+                          window.api.ui.replyTerminalCreate({
+                            requestId,
+                            tabId: tab.id,
+                            leafId,
+                            layout: committedLayout,
+                            title: title ?? tab.title
+                          })
+                        },
+                        onCancelled: (reason, error) => {
+                          window.api.ui.replyTerminalCreate({
+                            requestId,
+                            error: terminalSurfaceActionFailureMessage(tab.id, reason, error)
+                          })
+                        }
+                      }
+                    : undefined
                 )
-                window.dispatchEvent(
-                  new CustomEvent<SplitTerminalPaneDetail>(SPLIT_TERMINAL_PANE_EVENT, {
-                    detail: {
-                      tabId: tab.id,
-                      paneRuntimeId: -1,
-                      direction: splitDirection ?? 'horizontal',
-                      sourceLeafId: splitFromLeafId,
-                      sourcePtyId,
-                      telemetrySource: splitTelemetrySource,
-                      newLeafId: leafId,
-                      ptyId
-                    }
-                  })
-                )
+                return
               } else {
+                if (launchConfig) {
+                  if (launchPaneKey) {
+                    store.registerAgentLaunchConfig(launchPaneKey, launchConfig, {
+                      ...(launchAgent ? { agentType: launchAgent } : {}),
+                      ...(launchToken ? { launchToken } : {}),
+                      tabId: tab.id,
+                      leafId
+                    })
+                  }
+                } else if (launchPaneKey) {
+                  store.clearAgentLaunchConfig(launchPaneKey)
+                }
                 // Why: CLI/runtime-spawned PTYs emit hook events before a hidden
                 // tab mounts TerminalPane, so the adopted UUID leaf must exist
                 // in layout state for paneKey validation to accept them.
@@ -1633,11 +2108,21 @@ export function useIpcEvents(): void {
                   store.updateTabPtyId(tab.id, ptyId)
                   store.setTabLayout(tab.id, existingLayout)
                 } else {
-                  store.setTabLayout(tab.id, singlePaneLayoutSnapshot(leafId, ptyId, title))
+                  store.setTabLayout(
+                    tab.id,
+                    placement === 'orchestration-grid'
+                      ? addOrchestrationTerminalGridLeaf(null, {
+                          leafId,
+                          ptyId,
+                          title,
+                          activate: shouldActivate
+                        })
+                      : singlePaneLayoutSnapshot(leafId, ptyId, title)
+                  )
                 }
               }
             }
-            if (command) {
+            if (command && !splitFromLeafId && !ptyId) {
               store.queueTabStartupCommand(tab.id, {
                 command,
                 ...(env ? { env } : {}),
@@ -1696,9 +2181,13 @@ export function useIpcEvents(): void {
           const terminalPresentation = resolveTerminalPresentation(data)
           const shouldActivate = terminalPresentation === 'focused'
           const shouldSurfaceOwner = terminalPresentation !== 'background'
-          if (shouldActivate) {
-            activateTerminalInitiatedWorktree(store, worktreeId)
-          }
+          const isOrchestrationGrid = data.placement === 'orchestration-grid'
+          const existingGridTab = isOrchestrationGrid
+            ? (store.tabsByWorktree[worktreeId] ?? []).find(
+                (candidate) =>
+                  store.terminalLayoutsByTabId[candidate.id]?.layoutMode === 'orchestration-grid'
+              )
+            : undefined
           // Why: the paired launch client already resolved the initial mode, so
           // its explicit choice must win over this host renderer's local default.
           const tabOptions = data.launchAgent
@@ -1724,10 +2213,29 @@ export function useIpcEvents(): void {
                   recordInteraction: false,
                   ...(data.cwd ? { startupCwd: data.cwd } : {})
                 }
-          const tab = store.createTab(worktreeId, data.targetGroupId, undefined, tabOptions)
-          if (!shouldActivate) {
-            // Why: renderer-backed Codex startup must mount its new TerminalPane
-            // without switching UI or connecting every saved tab in the worktree.
+          const tab =
+            existingGridTab ??
+            store.createTab(worktreeId, data.targetGroupId, undefined, tabOptions)
+          const gridLeafId = isOrchestrationGrid ? mintStablePaneId() : undefined
+          const initialGridLayout =
+            gridLeafId && !existingGridTab
+              ? addOrchestrationTerminalGridLeaf(null, {
+                  leafId: gridLeafId,
+                  title: data.title,
+                  activate: shouldActivate
+                })
+              : undefined
+          const needsExistingGridSurfaceMount =
+            existingGridTab !== undefined && !hasTerminalSurfaceActionConsumer(tab.id)
+          if (shouldActivate && !existingGridTab) {
+            activateTerminalInitiatedWorktree(store, worktreeId)
+          }
+          if (initialGridLayout) {
+            store.setTabLayout(tab.id, initialGridLayout)
+          }
+          if (!shouldActivate || needsExistingGridSurfaceMount) {
+            // Why: deferred appends need the hidden target mounted before their
+            // activation transaction can drain; this event does not surface it.
             requestBackgroundTerminalWorktreeMount({ worktreeId, tabIds: [tab.id] })
           }
           if (data.afterTabId) {
@@ -1757,18 +2265,20 @@ export function useIpcEvents(): void {
               })
             }
           }
-          if (shouldActivate) {
+          if (shouldActivate && !existingGridTab) {
             store.setActiveTabType('terminal')
             store.setActiveTab(tab.id)
           }
-          if (shouldSurfaceOwner) {
+          if (shouldSurfaceOwner && !existingGridTab) {
             store.revealWorktreeInSidebar(worktreeId)
-            focusTerminalInitiatedTab(tab.id)
+            focusTerminalInitiatedTab(tab.id, gridLeafId)
           }
-          if (data.title) {
+          // Why: appended worker names belong to their grid leaves; rewriting
+          // the reused tab title would silently rename the shared grid.
+          if (data.title && !existingGridTab) {
             store.setTabCustomTitle(tab.id, data.title, { recordInteraction: false })
           }
-          if (data.command) {
+          if (data.command && !existingGridTab) {
             store.queueTabStartupCommand(tab.id, {
               command: data.command,
               ...(data.env ? { env: data.env } : {}),
@@ -1780,9 +2290,107 @@ export function useIpcEvents(): void {
                 : {})
             })
           }
+          if (existingGridTab && gridLeafId) {
+            let committedGridLayout: TerminalLayoutSnapshot | undefined
+            const startup = data.command
+              ? {
+                  command: data.command,
+                  ...(data.env ? { env: data.env } : {}),
+                  ...(data.launchConfig ? { launchConfig: data.launchConfig } : {}),
+                  ...(data.launchToken ? { launchToken: data.launchToken } : {}),
+                  ...(data.launchAgent ? { launchAgent: data.launchAgent } : {}),
+                  ...(data.startupCommandDelivery
+                    ? { startupCommandDelivery: data.startupCommandDelivery }
+                    : {})
+                }
+              : undefined
+            const replyAfterConsumption = (): void => {
+              window.api.ui.replyTerminalCreate({
+                requestId: data.requestId,
+                tabId: tab.id,
+                leafId: gridLeafId,
+                layout: committedGridLayout,
+                title: data.title ?? tab.title
+              })
+            }
+            const surfaceActionCallbacks: TerminalSurfaceActionCallbacks = {
+              onConsumed: replyAfterConsumption,
+              onCancelled: (reason, error) => {
+                window.api.ui.replyTerminalCreate({
+                  requestId: data.requestId,
+                  error: terminalSurfaceActionFailureMessage(tab.id, reason, error)
+                })
+              }
+            }
+            // Why: mounted and delayed consumers share one transaction so
+            // append ordering and rollback semantics cannot diverge.
+            queueTerminalSurfaceAction(
+              tab.id,
+              () => {
+                runTerminalSurfaceActionTransaction((actionStore, registerSplit) => {
+                  const actionPresentation = resolveTerminalPresentation(data)
+                  const actionShouldActivate = actionPresentation === 'focused'
+                  const actionShouldSurfaceOwner = actionPresentation !== 'background'
+                  const existingLayout = actionStore.terminalLayoutsByTabId[tab.id]
+                  const sourceLeafIds = getOrchestrationGridAppendSourceLeafIds(
+                    existingLayout?.root
+                  )
+                  const sourceLeafId = sourceLeafIds.at(-1)
+                  if (!existingLayout || !sourceLeafId) {
+                    throw new Error(`Terminal grid ${tab.id} has no append source`)
+                  }
+                  const priorLeafCount = collectTerminalLayoutLeafIds(existingLayout.root).length
+                  const direction =
+                    priorLeafCount % ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS === 0
+                      ? 'horizontal'
+                      : 'vertical'
+                  const nextGridLayout = addOrchestrationTerminalGridLeaf(existingLayout, {
+                    leafId: gridLeafId,
+                    title: data.title,
+                    activate: actionShouldActivate
+                  })
+                  const focusLeafId = actionShouldActivate
+                    ? gridLeafId
+                    : existingLayout.activeLeafId
+                  const detail: SplitTerminalPaneDetail = {
+                    tabId: tab.id,
+                    paneRuntimeId: -1,
+                    direction,
+                    sourceLeafId,
+                    sourceLeafIds,
+                    newLeafId: gridLeafId,
+                    ...(startup ? { startup } : {}),
+                    activate: actionShouldActivate,
+                    orchestrationGrid: true,
+                    telemetrySource: 'command'
+                  }
+                  const split = dispatchAcknowledgedTerminalPaneSplit(detail)
+                  registerSplit(split)
+                  actionStore.setTabLayout(tab.id, nextGridLayout)
+                  committedGridLayout = nextGridLayout
+                  return () => {
+                    // Why: renderer-backed appends share the same commit boundary;
+                    // rejected splits must not schedule activation persistence.
+                    if (actionShouldActivate) {
+                      activateTerminalInitiatedWorktree(useAppStore.getState(), worktreeId)
+                      useAppStore.getState().setActiveTabType('terminal')
+                      useAppStore.getState().setActiveTab(tab.id)
+                    }
+                    if (actionShouldSurfaceOwner) {
+                      useAppStore.getState().revealWorktreeInSidebar(worktreeId)
+                      focusTerminalInitiatedTab(tab.id, focusLeafId)
+                    }
+                  }
+                })
+              },
+              surfaceActionCallbacks
+            )
+            return
+          }
           window.api.ui.replyTerminalCreate({
             requestId: data.requestId,
             tabId: tab.id,
+            ...(gridLeafId ? { leafId: gridLeafId } : {}),
             title: data.title ?? tab.title
           })
         } catch (err) {
@@ -3403,6 +4011,7 @@ export function useIpcEvents(): void {
       pendingAgentStatusEvents.length = 0
       mobileStateHydrationDisposed = true
       pendingMobileStateEvents.length = 0
+      cancelAllPendingTerminalSurfaceActions('ipc-events-disposed')
       unsubs.forEach((fn) => fn())
       resetAgentHookCompletionNotificationCoordinators()
     }

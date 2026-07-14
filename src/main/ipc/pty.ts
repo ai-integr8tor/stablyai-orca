@@ -2936,6 +2936,8 @@ export function registerPtyHandlers(
     }
   }
 
+  const stagedRuntimeRegistrationReceipts = new Map<string, { abort: () => Promise<void> }>()
+
   // Why: the runtime controller must route through getProviderForPty() so that
   // CLI commands (terminal.send, terminal.stop) work for both local and remote PTYs.
   // Hardcoding localProvider.getPtyProcess() would silently fail for remote PTYs.
@@ -2993,6 +2995,8 @@ export function registerPtyHandlers(
         sessionId !== undefined ? getAppPtyId(args.connectionId, sessionId) : undefined
       const isMintedSessionId = requestedSessionId === undefined && isDaemonHostSpawn
       const shouldPersistHostSessionBinding = args.persistHostSessionBinding === true
+      const shouldDeferHostSessionPersistence = args.deferHostSessionPersistence === true
+      const shouldDeferRuntimeRegistration = args.deferRuntimeRegistration === true
       let hostSessionBinding: {
         store: NonNullable<typeof store>
         worktreeId: string
@@ -3132,15 +3136,30 @@ export function registerPtyHandlers(
           : undefined
       }
 
-      const existingPaneSpawn = materializedPaneKey
-        ? paneSpawnReservationsByPaneKey.get(materializedPaneKey)
-        : undefined
+      const existingPaneSpawn =
+        materializedPaneKey && !shouldDeferRuntimeRegistration
+          ? paneSpawnReservationsByPaneKey.get(materializedPaneKey)
+          : undefined
       if (existingPaneSpawn) {
         return await existingPaneSpawn.promise
       }
-      const paneSpawnReservation = materializedPaneKey
-        ? reservePaneSpawn(materializedPaneKey)
+      const paneSpawnReservation =
+        materializedPaneKey && !shouldDeferRuntimeRegistration
+          ? reservePaneSpawn(materializedPaneKey)
+          : null
+      // Why: provider callbacks can beat spawn resolution; the runtime buffers
+      // their identity/data until this transaction claims the returned PTY id.
+      const stagedRuntimeRegistration = shouldDeferRuntimeRegistration
+        ? runtime?.beginStagedPtyRuntimeRegistration()
         : null
+      let stagedRuntimeRegistrationReleased = false
+      const abortStagedRuntimeRegistration = (providerExitObserved = false): void => {
+        if (stagedRuntimeRegistrationReleased) {
+          return
+        }
+        stagedRuntimeRegistration?.abort(providerExitObserved)
+        stagedRuntimeRegistrationReleased = true
+      }
       let result: PtySpawnResult
       try {
         try {
@@ -3194,6 +3213,17 @@ export function registerPtyHandlers(
             trustedTerminalHandleEnv.delete(args.preAllocatedHandle)
           }
         }
+        try {
+          stagedRuntimeRegistration?.claim(result.id)
+        } catch (error) {
+          try {
+            await provider.shutdown(result.id, { immediate: true })
+          } finally {
+            finishPtyShutdown(result.id, args.connectionId, store)
+            abortStagedRuntimeRegistration(false)
+          }
+          throw error
+        }
         ptyOwnership.set(result.id, args.connectionId ?? null)
         // Why: Phase-5 ConPTY DA1 — record the native-Windows-local-PTY
         // determination from the spawn record before any byte reaches the
@@ -3226,14 +3256,14 @@ export function registerPtyHandlers(
             lastAttachedAt: Date.now()
           })
         }
-        if (!hostSessionBinding) {
+        if (!hostSessionBinding && !shouldDeferHostSessionPersistence) {
           persistSshLease()
         }
         ptySizes.set(result.id, { cols: args.cols, rows: args.rows })
         if (effectiveSessionAppId !== undefined && effectiveSessionAppId !== result.id) {
           ptySizes.delete(effectiveSessionAppId)
         }
-        if (hostSessionBinding) {
+        if (hostSessionBinding && !shouldDeferHostSessionPersistence) {
           try {
             hostSessionBinding.store.persistPtyBinding({
               worktreeId: hostSessionBinding.worktreeId,
@@ -3257,67 +3287,154 @@ export function registerPtyHandlers(
           }
           persistSshLease()
         }
-        if (args.preAllocatedHandle) {
-          runtime?.registerPreAllocatedHandleForPty(result.id, args.preAllocatedHandle)
+        const binding =
+          typeof args.tabId === 'string' &&
+          isValidTerminalTabId(args.tabId) &&
+          args.tabId.length <= 512 &&
+          metadataLeafId !== null
+            ? { tabId: args.tabId, leafId: metadataLeafId }
+            : undefined
+        let runtimeRegistrationCommitted = false
+        const registrationSteps: (() => void)[] = [
+          () => {
+            if (args.preAllocatedHandle) {
+              runtime?.registerPreAllocatedHandleForPty(result.id, args.preAllocatedHandle)
+            }
+          },
+          () => {
+            if (args.worktreeId) {
+              runtime?.registerPty(
+                result.id,
+                args.worktreeId,
+                args.connectionId ?? null,
+                // Why: a staged grid identity remains unpublished until its
+                // caller persists and publishes the acknowledged exact leaf.
+                shouldDeferRuntimeRegistration ? undefined : binding,
+                !args.connectionId
+                  ? shouldSkipCodexHomeEnvForWindowsShell(daemonShellOverride, cwd)
+                  : undefined
+              )
+            }
+          },
+          // Why: the command detector must arm before buffered output is replayed,
+          // but only after the renderer has attached the staged PTY.
+          () => runtime?.noteTerminalSpawnCommand?.(result.id, args.command ?? null),
+          () => {
+            stagedRuntimeRegistration?.commit()
+            runtimeRegistrationCommitted = true
+          },
+          () => {
+            if (isClaudeLaunch) {
+              markClaudePtySpawned(result.id)
+            }
+          },
+          () => {
+            if (!args.telemetry) {
+              return
+            }
+            const agentKindParse = agentKindSchema.safeParse(args.telemetry.agent_kind)
+            const launchSourceParse = launchSourceSchema.safeParse(args.telemetry.launch_source)
+            const requestKindParse = requestKindSchema.safeParse(args.telemetry.request_kind)
+            if (agentKindParse.success && launchSourceParse.success && requestKindParse.success) {
+              track('agent_started', {
+                agent_kind: agentKindParse.data,
+                launch_source: launchSourceParse.data,
+                request_kind: requestKindParse.data,
+                ...getCohortAtEmit()
+              })
+            }
+          },
+          () => {
+            // Why: runtime-owned CLI PTYs bypass renderer pty:spawn; publish the
+            // pane-key reverse lookup only at the same commit point as runtime ownership.
+            const paneKey = rememberPaneKeyForPty(result.id, env?.ORCA_PANE_KEY)
+            if (!args.connectionId) {
+              registerPty({
+                ptyId: result.id,
+                worktreeId: args.worktreeId ?? null,
+                sessionId: sessionId ?? null,
+                paneKey,
+                pid:
+                  typeof result.pid === 'number' && Number.isFinite(result.pid) && result.pid > 0
+                    ? result.pid
+                    : null
+              })
+            }
+          }
+        ]
+
+        if (!shouldDeferRuntimeRegistration) {
+          for (const step of registrationSteps) {
+            step()
+          }
+          const response = { id: result.id }
+          return resolvePaneSpawnReservation(materializedPaneKey, paneSpawnReservation, response)
         }
-        if (args.worktreeId) {
-          runtime?.registerPty(
-            result.id,
-            args.worktreeId,
-            args.connectionId ?? null,
-            // Why: thread the validated pane identity so main can back a pending
-            // mobile create from this live spawn even if graph-sync stalls (#7587).
-            // Bound tabId like the sibling metadataPaneKey/spawnOptions.tabId here.
-            typeof args.tabId === 'string' &&
-              isValidTerminalTabId(args.tabId) &&
-              args.tabId.length <= 512 &&
-              metadataLeafId !== null
-              ? { tabId: args.tabId, leafId: metadataLeafId }
-              : undefined,
-            !args.connectionId
-              ? shouldSkipCodexHomeEnvForWindowsShell(daemonShellOverride, cwd)
-              : undefined
-          )
-        }
-        // Why: arms main's per-PTY Command Code output detector from the launch
-        // command (renderer startupCommand parity); banner detection covers
-        // PTYs spawned without one.
-        runtime?.noteTerminalSpawnCommand?.(result.id, args.command ?? null)
-        if (isClaudeLaunch) {
-          markClaudePtySpawned(result.id)
-        }
-        if (args.telemetry) {
-          const agentKindParse = agentKindSchema.safeParse(args.telemetry.agent_kind)
-          const launchSourceParse = launchSourceSchema.safeParse(args.telemetry.launch_source)
-          const requestKindParse = requestKindSchema.safeParse(args.telemetry.request_kind)
-          if (agentKindParse.success && launchSourceParse.success && requestKindParse.success) {
-            track('agent_started', {
-              agent_kind: agentKindParse.data,
-              launch_source: launchSourceParse.data,
-              request_kind: requestKindParse.data,
-              ...getCohortAtEmit()
+
+        let receiptState: 'pending' | 'committed' | 'aborted' = 'pending'
+        let abortInFlight: Promise<void> | null = null
+        const runtimeRegistration = {
+          commit: (): void => {
+            if (receiptState === 'aborted') {
+              throw new Error('PTY runtime registration was already aborted')
+            }
+            if (receiptState === 'committed') {
+              return
+            }
+            while (registrationSteps.length > 0) {
+              const step = registrationSteps[0]!
+              step()
+              registrationSteps.shift()
+            }
+            receiptState = 'committed'
+          },
+          complete: (): void => {
+            if (receiptState !== 'committed') {
+              throw new Error('PTY runtime registration is not committed')
+            }
+            stagedRuntimeRegistrationReceipts.delete(result.id)
+          },
+          abort: (): Promise<void> => {
+            if (receiptState === 'aborted') {
+              return Promise.resolve()
+            }
+            if (abortInFlight) {
+              return abortInFlight
+            }
+            const abort = async (): Promise<void> => {
+              let providerExitObserved = false
+              try {
+                providerExitObserved = await shutdownProviderAndDetectExit(provider, result.id, {
+                  immediate: true
+                })
+              } catch (error) {
+                if (!isPtyAlreadyGoneError(error)) {
+                  throw error
+                }
+              }
+              finishPtyShutdown(result.id, args.connectionId, store)
+              abortStagedRuntimeRegistration(providerExitObserved)
+              if (runtimeRegistrationCommitted && !providerExitObserved) {
+                rememberSyntheticKillExit(result.id)
+                sendPtyExitToRenderer({ id: result.id, code: -1 })
+              }
+              registrationSteps.length = 0
+              receiptState = 'aborted'
+              stagedRuntimeRegistrationReceipts.delete(result.id)
+            }
+            const attempt = abort()
+            abortInFlight = attempt
+            return attempt.finally(() => {
+              if (receiptState !== 'aborted') {
+                abortInFlight = null
+              }
             })
           }
         }
-        // Why: runtime-owned CLI PTYs bypass the renderer `pty:spawn` handler,
-        // so record their spawn-time paneKey here too. Synthetic hook titles and
-        // paneKey-scoped cache cleanup both depend on this reverse lookup.
-        const paneKey = rememberPaneKeyForPty(result.id, env?.ORCA_PANE_KEY)
-        if (!args.connectionId) {
-          registerPty({
-            ptyId: result.id,
-            worktreeId: args.worktreeId ?? null,
-            sessionId: sessionId ?? null,
-            paneKey,
-            pid:
-              typeof result.pid === 'number' && Number.isFinite(result.pid) && result.pid > 0
-                ? result.pid
-                : null
-          })
-        }
-        const response = { id: result.id }
-        return resolvePaneSpawnReservation(materializedPaneKey, paneSpawnReservation, response)
+        stagedRuntimeRegistrationReceipts.set(result.id, runtimeRegistration)
+        return { id: result.id, runtimeRegistration }
       } catch (err) {
+        abortStagedRuntimeRegistration(false)
         // Why: once the reservation is created, any later throw — spawn
         // failure, persist failure, or a post-spawn helper such as
         // registerPty/rememberPaneKeyForPty/track — must settle it. Otherwise
@@ -3338,6 +3455,17 @@ export function registerPtyHandlers(
       }
     },
     kill: (ptyId) => {
+      const stagedRegistration = stagedRuntimeRegistrationReceipts.get(ptyId)
+      if (stagedRegistration) {
+        void stagedRegistration.abort().catch((error) => {
+          console.warn(
+            `[pty] Failed to abort staged PTY ${ptyId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        })
+        return true
+      }
       let provider: IPtyProvider
       let connectionId: string | null | undefined = ptyOwnership.get(ptyId)
       const parsedSshId = connectionId === undefined ? parseAppSshPtyId(ptyId) : null

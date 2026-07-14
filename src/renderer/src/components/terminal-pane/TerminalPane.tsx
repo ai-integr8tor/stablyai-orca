@@ -132,6 +132,7 @@ import {
   isHostAuthoritativeLayout,
   planTerminalLiveLayoutInsertions
 } from './terminal-live-layout-reconciliation'
+import { finalizeTerminalLiveLayoutInsertions } from './terminal-live-orchestration-grid'
 import type { TerminalQuickCommand, TerminalQuickCommandScope } from '../../../../shared/types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
@@ -1031,6 +1032,11 @@ export default function TerminalPane({
       leafIdByPaneId
     )
     const existing = useAppStore.getState().terminalLayoutsByTabId[tabId]
+    if (existing?.layoutMode) {
+      // Why: DOM serialization captures the split tree, while grid ownership is
+      // durable session metadata that must survive every layout-only persist.
+      layout.layoutMode = existing.layoutMode
+    }
     const currentPanes = manager.getPanes()
     const currentLeafIds = new Set(currentPanes.map((p) => p.leafId))
     const clearedScrollbackLeafIds = clearedScrollbackLeafIdsRef.current
@@ -1119,6 +1125,7 @@ export default function TerminalPane({
         tabId,
         root: layout.root,
         expandedLeafId: layout.expandedLeafId,
+        ...(layout.layoutMode ? { layoutMode: layout.layoutMode } : {}),
         ...(layout.titlesByLeafId ? { titlesByLeafId: layout.titlesByLeafId } : {})
       })
     }
@@ -1572,10 +1579,8 @@ export default function TerminalPane({
       restoredLayout.root,
       manager.getPanes().map((pane) => pane.leafId)
     )
-    if (insertions.length === 0) {
-      return
-    }
 
+    const isOrchestrationGridReconciliation = restoredLayout.layoutMode === 'orchestration-grid'
     let appliedInsertion = false
     for (const insertion of insertions) {
       const ptyId = restoredLayout.ptyIdsByLeafId?.[insertion.newLeafId]
@@ -1602,7 +1607,14 @@ export default function TerminalPane({
           ...(splitRatio !== undefined && { ratio: splitRatio }),
           leafId: insertion.newLeafId,
           ptyId,
-          placement: insertion.placement
+          placement: insertion.placement,
+          ...(isOrchestrationGridReconciliation
+            ? {
+                activate: false,
+                notifyLayoutChanged: false,
+                allowOrchestrationGridMutation: true
+              }
+            : {})
         }
       )
       if (!createdPane) {
@@ -1611,18 +1623,28 @@ export default function TerminalPane({
       appliedInsertion = true
     }
 
-    if (appliedInsertion) {
-      persistLayoutSnapshot()
+    const restoreActivePane = (): void => {
+      const activePaneId = restoredLayout.activeLeafId
+        ? manager.getNumericIdForLeaf(restoredLayout.activeLeafId)
+        : null
+      const fallbackActivePaneId = manager.getActivePane()?.id ?? manager.getPanes()[0]?.id ?? null
+      const nextActivePaneId = activePaneId ?? fallbackActivePaneId
+      if (nextActivePaneId !== null) {
+        // Why: the final grid notification owns persistence; publish the host's
+        // active leaf through that commit instead of an intermediate focus write.
+        manager.setActivePane(nextActivePaneId, {
+          focus: isActive,
+          notifyActiveChange: !(isOrchestrationGridReconciliation && appliedInsertion)
+        })
+      }
     }
-
-    const activePaneId = restoredLayout.activeLeafId
-      ? manager.getNumericIdForLeaf(restoredLayout.activeLeafId)
-      : null
-    const fallbackActivePaneId = manager.getActivePane()?.id ?? manager.getPanes()[0]?.id ?? null
-    const nextActivePaneId = activePaneId ?? fallbackActivePaneId
-    if (nextActivePaneId !== null) {
-      manager.setActivePane(nextActivePaneId, { focus: isActive })
-    }
+    finalizeTerminalLiveLayoutInsertions({
+      manager,
+      restoredLayout,
+      appliedInsertion,
+      restoreActivePane,
+      persistLayoutSnapshot
+    })
   }, [isActive, paneCount, persistLayoutSnapshot, restoredLayout])
 
   // Why (Activity-only pane isolation): when this TerminalPane is being

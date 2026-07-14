@@ -841,6 +841,7 @@ const TerminalCreateParams = z.object({
   rendererBacked: z.unknown().optional(),
   activate: z.unknown().optional(),
   presentation: z.enum(['background', 'focused']).optional(),
+  placement: z.enum(['tab', 'orchestration-grid']).optional(),
   tabId: OptionalString,
   leafId: OptionalString
 })
@@ -1297,6 +1298,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         rendererBacked: params.rendererBacked === true,
         activate: params.activate === true,
         presentation: params.presentation,
+        placement: params.placement,
         tabId: params.tabId,
         leafId: params.leafId
       })

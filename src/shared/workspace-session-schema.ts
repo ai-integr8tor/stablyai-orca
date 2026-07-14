@@ -56,6 +56,7 @@ const terminalLayoutSnapshotSchema = z.object({
   root: terminalPaneLayoutNodeSchema.nullable(),
   activeLeafId: z.string().nullable(),
   expandedLeafId: z.string().nullable(),
+  layoutMode: z.literal('orchestration-grid').optional(),
   ptyIdsByLeafId: z.record(z.string(), z.string()).optional(),
   buffersByLeafId: z.record(z.string(), z.string()).optional(),
   scrollbackRefsByLeafId: z.record(z.string(), z.string()).optional(),

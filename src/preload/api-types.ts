@@ -210,6 +210,8 @@ import type {
   WorktreeMeta,
   WorktreeRemoteBranchConflictEvent,
   RemoveWorktreeResult,
+  RuntimeTerminalPlacement,
+  TerminalLayoutSnapshot,
   WorktreeDefaultTabsLaunch,
   WorktreeSetupLaunch,
   WorktreeStartupLaunch,
@@ -2830,8 +2832,10 @@ export type PreloadApi = {
         tabId?: string
         leafId?: string
         splitFromLeafId?: string
+        splitSourceLeafIds?: string[]
         splitDirection?: 'horizontal' | 'vertical'
         splitTelemetrySource?: TerminalPaneSplitSource
+        placement?: RuntimeTerminalPlacement
       }) => void
     ) => () => void
     onRequestTerminalCreate: (
@@ -2840,6 +2844,8 @@ export type PreloadApi = {
     replyTerminalCreate: (reply: {
       requestId: string
       tabId?: string
+      leafId?: string
+      layout?: TerminalLayoutSnapshot
       title?: string
       error?: string
     }) => void

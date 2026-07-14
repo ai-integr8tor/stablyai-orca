@@ -14,9 +14,11 @@ import type {
   GitWorktreeInfo,
   RemoveWorktreeResult,
   Repo,
+  RuntimeTerminalPlacement,
   TabGroupLayoutNode,
   TerminalColorOverrides,
   TerminalLayoutSnapshot,
+  TerminalLayoutMode,
   TuiAgent,
   Worktree,
   WorktreeLineage,
@@ -110,6 +112,7 @@ export type RuntimeSyncedTab = {
   title: string | null
   activeLeafId: string | null
   layout: TerminalPaneLayoutNode | null
+  layoutMode?: TerminalLayoutMode
 }
 
 export type RuntimeSyncedLeaf = {
@@ -503,6 +506,7 @@ type RuntimeTerminalCreateBaseRequestPayload = {
   title?: string
   activate?: boolean
   presentation?: RuntimeTerminalPresentation
+  placement?: RuntimeTerminalPlacement
 }
 
 export type RuntimeTerminalCreateRequestPayload =

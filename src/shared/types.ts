@@ -992,6 +992,10 @@ export type BrowserCookieImportResult =
 
 export type TerminalPaneSplitDirection = 'vertical' | 'horizontal'
 
+export type TerminalLayoutMode = 'orchestration-grid'
+
+export type RuntimeTerminalPlacement = 'tab' | TerminalLayoutMode
+
 export type TerminalPaneLayoutNode =
   | {
       type: 'leaf'
@@ -1010,6 +1014,8 @@ export type TerminalLayoutSnapshot = {
   root: TerminalPaneLayoutNode | null
   activeLeafId: string | null
   expandedLeafId: string | null
+  /** Marks layouts whose pane order and equal sizing are maintained as a worker grid. */
+  layoutMode?: TerminalLayoutMode
   /** Live PTY IDs per leaf for in-session remounts such as tab-group moves.
    *  Not used for app restart because PTYs are transient processes. */
   ptyIdsByLeafId?: Record<string, string>

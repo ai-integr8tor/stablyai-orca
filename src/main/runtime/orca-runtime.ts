@@ -136,7 +136,9 @@ import type {
   Tab,
   TabGroupLayoutNode,
   TerminalLayoutSnapshot,
+  TerminalLayoutMode,
   TerminalPaneLayoutNode,
+  RuntimeTerminalPlacement,
   TerminalTab,
   TuiAgent,
   WorkspaceCreateTelemetrySource,
@@ -146,7 +148,9 @@ import type {
 import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import {
   getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
+  toSshExecutionHostId,
   type ExecutionHostId
 } from '../../shared/execution-host'
 import type { SleepingAgentLaunchConfig } from '../../shared/agent-session-resume'
@@ -209,9 +213,17 @@ import {
 import { TASK_PROVIDERS } from '../../shared/task-providers'
 import { FIRST_PANE_ID } from '../../shared/pane-key'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import { createTerminalSessionStateSaveFailureMessage } from '../../shared/terminal-session-state-save-failure'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../shared/terminal-tab-id'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '../../shared/tui-agent-startup'
+import {
+  addOrchestrationTerminalGridLeaf,
+  collectTerminalLayoutLeafIds,
+  getOrchestrationGridAppendSourceLeafIds,
+  ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS,
+  reflowOrchestrationTerminalGrid
+} from '../../shared/orchestration-terminal-grid'
 import { repoIsRemote } from '../../shared/agent-launch-remote'
 import {
   isAgentForegroundWrapperProcess,
@@ -837,6 +849,7 @@ type RuntimeStore = {
   getWorkspaceSession?: Store['getWorkspaceSession']
   setWorkspaceSession?: Store['setWorkspaceSession']
   persistPtyBinding?: Store['persistPtyBinding']
+  persistOrchestrationGridPtyBinding?: Store['persistOrchestrationGridPtyBinding']
   getUI?: Store['getUI']
   updateUI?: Store['updateUI']
   recordFeatureInteraction?: Store['recordFeatureInteraction']
@@ -1038,6 +1051,7 @@ type TerminalCreateOptions = {
   rendererBacked?: boolean
   activate?: boolean
   presentation?: RuntimeTerminalPresentation
+  placement?: RuntimeTerminalPlacement
   tabId?: string
   leafId?: string
   sessionId?: string
@@ -1047,6 +1061,15 @@ type TerminalCreateOptions = {
   // intermediate pty-backed publish so the new tab doesn't briefly flash in
   // the wrong (active) group before the corrected snapshot lands.
   deferMobileSessionPublish?: boolean
+  /** Internal recursion guard after canonical grid queue acquisition. */
+  skipOrchestrationGridQueue?: boolean
+}
+
+type OrchestrationGridTarget = {
+  tabId: string
+  layout: TerminalLayoutSnapshot
+  sourceLeafId: string
+  sourceLeafIds: string[]
 }
 
 type PtyForegroundAgentRefresh = {
@@ -1189,6 +1212,25 @@ type HeadlessSeedMetadata = {
   kittyKeyboardFlags?: number
 }
 
+type RuntimePtyRegistrationReceipt = {
+  commit: () => void
+  complete: () => void
+  abort: () => Promise<void>
+}
+
+type StagedPtyRuntimeEvent = {
+  phase: 'registration' | 'command' | 'lifecycle'
+  kind: 'registration' | 'command' | 'spawned' | 'data' | 'exit'
+  apply: () => void
+}
+
+type StagedPtyRuntimeRegistrationState = {
+  status: 'unclaimed' | 'claimed' | 'committing' | 'committed' | 'aborted'
+  ptyId: string | null
+  events: StagedPtyRuntimeEvent[]
+  published: boolean
+}
+
 type RuntimePtyController = {
   spawn?(opts: {
     cols: number
@@ -1208,7 +1250,9 @@ type RuntimePtyController = {
     leafId?: string
     sessionId?: string
     persistHostSessionBinding?: boolean
-  }): Promise<{ id: string }>
+    deferHostSessionPersistence?: boolean
+    deferRuntimeRegistration?: boolean
+  }): Promise<{ id: string; runtimeRegistration?: RuntimePtyRegistrationReceipt }>
   write(ptyId: string, data: string): boolean
   kill(ptyId: string): boolean
   stopAndWait?(ptyId: string, opts?: { keepHistory?: boolean }): Promise<boolean>
@@ -1332,6 +1376,7 @@ type RuntimeNotifier = {
     worktreeId: string,
     opts: {
       ptyId: string
+      command?: string
       title?: string | null
       cwd?: string
       launchConfig?: SleepingAgentLaunchConfig
@@ -1343,12 +1388,19 @@ type RuntimeNotifier = {
       tabId?: string
       leafId?: string
       splitFromLeafId?: string
+      splitSourceLeafIds?: string[]
       splitDirection?: 'horizontal' | 'vertical'
       splitTelemetrySource?: TerminalPaneSplitSource
+      placement?: RuntimeTerminalPlacement
     }
   ):
-    | Promise<{ tabId: string; title?: string | null }>
-    | { tabId: string; title?: string | null }
+    | Promise<{
+        tabId: string
+        leafId?: string
+        layout?: TerminalLayoutSnapshot
+        title?: string | null
+      }>
+    | { tabId: string; leafId?: string; layout?: TerminalLayoutSnapshot; title?: string | null }
     | void
   splitTerminal(
     tabId: string,
@@ -2151,6 +2203,7 @@ export class OrcaRuntimeService {
   private graphStatus: RuntimeGraphStatus = 'unavailable'
   private authoritativeWindowId: number | null = null
   private tabs = new Map<string, RuntimeSyncedTab>()
+  private orchestrationGridCreateQueues = new Map<string, Promise<void>>()
   private mobileSessionTabsByWorktree = new Map<string, RuntimeMobileSessionTabsSnapshot>()
   // Why: idempotency map for mobile terminal creation — a retried create with the
   // same clientMutationId returns the in-flight operation instead of duplicating.
@@ -2190,6 +2243,9 @@ export class OrcaRuntimeService {
   private graphSyncCallbacks: (() => void)[] = []
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
   private ptyController: RuntimePtyController | null = null
+  private unclaimedPtyRuntimeRegistrations = new Set<StagedPtyRuntimeRegistrationState>()
+  private stagedPtyRuntimeRegistrationsById = new Map<string, StagedPtyRuntimeRegistrationState>()
+  private unclassifiedPtyRuntimeEvents = new Map<string, StagedPtyRuntimeEvent[]>()
   private notifier: RuntimeNotifier | null = null
   private clientEventListeners = new Set<(event: RuntimeClientEvent) => void>()
   private forkBackfillStarted = false
@@ -3023,6 +3079,137 @@ export class OrcaRuntimeService {
     return listAiVaultSessions(args)
   }
 
+  private isPtyRuntimeIdentityPublished(ptyId: string): boolean {
+    return (
+      this.ptysById.has(ptyId) || this.handleByPtyId.has(ptyId) || this.leavesByPtyId.has(ptyId)
+    )
+  }
+
+  private stagePtyRuntimeEvent(ptyId: string, event: StagedPtyRuntimeEvent): boolean {
+    const claimed = this.stagedPtyRuntimeRegistrationsById.get(ptyId)
+    if (claimed) {
+      claimed.events.push(event)
+      return true
+    }
+    if (
+      this.unclaimedPtyRuntimeRegistrations.size === 0 ||
+      this.isPtyRuntimeIdentityPublished(ptyId)
+    ) {
+      return false
+    }
+    const events = this.unclassifiedPtyRuntimeEvents.get(ptyId)
+    if (events) {
+      events.push(event)
+    } else {
+      this.unclassifiedPtyRuntimeEvents.set(ptyId, [event])
+    }
+    return true
+  }
+
+  private replayStagedPtyRuntimeEvents(
+    events: StagedPtyRuntimeEvent[],
+    state?: StagedPtyRuntimeRegistrationState
+  ): void {
+    const phaseOrder = { registration: 0, command: 1, lifecycle: 2 } as const
+    events.sort((left, right) => phaseOrder[left.phase] - phaseOrder[right.phase])
+    while (events.length > 0) {
+      events[0]!.apply()
+      events.shift()
+      if (state) {
+        state.published = true
+      }
+    }
+  }
+
+  private flushUnclassifiedPtyRuntimeEvents(): void {
+    if (this.unclaimedPtyRuntimeRegistrations.size > 0) {
+      return
+    }
+    const pending = [...this.unclassifiedPtyRuntimeEvents.values()]
+    this.unclassifiedPtyRuntimeEvents.clear()
+    for (const events of pending) {
+      this.replayStagedPtyRuntimeEvents(events)
+    }
+  }
+
+  beginStagedPtyRuntimeRegistration(): {
+    claim: (ptyId: string) => void
+    commit: () => void
+    abort: (providerExitObserved?: boolean) => void
+  } {
+    const state: StagedPtyRuntimeRegistrationState = {
+      status: 'unclaimed',
+      ptyId: null,
+      events: [],
+      published: false
+    }
+    this.unclaimedPtyRuntimeRegistrations.add(state)
+    const releaseClaim = (): void => {
+      this.unclaimedPtyRuntimeRegistrations.delete(state)
+      if (state.ptyId && this.stagedPtyRuntimeRegistrationsById.get(state.ptyId) === state) {
+        this.stagedPtyRuntimeRegistrationsById.delete(state.ptyId)
+      }
+    }
+    return {
+      claim: (ptyId) => {
+        if (state.status !== 'unclaimed') {
+          throw new Error('PTY runtime registration was already claimed')
+        }
+        state.status = 'claimed'
+        state.ptyId = ptyId
+        this.unclaimedPtyRuntimeRegistrations.delete(state)
+        const existing = this.stagedPtyRuntimeRegistrationsById.get(ptyId)
+        if (existing) {
+          throw new Error('PTY runtime registration identity is already staged')
+        }
+        this.stagedPtyRuntimeRegistrationsById.set(ptyId, state)
+        state.events.push(...(this.unclassifiedPtyRuntimeEvents.get(ptyId) ?? []))
+        this.unclassifiedPtyRuntimeEvents.delete(ptyId)
+        this.flushUnclassifiedPtyRuntimeEvents()
+      },
+      commit: () => {
+        if (state.status === 'committed') {
+          return
+        }
+        if (state.status !== 'claimed' || !state.ptyId) {
+          throw new Error('PTY runtime registration is not ready to commit')
+        }
+        if (state.events.some((event) => event.kind === 'exit')) {
+          throw new Error('PTY exited before renderer acknowledgement')
+        }
+        state.status = 'committing'
+        this.stagedPtyRuntimeRegistrationsById.delete(state.ptyId)
+        try {
+          this.replayStagedPtyRuntimeEvents(state.events, state)
+          state.status = 'committed'
+        } catch (error) {
+          state.status = 'claimed'
+          this.stagedPtyRuntimeRegistrationsById.set(state.ptyId, state)
+          throw error
+        }
+      },
+      abort: (providerExitObserved = false) => {
+        if (state.status === 'aborted') {
+          return
+        }
+        const status = state.status
+        const ptyId = state.ptyId
+        releaseClaim()
+        state.events.length = 0
+        state.status = 'aborted'
+        if (ptyId && state.published) {
+          // Why: a partially published commit still needs one canonical exit;
+          // a fully committed provider callback already supplied it when observed.
+          if (status !== 'committed' || !providerExitObserved) {
+            this.onPtyExit(ptyId, -1)
+          }
+          this.dropDisconnectedPtyRecord(ptyId)
+        }
+        this.flushUnclassifiedPtyRuntimeEvents()
+      }
+    }
+  }
+
   setPtyController(controller: RuntimePtyController | null): void {
     // Why: CLI terminal writes must go through the main-owned PTY registry
     // instead of tunneling back through renderer IPC, or live handles could
@@ -3358,12 +3545,16 @@ export class OrcaRuntimeService {
       force?: boolean
       allowAttachedWindow?: boolean
       onlyServeOwnedTerminals?: boolean
+      hostId?: ExecutionHostId
     } = {}
   ): void {
     if (this.getAvailableAuthoritativeWindow() && options.allowAttachedWindow !== true) {
       return
     }
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId =
+      options.hostId ??
+      (worktreeId ? this.getWorkspaceExecutionHostId(worktreeId) : LOCAL_EXECUTION_HOST_ID)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session) {
       return
     }
@@ -3388,7 +3579,8 @@ export class OrcaRuntimeService {
       }
       const terminalTabs = this.buildHeadlessMobileSessionTerminalTabs(
         entryWorktreeId,
-        persistedTabs
+        persistedTabs,
+        session
       ).filter(
         (tab) => options.onlyServeOwnedTerminals !== true || this.hasServeOwnedPtyBinding(tab)
       )
@@ -3776,6 +3968,9 @@ export class OrcaRuntimeService {
       startupCwd?: string
       viewMode?: 'terminal' | 'chat'
       split?: { splitFromLeafId: string; direction: 'horizontal' | 'vertical' }
+      orchestrationGrid?: boolean
+      baseLayout?: TerminalLayoutSnapshot
+      skipOrchestrationGridPersistence?: boolean
     }
   ): void {
     const existing = this.mobileSessionTabsByWorktree.get(worktreeId)
@@ -3792,20 +3987,28 @@ export class OrcaRuntimeService {
     )
     // Why: a split inserts into the parent tab's layout, which lives on the
     // sibling surface, not this new leaf's (empty) existing surface.
-    const baseLayout = args.split
-      ? (existing?.tabs.find(
-          (candidate): candidate is RuntimeMobileSessionTerminalTab =>
-            candidate.type === 'terminal' &&
-            candidate.parentTabId === args.tabId &&
-            candidate.leafId === args.split!.splitFromLeafId
-        )?.parentLayout ?? existingTab?.parentLayout)
-      : existingTab?.parentLayout
+    const baseLayout =
+      args.baseLayout ??
+      (args.split
+        ? (existing?.tabs.find(
+            (candidate): candidate is RuntimeMobileSessionTerminalTab =>
+              candidate.type === 'terminal' &&
+              candidate.parentTabId === args.tabId &&
+              candidate.leafId === args.split!.splitFromLeafId
+          )?.parentLayout ?? existingTab?.parentLayout)
+        : existingTab?.parentLayout)
     const parentLayout = this.buildMaterializedHeadlessParentLayout(
       args.leafId,
       pty.ptyId,
       baseLayout,
-      args.split
+      args.split,
+      args.orchestrationGrid === true,
+      args.activate,
+      title
     )
+    if (args.orchestrationGrid === true && args.skipOrchestrationGridPersistence !== true) {
+      this.persistMaterializedOrchestrationGridLayout(worktreeId, args.tabId, parentLayout)
+    }
     // Why: a main-side PTY rescue or split publication must not erase the
     // host's explicit tab mode before the renderer graph catches up.
     const viewMode =
@@ -3846,7 +4049,9 @@ export class OrcaRuntimeService {
         // tab; a split must update every sibling surface to the new tree, or a
         // stale single-leaf sibling makes the client fall back to a default
         // direction ("Split Right" renders as down).
-        ...(args.split && candidate.type === 'terminal' && candidate.parentTabId === args.tabId
+        ...((args.split || args.orchestrationGrid === true) &&
+        candidate.type === 'terminal' &&
+        candidate.parentTabId === args.tabId
           ? { parentLayout }
           : {}),
         isActive: tab.isActive ? false : candidate.isActive
@@ -3913,12 +4118,9 @@ export class OrcaRuntimeService {
 
   private buildHeadlessMobileSessionTerminalTabs(
     worktreeId: string,
-    persistedTabs: readonly TerminalTab[]
+    persistedTabs: readonly TerminalTab[],
+    session: WorkspaceSessionState
   ): RuntimeMobileSessionTerminalTab[] {
-    const session = this.store?.getWorkspaceSession?.()
-    if (!session) {
-      return []
-    }
     return [...persistedTabs]
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
       .flatMap((tab, index) => {
@@ -3930,7 +4132,12 @@ export class OrcaRuntimeService {
         return leafIds.map((leafId) => {
           const ptyId =
             layout?.ptyIdsByLeafId?.[leafId] ?? (leafIds.length === 1 ? tab.ptyId : null)
+          // Why: one persisted grid parent title cannot identify its workers;
+          // the canonical layout owns the durable per-leaf titles.
           const title =
+            (layout?.layoutMode === 'orchestration-grid'
+              ? layout.titlesByLeafId?.[leafId]?.trim()
+              : null) ||
             tab.customTitle?.trim() ||
             tab.generatedTitle?.trim() ||
             tab.title?.trim() ||
@@ -3949,7 +4156,13 @@ export class OrcaRuntimeService {
             ...(tab.color != null ? { color: tab.color } : {}),
             ...(tab.isPinned ? { isPinned: true } : {}),
             ...(tab.viewMode ? { viewMode: tab.viewMode } : {}),
-            isActive: this.isPersistedTerminalLeafActive(worktreeId, tab.id, leafId, layout)
+            isActive: this.isPersistedTerminalLeafActive(
+              worktreeId,
+              tab.id,
+              leafId,
+              layout,
+              session
+            )
           }
         })
       })
@@ -3991,9 +4204,10 @@ export class OrcaRuntimeService {
     worktreeId: string,
     tabId: string
   ): Pick<Tab, 'color' | 'isPinned'> | null {
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
     const tab =
       this.store
-        ?.getWorkspaceSession?.()
+        ?.getWorkspaceSession?.(hostId)
         ?.unifiedTabs?.[worktreeId]?.find(
           (candidate) => candidate.id === tabId || candidate.entityId === tabId
         ) ?? null
@@ -4050,7 +4264,8 @@ export class OrcaRuntimeService {
     const cloned: TerminalLayoutSnapshot = {
       root: layout.root,
       activeLeafId: layout.activeLeafId,
-      expandedLeafId: layout.expandedLeafId
+      expandedLeafId: layout.expandedLeafId,
+      ...(layout.layoutMode ? { layoutMode: layout.layoutMode } : {})
     }
     if (layout.ptyIdsByLeafId) {
       cloned.ptyIdsByLeafId = { ...layout.ptyIdsByLeafId }
@@ -4071,9 +4286,9 @@ export class OrcaRuntimeService {
     worktreeId: string,
     tabId: string,
     leafId: string,
-    layout: TerminalLayoutSnapshot | undefined
+    layout: TerminalLayoutSnapshot | undefined,
+    session: WorkspaceSessionState
   ): boolean {
-    const session = this.store?.getWorkspaceSession?.()
     const activeTabId = session?.activeTabIdByWorktree?.[worktreeId] ?? session?.activeTabId
     return activeTabId === tabId && (!layout?.activeLeafId || layout.activeLeafId === leafId)
   }
@@ -4219,8 +4434,17 @@ export class OrcaRuntimeService {
     leafId: string,
     ptyId: string,
     existingLayout: TerminalLayoutSnapshot | undefined,
-    split?: { splitFromLeafId: string; direction: 'horizontal' | 'vertical' }
+    split?: { splitFromLeafId: string; direction: 'horizontal' | 'vertical' },
+    orchestrationGrid = false,
+    activate = true,
+    title?: string | null
   ): TerminalLayoutSnapshot {
+    if (orchestrationGrid) {
+      // Why: background grid appends must not replace the pane selected on the host.
+      return this.cloneTerminalLayoutSnapshot(
+        addOrchestrationTerminalGridLeaf(existingLayout, { leafId, ptyId, title, activate })
+      )
+    }
     if (!existingLayout) {
       return {
         root: { type: 'leaf', leafId },
@@ -4250,8 +4474,112 @@ export class OrcaRuntimeService {
     }
   }
 
+  private buildStagedOrchestrationGridLayout(
+    leafId: string,
+    existingLayout: TerminalLayoutSnapshot | undefined,
+    activate: boolean,
+    title?: string | null
+  ): TerminalLayoutSnapshot {
+    const layout = this.cloneTerminalLayoutSnapshot(
+      addOrchestrationTerminalGridLeaf(existingLayout, {
+        leafId,
+        // Why: the provider owns the final PTY id. Stage all canonical fields
+        // now, then let persistPtyBinding add that one value in the sync flush.
+        ptyId: '',
+        title,
+        activate
+      })
+    )
+    if (layout.ptyIdsByLeafId) {
+      delete layout.ptyIdsByLeafId[leafId]
+      if (Object.keys(layout.ptyIdsByLeafId).length === 0) {
+        delete layout.ptyIdsByLeafId
+      }
+    }
+    return layout
+  }
+
+  private mergeAcknowledgedOrchestrationGridLayout(
+    staged: TerminalLayoutSnapshot,
+    acknowledged: TerminalLayoutSnapshot,
+    leafId: string,
+    ptyId: string
+  ): TerminalLayoutSnapshot {
+    const stagedLeafIds = collectTerminalLayoutLeafIds(staged.root)
+    const acknowledgedLeafIds = collectTerminalLayoutLeafIds(acknowledged.root)
+    if (
+      acknowledged.layoutMode !== 'orchestration-grid' ||
+      acknowledged.ptyIdsByLeafId?.[leafId] !== ptyId ||
+      stagedLeafIds.length !== acknowledgedLeafIds.length ||
+      stagedLeafIds.some((candidate, index) => candidate !== acknowledgedLeafIds[index])
+    ) {
+      throw new Error('Terminal renderer acknowledged an unexpected grid layout')
+    }
+    const stagedClone = this.cloneTerminalLayoutSnapshot(staged)
+    const acknowledgedClone = this.cloneTerminalLayoutSnapshot(acknowledged)
+    // Why: renderer acknowledgement owns live geometry/focus, while main's
+    // staged snapshot can carry durable buffers omitted from graph-derived state.
+    return {
+      ...stagedClone,
+      ...acknowledgedClone,
+      ptyIdsByLeafId: {
+        ...stagedClone.ptyIdsByLeafId,
+        ...acknowledgedClone.ptyIdsByLeafId
+      },
+      ...(stagedClone.buffersByLeafId || acknowledgedClone.buffersByLeafId
+        ? {
+            buffersByLeafId: {
+              ...stagedClone.buffersByLeafId,
+              ...acknowledgedClone.buffersByLeafId
+            }
+          }
+        : {}),
+      ...(stagedClone.scrollbackRefsByLeafId || acknowledgedClone.scrollbackRefsByLeafId
+        ? {
+            scrollbackRefsByLeafId: {
+              ...stagedClone.scrollbackRefsByLeafId,
+              ...acknowledgedClone.scrollbackRefsByLeafId
+            }
+          }
+        : {}),
+      ...(stagedClone.titlesByLeafId || acknowledgedClone.titlesByLeafId
+        ? {
+            titlesByLeafId: {
+              ...stagedClone.titlesByLeafId,
+              ...acknowledgedClone.titlesByLeafId
+            }
+          }
+        : {})
+    }
+  }
+
+  private persistMaterializedOrchestrationGridLayout(
+    worktreeId: string,
+    tabId: string,
+    layout: TerminalLayoutSnapshot
+  ): void {
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
+    if (!session || !this.store?.setWorkspaceSession) {
+      return
+    }
+    // Why: paired clients cannot recover per-worker titles from surface labels,
+    // so the materialized grid layout is the durable leaf-state authority.
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        terminalLayoutsByTabId: {
+          ...session.terminalLayoutsByTabId,
+          [tabId]: this.cloneTerminalLayoutSnapshot(layout)
+        }
+      },
+      hostId
+    )
+  }
+
   private removePersistedHeadlessTerminalTab(worktreeId: string, parentTabId: string): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -4267,20 +4595,24 @@ export class OrcaRuntimeService {
       session.activeTabIdByWorktree?.[worktreeId] === parentTabId
         ? (nextTabs[0]?.id ?? null)
         : (session.activeTabIdByWorktree?.[worktreeId] ?? null)
-    this.store.setWorkspaceSession({
-      ...session,
-      activeTabId: session.activeTabId === parentTabId ? nextActiveTabId : session.activeTabId,
-      tabsByWorktree: nextTabsByWorktree,
-      terminalLayoutsByTabId: nextLayouts,
-      activeTabIdByWorktree: {
-        ...session.activeTabIdByWorktree,
-        [worktreeId]: nextActiveTabId
-      }
-    })
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        activeTabId: session.activeTabId === parentTabId ? nextActiveTabId : session.activeTabId,
+        tabsByWorktree: nextTabsByWorktree,
+        terminalLayoutsByTabId: nextLayouts,
+        activeTabIdByWorktree: {
+          ...session.activeTabIdByWorktree,
+          [worktreeId]: nextActiveTabId
+        }
+      },
+      hostId
+    )
   }
 
   private persistHeadlessTerminalTabOrder(worktreeId: string, tabOrder: readonly string[]): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -4296,13 +4628,16 @@ export class OrcaRuntimeService {
         ...tab,
         sortOrder: index
       }))
-    this.store.setWorkspaceSession({
-      ...session,
-      tabsByWorktree: {
-        ...session.tabsByWorktree,
-        [worktreeId]: reordered
-      }
-    })
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        tabsByWorktree: {
+          ...session.tabsByWorktree,
+          [worktreeId]: reordered
+        }
+      },
+      hostId
+    )
   }
 
   private emitMobileSessionTabsSnapshot(snapshot: RuntimeMobileSessionTabsSnapshot): void {
@@ -4551,13 +4886,15 @@ export class OrcaRuntimeService {
   // and collapsed the split. Persist the new split leaf into the workspace
   // session's terminalLayoutsByTabId so the split survives rebuilds.
   private persistHeadlessTerminalSplit(args: {
+    worktreeId: string
     tabId: string
     leafId: string
     ptyId: string
     splitFromLeafId: string
     direction: 'horizontal' | 'vertical'
   }): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(args.worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -4566,20 +4903,24 @@ export class OrcaRuntimeService {
       existing ? this.cloneTerminalLayoutSnapshot(existing) : undefined,
       args
     )
-    this.store.setWorkspaceSession({
-      ...session,
-      terminalLayoutsByTabId: {
-        ...session.terminalLayoutsByTabId,
-        [args.tabId]: nextLayout
-      }
-    })
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        terminalLayoutsByTabId: {
+          ...session.terminalLayoutsByTabId,
+          [args.tabId]: nextLayout
+        }
+      },
+      hostId
+    )
   }
 
   private persistHeadlessTerminalActiveLeaf(
     worktreeId: string,
     tab: RuntimeMobileSessionTerminalTab
   ): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -4593,15 +4934,18 @@ export class OrcaRuntimeService {
           }
         }
       : session.terminalLayoutsByTabId
-    this.store.setWorkspaceSession({
-      ...session,
-      activeTabId: tab.parentTabId,
-      activeTabIdByWorktree: {
-        ...session.activeTabIdByWorktree,
-        [worktreeId]: tab.parentTabId
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        activeTabId: tab.parentTabId,
+        activeTabIdByWorktree: {
+          ...session.activeTabIdByWorktree,
+          [worktreeId]: tab.parentTabId
+        },
+        terminalLayoutsByTabId: nextLayouts
       },
-      terminalLayoutsByTabId: nextLayouts
-    })
+      hostId
+    )
   }
 
   async closeMobileSessionTab(worktreeSelector: string, tabId: string): Promise<{ closed: true }> {
@@ -4623,6 +4967,22 @@ export class OrcaRuntimeService {
       throw new Error('tab_not_found')
     }
     if (tab.type === 'terminal') {
+      const parentLeafCount = snapshot!.tabs.filter(
+        (candidate) => candidate.type === 'terminal' && candidate.parentTabId === tab.parentTabId
+      ).length
+      const closingWholeParent = tab.id !== tabId || parentLeafCount <= 1
+      const orchestrationGridLayout = closingWholeParent
+        ? undefined
+        : snapshot!.tabs.find(
+            (candidate): candidate is RuntimeMobileSessionTerminalTab =>
+              candidate.type === 'terminal' &&
+              candidate.parentTabId === tab.parentTabId &&
+              candidate.parentLayout?.layoutMode === 'orchestration-grid'
+          )?.parentLayout
+      if (orchestrationGridLayout) {
+        this.closeHeadlessOrchestrationGridLeaf(worktreeId, snapshot!, tab, orchestrationGridLayout)
+        return { closed: true }
+      }
       if (!this.notifier?.closeTerminal) {
         this.closeHeadlessMobileTerminalTab(worktreeId, snapshot!, tab)
         return { closed: true }
@@ -4633,10 +4993,6 @@ export class OrcaRuntimeService {
       // keeps republishing the "closed" tab with a live PTY. Best-effort notify the
       // renderer too so any adopted pane closes (no dead pane). A single split leaf
       // (exact id, multi-leaf parent) keeps the per-leaf path so siblings survive.
-      const parentLeafCount = snapshot!.tabs.filter(
-        (candidate) => candidate.type === 'terminal' && candidate.parentTabId === tab.parentTabId
-      ).length
-      const closingWholeParent = tab.id !== tabId || parentLeafCount <= 1
       if (closingWholeParent && this.isRuntimeOwnedHeadlessMobileTab(worktreeId, tab)) {
         this.closeHeadlessMobileTerminalTab(worktreeId, snapshot!, tab)
         this.notifier?.closeTerminal(tab.parentTabId)
@@ -4664,6 +5020,74 @@ export class OrcaRuntimeService {
       this.notifier?.closeSessionTab?.(tab.id, worktreeId)
     }
     return { closed: true }
+  }
+
+  private closeHeadlessOrchestrationGridLeaf(
+    worktreeId: string,
+    snapshot: RuntimeMobileSessionTabsSnapshot,
+    tab: RuntimeMobileSessionTerminalTab,
+    sourceLayout: TerminalLayoutSnapshot
+  ): void {
+    const pty = this.findPtyForMobileTerminalTab(worktreeId, tab)
+    if (pty?.connected) {
+      this.ptyController?.kill(pty.ptyId)
+    } else {
+      const persistedSshPtyId = this.getPersistedSshPtyIdForMobileTerminalTab(tab)
+      if (persistedSshPtyId) {
+        this.ptyController?.kill(persistedSshPtyId)
+      }
+    }
+    const siblingTabs = snapshot.tabs.filter(
+      (candidate): candidate is RuntimeMobileSessionTerminalTab =>
+        candidate.type === 'terminal' &&
+        candidate.parentTabId === tab.parentTabId &&
+        candidate.id !== tab.id
+    )
+    const siblingLeafIds = new Set(siblingTabs.map((candidate) => candidate.leafId))
+    const orderedLeafIds = collectTerminalLayoutLeafIds(sourceLayout.root).filter((leafId) =>
+      siblingLeafIds.has(leafId)
+    )
+    for (const sibling of siblingTabs) {
+      if (!orderedLeafIds.includes(sibling.leafId)) {
+        orderedLeafIds.push(sibling.leafId)
+      }
+    }
+    const parentLayout = reflowOrchestrationTerminalGrid(sourceLayout, orderedLeafIds)
+    const closingActiveSurface = snapshot.activeTabId === tab.id || tab.isActive
+    const replacementActiveTab =
+      siblingTabs.find((candidate) => candidate.leafId === parentLayout.activeLeafId) ??
+      siblingTabs[0]!
+    const tabs = snapshot.tabs
+      .filter((candidate) => candidate.id !== tab.id)
+      .map((candidate) => {
+        if (candidate.type !== 'terminal' || candidate.parentTabId !== tab.parentTabId) {
+          return candidate
+        }
+        return {
+          ...candidate,
+          // Why: clients may select any sibling as the parent layout source.
+          parentLayout,
+          isActive: closingActiveSurface
+            ? candidate.id === replacementActiveTab.id
+            : candidate.isActive
+        }
+      })
+    const activeTab = closingActiveSurface
+      ? replacementActiveTab
+      : (tabs.find((candidate) => candidate.id === snapshot.activeTabId) ??
+        tabs.find((candidate) => candidate.isActive) ??
+        null)
+    const nextSnapshot: RuntimeMobileSessionTabsSnapshot = {
+      ...snapshot,
+      publicationEpoch: `headless:${Date.now().toString(36)}`,
+      snapshotVersion: snapshot.snapshotVersion + 1,
+      activeTabId: activeTab?.id ?? null,
+      activeTabType: activeTab?.type ?? null,
+      tabs
+    }
+    this.persistMaterializedOrchestrationGridLayout(worktreeId, tab.parentTabId, parentLayout)
+    this.mobileSessionTabsByWorktree.set(worktreeId, nextSnapshot)
+    this.emitMobileSessionTabsSnapshot(nextSnapshot)
   }
 
   private async closeHeadlessMobileBrowserTab(
@@ -4853,6 +5277,7 @@ export class OrcaRuntimeService {
       tabId: string
       root: TerminalPaneLayoutNode | null
       expandedLeafId: string | null
+      layoutMode?: TerminalLayoutMode
       titlesByLeafId?: Record<string, string>
     }
   ): Promise<{ updated: true }> {
@@ -4872,7 +5297,7 @@ export class OrcaRuntimeService {
       ? (this.resolveMobileSessionHostTabId(snapshot, args.tabId) ?? args.tabId)
       : args.tabId
     const resolvedArgs = { ...args, tabId: hostTabId }
-    this.persistHeadlessTerminalPaneLayout(resolvedArgs)
+    this.persistHeadlessTerminalPaneLayout(worktreeId, resolvedArgs)
     this.applyHeadlessTerminalPaneLayoutToSnapshot(worktreeId, resolvedArgs)
     return { updated: true }
   }
@@ -4911,7 +5336,8 @@ export class OrcaRuntimeService {
     tabId: string,
     props: { color?: string | null; isPinned?: boolean; viewMode?: 'terminal' | 'chat' }
   ): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -4955,7 +5381,7 @@ export class OrcaRuntimeService {
     if (!changed) {
       return
     }
-    this.store.setWorkspaceSession(nextSession)
+    this.store.setWorkspaceSession(nextSession, hostId)
   }
 
   private applyHeadlessSessionTabPropsToSnapshot(
@@ -5000,13 +5426,18 @@ export class OrcaRuntimeService {
   // Merge the client's pane structure into the persisted tab layout. PTY
   // bindings and active leaf stay host-owned; only ratios/expand/titles change.
   // terminalLayoutsByTabId is keyed by tab id (worktree-independent).
-  private persistHeadlessTerminalPaneLayout(args: {
-    tabId: string
-    root: TerminalPaneLayoutNode | null
-    expandedLeafId: string | null
-    titlesByLeafId?: Record<string, string>
-  }): void {
-    const session = this.store?.getWorkspaceSession?.()
+  private persistHeadlessTerminalPaneLayout(
+    worktreeId: string,
+    args: {
+      tabId: string
+      root: TerminalPaneLayoutNode | null
+      expandedLeafId: string | null
+      layoutMode?: TerminalLayoutMode
+      titlesByLeafId?: Record<string, string>
+    }
+  ): void {
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -5014,18 +5445,22 @@ export class OrcaRuntimeService {
     if (!existing) {
       return
     }
-    this.store.setWorkspaceSession({
-      ...session,
-      terminalLayoutsByTabId: {
-        ...session.terminalLayoutsByTabId,
-        [args.tabId]: {
-          ...this.cloneTerminalLayoutSnapshot(existing),
-          root: args.root ?? existing.root,
-          expandedLeafId: args.expandedLeafId,
-          ...(args.titlesByLeafId ? { titlesByLeafId: args.titlesByLeafId } : {})
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        terminalLayoutsByTabId: {
+          ...session.terminalLayoutsByTabId,
+          [args.tabId]: {
+            ...this.cloneTerminalLayoutSnapshot(existing),
+            root: args.root ?? existing.root,
+            expandedLeafId: args.expandedLeafId,
+            ...(args.layoutMode ? { layoutMode: args.layoutMode } : {}),
+            ...(args.titlesByLeafId ? { titlesByLeafId: args.titlesByLeafId } : {})
+          }
         }
-      }
-    })
+      },
+      hostId
+    )
   }
 
   private applyHeadlessTerminalPaneLayoutToSnapshot(
@@ -5034,6 +5469,7 @@ export class OrcaRuntimeService {
       tabId: string
       root: TerminalPaneLayoutNode | null
       expandedLeafId: string | null
+      layoutMode?: TerminalLayoutMode
       titlesByLeafId?: Record<string, string>
     }
   ): void {
@@ -5053,6 +5489,7 @@ export class OrcaRuntimeService {
           ...tab.parentLayout,
           root: args.root ?? tab.parentLayout.root,
           expandedLeafId: args.expandedLeafId,
+          ...(args.layoutMode ? { layoutMode: args.layoutMode } : {}),
           ...(args.titlesByLeafId ? { titlesByLeafId: args.titlesByLeafId } : {})
         }
       }
@@ -5214,27 +5651,31 @@ export class OrcaRuntimeService {
     groups: readonly RuntimeMobileSessionTabGroup[],
     layout: TabGroupLayoutNode
   ): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
-    this.store.setWorkspaceSession({
-      ...session,
-      tabGroups: {
-        ...session.tabGroups,
-        [worktreeId]: groups.map((group) => ({
-          id: group.id,
-          worktreeId,
-          activeTabId: group.activeTabId,
-          tabOrder: [...group.tabOrder],
-          ...(group.recentTabIds ? { recentTabIds: [...group.recentTabIds] } : {})
-        }))
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        tabGroups: {
+          ...session.tabGroups,
+          [worktreeId]: groups.map((group) => ({
+            id: group.id,
+            worktreeId,
+            activeTabId: group.activeTabId,
+            tabOrder: [...group.tabOrder],
+            ...(group.recentTabIds ? { recentTabIds: [...group.recentTabIds] } : {})
+          }))
+        },
+        tabGroupLayouts: {
+          ...session.tabGroupLayouts,
+          [worktreeId]: layout
+        }
       },
-      tabGroupLayouts: {
-        ...session.tabGroupLayouts,
-        [worktreeId]: layout
-      }
-    })
+      hostId
+    )
   }
 
   // Persist a manual terminal rename so a headless rebuild keeps the title
@@ -5244,7 +5685,8 @@ export class OrcaRuntimeService {
     tabId: string,
     title: string | null
   ): void {
-    const session = this.store?.getWorkspaceSession?.()
+    const hostId = this.getWorkspaceExecutionHostId(worktreeId)
+    const session = this.store?.getWorkspaceSession?.(hostId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -5252,13 +5694,16 @@ export class OrcaRuntimeService {
     if (!tabs?.some((tab) => tab.id === tabId)) {
       return
     }
-    this.store.setWorkspaceSession({
-      ...session,
-      tabsByWorktree: {
-        ...session.tabsByWorktree,
-        [worktreeId]: tabs.map((tab) => (tab.id === tabId ? { ...tab, customTitle: title } : tab))
-      }
-    })
+    this.store.setWorkspaceSession(
+      {
+        ...session,
+        tabsByWorktree: {
+          ...session.tabsByWorktree,
+          [worktreeId]: tabs.map((tab) => (tab.id === tabId ? { ...tab, customTitle: title } : tab))
+        }
+      },
+      hostId
+    )
   }
 
   private normalizeMobileSessionTabOrder(
@@ -5595,6 +6040,15 @@ export class OrcaRuntimeService {
   }
 
   registerPreAllocatedHandleForPty(ptyId: string, handle: string): void {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'registration',
+        kind: 'registration',
+        apply: () => this.registerPreAllocatedHandleForPty(ptyId, handle)
+      })
+    ) {
+      return
+    }
     this.handleByPtyId.set(ptyId, handle)
     for (const leaf of this.getLeavesForPty(ptyId)) {
       this.adoptPreAllocatedHandle(leaf)
@@ -5642,6 +6096,15 @@ export class OrcaRuntimeService {
   }
 
   onPtySpawned(ptyId: string): void {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'lifecycle',
+        kind: 'spawned',
+        apply: () => this.onPtySpawned(ptyId)
+      })
+    ) {
+      return
+    }
     const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
     if (pty) {
       pty.connected = true
@@ -5661,6 +6124,15 @@ export class OrcaRuntimeService {
     binding?: { tabId: string; leafId: string },
     isWsl?: boolean
   ): void {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'registration',
+        kind: 'registration',
+        apply: () => this.registerPty(ptyId, worktreeId, connectionId, binding, isWsl)
+      })
+    ) {
+      return
+    }
     // Why: record the renderer pane identity at spawn time so a stalled graph
     // sync can't hide that a live PTY already backs a pending mobile create.
     const paneKey =
@@ -5684,6 +6156,15 @@ export class OrcaRuntimeService {
    *  arm from it (renderer startupCommand parity). Best-effort: a chunk that
    *  beats this call falls back to the detector's banner arming. */
   noteTerminalSpawnCommand(ptyId: string, command: string | null | undefined): void {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'command',
+        kind: 'command',
+        apply: () => this.noteTerminalSpawnCommand(ptyId, command)
+      })
+    ) {
+      return
+    }
     const trimmed = typeof command === 'string' ? command.trim() : ''
     if (trimmed.length > 0) {
       this.terminalSpawnCommandsByPtyId.set(ptyId, trimmed)
@@ -5695,6 +6176,17 @@ export class OrcaRuntimeService {
    * updating terminal tail buffers, and triggering foreground agent refreshes.
    */
   onPtyData(ptyId: string, data: string, at: number, sequenceChars = data.length): number {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'lifecycle',
+        kind: 'data',
+        apply: () => {
+          this.onPtyData(ptyId, data, at, sequenceChars)
+        }
+      })
+    ) {
+      return this.ptyOutputSequenceById.get(ptyId) ?? 0
+    }
     const outputSequence = (this.ptyOutputSequenceById.get(ptyId) ?? 0) + sequenceChars
     this.ptyOutputSequenceById.set(ptyId, outputSequence)
     this.providerModeTrackersByPtyId.get(ptyId)?.scan(data)
@@ -8457,6 +8949,15 @@ export class OrcaRuntimeService {
   }
 
   onPtyExit(ptyId: string, exitCode: number): void {
+    if (
+      this.stagePtyRuntimeEvent(ptyId, {
+        phase: 'lifecycle',
+        kind: 'exit',
+        apply: () => this.onPtyExit(ptyId, exitCode)
+      })
+    ) {
+      return
+    }
     advertisedUrlWatcher.unbindPty(ptyId)
     serveSimStateWatcher.unbindPty(ptyId)
     // Clean up new mobile state for this PTY
@@ -17961,10 +18462,147 @@ export class OrcaRuntimeService {
     }
   }
 
+  private findOrchestrationGridTarget(
+    worktreeId: string,
+    requiredTabId?: string,
+    hostId: ExecutionHostId = this.getWorkspaceExecutionHostId(worktreeId)
+  ): OrchestrationGridTarget | null {
+    const session = this.store?.getWorkspaceSession?.(hostId)
+    const toTarget = (
+      tabId: string,
+      layout: TerminalLayoutSnapshot | undefined
+    ): OrchestrationGridTarget | null => {
+      if (
+        (requiredTabId && tabId !== requiredTabId) ||
+        layout?.layoutMode !== 'orchestration-grid'
+      ) {
+        return null
+      }
+      const canonical = session?.terminalLayoutsByTabId[tabId]
+      // Why: renderer graph sync owns current geometry/selection but omits
+      // buffers, scrollback refs, and titles needed for a durable grid append.
+      const mergedLayout: TerminalLayoutSnapshot = canonical
+        ? {
+            ...this.cloneTerminalLayoutSnapshot(canonical),
+            ...this.cloneTerminalLayoutSnapshot(layout),
+            ...(canonical.ptyIdsByLeafId || layout.ptyIdsByLeafId
+              ? {
+                  ptyIdsByLeafId: {
+                    ...canonical.ptyIdsByLeafId,
+                    ...layout.ptyIdsByLeafId
+                  }
+                }
+              : {}),
+            ...(canonical.buffersByLeafId || layout.buffersByLeafId
+              ? {
+                  buffersByLeafId: {
+                    ...layout.buffersByLeafId,
+                    ...canonical.buffersByLeafId
+                  }
+                }
+              : {}),
+            ...(canonical.scrollbackRefsByLeafId || layout.scrollbackRefsByLeafId
+              ? {
+                  scrollbackRefsByLeafId: {
+                    ...layout.scrollbackRefsByLeafId,
+                    ...canonical.scrollbackRefsByLeafId
+                  }
+                }
+              : {}),
+            ...(canonical.titlesByLeafId || layout.titlesByLeafId
+              ? {
+                  titlesByLeafId: {
+                    ...layout.titlesByLeafId,
+                    ...canonical.titlesByLeafId
+                  }
+                }
+              : {})
+          }
+        : this.cloneTerminalLayoutSnapshot(layout)
+      const sourceLeafIds = getOrchestrationGridAppendSourceLeafIds(mergedLayout.root)
+      const sourceLeafId = sourceLeafIds.at(-1)
+      return sourceLeafId ? { tabId, layout: mergedLayout, sourceLeafId, sourceLeafIds } : null
+    }
+
+    for (const tab of this.tabs.values()) {
+      if (tab.worktreeId !== worktreeId || tab.layoutMode !== 'orchestration-grid') {
+        continue
+      }
+      const ptyIdsByLeafId = Object.fromEntries(
+        [...this.leaves.values()]
+          .filter((leaf) => leaf.tabId === tab.tabId && leaf.ptyId)
+          .map((leaf) => [leaf.leafId, leaf.ptyId!])
+      )
+      const target = toTarget(tab.tabId, {
+        root: tab.layout,
+        activeLeafId: tab.activeLeafId,
+        expandedLeafId: null,
+        layoutMode: 'orchestration-grid',
+        ...(Object.keys(ptyIdsByLeafId).length > 0 ? { ptyIdsByLeafId } : {})
+      })
+      if (target) {
+        return target
+      }
+    }
+
+    const mobileSnapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
+    for (const tab of mobileSnapshot?.tabs ?? []) {
+      if (tab.type !== 'terminal') {
+        continue
+      }
+      const target = toTarget(tab.parentTabId, tab.parentLayout)
+      if (target) {
+        return target
+      }
+    }
+
+    for (const tab of session?.tabsByWorktree[worktreeId] ?? []) {
+      const target = toTarget(tab.id, session?.terminalLayoutsByTabId[tab.id])
+      if (target) {
+        return target
+      }
+    }
+    return null
+  }
+
   async createTerminal(
     worktreeSelector?: string,
-    opts: TerminalCreateOptions = {}
+    opts: TerminalCreateOptions = {},
+    resolvedGridWorkspace?: TerminalWorkspaceLaunchScope
   ): Promise<RuntimeTerminalCreate> {
+    if (opts.placement === 'orchestration-grid' && opts.skipOrchestrationGridQueue !== true) {
+      const workspace = worktreeSelector
+        ? await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
+        : undefined
+      // Why: selector aliases must serialize against one host-scoped workspace;
+      // implicit renderer targeting has no canonical workspace until the reply.
+      const queueKey = workspace
+        ? `${workspace.connectionId ?? 'local'}\0${workspace.id}`
+        : `renderer:${this.authoritativeWindowId ?? 'active'}`
+      const previous = this.orchestrationGridCreateQueues.get(queueKey) ?? Promise.resolve()
+      let release!: () => void
+      const current = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const queued = previous.catch(() => undefined).then(() => current)
+      this.orchestrationGridCreateQueues.set(queueKey, queued)
+      await previous.catch(() => undefined)
+      try {
+        return await this.createTerminal(
+          worktreeSelector,
+          {
+            ...opts,
+            skipOrchestrationGridQueue: true
+          },
+          workspace
+        )
+      } finally {
+        release()
+        if (this.orchestrationGridCreateQueues.get(queueKey) === queued) {
+          this.orchestrationGridCreateQueues.delete(queueKey)
+        }
+      }
+    }
     const presentation = resolveTerminalPresentation(opts)
     const requiresRendererFocus = opts.presentation === 'focused' || opts.focus === true
     const availableAuthoritativeWindow = this.getAvailableAuthoritativeWindow()
@@ -17973,20 +18611,53 @@ export class OrcaRuntimeService {
     // requires a resolvable selector, so route the no-selector case through
     // the renderer IPC path to preserve that behavior.
     const rendererWindow = opts.rendererBacked === true ? availableAuthoritativeWindow : null
+    const rendererBackedGridTarget =
+      opts.placement === 'orchestration-grid' &&
+      opts.rendererBacked === true &&
+      rendererWindow !== null &&
+      resolvedGridWorkspace
+        ? this.findOrchestrationGridTarget(
+            resolvedGridWorkspace.id,
+            undefined,
+            this.getTerminalWorkspaceExecutionHostId(resolvedGridWorkspace)
+          )
+        : null
+    // Why: the first renderer-backed grid pane has no mounted leaf that can
+    // acknowledge adoption, so let the renderer own its initial spawn instead.
+    const shouldRendererCreateInitialGrid =
+      opts.placement === 'orchestration-grid' &&
+      opts.rendererBacked === true &&
+      rendererWindow !== null &&
+      rendererBackedGridTarget === null
     const shouldCreateInBackground =
       worktreeSelector !== undefined &&
-      ((!requiresRendererFocus && opts.rendererBacked !== true) ||
+      ((opts.placement === 'orchestration-grid' && !shouldRendererCreateInitialGrid) ||
+        (!requiresRendererFocus && opts.rendererBacked !== true) ||
         // Why: `orca serve` exposes the local runtime without a renderer
         // window. Renderer-backed Codex terminals are preferred for the app,
         // but headless CLI users still need a usable terminal handle.
         (opts.rendererBacked === true && rendererWindow === null))
 
     if (shouldCreateInBackground) {
-      if (!this.ptyController?.spawn) {
+      const ptyController = this.ptyController
+      if (!ptyController?.spawn) {
         throw new Error('runtime_unavailable')
       }
-      const workspace = await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
+      const workspace =
+        resolvedGridWorkspace ?? (await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector))
       const launchOpts = await this.resolveAgentTerminalCreateOptions(workspace, opts)
+      const executionHostId = this.getTerminalWorkspaceExecutionHostId(workspace)
+      if (launchOpts.placement === 'orchestration-grid') {
+        // Why: publication appends through the mobile snapshot; materialize a
+        // cold persisted grid first so its sibling surfaces and leaf state survive.
+        this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(workspace.id, {
+          hostId: executionHostId
+        })
+      }
+      const orchestrationGridTarget =
+        launchOpts.placement === 'orchestration-grid'
+          ? this.findOrchestrationGridTarget(workspace.id, undefined, executionHostId)
+          : null
       const cwd =
         this.resolveWorkspaceTerminalStartupCwd(workspace, launchOpts.cwd) ?? workspace.path
       const preAllocatedHandle = this.createPreAllocatedTerminalHandle()
@@ -18002,7 +18673,8 @@ export class OrcaRuntimeService {
         isValidHostTerminalTabId(hintedTabId) &&
         launchOpts.leafId !== undefined &&
         isTerminalLeafId(launchOpts.leafId)
-      const tabId = canAdoptPaneIdentity ? (hintedTabId as string) : randomUUID()
+      const tabId =
+        orchestrationGridTarget?.tabId ?? (canAdoptPaneIdentity ? hintedTabId! : randomUUID())
       const leafId = canAdoptPaneIdentity ? (launchOpts.leafId as string) : randomUUID()
       const paneKey = makePaneKey(tabId, leafId)
       const launchToken = launchOpts.launchConfig
@@ -18075,72 +18747,252 @@ export class OrcaRuntimeService {
         tabId,
         agentTeamsPlan?.env
       )
-      const result = await this.ptyController.spawn({
-        cols: 120,
-        rows: 40,
-        cwd,
-        command: sequencedStartupCommand
-          ? launchOpts.command
-          : (agentTeamsPlan?.command ?? launchOpts.command),
-        launchAgent: launchOpts.launchAgent,
-        commandDelivery: 'provider',
-        startupCommandDelivery: launchOpts.startupCommandDelivery,
-        env,
-        envToDelete: agentTeamsPlan?.envToDelete,
-        telemetry: launchOpts.telemetry,
-        connectionId: workspace.connectionId,
-        worktreeId: workspace.id,
-        preAllocatedHandle,
-        tabId,
-        leafId,
-        ...(launchOpts.sessionId ? { sessionId: launchOpts.sessionId } : {}),
-        // Why: a headless-created pane has no renderer session writer. Persist
-        // its tab/leaf binding at spawn so a later promoted window reattaches
-        // the live daemon or SSH PTY instead of replacing it with a fresh one.
-        // Re-check freshly: the entry-time snapshot can go stale across the
-        // awaits above if the authoritative window is destroyed mid-spawn.
-        ...(launchOpts.persistHostSessionBinding || this.getAvailableAuthoritativeWindow() === null
-          ? { persistHostSessionBinding: true }
-          : {})
-      })
-      this.registerPreAllocatedHandleForPty(result.id, preAllocatedHandle)
-      this.registerPty(result.id, workspace.id, workspace.connectionId)
-      const pty = this.getOrCreatePtyWorktreeRecord(result.id)
-      if (pty) {
-        if (launchOpts.title) {
-          const observedAt = this.nextTitleObservationSequence()
-          pty.title = launchOpts.title
-          pty.titleUpdatedAt = observedAt
-          this.setPtyManagementTitleFromObservedTitle(pty, launchOpts.title, observedAt)
-        } else {
-          pty.title = null
-          pty.titleUpdatedAt = null
-        }
-        pty.tabId = tabId
-        pty.paneKey = paneKey
-        pty.launchConfig = effectiveLaunchConfig
-          ? copySleepingAgentLaunchConfig(effectiveLaunchConfig)
+      // Why: headless grids have no renderer session writer to create their
+      // parent tab, so success requires a main-owned durable transaction.
+      const persistHostSessionBinding =
+        launchOpts.persistHostSessionBinding ||
+        launchOpts.placement === 'orchestration-grid' ||
+        // Re-check freshly: the entry-time snapshot can go stale while the
+        // launch plan resolves, and promoted windows must reattach this PTY.
+        this.getAvailableAuthoritativeWindow() === null
+      const gridLayout =
+        launchOpts.placement === 'orchestration-grid'
+          ? this.buildStagedOrchestrationGridLayout(
+              leafId,
+              orchestrationGridTarget?.layout,
+              presentation === 'focused',
+              launchOpts.title
+            )
           : null
-        pty.launchToken = launchToken ?? null
-        pty.launchAgent = launchOpts.launchAgent ?? null
-      }
-      const handle = pty ? this.issuePtyHandle(pty) : preAllocatedHandle
-      if (pty && launchOpts.deferMobileSessionPublish !== true) {
-        this.publishPtyBackedMobileSessionTerminal(workspace.id, pty, {
-          tabId,
-          leafId,
-          title: launchOpts.title ?? null,
-          activate: presentation === 'focused',
-          // Why: explicit background presentation may carry legacy activate
-          // metadata from an already-owned renderer pane; don't select it on mobile.
-          selectIfNoActiveTab: presentation !== 'background',
-          ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
-          ...(cwd !== workspace.path ? { startupCwd: cwd } : {})
-        })
-      }
+      let committedGridLayout = gridLayout
+      const requiresRendererCommit =
+        // Why: every append into an existing rendered grid, including CLI
+        // placement, must attach its exact external PTY before durable publish.
+        gridLayout !== null &&
+        orchestrationGridTarget !== null &&
+        this.notifier?.revealTerminalSession !== undefined
+      const spawnedCommand = sequencedStartupCommand
+        ? launchOpts.command
+        : (agentTeamsPlan?.command ?? launchOpts.command)
       let surface: RuntimeTerminalCreate['surface'] = 'background'
       let warning: string | undefined
-      if (presentation !== 'background' && this.notifier?.revealTerminalSession) {
+      let result: { id: string; runtimeRegistration?: RuntimePtyRegistrationReceipt } | null = null
+      let handle: string | null = null
+      let spawnedPtyId: string | null = null
+      let gridPersistedAtomically = false
+      try {
+        result = await ptyController.spawn({
+          cols: 120,
+          rows: 40,
+          cwd,
+          command: spawnedCommand,
+          launchAgent: launchOpts.launchAgent,
+          commandDelivery: 'provider',
+          startupCommandDelivery: launchOpts.startupCommandDelivery,
+          env,
+          envToDelete: agentTeamsPlan?.envToDelete,
+          telemetry: launchOpts.telemetry,
+          connectionId: workspace.connectionId,
+          worktreeId: workspace.id,
+          preAllocatedHandle,
+          tabId,
+          leafId,
+          ...(launchOpts.sessionId ? { sessionId: launchOpts.sessionId } : {}),
+          ...(persistHostSessionBinding ? { persistHostSessionBinding: true } : {}),
+          // Why: the grid transaction below must own both the binding and SSH
+          // lease; the PTY layer may validate identity but cannot flush early.
+          ...(gridLayout ? { deferHostSessionPersistence: true } : {}),
+          ...(requiresRendererCommit ? { deferRuntimeRegistration: true } : {})
+        })
+        spawnedPtyId = result.id
+        if (requiresRendererCommit && !result.runtimeRegistration) {
+          throw new Error('PTY controller did not provide a staged runtime registration')
+        }
+        if (requiresRendererCommit) {
+          if (!this.notifier?.revealTerminalSession) {
+            throw new Error('Terminal renderer attachment is unavailable')
+          }
+          // Why: this PTY is staged outside canonical runtime/session ownership;
+          // the renderer must bind this exact identity before persistence publishes it.
+          const revealed = await this.notifier.revealTerminalSession(workspace.id, {
+            ptyId: result.id,
+            ...(spawnedCommand ? { command: spawnedCommand } : {}),
+            title: launchOpts.title ?? null,
+            ...(cwd !== workspace.path ? { cwd } : {}),
+            ...(effectiveLaunchConfig ? { launchConfig: effectiveLaunchConfig } : {}),
+            ...(launchToken ? { launchToken } : {}),
+            ...(launchOpts.launchAgent ? { launchAgent: launchOpts.launchAgent } : {}),
+            ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+            activate: presentation === 'focused',
+            ...(presentation ? { presentation } : {}),
+            tabId,
+            leafId,
+            placement: 'orchestration-grid',
+            ...(orchestrationGridTarget
+              ? {
+                  splitFromLeafId: orchestrationGridTarget.sourceLeafId,
+                  splitSourceLeafIds: orchestrationGridTarget.sourceLeafIds,
+                  splitDirection:
+                    collectTerminalLayoutLeafIds(orchestrationGridTarget.layout.root).length %
+                      ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS ===
+                    0
+                      ? ('horizontal' as const)
+                      : ('vertical' as const)
+                }
+              : {})
+          })
+          if (revealed?.tabId !== tabId || revealed.leafId !== leafId) {
+            throw new Error('Terminal renderer attached an unexpected grid identity')
+          }
+          if (!revealed.layout || !gridLayout) {
+            throw new Error('Terminal renderer omitted the acknowledged grid layout')
+          }
+          committedGridLayout = this.mergeAcknowledgedOrchestrationGridLayout(
+            gridLayout,
+            revealed.layout,
+            leafId,
+            result.id
+          )
+          result.runtimeRegistration?.commit()
+          surface = presentation === 'background' ? 'background' : 'visible'
+        }
+        if (committedGridLayout) {
+          try {
+            if (this.store?.persistOrchestrationGridPtyBinding) {
+              this.store.persistOrchestrationGridPtyBinding({
+                hostId: executionHostId,
+                sshTargetId: workspace.connectionId,
+                worktreeId: workspace.id,
+                tabId,
+                leafId,
+                ptyId: result.id,
+                title: launchOpts.title ?? null,
+                startupCwd: cwd,
+                activate: presentation === 'focused',
+                layout: committedGridLayout
+              })
+              gridPersistedAtomically = true
+            } else if (this.store?.persistPtyBinding) {
+              // Why: narrow test/alternate stores may expose only the legacy
+              // binding primitive; production Store always takes the branch above.
+              this.store.persistPtyBinding({
+                hostId: executionHostId,
+                worktreeId: workspace.id,
+                tabId,
+                leafId,
+                ptyId: result.id,
+                startupCwd: cwd
+              })
+            }
+          } catch (error) {
+            console.error('[terminal-create] failed to persist orchestration grid:', error)
+            throw new Error(createTerminalSessionStateSaveFailureMessage())
+          }
+        }
+        if (!result.runtimeRegistration) {
+          this.registerPreAllocatedHandleForPty(result.id, preAllocatedHandle)
+          this.registerPty(result.id, workspace.id, workspace.connectionId)
+        }
+        const pty = this.getOrCreatePtyWorktreeRecord(result.id)
+        if (pty) {
+          if (launchOpts.title) {
+            const observedAt = this.nextTitleObservationSequence()
+            pty.title = launchOpts.title
+            pty.titleUpdatedAt = observedAt
+            this.setPtyManagementTitleFromObservedTitle(pty, launchOpts.title, observedAt)
+          } else {
+            pty.title = null
+            pty.titleUpdatedAt = null
+          }
+          pty.tabId = tabId
+          pty.paneKey = paneKey
+          pty.launchConfig = effectiveLaunchConfig
+            ? copySleepingAgentLaunchConfig(effectiveLaunchConfig)
+            : null
+          pty.launchToken = launchToken ?? null
+          pty.launchAgent = launchOpts.launchAgent ?? null
+        }
+        handle = pty ? this.issuePtyHandle(pty) : preAllocatedHandle
+        if (pty && launchOpts.deferMobileSessionPublish !== true) {
+          this.publishPtyBackedMobileSessionTerminal(workspace.id, pty, {
+            tabId,
+            leafId,
+            title: launchOpts.title ?? null,
+            activate: presentation === 'focused',
+            // Why: explicit background presentation may carry legacy activate
+            // metadata from an already-owned renderer pane; don't select it on mobile.
+            selectIfNoActiveTab: presentation !== 'background',
+            ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+            ...(cwd !== workspace.path ? { startupCwd: cwd } : {}),
+            ...(launchOpts.placement === 'orchestration-grid'
+              ? {
+                  orchestrationGrid: true,
+                  ...(orchestrationGridTarget && committedGridLayout
+                    ? { baseLayout: committedGridLayout }
+                    : {}),
+                  skipOrchestrationGridPersistence: gridPersistedAtomically
+                }
+              : {}),
+            ...(orchestrationGridTarget
+              ? {
+                  split: {
+                    splitFromLeafId: orchestrationGridTarget.sourceLeafId,
+                    direction:
+                      collectTerminalLayoutLeafIds(orchestrationGridTarget.layout.root).length %
+                        ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS ===
+                      0
+                        ? ('horizontal' as const)
+                        : ('vertical' as const)
+                  }
+                }
+              : {})
+          })
+        }
+        result.runtimeRegistration?.complete()
+      } catch (error) {
+        const cleanupErrors: unknown[] = []
+        let cleanupSucceeded = false
+        const hasRuntimeRegistrationReceipt = result?.runtimeRegistration !== undefined
+        if (result?.runtimeRegistration) {
+          for (let attempt = 0; attempt < 2 && !cleanupSucceeded; attempt += 1) {
+            try {
+              await result.runtimeRegistration.abort()
+              cleanupSucceeded = true
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError)
+            }
+          }
+        }
+        if (spawnedPtyId && !cleanupSucceeded) {
+          try {
+            const killAccepted = ptyController.kill(spawnedPtyId)
+            if (!hasRuntimeRegistrationReceipt) {
+              cleanupSucceeded = killAccepted
+            }
+            if (!killAccepted) {
+              cleanupErrors.push(new Error('PTY controller rejected staged rollback'))
+            }
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError)
+          }
+        }
+        if (!cleanupSucceeded && cleanupErrors.length > 0) {
+          const message = error instanceof Error ? error.message : String(error)
+          throw new AggregateError(
+            [error, ...cleanupErrors],
+            `${message}; staged PTY rollback failed`
+          )
+        }
+        throw error
+      }
+      if (handle === null || result === null) {
+        throw new Error('Terminal runtime registration did not produce a handle')
+      }
+      if (
+        !requiresRendererCommit &&
+        presentation !== 'background' &&
+        this.notifier?.revealTerminalSession
+      ) {
         try {
           // Why: after the PTY is spawned, renderer tab adoption is best-effort;
           // failing here must not strand a live process without returning a handle.
@@ -18157,7 +19009,20 @@ export class OrcaRuntimeService {
             activate: presentation === 'focused',
             ...(presentation ? { presentation } : {}),
             tabId,
-            leafId
+            leafId,
+            ...(launchOpts.placement ? { placement: launchOpts.placement } : {}),
+            ...(orchestrationGridTarget
+              ? {
+                  splitFromLeafId: orchestrationGridTarget.sourceLeafId,
+                  splitSourceLeafIds: orchestrationGridTarget.sourceLeafIds,
+                  splitDirection:
+                    collectTerminalLayoutLeafIds(orchestrationGridTarget.layout.root).length %
+                      ORCHESTRATION_TERMINAL_GRID_MAX_COLUMNS ===
+                    0
+                      ? ('horizontal' as const)
+                      : ('vertical' as const)
+                }
+              : {})
           })
           surface = 'visible'
         } catch (err) {
@@ -18184,7 +19049,8 @@ export class OrcaRuntimeService {
     // Why: mirrors browserTabCreate — when no worktree is specified, pass
     // undefined so the renderer uses its current active worktree.
     const workspace = worktreeSelector
-      ? await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
+      ? (resolvedGridWorkspace ??
+        (await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)))
       : null
     const launchOpts = workspace
       ? await this.resolveAgentTerminalCreateOptions(workspace, opts)
@@ -18198,49 +19064,56 @@ export class OrcaRuntimeService {
     // Why: terminal creation is a renderer-side Zustand store operation (like
     // browser tab creation). The main process sends a request, the renderer
     // creates the tab and replies with the tabId so we can resolve the handle.
-    const reply = await new Promise<{ tabId: string; title: string }>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        ipcMain.removeListener('terminal:tabCreateReply', handler)
-        reject(new Error('Terminal creation timed out'))
-      }, 10_000)
+    const reply = await new Promise<{ tabId: string; leafId?: string; title: string }>(
+      (resolve, reject) => {
+        const timer = setTimeout(() => {
+          ipcMain.removeListener('terminal:tabCreateReply', handler)
+          reject(new Error('Terminal creation timed out'))
+        }, 10_000)
 
-      const handler = (
-        event: Electron.IpcMainEvent,
-        r: { requestId: string; tabId?: string; title?: string; error?: string }
-      ): void => {
-        if (event.sender !== win.webContents || r.requestId !== requestId) {
-          return
+        const handler = (
+          event: Electron.IpcMainEvent,
+          r: { requestId: string; tabId?: string; leafId?: string; title?: string; error?: string }
+        ): void => {
+          if (event.sender !== win.webContents || r.requestId !== requestId) {
+            return
+          }
+          clearTimeout(timer)
+          ipcMain.removeListener('terminal:tabCreateReply', handler)
+          if (r.error) {
+            reject(new Error(r.error))
+          } else {
+            resolve({
+              tabId: r.tabId!,
+              ...(r.leafId ? { leafId: r.leafId } : {}),
+              title: r.title ?? launchOpts.title ?? ''
+            })
+          }
         }
-        clearTimeout(timer)
-        ipcMain.removeListener('terminal:tabCreateReply', handler)
-        if (r.error) {
-          reject(new Error(r.error))
-        } else {
-          resolve({ tabId: r.tabId!, title: r.title ?? launchOpts.title ?? '' })
-        }
+        ipcMain.on('terminal:tabCreateReply', handler)
+        win.webContents.send('terminal:requestTabCreate', {
+          requestId,
+          worktreeId,
+          command: launchOpts.command,
+          cwd,
+          ...(launchOpts.env ? { env: launchOpts.env } : {}),
+          ...(launchOpts.launchConfig ? { launchConfig: launchOpts.launchConfig } : {}),
+          ...(launchOpts.launchToken ? { launchToken: launchOpts.launchToken } : {}),
+          ...(launchOpts.launchAgent ? { launchAgent: launchOpts.launchAgent } : {}),
+          ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+          startupCommandDelivery: launchOpts.startupCommandDelivery,
+          title: launchOpts.title,
+          activate: presentation === 'focused',
+          ...(presentation ? { presentation } : {}),
+          ...(launchOpts.placement ? { placement: launchOpts.placement } : {})
+        })
       }
-      ipcMain.on('terminal:tabCreateReply', handler)
-      win.webContents.send('terminal:requestTabCreate', {
-        requestId,
-        worktreeId,
-        command: launchOpts.command,
-        cwd,
-        ...(launchOpts.env ? { env: launchOpts.env } : {}),
-        ...(launchOpts.launchConfig ? { launchConfig: launchOpts.launchConfig } : {}),
-        ...(launchOpts.launchToken ? { launchToken: launchOpts.launchToken } : {}),
-        ...(launchOpts.launchAgent ? { launchAgent: launchOpts.launchAgent } : {}),
-        ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
-        startupCommandDelivery: launchOpts.startupCommandDelivery,
-        title: launchOpts.title,
-        activate: presentation === 'focused',
-        ...(presentation ? { presentation } : {})
-      })
-    })
+    )
 
     // Why: the renderer created the tab immediately, but the graph sync that
     // populates this.leaves may not have arrived yet. Wait for the leaf to
     // appear so we can return a valid handle the caller can use right away.
-    const handle = await this.waitForTerminalHandle(reply.tabId)
+    const handle = await this.waitForTerminalHandle(reply.tabId, reply.leafId)
     return {
       handle,
       tabId: reply.tabId,
@@ -18889,8 +19762,12 @@ export class OrcaRuntimeService {
     )
   }
 
-  private waitForTerminalHandle(tabId: string, timeoutMs = 10_000): Promise<string> {
-    const existing = this.resolveHandleForTab(tabId)
+  private waitForTerminalHandle(
+    tabId: string,
+    leafId?: string,
+    timeoutMs = 10_000
+  ): Promise<string> {
+    const existing = this.resolveHandleForTab(tabId, leafId)
     if (existing) {
       return Promise.resolve(existing)
     }
@@ -18905,7 +19782,7 @@ export class OrcaRuntimeService {
       }, timeoutMs)
 
       const check = (): void => {
-        const handle = this.resolveHandleForTab(tabId)
+        const handle = this.resolveHandleForTab(tabId, leafId)
         if (handle) {
           clearTimeout(timer)
           const idx = this.graphSyncCallbacks.indexOf(check)
@@ -19004,9 +19881,9 @@ export class OrcaRuntimeService {
     return count
   }
 
-  private resolveHandleForTab(tabId: string): string | null {
+  private resolveHandleForTab(tabId: string, leafId?: string): string | null {
     for (const leaf of this.leaves.values()) {
-      if (leaf.tabId === tabId && leaf.ptyId !== null) {
+      if (leaf.tabId === tabId && (!leafId || leaf.leafId === leafId) && leaf.ptyId !== null) {
         return this.issueHandle(leaf)
       }
     }
@@ -19087,6 +19964,14 @@ export class OrcaRuntimeService {
     }
     this.assertGraphReady()
     const { leaf } = this.getLiveLeafForHandle(handle)
+    if (
+      this.tabs.get(leaf.tabId)?.layoutMode === 'orchestration-grid' ||
+      this.findOrchestrationGridTarget(leaf.worktreeId, leaf.tabId)
+    ) {
+      // Why: renderer-backed leaves bypass splitPtyBackedTerminal, but the
+      // maintained grid must enforce the same canonical-only mutation policy.
+      throw new Error('orchestration_grid_manual_split_unsupported')
+    }
     const direction = opts.direction ?? 'horizontal'
 
     // Why: snapshot current leaf keys for this tab so we can detect the new
@@ -19130,6 +20015,11 @@ export class OrcaRuntimeService {
     if (!parentTabId || !parsedPaneKey) {
       throw new Error('terminal_handle_stale')
     }
+    if (this.findOrchestrationGridTarget(pty.worktreeId, parentTabId)) {
+      // Why: a manual binary split would preserve the grid marker with
+      // noncanonical geometry; only grid-placement creates may mutate it.
+      throw new Error('orchestration_grid_manual_split_unsupported')
+    }
     const direction = opts.direction ?? 'horizontal'
     const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${pty.worktreeId}`)
     const leafId = randomUUID()
@@ -19150,10 +20040,6 @@ export class OrcaRuntimeService {
     this.registerPreAllocatedHandleForPty(result.id, preAllocatedHandle)
     this.registerPty(result.id, workspace.id, workspace.connectionId)
     const createdPty = this.getOrCreatePtyWorktreeRecord(result.id)
-    if (createdPty) {
-      createdPty.tabId = parentTabId
-      createdPty.paneKey = paneKey
-    }
 
     try {
       await this.notifier?.revealTerminalSession?.(workspace.id, {
@@ -19171,6 +20057,10 @@ export class OrcaRuntimeService {
       throw error
     }
     if (createdPty) {
+      // Why: renderer acknowledgement is the ownership commit point; publishing
+      // these keys earlier lets failed splits masquerade as adopted live leaves.
+      createdPty.tabId = parentTabId
+      createdPty.paneKey = paneKey
       this.publishPtyBackedMobileSessionTerminal(workspace.id, createdPty, {
         tabId: parentTabId,
         leafId,
@@ -19181,6 +20071,7 @@ export class OrcaRuntimeService {
       // Why: persist the split into the workspace session so a later snapshot
       // rebuild keeps it instead of collapsing back to a single pane.
       this.persistHeadlessTerminalSplit({
+        worktreeId: workspace.id,
         tabId: parentTabId,
         leafId,
         ptyId: createdPty.ptyId,
@@ -19505,6 +20396,31 @@ export class OrcaRuntimeService {
     if (this.graphStatus !== 'ready' || this.rendererGraphEpoch !== expectedGraphEpoch) {
       throw new Error('runtime_unavailable')
     }
+  }
+
+  private getTerminalWorkspaceExecutionHostId(
+    workspace: TerminalWorkspaceLaunchScope
+  ): ExecutionHostId {
+    if (workspace.repo) {
+      return getRepoExecutionHostId(workspace.repo)
+    }
+    return workspace.connectionId
+      ? toSshExecutionHostId(workspace.connectionId)
+      : LOCAL_EXECUTION_HOST_ID
+  }
+
+  private getWorkspaceExecutionHostId(worktreeId: string): ExecutionHostId {
+    const workspace = parseWorkspaceKey(worktreeId)
+    if (workspace?.type === 'folder') {
+      const folder = this.store
+        ?.getFolderWorkspaces?.()
+        .find((candidate) => candidate.id === workspace.folderWorkspaceId)
+      const connectionId = folder ? this.resolveFolderWorkspaceConnectionId(folder) : null
+      return connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
+    }
+    const repoId = splitWorktreeId(worktreeId)?.repoId ?? worktreeId
+    const repo = this.store?.getRepo(repoId)
+    return repo ? getRepoExecutionHostId(repo) : LOCAL_EXECUTION_HOST_ID
   }
 
   private resolveFolderWorkspaceConnectionId(workspace: FolderWorkspace): string | null {
