@@ -3957,13 +3957,19 @@ export function registerPtyHandlers(
           launchConfig: args.launchConfig
         })
       let effectiveLaunchConfig = args.launchConfig
+      const rendererTerminalHandle =
+        runtime?.claimRendererTerminalHandle(baseEnv?.ORCA_TERMINAL_HANDLE) ?? null
       const shouldPreAllocateTerminalHandle =
-        runtime !== undefined &&
-        ((!(provider instanceof LocalPtyProvider) && !routesFreshSpawnsToLocalProvider(provider)) ||
-          shouldRefreshAgentTeamsEnv)
-      const preAllocatedHandle = shouldPreAllocateTerminalHandle
-        ? runtime.createPreAllocatedTerminalHandle()
-        : null
+        rendererTerminalHandle !== null ||
+        (runtime !== undefined &&
+          ((!(provider instanceof LocalPtyProvider) &&
+            !routesFreshSpawnsToLocalProvider(provider)) ||
+            shouldRefreshAgentTeamsEnv))
+      const preAllocatedHandle =
+        rendererTerminalHandle ??
+        (runtime && shouldPreAllocateTerminalHandle
+          ? runtime.createPreAllocatedTerminalHandle()
+          : null)
       if (shouldRefreshAgentTeamsEnv && preAllocatedHandle) {
         // Why: native Agent Teams team ids/tokens are process-local. A sleeping
         // record preserves the user's native launch shape, but the team env

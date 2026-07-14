@@ -2278,10 +2278,15 @@ export function useIpcEvents(): void {
           if (data.title && !existingGridTab) {
             store.setTabCustomTitle(tab.id, data.title, { recordInteraction: false })
           }
-          if (data.command && !existingGridTab) {
+          if ((data.command || data.terminalHandle) && !existingGridTab) {
+            // Why: the first renderer-owned grid pane must spawn with the handle
+            // already returned to its runtime caller and exported to the child.
+            const startupEnv = data.terminalHandle
+              ? { ...data.env, ORCA_TERMINAL_HANDLE: data.terminalHandle }
+              : data.env
             store.queueTabStartupCommand(tab.id, {
-              command: data.command,
-              ...(data.env ? { env: data.env } : {}),
+              command: data.command ?? '',
+              ...(startupEnv ? { env: startupEnv } : {}),
               ...(data.launchConfig ? { launchConfig: data.launchConfig } : {}),
               ...(data.launchToken ? { launchToken: data.launchToken } : {}),
               ...(data.launchAgent ? { launchAgent: data.launchAgent } : {}),
