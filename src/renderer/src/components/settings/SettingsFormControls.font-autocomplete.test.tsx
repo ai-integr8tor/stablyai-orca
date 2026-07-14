@@ -188,6 +188,34 @@ describe('FontAutocomplete', () => {
     expect(getOptionLabels()).toEqual(['JetBrains Mono'])
   })
 
+  it('shows all installed fonts after committing a custom value with Enter', async () => {
+    function Harness(): ReactNode {
+      const [value, setValue] = useState('Geist')
+      return (
+        <FontAutocomplete
+          value={value}
+          suggestions={['Arial', 'Geist', 'JetBrains Mono']}
+          onChange={setValue}
+          onCommit={vi.fn()}
+        />
+      )
+    }
+
+    await act(async () => root.render(<Harness />))
+
+    const input = getInput()
+    await act(async () => input.focus())
+    await typeIntoInput(input, 'Custom CJK Font')
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    )
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    )
+
+    expect(getOptionLabels()).toEqual(['Arial', 'Geist', 'JetBrains Mono'])
+  })
+
   it('requests installed suggestions only after the picker is used', async () => {
     const requestSuggestions = vi.fn()
 

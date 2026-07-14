@@ -6658,7 +6658,8 @@
           "e90afcc44f": "关",
           "16c471ee03": "开",
           "typographyAdvanced": "排版",
-          "dimUnfocusedPanes": "调暗未聚焦的窗格。"
+          "dimUnfocusedPanes": "调暗未聚焦的窗格。",
+          "13b09da243": "后备字体"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "像素",
@@ -8463,7 +8464,10 @@
               "title": "主题模式",
               "keyword_target": "目标",
               "keyword_editing": "编辑"
-            }
+            },
+            "3f2a94a78d": "后备字体",
+            "a113f6ead3": "主字体缺少某个字形时，按指定顺序使用这些字体。Orca 默认字体仍位于字体栈末尾。",
+            "ceecc7e492": "后备 字体栈 多语言"
           },
           "windows": {
             "search": {
@@ -9036,6 +9040,17 @@
         "TerminalInteractionSection": {
           "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
           "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
+        },
+        "TerminalFontFallbackSetting": {
+          "212953bee6": "终端后备字体",
+          "36f45a7277": "上移",
+          "5adea09881": "下移",
+          "7c2c7906a8": "移除后备字体",
+          "a47b16e7af": "添加字体",
+          "14e6f886f2": "添加",
+          "ff79a93a0d": "后备字体",
+          "5674a5b618": "新的后备字体",
+          "f78f446a8d": "最多可添加 32 个后备字体。"
         }
       },
       "right": {

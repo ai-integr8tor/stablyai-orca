@@ -6695,7 +6695,8 @@
           "e90afcc44f": "オフ",
           "16c471ee03": "オン",
           "typographyAdvanced": "タイポグラフィ",
-          "dimUnfocusedPanes": "フォーカスされていないペインを暗くします。"
+          "dimUnfocusedPanes": "フォーカスされていないペインを暗くします。",
+          "13b09da243": "フォールバックフォント"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "ピクセル",
@@ -8500,7 +8501,10 @@
               "title": "テーマモード",
               "keyword_target": "対象",
               "keyword_editing": "編集"
-            }
+            },
+            "3f2a94a78d": "フォールバックフォント",
+            "a113f6ead3": "優先フォントにグリフがない場合に、指定順で使用するフォントです。Orca の既定フォントはスタックの末尾に残ります。",
+            "ceecc7e492": "フォールバック スタック 多言語"
           },
           "windows": {
             "search": {
@@ -9036,6 +9040,17 @@
         "TerminalInteractionSection": {
           "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
           "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
+        },
+        "TerminalFontFallbackSetting": {
+          "212953bee6": "ターミナルのフォールバックフォント",
+          "36f45a7277": "上へ移動",
+          "5adea09881": "下へ移動",
+          "7c2c7906a8": "フォールバックを削除",
+          "a47b16e7af": "フォントを追加",
+          "14e6f886f2": "追加",
+          "ff79a93a0d": "フォールバックフォント",
+          "5674a5b618": "新しいフォールバックフォント",
+          "f78f446a8d": "フォールバックフォントは最大32個です。"
         }
       },
       "right": {
