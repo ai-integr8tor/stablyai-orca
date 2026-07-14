@@ -200,6 +200,59 @@ describe('getRelayShellLaunchConfig', () => {
     }
   )
 
+  // Why: presence alone is not enough — agents must resolve `orca` to the
+  // relay shim even when a host-installed Orca CLI sits earlier in PATH (#8608).
+  itWithBash('re-fronts the relay CLI bin dir when user startup files bury it in PATH', () => {
+    const relayBinDir = join(homeDir, '.orca-relay', 'bin')
+    mkdirSync(relayBinDir, { recursive: true })
+    writeFileSync(
+      join(homeDir, '.bash_profile'),
+      `export PATH="/usr/local/bin:$PATH:${relayBinDir}"\n`
+    )
+    const config = getRelayShellLaunchConfig('/bin/bash', {
+      HOME: homeDir,
+      ORCA_REMOTE_CLI_BIN_DIR: relayBinDir
+    })
+
+    const result = spawnSync(
+      'bash',
+      ['-lc', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', config.args[1] as string],
+      {
+        input:
+          'case "$PATH" in "$ORCA_REMOTE_CLI_BIN_DIR":*) echo PATH_FRONT_OK ;; *) echo PATH_FRONT_BAD ;; esac\nexit 0\n',
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: homeDir,
+          ORCA_REMOTE_CLI_BIN_DIR: relayBinDir,
+          TERM: process.env.TERM || 'xterm'
+        },
+        timeout: 5000
+      }
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('PATH_FRONT_OK')
+    expect(result.stdout).not.toContain('PATH_FRONT_BAD')
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'promotes the relay CLI bin dir to the PATH front in zsh wrapper files',
+    () => {
+      getRelayShellLaunchConfig('/bin/zsh', {
+        HOME: homeDir,
+        ORCA_REMOTE_CLI_BIN_DIR: '/home/user/.orca-relay/bin'
+      })
+      const zshRoot = join(homeDir, '.orca-relay', 'shell-ready', 'zsh')
+      const frontGuard =
+        'case "$PATH" in "${ORCA_REMOTE_CLI_BIN_DIR}"|"${ORCA_REMOTE_CLI_BIN_DIR}":*) ;; *) export PATH="${ORCA_REMOTE_CLI_BIN_DIR}:$PATH" ;; esac'
+
+      expect(readFileSync(join(zshRoot, '.zshrc'), 'utf8')).toContain(frontGuard)
+      expect(readFileSync(join(zshRoot, '.zlogin'), 'utf8')).toContain(frontGuard)
+    }
+  )
+
   itWithBash('runs the relay bash wrapper without fake C/D markers before the first prompt', () => {
     const config = getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })
     const output = runInteractiveBashRcfile(config.args[1] as string, homeDir)

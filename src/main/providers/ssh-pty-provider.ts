@@ -184,12 +184,16 @@ export class SshPtyProvider implements IPtyProvider {
       const pathDelimiter = this.remoteCliBridgeEnv.pathDelimiter ?? ':'
       const pathKey = merged.PATH !== undefined ? 'PATH' : merged.Path !== undefined ? 'Path' : null
       if (pathKey) {
+        // Why: the bin dir must be first, not merely present — agents resolve
+        // `orca` by PATH order, and a host-installed Orca CLI earlier in PATH
+        // silently routes worker lifecycle calls to the wrong runtime (#8608).
+        const binDir = this.remoteCliBridgeEnv.binDir
         const pathValue = merged[pathKey] ?? ''
-        merged[pathKey] = pathValue.split(pathDelimiter).includes(this.remoteCliBridgeEnv.binDir)
-          ? pathValue
-          : pathValue
-            ? `${this.remoteCliBridgeEnv.binDir}${pathDelimiter}${pathValue}`
-            : this.remoteCliBridgeEnv.binDir
+        const segments = pathValue ? pathValue.split(pathDelimiter) : []
+        merged[pathKey] =
+          segments[0] === binDir
+            ? pathValue
+            : [binDir, ...segments.filter((segment) => segment !== binDir)].join(pathDelimiter)
       }
       merged.ORCA_REMOTE_CLI_BIN_DIR = this.remoteCliBridgeEnv.binDir
       merged.ORCA_RELAY_DIR = this.remoteCliBridgeEnv.relayDir
