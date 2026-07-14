@@ -17,6 +17,7 @@ import { Button } from '../ui/button'
 import { useAppStore } from '../../store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { getRepositorySourceControlAiSectionId } from './repository-settings-targets'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { RepositorySourceControlAiActionRows } from './RepositorySourceControlAiActionRows'
 import { RepositorySourceControlAiCustomCommand } from './RepositorySourceControlAiCustomCommand'
 import { RepositorySourceControlAiEnablement } from './RepositorySourceControlAiEnablement'
@@ -318,8 +319,11 @@ export function RepositorySourceControlAiSection({
 
   return (
     <section
-      id={getRepositorySourceControlAiSectionId(repo.id)}
-      data-settings-section={getRepositorySourceControlAiSectionId(repo.id)}
+      id={getRepositorySourceControlAiSectionId(repo.id, getRepoExecutionHostId(repo))}
+      data-settings-section={getRepositorySourceControlAiSectionId(
+        repo.id,
+        getRepoExecutionHostId(repo)
+      )}
       className="space-y-4"
     >
       <div className="flex items-start justify-between gap-4">
@@ -391,6 +395,7 @@ export function RepositorySourceControlAiSection({
       />
       <RepositorySourceControlAiActionRows
         repoId={repo.id}
+        repoHostId={getRepoExecutionHostId(repo)}
         repoAi={repoAi}
         source={source}
         defaultTuiAgent={settings?.defaultTuiAgent}

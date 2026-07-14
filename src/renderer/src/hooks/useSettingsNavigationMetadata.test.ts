@@ -63,6 +63,25 @@ describe('settings navigation metadata', () => {
     ])
   })
 
+  it('gives same-id repositories on local and remote hosts distinct section ids', () => {
+    const remoteDuplicate = {
+      ...repo,
+      path: '/remote/repo',
+      executionHostId: 'runtime:home-mac'
+    } satisfies Repo
+    const sections = buildSettingsNavigationMetadata({
+      isMac: true,
+      isWindows: false,
+      isWebClient: false,
+      repos: [repo, remoteDuplicate]
+    }).filter((section) => section.group === 'repositories')
+
+    expect(sections.map((section) => section.id)).toEqual([
+      'repo-repo-1',
+      'repo-runtime%3Ahome-mac:repo-1'
+    ])
+  })
+
   it('keeps desktop-only Settings panes out of web metadata', () => {
     const webIds = ids({ isWebClient: true })
 

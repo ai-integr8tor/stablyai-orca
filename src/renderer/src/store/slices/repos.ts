@@ -1497,7 +1497,12 @@ export type RepoSlice = {
   // id exists on multiple hosts; without it the focused host is assumed.
   removeProject: (projectId: string, options?: { hostId?: ExecutionHostId }) => Promise<void>
   updateProject: (projectId: string, updates: ProjectUpdate) => Promise<boolean>
-  updateRepo: (projectId: string, updates: RepoUpdate) => Promise<boolean>
+  // options.hostId disambiguates settings writes when the same repo id exists on multiple hosts.
+  updateRepo: (
+    projectId: string,
+    updates: RepoUpdate,
+    options?: { hostId?: ExecutionHostId }
+  ) => Promise<boolean>
   setActiveRepo: (projectId: string | null) => void
   reorderRepos: (orderedIds: string[]) => Promise<void>
 }
@@ -2978,16 +2983,19 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
   },
 
-  updateRepo: async (projectId, updates) => {
+  updateRepo: async (projectId, updates, options) => {
     const updateRepoChains = getRepoUpdateChains(get)
-    const ownerRepo = findRepoForHost(get().repos, projectId, { settings: get().settings })
+    const ownerRepo = findRepoForHost(get().repos, projectId, {
+      hostId: options?.hostId,
+      settings: get().settings
+    })
     if (!ownerRepo) {
       return false
     }
     const ownerHasExplicitHost = Boolean(
-      ownerRepo.executionHostId?.trim() || ownerRepo.connectionId?.trim()
+      options?.hostId || ownerRepo.executionHostId?.trim() || ownerRepo.connectionId?.trim()
     )
-    const explicitOwnerHostId = getRepoExecutionHostId(ownerRepo)
+    const explicitOwnerHostId = options?.hostId ?? getRepoExecutionHostId(ownerRepo)
     const ownerTarget = ownerHasExplicitHost
       ? getProjectSetupRuntimeTarget(explicitOwnerHostId)
       : getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))

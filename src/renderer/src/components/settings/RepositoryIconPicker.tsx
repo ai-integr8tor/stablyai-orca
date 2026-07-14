@@ -34,7 +34,7 @@ export function RepositoryIconPicker({
   // Why: resolve this repo's upstream/avatar on the host that owns it, not the
   // focused runtime.
   const activeRuntimeEnvironmentId = useAppStore((state) =>
-    getRuntimeEnvironmentIdForRepo(state, repo.id)
+    getRuntimeEnvironmentIdForRepo({ repos: [repo], settings: state.settings }, repo.id)
   )
   const selectedLucideName = repo.repoIcon?.type === 'lucide' ? repo.repoIcon.name : null
   const selectedEmoji = repo.repoIcon?.type === 'emoji' ? repo.repoIcon.emoji : ''

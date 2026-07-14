@@ -21,6 +21,7 @@ import { readRuntimeIssueCommand, writeRuntimeIssueCommand } from '@/runtime/run
 import { DEFAULT_REPO_HOOK_SETTINGS } from './SettingsConstants'
 import { resolveHookCommandSourcePolicy } from '../../../../shared/hook-command-source-policy'
 import { getRepositoryLocalCommandsSectionId } from './repository-settings-targets'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { matchesSettingsSearch } from './settings-search'
 import { translate } from '@/i18n/i18n'
 import { getRepositoryHookScriptTextareaRows } from '@/lib/script-textarea-rows'
@@ -1032,7 +1033,7 @@ export function RepositoryHooksSection({
           sharedScript={sharedSetupScript}
           onChange={(next) => updateScriptDraft('setup', next)}
           onCommit={commitScriptDraft}
-          sectionId={getRepositoryLocalCommandsSectionId(repo.id)}
+          sectionId={getRepositoryLocalCommandsSectionId(repo.id, getRepoExecutionHostId(repo))}
         />
       </SearchableSetting>
 

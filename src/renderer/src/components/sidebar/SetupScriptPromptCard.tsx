@@ -14,11 +14,12 @@ import {
 } from '@/lib/setup-script-prompt'
 import { checkRuntimeHooks, inspectRuntimeSetupScriptImports } from '@/runtime/runtime-hooks-client'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import type { SetupScriptImportCandidate } from '../../../../shared/setup-script-imports'
 import { buildSetupScriptPromptActionTelemetry } from '../../../../shared/setup-script-telemetry'
 import { SetupScriptPromptCardShell } from './SetupScriptPromptCardShell'
 import { showSavedInProjectSettingsToast } from './SetupScriptPromptToast'
-import { openSetupScriptSettings } from './open-setup-script-settings'
+import { findSetupScriptSettingsRepo, openSetupScriptSettings } from './open-setup-script-settings'
 import { trackSetupScriptPromptExposure } from './setup-script-prompt-exposure-telemetry'
 import {
   getRenderedSetupScriptPromptState,
@@ -77,7 +78,7 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
     async function inspectRepoSetup(): Promise<void> {
       const nextState = await inspectSetupScriptPromptState({
         repo,
-        checkHooks: () => checkRuntimeHooks(settings, repo.id),
+        checkHooks: () => checkRuntimeHooks(settings, repo.id, getRepoExecutionHostId(repo)),
         inspectImports: () => inspectRuntimeSetupScriptImports(settings, repo.id)
       })
       if (!cancelled) {
@@ -98,15 +99,20 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
   }, [activeRepo, inspectionRetryKey, isDismissed, settings, sidebarOpen])
 
   const openLocalCommandSettings = useCallback(
-    (repoId: string) => {
+    (repoId: string, repoHostId: ExecutionHostId) => {
+      const savedRepo = findSetupScriptSettingsRepo(repos, repoId, repoHostId)
+      if (!savedRepo) {
+        return
+      }
       openSetupScriptSettings({
-        repoId,
+        repoId: savedRepo.id,
+        repoHostId: getRepoExecutionHostId(savedRepo),
         setSettingsSearchQuery,
         openSettingsTarget,
         openSettingsPage
       })
     },
-    [openSettingsPage, openSettingsTarget, setSettingsSearchQuery]
+    [openSettingsPage, openSettingsTarget, repos, setSettingsSearchQuery]
   )
 
   const handleRetryInspection = useCallback(() => {
@@ -151,7 +157,7 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
         })
       )
     }
-    openLocalCommandSettings(activeRepo.id)
+    openLocalCommandSettings(activeRepo.id, getRepoExecutionHostId(activeRepo))
   }, [activeRepo, openLocalCommandSettings, promptState])
 
   const handleDismiss = useCallback(() => {
@@ -188,8 +194,13 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
       setIsImporting(true)
       try {
         const importedRepoId = activeRepo.id
+        const importedRepoHostId = getRepoExecutionHostId(activeRepo)
         const nextSettings = buildImportedHookSettings(activeRepo, candidate, hasSharedHooks)
-        const didUpdate = await updateRepo(activeRepo.id, { hookSettings: nextSettings })
+        const didUpdate = await updateRepo(
+          activeRepo.id,
+          { hookSettings: nextSettings },
+          { hostId: importedRepoHostId }
+        )
         if (!didUpdate) {
           track(
             'setup_script_prompt_action',
@@ -233,7 +244,7 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
                 : current
             )
             showSavedInProjectSettingsToast({
-              onOpenSettings: () => openLocalCommandSettings(importedRepoId),
+              onOpenSettings: () => openLocalCommandSettings(importedRepoId, importedRepoHostId),
               description: translate(
                 'auto.components.sidebar.SetupScriptPromptCard.a49196d538',
                 'Runs when Orca creates a new worktree.'
@@ -250,7 +261,7 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
           )
           const skippedCount = candidate.unsupportedFields?.length ?? 0
           showSavedInProjectSettingsToast({
-            onOpenSettings: () => openLocalCommandSettings(importedRepoId),
+            onOpenSettings: () => openLocalCommandSettings(importedRepoId, importedRepoHostId),
             description:
               skippedCount > 0
                 ? `${skippedCount} unsupported field${skippedCount === 1 ? '' : 's'} skipped. Saved the setup command.`

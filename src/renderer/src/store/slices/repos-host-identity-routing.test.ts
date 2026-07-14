@@ -112,6 +112,61 @@ describe('repo slice host identity routing', () => {
     })
   })
 
+  it('updates an explicitly selected host row instead of the focused duplicate', async () => {
+    runtimeEnvironmentCall.mockResolvedValue({
+      id: 'rpc-explicit-update',
+      ok: true,
+      result: { repo: { ...remoteDuplicate, displayName: 'Remote Explicit' } },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: null } as never,
+      repos: [localDuplicate, remoteDuplicate]
+    })
+
+    await store
+      .getState()
+      .updateRepo('same-repo', { displayName: 'Remote Explicit' }, { hostId: 'runtime:env-1' })
+
+    expect(store.getState().repos).toEqual([
+      localDuplicate,
+      { ...remoteDuplicate, displayName: 'Remote Explicit' }
+    ])
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
+      selector: 'env-1',
+      method: 'repo.update',
+      params: { repo: 'same-repo', updates: { displayName: 'Remote Explicit' } },
+      timeoutMs: 15_000
+    })
+  })
+
+  it('keeps an explicitly selected legacy local row local while a runtime is focused', async () => {
+    const { executionHostId: _executionHostId, ...legacyLocalDuplicate } = localDuplicate
+    reposUpdate.mockResolvedValue(undefined)
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      repos: [legacyLocalDuplicate as Repo, remoteDuplicate]
+    })
+
+    await store
+      .getState()
+      .updateRepo('same-repo', { displayName: 'Local Explicit' }, { hostId: 'local' })
+
+    expect(reposUpdate).toHaveBeenCalledWith({
+      repoId: 'same-repo',
+      updates: { displayName: 'Local Explicit' }
+    })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'repo.update' })
+    )
+    expect(store.getState().repos).toEqual([
+      { ...legacyLocalDuplicate, displayName: 'Local Explicit' },
+      remoteDuplicate
+    ])
+  })
+
   it('updates a legacy local duplicate without overwriting an explicit remote sibling', async () => {
     const { executionHostId: _executionHostId, ...legacyLocalDuplicate } = localDuplicate
     reposUpdate.mockResolvedValue(undefined)

@@ -78,6 +78,7 @@ import {
 } from '@/lib/windows-terminal-capabilities'
 import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { translate } from '@/i18n/i18n'
+import { getRepositorySettingsSectionId } from '@/lib/repository-settings-section-id'
 
 export { isWebClientLocation } from '@/lib/web-client-location'
 
@@ -538,7 +539,7 @@ export function buildSettingsNavigationMetadata({
       group: 'experimental'
     },
     ...repos.map((repo) => ({
-      id: `repo-${repo.id}`,
+      id: getRepositorySettingsSectionId(repo),
       title: repo.displayName,
       description: `${getRepoKindLabel(repo)} • ${repo.path}`,
       icon: SlidersHorizontal,

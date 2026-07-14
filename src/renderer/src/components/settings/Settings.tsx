@@ -29,7 +29,13 @@ import {
   mergeFontSuggestions
 } from './SettingsConstants'
 import { DEFAULT_APP_FONT_FAMILY, getDefaultVoiceSettings } from '../../../../shared/constants'
-import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import {
+  getExecutionHostLabel,
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  parseExecutionHostId,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import { GeneralPane } from './GeneralPane'
 import { BrowserPane } from './BrowserPane'
 import { AppearancePane } from './AppearancePane'
@@ -97,13 +103,19 @@ import {
 } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
 import {
-  deriveNeededRepoIds,
   deriveNeededSectionIds,
   getInitialMountedSectionIds,
   getRuntimeTargetIdentity
 } from './settings-load-performance'
 import { translate } from '@/i18n/i18n'
 import { getProjectHostSetupProjectionFromState } from '../../store/selectors'
+import { buildExecutionHostRegistry } from '../../../../shared/execution-host-registry'
+import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
+import {
+  findRepoForSettingsSection,
+  getRepositorySettingsSectionId,
+  getRepositorySettingsSectionIdForHost
+} from '@/lib/repository-settings-section-id'
 
 const DevToolsPane = import.meta.env.DEV
   ? lazy(() => import('./DevToolsPane').then((module) => ({ default: module.DevToolsPane })))
@@ -157,9 +169,13 @@ const SETTINGS_NAV_GROUP_BY_ID = new Map<string, SettingsNavGroupDefinition>(
 const SHORTCUTS_ESCAPE_CONFIRM_TOAST_ID = 'shortcuts-escape-confirm'
 const SHORTCUTS_ESCAPE_CONFIRM_WINDOW_MS = 2200
 
-function getSettingsSectionId(pane: SettingsNavTarget, repoId: string | null): string {
+function getSettingsSectionId(
+  pane: SettingsNavTarget,
+  repoId: string | null,
+  repoHostId?: ExecutionHostId
+): string {
   if (pane === 'repo' && repoId) {
-    return `repo-${repoId}`
+    return repoHostId ? getRepositorySettingsSectionIdForHost(repoId, repoHostId) : `repo-${repoId}`
   }
   return pane
 }
@@ -278,6 +294,10 @@ function Settings(): React.JSX.Element {
   const repos = useAppStore((s) => s.repos)
   const projects = useAppStore((s) => s.projects)
   const projectHostSetups = useAppStore((s) => s.projectHostSetups)
+  const sshTargetLabels = useAppStore((s) => s.sshTargetLabels)
+  const sshConnectionStates = useAppStore((s) => s.sshConnectionStates)
+  const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
+  const runtimeStatusByEnvironmentId = useAppStore((s) => s.runtimeStatusByEnvironmentId)
   const updateProject = useAppStore((s) => s.updateProject)
   const updateRepo = useAppStore((s) => s.updateRepo)
   const removeProject = useAppStore((s) => s.removeProject)
@@ -615,7 +635,8 @@ function Settings(): React.JSX.Element {
 
     const paneSectionId = getSettingsSectionId(
       settingsNavigationTarget.pane as SettingsNavTarget,
-      settingsNavigationTarget.repoId
+      settingsNavigationTarget.repoId,
+      settingsNavigationTarget.repoHostId
     )
     pendingNavSectionRef.current = paneSectionId
     pendingScrollTargetRef.current = settingsNavigationTarget.sectionId ?? paneSectionId
@@ -743,6 +764,25 @@ function Settings(): React.JSX.Element {
     () => new Set(visibleNavSections.map((section) => section.id)),
     [visibleNavSections]
   )
+  const executionHostLabelById = useMemo(() => {
+    const entries = buildExecutionHostRegistry({
+      repos,
+      settings,
+      sshTargetLabels,
+      sshConnectionStates,
+      runtimeEnvironments,
+      runtimeStatusByEnvironmentId,
+      hostLabelOverrides: getHostDisplayLabelOverrides(settings)
+    })
+    return new Map(entries.map((entry) => [entry.id, entry.label]))
+  }, [
+    repos,
+    runtimeEnvironments,
+    runtimeStatusByEnvironmentId,
+    settings,
+    sshConnectionStates,
+    sshTargetLabels
+  ])
   const projectByRepoId = useMemo(() => {
     const projection = getProjectHostSetupProjectionFromState({
       repos,
@@ -805,16 +845,16 @@ function Settings(): React.JSX.Element {
     setMountedSectionIds(neededSectionIds)
   }
 
-  const neededRepoIds = useMemo(
-    () => deriveNeededRepoIds(repos, neededSectionIds),
+  const neededRepos = useMemo(
+    () => repos.filter((repo) => neededSectionIds.has(getRepositorySettingsSectionId(repo))),
     [neededSectionIds, repos]
   )
 
   useEffect(() => {
-    const repoIdSet = new Set(repos.map((repo) => repo.id))
+    const repoSectionIds = new Set(repos.map(getRepositorySettingsSectionId))
     setRepoHooksMap((previous) => {
       const next = Object.fromEntries(
-        Object.entries(previous).filter(([repoId]) => repoIdSet.has(repoId))
+        Object.entries(previous).filter(([sectionId]) => repoSectionIds.has(sectionId))
       ) as Record<string, { hasHooks: boolean; hooks: OrcaHooks | null; mayNeedUpdate: boolean }>
       return Object.keys(next).length === Object.keys(previous).length ? previous : next
     })
@@ -829,47 +869,47 @@ function Settings(): React.JSX.Element {
   }, [runtimeTargetIdentity])
 
   useEffect(() => {
-    if (neededRepoIds.length === 0) {
+    if (neededRepos.length === 0) {
       return
     }
 
     let stale = false
     const requestSeq = ++repoHooksRequestSeqRef.current
-    const repoById = new Map(repos.map((repo) => [repo.id, repo] as const))
 
     void Promise.all(
-      neededRepoIds.map(async (repoId) => {
-        const repo = repoById.get(repoId)
-        if (!repo) {
-          return
-        }
+      neededRepos.map(async (repo) => {
+        const sectionId = getRepositorySettingsSectionId(repo)
         if (isFolderRepo(repo)) {
           setRepoHooksMap((previous) => {
-            if (previous[repoId]) {
+            if (previous[sectionId]) {
               return previous
             }
             return {
               ...previous,
-              [repoId]: { hasHooks: false, hooks: null, mayNeedUpdate: false }
+              [sectionId]: { hasHooks: false, hooks: null, mayNeedUpdate: false }
             }
           })
           return
         }
+        const repoHostId = getRepoExecutionHostId(repo)
+        const parsedHost = parseExecutionHostId(repoHostId)
         try {
           const result = await checkRuntimeHooks(
-            runtimeTargetIdentity === 'local'
-              ? { activeRuntimeEnvironmentId: null }
-              : { activeRuntimeEnvironmentId: runtimeTargetIdentity },
-            repoId
+            {
+              activeRuntimeEnvironmentId:
+                parsedHost?.kind === 'runtime' ? parsedHost.environmentId : null
+            },
+            repo.id,
+            repoHostId
           )
           if (stale || requestSeq !== repoHooksRequestSeqRef.current) {
             return
           }
           setRepoHooksMap((previous) => {
-            if (!repos.some((entry) => entry.id === repoId)) {
+            if (!repos.some((entry) => getRepositorySettingsSectionId(entry) === sectionId)) {
               return previous
             }
-            return { ...previous, [repoId]: result }
+            return { ...previous, [sectionId]: result }
           })
         } catch {
           // Keep last known value on transient failures.
@@ -877,15 +917,15 @@ function Settings(): React.JSX.Element {
             return
           }
           setRepoHooksMap((previous) => {
-            if (!repos.some((entry) => entry.id === repoId)) {
+            if (!repos.some((entry) => getRepositorySettingsSectionId(entry) === sectionId)) {
               return previous
             }
-            if (previous[repoId]) {
+            if (previous[sectionId]) {
               return previous
             }
             return {
               ...previous,
-              [repoId]: { hasHooks: false, hooks: null, mayNeedUpdate: false }
+              [sectionId]: { hasHooks: false, hooks: null, mayNeedUpdate: false }
             }
           })
         }
@@ -895,7 +935,7 @@ function Settings(): React.JSX.Element {
     return () => {
       stale = true
     }
-  }, [neededRepoIds, repos, runtimeTargetIdentity])
+  }, [neededRepos, repos])
 
   useEffect(() => {
     const scrollTargetId = pendingScrollTargetRef.current
@@ -1050,11 +1090,16 @@ function Settings(): React.JSX.Element {
   const repoNavSections = visibleNavSections
     .filter((section) => section.id.startsWith('repo-'))
     .map((section) => {
-      const repo = repos.find((entry) => entry.id === section.id.replace('repo-', ''))
+      const repo = findRepoForSettingsSection(repos, section.id)
+      const hostId = repo ? getRepoExecutionHostId(repo) : null
+      const parsedHost = parseExecutionHostId(hostId)
       return {
         ...section,
         badgeColor: repo?.badgeColor,
-        isRemote: !!repo?.connectionId,
+        hostLabel:
+          parsedHost && parsedHost.kind !== 'local' && hostId
+            ? (executionHostLabelById.get(hostId) ?? getExecutionHostLabel(hostId))
+            : undefined,
         repoIcon: repo?.repoIcon,
         upstream: repo?.upstream
       }
@@ -1647,13 +1692,14 @@ function Settings(): React.JSX.Element {
                 </SettingsSection>
 
                 {repos.map((repo) => {
-                  const repoSectionId = `repo-${repo.id}`
-                  const repoHooksState = repoHooksMap[repo.id]
+                  const repoSectionId = getRepositorySettingsSectionId(repo)
+                  const repoHooksState = repoHooksMap[repoSectionId]
                   const project = projectByRepoId.get(repo.id) ?? null
+                  const repoHostId = getRepoExecutionHostId(repo)
 
                   return (
                     <SettingsSection
-                      key={repo.id}
+                      key={repoSectionId}
                       id={repoSectionId}
                       title={translate(
                         'auto.components.settings.Settings.3bf149e873',
@@ -1670,8 +1716,10 @@ function Settings(): React.JSX.Element {
                           hasHooksFile={repoHooksState?.hasHooks ?? false}
                           hooksInspectionReady={Boolean(repoHooksState)}
                           mayNeedUpdate={repoHooksState?.mayNeedUpdate ?? false}
-                          updateRepo={updateRepo}
-                          removeProject={removeProject}
+                          updateRepo={(repoId, updates) =>
+                            updateRepo(repoId, updates, { hostId: repoHostId })
+                          }
+                          removeProject={(repoId) => removeProject(repoId, { hostId: repoHostId })}
                           project={project}
                           isLocalWindowsProject={
                             getRepoExecutionHostId(repo) === LOCAL_EXECUTION_HOST_ID &&
