@@ -123,6 +123,13 @@ export type ScrollState = {
   wasAtBottom: boolean
   viewportY: number
   baseY: number
+  viewportAnchor?: {
+    charOffset: number
+    logicalPrefix?: string
+    segment: string
+    segmentOffset: number
+    logicalText?: string
+  }
   firstVisibleLineMarker?: IMarker
 }
 
