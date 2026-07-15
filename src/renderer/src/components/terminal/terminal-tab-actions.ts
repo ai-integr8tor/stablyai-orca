@@ -126,11 +126,15 @@ export function closeTerminalTab(
         ? { precomputedRetirementPlan: options.precomputedRetirementPlan }
         : {})
     })
-    void closeWebRuntimeSessionTab({
-      worktreeId: owningWorktreeId,
-      tabId: hostBackedTabId,
-      environmentId: runtimeEnvironmentId
-    })
+    // Why: pty-exit can come from retiring a stale client-side mirror. Sending
+    // it back as session.tabs.close would kill the host's authoritative PTY.
+    if (options?.reason !== 'pty-exit') {
+      void closeWebRuntimeSessionTab({
+        worktreeId: owningWorktreeId,
+        tabId: hostBackedTabId,
+        environmentId: runtimeEnvironmentId
+      })
+    }
     options?.onClosed?.()
     return
   }
