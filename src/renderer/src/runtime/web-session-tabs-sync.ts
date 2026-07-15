@@ -68,6 +68,10 @@ import {
   shouldSkipWebRuntimeWakeTerminalRespawn
 } from './web-runtime-wake-terminal-respawn'
 import { isRuntimeSubscriptionReplayResponse } from '../../../shared/runtime-subscription-replay'
+import {
+  buildWebSessionExistingTabIndex,
+  type WebSessionExistingTabIndex
+} from './web-session-existing-tab-index'
 
 const WEB_SESSION_GROUP_PREFIX = 'web-session-tabs:'
 
@@ -817,23 +821,10 @@ function buildEditorUnifiedTab(
   }
 }
 
-function findExistingEditorUnifiedTab(
-  state: WebSessionTabsSyncState,
-  worktreeId: string,
-  fileId: string,
-  hostTabId: string
-): Tab | null {
-  return (
-    (state.unifiedTabsByWorktree[worktreeId] ?? []).find(
-      (tab) => tab.contentType === 'editor' && (tab.id === hostTabId || tab.entityId === fileId)
-    ) ?? null
-  )
-}
-
 function buildMirroredEditorTabs(
   snapshot: RuntimeMobileSessionTabsResult,
   environmentId: string,
-  state: WebSessionTabsSyncState,
+  existingTabIndex: WebSessionExistingTabIndex,
   hostGroupIdByTabId: ReadonlyMap<string, string>,
   fallbackGroupId: string,
   sortOffset: number,
@@ -841,15 +832,8 @@ function buildMirroredEditorTabs(
 ): MirroredEditorTab[] {
   return snapshot.tabs.filter(isReadyEditorTab).map((tab, index) => {
     const fileId = localEditorFileId(tab)
-    const existingFile = state.openFiles.find(
-      (file) => file.worktreeId === snapshot.worktree && file.id === fileId
-    )
-    const existingUnifiedTab = findExistingEditorUnifiedTab(
-      state,
-      snapshot.worktree,
-      fileId,
-      tab.id
-    )
+    const existingFile = existingTabIndex.getEditorFile(fileId)
+    const existingUnifiedTab = existingTabIndex.getEditorUnifiedTab(fileId, tab.id)
     const sourceFileId = editorSourceFileId(tab)
     const groupId = hostGroupIdByTabId.get(tab.id) ?? fallbackGroupId
     const file: OpenFile = {
@@ -884,32 +868,6 @@ function buildMirroredEditorTabs(
   })
 }
 
-function findBrowserWorkspaceForRemotePage(
-  state: WebSessionTabsSyncState,
-  worktreeId: string,
-  environmentId: string,
-  remotePageId: string
-): { workspace: BrowserWorkspace; page: BrowserPage; unifiedTab: Tab | null } | null {
-  const workspaces = state.browserTabsByWorktree[worktreeId] ?? []
-  for (const workspace of workspaces) {
-    const pages = state.browserPagesByWorkspace[workspace.id] ?? []
-    for (const page of pages) {
-      const handle = state.remoteBrowserPageHandlesByPageId[page.id]
-      if (handle?.environmentId === environmentId && handle.remotePageId === remotePageId) {
-        return {
-          workspace,
-          page,
-          unifiedTab:
-            (state.unifiedTabsByWorktree[worktreeId] ?? []).find(
-              (tab) => tab.contentType === 'browser' && tab.entityId === workspace.id
-            ) ?? null
-        }
-      }
-    }
-  }
-  return null
-}
-
 function browserWorkspaceHasRemoteEnvironmentPage(
   state: WebSessionTabsSyncState,
   workspace: BrowserWorkspace,
@@ -923,19 +881,14 @@ function browserWorkspaceHasRemoteEnvironmentPage(
 function buildMirroredBrowserTabs(
   snapshot: RuntimeMobileSessionTabsResult,
   environmentId: string,
-  state: WebSessionTabsSyncState,
+  existingTabIndex: WebSessionExistingTabIndex,
   hostGroupIdByTabId: ReadonlyMap<string, string>,
   fallbackGroupId: string,
   sortOffset: number,
   now: number
 ): MirroredBrowserTab[] {
   return snapshot.tabs.filter(isReadyBrowserTab).map((tab, index) => {
-    const existing = findBrowserWorkspaceForRemotePage(
-      state,
-      snapshot.worktree,
-      environmentId,
-      tab.browserPageId
-    )
+    const existing = existingTabIndex.getBrowserTab(tab.browserPageId)
     const workspaceId = existing?.workspace.id ?? tab.browserWorkspaceId
     const pageId = existing?.page.id ?? tab.browserPageId
     const createdAt = existing?.page.createdAt ?? now + sortOffset + index
@@ -1220,8 +1173,9 @@ function buildMirroredHostGroups({
     const localHostOrder = hostGroup.tabOrder
       .map((tabId) => hostToLocalTabId.get(tabId))
       .filter((tabId): tabId is string => tabId !== undefined && validUnifiedTabIds.has(tabId))
+    const localHostOrderIds = new Set(localHostOrder)
     const hostTabOrder = [
-      ...(existing?.tabOrder.filter((tabId) => !localHostOrder.includes(tabId)) ?? []),
+      ...(existing?.tabOrder.filter((tabId) => !localHostOrderIds.has(tabId)) ?? []),
       ...localHostOrder
     ]
     // Why: a pending client reorder for this group wins over a stale pre-move
@@ -1738,12 +1692,21 @@ export function applyWebSessionTabsSnapshot(
 
   const targetGroupId = chooseTargetGroupId(state, snapshot)
   const hostGroupIdByTabId = buildHostGroupIdByTabId(snapshot.tabGroups)
+  const existingTabIndex = buildWebSessionExistingTabIndex({
+    worktreeId,
+    environmentId,
+    openFiles: state.openFiles,
+    unifiedTabs: state.unifiedTabsByWorktree[worktreeId] ?? [],
+    browserWorkspaces: state.browserTabsByWorktree[worktreeId] ?? [],
+    browserPagesByWorkspace: state.browserPagesByWorkspace,
+    remoteBrowserPageHandlesByPageId: state.remoteBrowserPageHandlesByPageId
+  })
   const readyBrowserTabs = snapshot.tabs.filter(isReadyBrowserTab)
   const nextRemoteBrowserPageIds = new Set(readyBrowserTabs.map((tab) => tab.browserPageId))
   const mirroredBrowserTabs = buildMirroredBrowserTabs(
     snapshot,
     environmentId,
-    state,
+    existingTabIndex,
     hostGroupIdByTabId,
     targetGroupId,
     mirroredTerminalTabEntries.length,
@@ -1783,7 +1746,7 @@ export function applyWebSessionTabsSnapshot(
   const mirroredEditorTabs = buildMirroredEditorTabs(
     snapshot,
     environmentId,
-    state,
+    existingTabIndex,
     hostGroupIdByTabId,
     targetGroupId,
     mirroredTerminalTabEntries.length + mirroredBrowserTabs.length,
@@ -2066,8 +2029,10 @@ export function applyWebSessionTabsSnapshot(
           .filter((tabId): tabId is string => tabId !== undefined && validTabBarIds.has(tabId))
       ) ?? []
     const next: string[] = []
+    const seen = new Set<string>()
     const push = (tabId: string): void => {
-      if (validTabBarIds.has(tabId) && !next.includes(tabId)) {
+      if (validTabBarIds.has(tabId) && !seen.has(tabId)) {
+        seen.add(tabId)
         next.push(tabId)
       }
     }
