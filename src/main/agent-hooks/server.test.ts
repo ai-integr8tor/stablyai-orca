@@ -4244,6 +4244,119 @@ describe('Codex hook normalization', () => {
     expect(result?.payload.state).toBe('working')
     expect(result?.payload.prompt).toBe('')
   })
+
+  it('tracks Codex collaboration spawn tools until the root Stop drains the turn', () => {
+    _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'Spawn two subagents'
+      }),
+      'production'
+    )
+    const first = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'collaborationspawn_agent',
+        tool_input: { task_name: 'repo_map', fork_turns: 'all', message: 'encrypted' }
+      }),
+      'production'
+    )
+    expect(first?.payload.subagents).toEqual([
+      expect.objectContaining({
+        id: 'repo_map',
+        state: 'working',
+        agentType: 'codex',
+        description: 'repo_map'
+      })
+    ])
+    expect(first?.payload.toolInput).toBe('repo_map')
+
+    const second = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PostToolUse',
+        tool_name: 'collaboration.spawn_agent',
+        tool_input: { task_name: 'test_scan' }
+      }),
+      'production'
+    )
+    expect(second?.payload.subagents?.map((subagent) => subagent.id)).toEqual([
+      'repo_map',
+      'test_scan'
+    ])
+
+    const waiting = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'collaborationwait_agent',
+        tool_input: { timeout_ms: 30_000 }
+      }),
+      'production'
+    )
+    expect(waiting?.payload.subagents).toHaveLength(2)
+    expect(waiting?.payload.subagents?.every((subagent) => subagent.state === 'working')).toBe(true)
+
+    const stop = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'Stop',
+        last_assistant_message: 'Both subagents completed.'
+      }),
+      'production'
+    )
+    expect(stop?.payload.state).toBe('done')
+    expect(stop?.payload.subagents?.every((subagent) => subagent.state === 'idle')).toBe(true)
+  })
+
+  it('clears completed Codex collaboration rows on the next user prompt', () => {
+    _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'collaborationspawn_agent',
+        tool_input: { task_name: 'docs_scan' }
+      }),
+      'production'
+    )
+    _internals.normalizeHookPayload('codex', buildBody({ hook_event_name: 'Stop' }), 'production')
+
+    const nextTurn = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({ hook_event_name: 'UserPromptSubmit', prompt: 'New task' }),
+      'production'
+    )
+    expect(nextTurn?.payload.subagents).toBeUndefined()
+  })
+
+  it('idles the exact Codex collaboration target after interrupt_agent completes', () => {
+    for (const taskName of ['repo_map', 'test_scan']) {
+      _internals.normalizeHookPayload(
+        'codex',
+        buildBody({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'collaborationspawn_agent',
+          tool_input: { task_name: taskName }
+        }),
+        'production'
+      )
+    }
+    const interrupted = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PostToolUse',
+        tool_name: 'collaborationinterrupt_agent',
+        tool_input: { target: '/root/repo_map' }
+      }),
+      'production'
+    )
+    expect(interrupted?.payload.subagents).toEqual([
+      expect.objectContaining({ id: 'repo_map', state: 'idle' }),
+      expect.objectContaining({ id: 'test_scan', state: 'working' })
+    ])
+  })
 })
 
 describe('Gemini hook normalization', () => {
@@ -6041,6 +6154,66 @@ describe('Last-status persistence', () => {
           agentType: 'claude'
         })
       ])
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('hydrates Codex collaboration rows as idle and keeps them idle until a new spawn', async () => {
+    mkdirSync(join(userDataPath, 'agent-hooks'), { recursive: true })
+    const receivedAt = recentTs()
+    writeFileSync(
+      lastStatusPath(),
+      JSON.stringify({
+        version: 2,
+        entries: {
+          [PANE]: {
+            paneKey: PANE,
+            tabId: 'tab-1',
+            worktreeId: 'wt-1',
+            receivedAt,
+            stateStartedAt: receivedAt,
+            payload: {
+              state: 'working',
+              prompt: 'parallel review',
+              agentType: 'codex',
+              subagents: [
+                {
+                  id: 'repo_map',
+                  state: 'working',
+                  startedAt: receivedAt - 1_000,
+                  agentType: 'codex',
+                  description: 'repo_map'
+                }
+              ]
+            }
+          }
+        }
+      }),
+      'utf8'
+    )
+
+    const server = new AgentHookServer()
+    await server.start({ env: 'production', userDataPath })
+    try {
+      expect(server.getStatusSnapshot()[0]).toMatchObject({
+        state: 'working',
+        subagents: [expect.objectContaining({ id: 'repo_map', state: 'idle' })]
+      })
+      const response = await postHookEvent(
+        server,
+        buildBody({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'collaborationwait_agent',
+          tool_input: { timeout_ms: 30_000 }
+        }),
+        '/hook/codex'
+      )
+      expect(response.status).toBe(204)
+      expect(server.getStatusSnapshot()[0]).toMatchObject({
+        state: 'working',
+        subagents: [expect.objectContaining({ id: 'repo_map', state: 'idle' })]
+      })
     } finally {
       server.stop()
     }

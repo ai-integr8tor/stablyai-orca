@@ -90,6 +90,27 @@ function makeSplitPaneLayout(firstLeafId: string, secondLeafId: string): Termina
 }
 
 describe('buildWorktreeAgentRows', () => {
+  it('deduplicates a pane present in both live and orchestration entry sources', () => {
+    const live = makeEntry(PANE_KEY_1, 1000, { state: 'working' })
+    const duplicate = makeEntry(PANE_KEY_1, 1000, {
+      state: 'working',
+      orchestration: {
+        taskId: 'task-duplicate',
+        dispatchId: 'dispatch-duplicate',
+        parentPaneKey: PANE_KEY_2
+      }
+    })
+
+    const rows = buildWorktreeAgentRows({
+      tabs: [makeTab('tab-1')],
+      entries: [live, duplicate],
+      retained: [],
+      now: 2000
+    })
+
+    expect(rows.map((row) => row.paneKey)).toEqual([PANE_KEY_1])
+  })
+
   it('includes retained rows even when their original tab is no longer current', () => {
     const rows = buildWorktreeAgentRows({
       tabs: [makeTab('tab-1')],

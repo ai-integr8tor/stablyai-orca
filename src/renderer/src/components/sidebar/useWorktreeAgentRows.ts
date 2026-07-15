@@ -4,6 +4,7 @@ import type { DashboardAgentRow } from '@/components/dashboard/useDashboardData'
 import { applyAgentRowLineage } from '@/components/dashboard/agent-row-lineage'
 import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsupported-agent-entry'
 import { useAppStore } from '@/store'
+import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import {
   selectLivePtyIdsForWorktree,
   selectRuntimePaneTitlesForWorktree
@@ -74,6 +75,27 @@ export function useWorktreeAgentRows(worktreeId: string, active = true): Dashboa
   const runtimeAgentOrchestrationByPaneKey = useAppStore(
     useShallow((s) => (active ? selectRuntimeAgentOrchestrationForWorktree(s, worktreeId) : {}))
   )
+  // Why: dispatched workers may live in another worktree but still belong
+  // under the coordinator row in this worktree's agent status view.
+  const orchestratedChildEntries = useAppStore(
+    useShallow((s) => {
+      if (!active) {
+        return []
+      }
+      const orchestrationByPaneKey = selectRuntimeAgentOrchestrationForWorktree(s, worktreeId)
+      const out: AgentStatusEntry[] = []
+      for (const [childPaneKey, orchestration] of Object.entries(orchestrationByPaneKey)) {
+        if (!orchestration.parentPaneKey) {
+          continue
+        }
+        const entry = s.agentStatusByPaneKey[childPaneKey]
+        if (entry) {
+          out.push(entry)
+        }
+      }
+      return out
+    })
+  )
   const agentFreshnessSignature = useAppStore((s) =>
     active ? selectAgentFreshness(s) : EMPTY_WORKTREE_AGENT_FRESHNESS_SIGNATURE
   )
@@ -89,12 +111,13 @@ export function useWorktreeAgentRows(worktreeId: string, active = true): Dashboa
       migrationUnsupported.length > 0
         ? [
             ...liveEntries,
+            ...orchestratedChildEntries,
             ...migrationUnsupported.flatMap((unsupported) => {
               const entry = migrationUnsupportedToAgentStatusEntry(unsupported)
               return entry ? [entry] : []
             })
           ]
-        : liveEntries
+        : [...liveEntries, ...orchestratedChildEntries]
     return applyAgentRowLineage(
       buildWorktreeAgentRows({
         tabs: tabs ?? [],
@@ -112,6 +135,7 @@ export function useWorktreeAgentRows(worktreeId: string, active = true): Dashboa
     active,
     tabs,
     liveEntries,
+    orchestratedChildEntries,
     migrationUnsupported,
     retained,
     runtimePaneTitlesByTabId,

@@ -83,9 +83,10 @@ export type AgentStatusOrchestrationContext = {
 export type AgentSubagentState = 'working' | 'idle'
 
 /** A live in-process subagent/teammate spawned by the pane's agent session
- *  (reported by Claude's SubagentStart/SubagentStop hooks and the
- *  `background_tasks` field on Stop). Rendered as an indented child row under
- *  the owning pane's sidebar row — these children have no PTY of their own. */
+ *  (reported via provider hooks like Claude's Subagent* / background_tasks,
+ *  or Codex equivalent sub/worker info in payloads). Rendered as an indented
+ *  child row under the owning pane's sidebar row — these children have no PTY
+ *  of their own. */
 export type AgentSubagentSnapshot = {
   /** Provider-assigned id (Claude hook `agent_id`). */
   id: string

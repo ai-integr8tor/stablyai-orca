@@ -213,6 +213,7 @@ export function buildWorktreeAgentRows(args: {
 }): DashboardAgentRow[] {
   const rows: DashboardAgentRow[] = []
   const seenPaneKeys = new Set<string>()
+  const indexedPaneKeys = new Set<string>()
   const currentTabIds = new Set(args.tabs.map((tab) => tab.id))
 
   const entriesByTabId = new Map<string, AgentStatusEntry[]>()
@@ -221,6 +222,12 @@ export function buildWorktreeAgentRows(args: {
     if (!parsed) {
       continue
     }
+    // Why: a same-worktree orchestration child can arrive through both the
+    // worktree status index and the coordinator overlay. One pane is one row.
+    if (indexedPaneKeys.has(entry.paneKey)) {
+      continue
+    }
+    indexedPaneKeys.add(entry.paneKey)
     const bucket = entriesByTabId.get(parsed.tabId)
     if (bucket) {
       bucket.push(entry)

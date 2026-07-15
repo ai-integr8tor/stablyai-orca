@@ -46,6 +46,15 @@ import {
   upsertWorkingClaudeSubagent,
   type ClaudeSubagentRoster
 } from './claude-subagent-roster'
+import {
+  codexCollaborationRosterToSnapshots,
+  markAllCodexCollaborationTasksIdle,
+  markCodexCollaborationTaskIdle,
+  readCodexInterruptedTaskName,
+  readCodexSpawnTaskName,
+  upsertWorkingCodexCollaborationTask,
+  type CodexCollaborationRoster
+} from './codex-collaboration-roster'
 import { ORCA_HOOK_PROTOCOL_VERSION } from './agent-hook-types'
 import { REMOTE_AGENT_HOOK_ENV, type AgentHookSource } from './agent-hook-relay'
 import {
@@ -108,6 +117,9 @@ export type HookListenerState = {
   /** Live subagents/teammates per Claude pane. Survives turn boundaries —
    *  background children outlive the lead turn that spawned them. */
   claudeSubagentRosterByPaneKey: Map<string, ClaudeSubagentRoster>
+  /** Codex collaboration tools report task starts but no child lifecycle
+   *  hooks. Keep a pane roster until the root Stop drains the turn. */
+  codexCollaborationRosterByPaneKey: Map<string, CodexCollaborationRoster>
   /** Last state derived from the LEAD session's own events (subagent-origin
    *  events carry `agent_id` and are excluded). Needed so a SubagentStop can
    *  re-emit the pane status without inventing a lead state. `interrupted`
@@ -141,6 +153,7 @@ export function createHookListenerState(): HookListenerState {
     antigravityCompletedTranscriptByPaneKey: new Map(),
     ampCompletedCacheKeys: new Set(),
     claudeSubagentRosterByPaneKey: new Map(),
+    codexCollaborationRosterByPaneKey: new Map(),
     claudeLeadStateByPaneKey: new Map()
   }
 }
@@ -152,6 +165,7 @@ export function clearPaneCacheState(state: HookListenerState, paneKey: string): 
   deletePaneScopedCacheEntry(state.antigravityCompletedTranscriptByPaneKey, paneKey)
   deletePaneScopedSetEntry(state.ampCompletedCacheKeys, paneKey)
   state.claudeSubagentRosterByPaneKey.delete(paneKey)
+  state.codexCollaborationRosterByPaneKey.delete(paneKey)
   state.claudeLeadStateByPaneKey.delete(paneKey)
 }
 
@@ -232,6 +246,7 @@ export function clearAllListenerCaches(state: HookListenerState): void {
   state.warnedVersions.clear()
   state.warnedEnvs.clear()
   state.claudeSubagentRosterByPaneKey.clear()
+  state.codexCollaborationRosterByPaneKey.clear()
   state.claudeLeadStateByPaneKey.clear()
 }
 
@@ -590,6 +605,10 @@ const TOOL_INPUT_KEYS_BY_TOOL: Record<string, readonly string[]> = {
   web_fetch: ['url'],
   google_web_search: ['query'],
   exec_command: ['cmd', 'command'],
+  collaborationspawn_agent: ['task_name'],
+  collaborationinterrupt_agent: ['target'],
+  collaborationfollowup_task: ['target'],
+  collaborationsend_message: ['target'],
   shell_command: ['cmd', 'command'],
   run_terminal_cmd: ['command'],
   // Why: Grok maps Bash/Edit/Write to snake_case first-party tool names
@@ -3196,6 +3215,7 @@ function normalizeCodexEvent(
     extractToolFields('codex', eventName, hookPayload),
     { resetOnNewTurn: isNewTurnEvent('codex', eventName) }
   )
+  const subagents = updateCodexCollaborationRoster(state, eventName, paneKey, hookPayload)
 
   return parseAgentStatusPayload(
     JSON.stringify({
@@ -3207,9 +3227,68 @@ function normalizeCodexEvent(
       toolName: snapshot.toolName,
       toolInput: snapshot.toolInput,
       interactivePrompt: snapshot.interactivePrompt,
-      lastAssistantMessage: snapshot.lastAssistantMessage
+      lastAssistantMessage: snapshot.lastAssistantMessage,
+      subagents
     })
   )
+}
+
+function updateCodexCollaborationRoster(
+  state: HookListenerState,
+  eventName: unknown,
+  paneKey: string,
+  hookPayload: Record<string, unknown>
+): AgentSubagentSnapshot[] | undefined {
+  if (eventName === 'SessionStart' || eventName === 'UserPromptSubmit') {
+    state.codexCollaborationRosterByPaneKey.delete(paneKey)
+  }
+  const spawnTaskName = readCodexSpawnTaskName(hookPayload)
+  if (spawnTaskName && (eventName === 'PreToolUse' || eventName === 'PostToolUse')) {
+    const roster = getOrCreateCodexCollaborationRoster(state, paneKey)
+    upsertWorkingCodexCollaborationTask(roster, spawnTaskName, Date.now())
+  }
+  const interruptedTaskName = readCodexInterruptedTaskName(hookPayload)
+  if (interruptedTaskName && eventName === 'PostToolUse') {
+    const roster = state.codexCollaborationRosterByPaneKey.get(paneKey)
+    if (roster) {
+      markCodexCollaborationTaskIdle(roster, interruptedTaskName)
+    }
+  }
+  const roster = state.codexCollaborationRosterByPaneKey.get(paneKey)
+  if (eventName === 'Stop' && roster) {
+    // Why: Codex emits no per-child completion hooks; the root Stop is the
+    // first authoritative signal that its collaboration turn has drained.
+    markAllCodexCollaborationTasksIdle(roster)
+  }
+  return codexCollaborationRosterToSnapshots(roster)
+}
+
+function getOrCreateCodexCollaborationRoster(
+  state: HookListenerState,
+  paneKey: string
+): CodexCollaborationRoster {
+  let roster = state.codexCollaborationRosterByPaneKey.get(paneKey)
+  if (!roster) {
+    roster = new Map()
+    state.codexCollaborationRosterByPaneKey.set(paneKey, roster)
+  }
+  return roster
+}
+
+export function seedCodexCollaborationRosterFromSnapshots(
+  state: HookListenerState,
+  paneKey: string,
+  snapshots: readonly AgentSubagentSnapshot[]
+): void {
+  if (snapshots.length === 0 || state.codexCollaborationRosterByPaneKey.has(paneKey)) {
+    return
+  }
+  const roster = getOrCreateCodexCollaborationRoster(state, paneKey)
+  for (const snapshot of snapshots) {
+    // Why: Codex has no child completion replay after an Orca restart. A
+    // persisted working state is not authoritative, so only new hooks revive it.
+    roster.set(snapshot.id, { ...snapshot, state: 'idle' })
+  }
 }
 
 function normalizeOpenCodeFamilyEvent(

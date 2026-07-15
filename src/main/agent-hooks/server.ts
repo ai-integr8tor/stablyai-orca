@@ -35,6 +35,7 @@ import {
   resolveHookSource,
   preparePendingGrokResultDiscovery,
   seedClaudeSubagentRosterFromSnapshots,
+  seedCodexCollaborationRosterFromSnapshots,
   warnOnHookEnvOrVersionMismatch,
   writeEndpointFile,
   type AgentHookEventPayload,
@@ -245,6 +246,27 @@ function sanitizeHydratedEntry(
     payload,
     receivedAt,
     stateStartedAt
+  }
+}
+
+function idleHydratedCodexSubagents(
+  entry: EnrichedAgentHookEventPayload
+): EnrichedAgentHookEventPayload {
+  const subagents = entry.payload.subagents
+  if (
+    entry.payload.agentType !== 'codex' ||
+    !subagents?.some((subagent) => subagent.state === 'working')
+  ) {
+    return entry
+  }
+  // Why: after an app restart, Codex cannot replay child completion events.
+  // Keep the rows for context without presenting stale work as still running.
+  return {
+    ...entry,
+    payload: {
+      ...entry.payload,
+      subagents: subagents.map((subagent) => ({ ...subagent, state: 'idle' as const }))
+    }
   }
 }
 
@@ -1758,6 +1780,7 @@ export class AgentHookServer {
     }
     let hydrated = 0
     let dropped = 0
+    let normalized = 0
     // Why: bound disk growth — drop anything older than HYDRATE_MAX_AGE_MS so
     // entries from worktrees archived weeks ago do not pile up forever. Use
     // Date.now() once to keep the cutoff consistent across all entries this
@@ -1769,14 +1792,22 @@ export class AgentHookServer {
         resolvedPaneKey === paneKey || typeof rawEntry !== 'object' || rawEntry === null
           ? rawEntry
           : { ...(rawEntry as Record<string, unknown>), paneKey: resolvedPaneKey }
-      const entry = sanitizeHydratedEntry(resolvedPaneKey, rawResolvedEntry)
-      if (entry && entry.receivedAt >= ttlCutoff) {
+      const sanitizedEntry = sanitizeHydratedEntry(resolvedPaneKey, rawResolvedEntry)
+      if (sanitizedEntry && sanitizedEntry.receivedAt >= ttlCutoff) {
+        const entry = idleHydratedCodexSubagents(sanitizedEntry)
+        if (entry !== sanitizedEntry) {
+          normalized += 1
+        }
         this.state.lastStatusByPaneKey.set(resolvedPaneKey, entry)
-        // Why: the in-memory subagent roster died with the previous process.
-        // Reseed it from the persisted snapshot so the next teammate-bearing
-        // Stop (whose task ids never match lifecycle ids) doesn't silently
-        // drop the replayed child rows.
-        if (entry.payload.subagents) {
+        // Why: in-memory provider rosters die with the process. Reseed the
+        // matching tracker so the next hook does not drop replayed child rows.
+        if (entry.payload.subagents && entry.payload.agentType === 'codex') {
+          seedCodexCollaborationRosterFromSnapshots(
+            this.state,
+            resolvedPaneKey,
+            entry.payload.subagents
+          )
+        } else if (entry.payload.subagents) {
           seedClaudeSubagentRosterFromSnapshots(
             this.state,
             resolvedPaneKey,
@@ -1793,17 +1824,16 @@ export class AgentHookServer {
         `[agent-hooks] last-status hydrate dropped ${dropped} entries (kept ${hydrated})`
       )
     }
-    if (hydrated > 0 && dropped === 0) {
+    if (hydrated > 0 && dropped === 0 && normalized === 0) {
       // Why: prime from the raw on-disk bytes (not a re-serialization) so the
       // dedup is robust against future shape drift in serializeStatusFile.
-      // Only prime when hydration was lossless — if entries were dropped
-      // during sanitize, the in-memory map diverges from the on-disk bytes.
+      // Only prime when hydration was lossless — dropped or normalized entries
+      // make the in-memory map diverge from the on-disk bytes.
       this.lastWrittenJson = raw
-    } else if (dropped > 0) {
+    } else if (dropped > 0 || normalized > 0) {
       // Why: clean the stale on-disk file now so a user who has not run an
-      // agent in 8+ days does not re-drop the same entries on every cold
-      // boot. Synchronous variant is safe at start time and avoids
-      // unref'd-timer-during-quit edge cases.
+      // agent in 8+ days or has stale Codex workers does not repeat the same
+      // repair on every cold boot. Synchronous variant avoids quit-time races.
       this.runStatusPersist()
     }
   }
