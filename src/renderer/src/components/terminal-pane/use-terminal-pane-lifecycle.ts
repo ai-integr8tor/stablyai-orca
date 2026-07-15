@@ -130,7 +130,7 @@ import {
 import { acquireWebviewsDragPassthrough } from '../browser-pane/webview-registry'
 import { recordCreatedTerminalPaneSplit } from './terminal-pane-split-completion'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
-import { registerTerminalSurfaceActionConsumer } from '@/hooks/useIpcEvents'
+import { registerTerminalSurfaceActionConsumer } from '@/hooks/terminal-surface-action-queue'
 import { seedStartupSessionRestoredBanner } from './session-restored-banner-pane-state'
 import { shouldClearLaunchAgentForClosedPane } from './terminal-pane-close-identity'
 
