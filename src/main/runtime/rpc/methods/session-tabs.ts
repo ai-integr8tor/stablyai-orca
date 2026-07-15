@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod } from '../core'
+import { recordSessionCloseAttribution } from '../session-close-attribution'
 import {
   ActivateTab,
   CreateTerminalTab,
@@ -35,8 +36,14 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'session.tabs.close',
     params: ActivateTab,
-    handler: async (params, { runtime }) =>
-      runtime.closeMobileSessionTab(params.worktree, params.tabId)
+    handler: async (params, ctx) =>
+      // Why: host-PTY teardown must be attributable to the issuing device (#8871).
+      recordSessionCloseAttribution(
+        'session.tabs.close',
+        ctx,
+        { worktree: params.worktree, tabId: params.tabId },
+        () => ctx.runtime.closeMobileSessionTab(params.worktree, params.tabId)
+      )
   }),
   defineMethod({
     name: 'session.tabs.createTerminal',
