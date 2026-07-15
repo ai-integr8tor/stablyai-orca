@@ -12,6 +12,8 @@ export type PtyInactiveCleanupTarget = {
   provider: PtyInactiveCleanupProvider | null
 }
 
+const INACTIVE_REVALIDATION_DELAY_MS = 100
+
 function classifyInspection(
   children: PromiseSettledResult<boolean>,
   foreground: PromiseSettledResult<string | null>
@@ -97,4 +99,30 @@ export async function inspectPtyInactiveCleanupTargets(
     id,
     safety: provider ? (safetyByProvider.get(provider)?.get(id) ?? 'unknown') : 'unknown'
   }))
+}
+
+export async function revalidatePtyInactiveCleanupTargets(
+  targets: PtyInactiveCleanupTarget[],
+  delay: (milliseconds: number) => Promise<void> = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds))
+): Promise<PtyCleanupInspection[]> {
+  const firstInspection = await inspectPtyInactiveCleanupTargets(targets)
+  const inactiveTargets = targets.filter(
+    ({ id }) => firstInspection.find((inspection) => inspection.id === id)?.safety === 'inactive'
+  )
+  if (inactiveTargets.length === 0) {
+    return firstInspection
+  }
+
+  // Why: foreground-process detection can briefly report the shell immediately
+  // after another fresh scan. Require stable inactivity before destructive cleanup.
+  await delay(INACTIVE_REVALIDATION_DELAY_MS)
+  const confirmedInactive = new Map(
+    (await inspectPtyInactiveCleanupTargets(inactiveTargets)).map(({ id, safety }) => [id, safety])
+  )
+  return firstInspection.map((inspection) =>
+    inspection.safety === 'inactive'
+      ? { ...inspection, safety: confirmedInactive.get(inspection.id) ?? 'unknown' }
+      : inspection
+  )
 }

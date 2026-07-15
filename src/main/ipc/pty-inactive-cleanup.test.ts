@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   inspectPtyInactiveCleanupTargets,
+  revalidatePtyInactiveCleanupTargets,
   type PtyInactiveCleanupProvider
 } from './pty-inactive-cleanup'
 
@@ -118,5 +119,30 @@ describe('inspectPtyInactiveCleanupTargets', () => {
     ])
     expect(provider.hasChildProcesses).not.toHaveBeenCalled()
     expect(provider.confirmForegroundProcess).not.toHaveBeenCalled()
+  })
+})
+
+describe('revalidatePtyInactiveCleanupTargets', () => {
+  it('protects a target that becomes active during the inactivity confirmation window', async () => {
+    const provider = makeProvider({ foreground: 'zsh', children: false, listedIds: ['pty-1'] })
+    provider.confirmForegroundProcess = vi
+      .fn()
+      .mockResolvedValueOnce('zsh')
+      .mockResolvedValueOnce('sleep')
+    const delay = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      revalidatePtyInactiveCleanupTargets([{ id: 'pty-1', provider }], delay)
+    ).resolves.toEqual([{ id: 'pty-1', safety: 'active' }])
+    expect(delay).toHaveBeenCalledWith(100)
+  })
+
+  it('returns inactive only after a second stable inspection', async () => {
+    const provider = makeProvider({ foreground: 'zsh', children: false, listedIds: ['pty-1'] })
+
+    await expect(
+      revalidatePtyInactiveCleanupTargets([{ id: 'pty-1', provider }], async () => {})
+    ).resolves.toEqual([{ id: 'pty-1', safety: 'inactive' }])
+    expect(provider.listProcesses).toHaveBeenCalledTimes(2)
   })
 })
