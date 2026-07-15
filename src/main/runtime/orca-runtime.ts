@@ -22074,17 +22074,8 @@ export class OrcaRuntimeService {
       // Why: terminal.show can resolve a PTY handle whose process was later
       // adopted as a renderer tab; report the current visibility, not the
       // handle's origin, so orchestrators can audit workers (#8771).
-      surface: this.isPtyAdoptedByRendererLeaf(pty.ptyId) ? 'visible' : 'background'
+      surface: this.leafExistsForPty(pty.ptyId) ? 'visible' : 'background'
     }
-  }
-
-  private isPtyAdoptedByRendererLeaf(ptyId: string): boolean {
-    for (const leaf of this.leaves.values()) {
-      if (leaf.ptyId === ptyId) {
-        return true
-      }
-    }
-    return false
   }
 
   private getLiveLeafForHandle(handle: string): {
