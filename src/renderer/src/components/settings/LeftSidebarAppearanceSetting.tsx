@@ -1,8 +1,11 @@
 import type React from 'react'
 import type { GlobalSettings, LeftSidebarAppearanceMode } from '../../../../shared/types'
 import {
+  DEFAULT_ACTIVE_WORKSPACE_CONTRAST,
+  normalizeActiveWorkspaceContrast,
   DEFAULT_LEFT_SIDEBAR_TINT_COLOR,
   DEFAULT_LEFT_SIDEBAR_TINT_OPACITY,
+  MAX_ACTIVE_WORKSPACE_CONTRAST,
   MAX_LEFT_SIDEBAR_TINT_OPACITY
 } from '../../../../shared/left-sidebar-appearance'
 import { translate } from '@/i18n/i18n'
@@ -63,6 +66,50 @@ export function LeftSidebarAppearanceSetting({
                 label: translate(
                   'auto.components.settings.AppearancePane.leftSidebarAppearance.tinted',
                   'Tinted'
+                )
+              }
+            ]}
+          />
+        }
+      />
+      <SettingsRow
+        label={translate(
+          'auto.components.settings.AppearancePane.activeWorkspaceContrast.title',
+          'Active Workspace Contrast'
+        )}
+        description={translate(
+          'auto.components.settings.AppearancePane.activeWorkspaceContrast.description',
+          'Controls how strongly the current workspace card stands out in the sidebar.'
+        )}
+        control={
+          <SettingsSegmentedControl<number>
+            size="sm"
+            value={normalizeActiveWorkspaceContrast(settings.activeWorkspaceContrast)}
+            onChange={(activeWorkspaceContrast) => updateSettings({ activeWorkspaceContrast })}
+            ariaLabel={translate(
+              'auto.components.settings.AppearancePane.activeWorkspaceContrast.title',
+              'Active Workspace Contrast'
+            )}
+            options={[
+              {
+                value: DEFAULT_ACTIVE_WORKSPACE_CONTRAST,
+                label: translate(
+                  'auto.components.settings.AppearancePane.activeWorkspaceContrast.default',
+                  'Default'
+                )
+              },
+              {
+                value: 2,
+                label: translate(
+                  'auto.components.settings.AppearancePane.activeWorkspaceContrast.more',
+                  'More'
+                )
+              },
+              {
+                value: MAX_ACTIVE_WORKSPACE_CONTRAST,
+                label: translate(
+                  'auto.components.settings.AppearancePane.activeWorkspaceContrast.high',
+                  'High'
                 )
               }
             ]}
