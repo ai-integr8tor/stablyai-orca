@@ -50,11 +50,14 @@ import { registerUIHandlers, setTrustedUIRendererWebContentsId } from './ui'
 import { registerEmulatorFrameStreamHandlers } from './emulator-frame-stream'
 import { registerEmulatorVideoStreamHandlers } from './emulator-video-stream'
 import { registerSpeechHandlers } from './speech'
+import { registerOrcaProfileHandlers } from './orca-profiles'
 import { registerCodexAccountHandlers } from './codex-accounts'
 import { registerAgentHookHandlers } from './agent-hooks'
+import { getPtyIdForPaneKey } from './pty'
 import { registerAgentTrustHandlers } from './agent-trust'
 import { registerClaudeAccountHandlers } from './claude-accounts'
 import { registerMiniMaxCredentialsHandlers } from './minimax-credentials'
+import { registerGrokAccountHandlers } from './grok-accounts'
 import { registerUpdaterHandlers } from '../window/attach-main-window-services'
 import {
   registerClipboardHandlers,
@@ -79,6 +82,8 @@ let registered = false
 
 type CoreHandlerLifecycleOptions = {
   onBeforeRelaunch?: () => void | Promise<void>
+  onOrcaProfileAuthMutation?: () => void
+  onBeforeOrcaProfileSignOut?: () => void
   getAdditionalAiVaultCodexHomePaths?: () => readonly string[]
 }
 
@@ -120,10 +125,11 @@ export function registerCoreHandlers(
   registerCodexUsageHandlers(codexUsage)
   registerOpenCodeUsageHandlers(openCodeUsage)
   registerCodexAccountHandlers(codexAccounts)
-  registerAgentHookHandlers(runtime)
+  registerAgentHookHandlers(runtime, { getPtyIdForPaneKey })
   registerAgentTrustHandlers()
   registerClaudeAccountHandlers(claudeAccounts)
   registerMiniMaxCredentialsHandlers(rateLimits)
+  registerGrokAccountHandlers()
   registerRateLimitHandlers(rateLimits)
   registerGitHubHandlers(store, stats)
   registerGitLabHandlers(store)
@@ -156,6 +162,11 @@ export function registerCoreHandlers(
     registerKeybindingHandlers(keybindings)
   }
   registerTelemetryHandlers(store)
+  registerOrcaProfileHandlers(store, {
+    onBeforeRelaunch: lifecycleOptions.onBeforeRelaunch,
+    onAuthMutation: lifecycleOptions.onOrcaProfileAuthMutation,
+    onBeforeSignOut: lifecycleOptions.onBeforeOrcaProfileSignOut
+  })
   registerBrowserHandlers()
   registerShellHandlers()
   registerPetHandlers()

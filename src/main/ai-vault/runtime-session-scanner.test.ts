@@ -139,6 +139,9 @@ function session(
     messageCount: 1,
     totalTokens: 0,
     previewMessages: [],
-    resumeCommand: `codex resume ${sessionId}`
+    queuedMessageCount: 0,
+    subagentTranscriptCount: 0,
+    resumeCommand: `codex resume ${sessionId}`,
+    subagent: null
   }
 }

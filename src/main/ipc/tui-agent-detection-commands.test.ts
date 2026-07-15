@@ -7,7 +7,9 @@ import {
 
 describe('tui agent detection commands', () => {
   it('detects AtomCode as a first-class TUI agent command', () => {
-    const commands = KNOWN_TUI_AGENT_DETECTION_COMMANDS.filter((command) => command.id === 'atomcode')
+    const commands = KNOWN_TUI_AGENT_DETECTION_COMMANDS.filter(
+      (command) => command.id === 'atomcode'
+    )
 
     expect(commands).toEqual([
       {

@@ -2,7 +2,10 @@ const { chmodSync, existsSync, readdirSync } = require('node:fs')
 const { execFileSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 const electronBuilderNativeRebuild = require('./scripts/electron-builder-native-rebuild.cjs')
-const { verifyPackagedDaemonEntryBoots } = require('./scripts/verify-packaged-daemon-entry.cjs')
+const {
+  assertPackagedDaemonEntryExists,
+  verifyPackagedDaemonEntryBoots
+} = require('./scripts/verify-packaged-daemon-entry.cjs')
 const {
   createPackagedRuntimeNodeModuleResources,
   prunePackagedRuntimeNodeModules,
@@ -59,6 +62,9 @@ module.exports = {
     '!mobile{,/**/*}',
     '!native{,/**/*}',
     '!skills{,/**/*}',
+    // Why: authoritative guide markdown is compiled into out/cli; shipping the
+    // authoring sources too would duplicate content without a runtime consumer.
+    '!skill-guides{,/**/*}',
     '!tests{,/**/*}',
     '!Casks{,/**/*}',
     '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,bundle-size-progress.md}',
@@ -141,8 +147,12 @@ module.exports = {
     if (context.arch === hostArchEnum || context.arch === 4) {
       verifyPackagedDaemonEntryBoots(resourcesDir)
     } else {
+      // Why: a cross-arch slice can't be booted by the host Node, but the
+      // unpacked entry must still exist — its absence is a layout regression
+      // regardless of arch, so only the boot is skipped, not the check.
+      assertPackagedDaemonEntryExists(resourcesDir)
       console.log(
-        `[verify-packaged-daemon-entry] skipped cross-arch slice (target ${context.arch}, host ${process.arch})`
+        `[verify-packaged-daemon-entry] skipped boot on cross-arch slice (target ${context.arch}, host ${process.arch})`
       )
     }
     chmodUnixCliLaunchers(resourcesDir, context.electronPlatformName)
@@ -158,6 +168,10 @@ module.exports = {
     }
     if (context.electronPlatformName === 'darwin') {
       await signMacComputerUseHelper(join(resourcesDir, 'Orca Computer Use.app'), context.packager)
+      await signMacNotificationStatusHelper(
+        join(resourcesDir, '..', 'MacOS', 'orca-notification-status'),
+        context.packager
+      )
     }
   },
   win: {
@@ -173,6 +187,10 @@ module.exports = {
       {
         from: 'resources/win32/bin/orca.cmd',
         to: 'bin/orca.cmd'
+      },
+      {
+        from: 'native/windows-cli-launcher/.build/orca.exe',
+        to: 'bin/orca.exe'
       },
       {
         from: 'node_modules/agent-browser/bin/agent-browser-win32-x64.exe',
@@ -248,6 +266,15 @@ module.exports = {
         to: 'Orca Computer Use.app'
       },
       featureWallResources
+    ],
+    // Why: the notification-status helper must execute from Contents/MacOS —
+    // on macOS 26 UNUserNotificationCenter aborts (bundleProxyForCurrentProcess
+    // is nil) for executables launched out of Contents/Resources (#7929).
+    extraFiles: [
+      {
+        from: 'native/notification-status-macos/.build/release/orca-notification-status',
+        to: 'MacOS/orca-notification-status'
+      }
     ],
     target: [
       {
@@ -416,6 +443,37 @@ async function signMacComputerUseHelper(helperAppPath, packager) {
   execFileSync('codesign', ['--verify', '--deep', '--strict', helperAppPath], {
     stdio: 'inherit'
   })
+}
+
+async function signMacNotificationStatusHelper(helperPath, packager) {
+  if (!existsSync(helperPath)) {
+    if (isMacRelease) {
+      throw new Error(`Missing orca-notification-status helper at ${helperPath}`)
+    }
+    return
+  }
+  const codeSigningInfo =
+    isMacRelease && process.env.CSC_LINK && packager?.codeSigningInfo?.value
+      ? await packager.codeSigningInfo.value
+      : null
+  const identity =
+    process.env.CSC_NAME ??
+    findInstalledMacSigningIdentity(codeSigningInfo?.keychainFile) ??
+    (isMacRelease ? null : '-')
+  if (!identity) {
+    throw new Error('Missing signing identity for orca-notification-status helper')
+  }
+  // Why: macOS keys notification records to the code-signing identifier; the
+  // binary embeds the app's CFBundleIdentifier in __TEXT,__info_plist so this
+  // (and any later) `codesign --force` derives the correct identifier. Sign
+  // before the outer Orca.app is sealed, like the computer-use helper.
+  const args = ['--force', '--sign', identity]
+  if (isMacRelease) {
+    args.push('--options', 'runtime', '--timestamp')
+  }
+  args.push(helperPath)
+  execFileSync('codesign', args, { stdio: 'inherit' })
+  execFileSync('codesign', ['--verify', '--strict', helperPath], { stdio: 'inherit' })
 }
 
 function codesignArgs(identity, targetPath) {

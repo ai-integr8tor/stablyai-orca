@@ -20,6 +20,12 @@ import {
   getRestorableAiVaultScope,
   normalizeAiVaultScopeForContext
 } from './ai-vault-scope-state'
+import {
+  countAiVaultViewAdjustments,
+  DEFAULT_AI_VAULT_GROUP,
+  DEFAULT_AI_VAULT_HIDE_EMPTY_SESSIONS,
+  DEFAULT_AI_VAULT_SORT
+} from './ai-vault-view-defaults'
 import { buildAiVaultProjectContext } from './ai-vault-session-projects'
 import {
   resolveAiVaultSessionResumeActions,
@@ -27,6 +33,7 @@ import {
 } from './ai-vault-session-resume'
 import { useAiVaultSessionLaunchActions } from './ai-vault-session-launch-actions'
 import { useAiVaultSessionWorktreeMap } from './ai-vault-session-worktree'
+import { openAiVaultSessionLogInOrca } from './ai-vault-session-log-open'
 import { useAiVaultOriginalPaneActions } from './ai-vault-original-pane-actions'
 import {
   AI_VAULT_AGENTS,
@@ -64,13 +71,13 @@ export default function AiVaultPanel(): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const runtimeEnvironments = useAppStore((s) => s.runtimeEnvironments)
   const agentCmdOverrides = settings?.agentCmdOverrides
-  const { getOriginalPaneTarget, jumpToOriginalPane, jumpToWorktree } =
+  const { getOriginalPaneTarget, getSessionLiveState, jumpToOriginalPane, jumpToWorktree } =
     useAiVaultOriginalPaneActions()
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<AiVaultScope>(DEFAULT_AI_VAULT_SCOPE)
-  const [sort, setSort] = useState<AiVaultSort>('updated')
-  const [group, setGroup] = useState<AiVaultGroup>('project')
-  const [hideEmptySessions, setHideEmptySessions] = useState(true)
+  const [sort, setSort] = useState<AiVaultSort>(DEFAULT_AI_VAULT_SORT)
+  const [group, setGroup] = useState<AiVaultGroup>(DEFAULT_AI_VAULT_GROUP)
+  const [hideEmptySessions, setHideEmptySessions] = useState(DEFAULT_AI_VAULT_HIDE_EMPTY_SESSIONS)
   const [agents, setAgents] = useState<AiVaultAgent[]>([...AI_VAULT_AGENTS])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const userChangedScopeRef = useRef(false)
@@ -155,12 +162,12 @@ export default function AiVaultPanel(): React.JSX.Element {
     targetState: resumeTargetState,
     agentCmdOverrides
   })
-  const hasAllAgentsSelected = agents.length === AI_VAULT_AGENTS.length
-  const viewAdjustmentCount =
-    (hasAllAgentsSelected ? 0 : 1) +
-    (sort === 'updated' ? 0 : 1) +
-    (group === 'project' ? 0 : 1) +
-    (hideEmptySessions ? 0 : 1)
+  const viewAdjustmentCount = countAiVaultViewAdjustments({
+    agents,
+    sort,
+    group,
+    hideEmptySessions
+  })
 
   // Workspace is the preferred default, but unavailable context still falls back to All.
   useEffect(() => {
@@ -286,9 +293,9 @@ export default function AiVaultPanel(): React.JSX.Element {
 
   const resetViewOptions = useCallback(() => {
     setAgents([...AI_VAULT_AGENTS])
-    setSort('updated')
-    setGroup('project')
-    setHideEmptySessions(true)
+    setSort(DEFAULT_AI_VAULT_SORT)
+    setGroup(DEFAULT_AI_VAULT_GROUP)
+    setHideEmptySessions(DEFAULT_AI_VAULT_HIDE_EMPTY_SESSIONS)
   }, [])
 
   const handleScopeChange = useCallback((nextScope: AiVaultScope) => {
@@ -366,6 +373,7 @@ export default function AiVaultPanel(): React.JSX.Element {
         getSessionResumeState={getSessionResumeState}
         getSessionResumeActions={getSessionResumeActions}
         getOriginalPaneTarget={getOriginalPaneTarget}
+        getSessionLiveState={getSessionLiveState}
         getWorktreeInfo={(session) => sessionWorktreeById.get(session.id) ?? null}
         onToggleGroup={toggleGroup}
         onJumpToOriginalPane={jumpToOriginalPane}
@@ -384,7 +392,7 @@ export default function AiVaultPanel(): React.JSX.Element {
             translate('auto.components.right.sidebar.AiVaultPanel.logPath', 'Log path')
           )
         }
-        onOpenLog={(session) => void window.api.shell.openFilePath(session.filePath)}
+        onOpenLog={(session) => void openAiVaultSessionLogInOrca(session)}
         onRevealLog={(session) => void window.api.shell.openPath(session.filePath)}
         onOpenCwd={(session) => {
           if (session.cwd) {

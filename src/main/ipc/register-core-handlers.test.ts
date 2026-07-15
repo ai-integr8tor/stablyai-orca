@@ -31,11 +31,13 @@ const {
   registerRuntimeEnvironmentHandlersMock,
   registerEphemeralVmHandlersMock,
   registerAiVaultHandlersMock,
+  registerOrcaProfileHandlersMock,
   registerCodexAccountHandlersMock,
   registerAgentHookHandlersMock,
   registerAgentTrustHandlersMock,
   registerClaudeAccountHandlersMock,
   registerMiniMaxCredentialsHandlersMock,
+  registerGrokAccountHandlersMock,
   registerClipboardHandlersMock,
   setTrustedClipboardRendererWebContentsIdMock,
   registerUpdaterHandlersMock,
@@ -90,11 +92,13 @@ const {
   registerRuntimeEnvironmentHandlersMock: vi.fn(),
   registerEphemeralVmHandlersMock: vi.fn(),
   registerAiVaultHandlersMock: vi.fn(),
+  registerOrcaProfileHandlersMock: vi.fn(),
   registerCodexAccountHandlersMock: vi.fn(),
   registerAgentHookHandlersMock: vi.fn(),
   registerAgentTrustHandlersMock: vi.fn(),
   registerClaudeAccountHandlersMock: vi.fn(),
   registerMiniMaxCredentialsHandlersMock: vi.fn(),
+  registerGrokAccountHandlersMock: vi.fn(),
   registerClipboardHandlersMock: vi.fn(),
   setTrustedClipboardRendererWebContentsIdMock: vi.fn(),
   registerUpdaterHandlersMock: vi.fn(),
@@ -283,6 +287,10 @@ vi.mock('./ai-vault', () => ({
   registerAiVaultHandlers: registerAiVaultHandlersMock
 }))
 
+vi.mock('./orca-profiles', () => ({
+  registerOrcaProfileHandlers: registerOrcaProfileHandlersMock
+}))
+
 vi.mock('./codex-accounts', () => ({
   registerCodexAccountHandlers: registerCodexAccountHandlersMock
 }))
@@ -301,6 +309,10 @@ vi.mock('./claude-accounts', () => ({
 
 vi.mock('./minimax-credentials', () => ({
   registerMiniMaxCredentialsHandlers: registerMiniMaxCredentialsHandlersMock
+}))
+
+vi.mock('./grok-accounts', () => ({
+  registerGrokAccountHandlers: registerGrokAccountHandlersMock
 }))
 
 vi.mock('../window/attach-main-window-services', () => ({
@@ -378,6 +390,7 @@ describe('registerCoreHandlers', () => {
     registerRuntimeEnvironmentHandlersMock.mockReset()
     registerEphemeralVmHandlersMock.mockReset()
     registerAiVaultHandlersMock.mockReset()
+    registerOrcaProfileHandlersMock.mockReset()
     registerCodexAccountHandlersMock.mockReset()
     registerAgentHookHandlersMock.mockReset()
     registerAgentTrustHandlersMock.mockReset()
@@ -453,10 +466,13 @@ describe('registerCoreHandlers', () => {
     expect(registerOpenCodeUsageHandlersMock).toHaveBeenCalledWith(openCodeUsage)
     expect(registerAppHandlersMock).toHaveBeenCalledWith(store, { onBeforeRelaunch })
     expect(registerCodexAccountHandlersMock).toHaveBeenCalledWith(codexAccounts)
-    expect(registerAgentHookHandlersMock).toHaveBeenCalledWith(runtime)
+    expect(registerAgentHookHandlersMock).toHaveBeenCalledWith(runtime, {
+      getPtyIdForPaneKey: expect.any(Function)
+    })
     expect(registerPetHandlersMock).toHaveBeenCalled()
     expect(registerClaudeAccountHandlersMock).toHaveBeenCalledWith(claudeAccounts)
     expect(registerMiniMaxCredentialsHandlersMock).toHaveBeenCalledWith(rateLimits)
+    expect(registerGrokAccountHandlersMock).toHaveBeenCalled()
     expect(registerRateLimitHandlersMock).toHaveBeenCalledWith(rateLimits)
     expect(registerGitHubHandlersMock).toHaveBeenCalledWith(store, stats)
     expect(registerLinearHandlersMock).toHaveBeenCalled()
@@ -476,6 +492,7 @@ describe('registerCoreHandlers', () => {
     expect(registerWorkspacePortHandlersMock).toHaveBeenCalledWith(store)
     expect(registerLocalhostWorktreeLabelHandlersMock).toHaveBeenCalledWith(store)
     expect(registerTelemetryHandlersMock).toHaveBeenCalledWith(store)
+    expect(registerOrcaProfileHandlersMock).toHaveBeenCalledWith(store, { onBeforeRelaunch })
     expect(registerSessionHandlersMock).toHaveBeenCalledWith(store)
     expect(registerUIHandlersMock).toHaveBeenCalledWith(store)
     expect(registerEmulatorFrameStreamHandlersMock).toHaveBeenCalled()

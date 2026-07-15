@@ -14,6 +14,7 @@ import { isValidPtySize, normalizePtySize } from './daemon-pty-size'
 import {
   ensureNodePtySpawnHelperExecutable,
   getNodePtySpawnHelperCandidates,
+  resolveUnixShellPath,
   validateWorkingDirectory
 } from '../providers/local-pty-utils'
 import { wrapShellSpawnForMacosTccAttribution } from '../providers/macos-tcc-login-shell'
@@ -33,6 +34,11 @@ import { removeInheritedNoColor } from '../pty/terminal-color-env'
 import { removeAppImageRuntimeEnv } from '../pty/appimage-terminal-env'
 import { parseWslPath } from '../wsl'
 import { addWslEnvKeys } from '../wsl-env'
+import {
+  gitCredentialPromptGuardEnv,
+  mergeGitConfigEnvProtocol
+} from '../../shared/git-credential-prompt-env'
+import { TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV } from '../../shared/terminal-git-credential-guard'
 import { getWslContextFromSessionId } from './wsl-session-context'
 import { addOrcaWslInteropEnv } from '../pty/wsl-orca-env'
 import {
@@ -41,7 +47,8 @@ import {
 } from '../pty/powerlevel10k-wizard-env'
 import { isWindowsGitBashShellPath, resolveWindowsGitBashShellPath } from '../git-bash'
 import { WINDOWS_GIT_BASH_SHELL } from '../../shared/windows-terminal-shell'
-import { resolveAgentForegroundProcess } from '../providers/agent-foreground-process'
+import { resolveAgentForegroundProcessWithAvailability } from '../providers/agent-foreground-process'
+import { readWindowsConptyProcessIds } from '../providers/windows-conpty-process-membership'
 import {
   isAgentForegroundWrapperProcess,
   recognizeAgentProcess,
@@ -55,6 +62,8 @@ import { isShellProcess } from '../../shared/shell-process-detection'
 import { parsePtySessionId } from './pty-session-id'
 import { getAgentForegroundContextPaths } from '../providers/agent-foreground-context-paths'
 import { assertSafeAgentStartupCwd, resolveSafePtyDefaultCwd } from '../providers/pty-default-cwd'
+import { ORCA_HERMES_STARTUP_QUERY_ENV } from '../../shared/hermes-startup-query'
+import type { TuiAgent } from '../../shared/types'
 
 const PANE_IDENTITY_ENV_KEYS = [
   'ORCA_PANE_KEY',
@@ -79,6 +88,22 @@ const PTY_SPAWN_HEALTH_TIMEOUT_MS = 4_000
 const PTY_SPAWN_HEALTH_RETRY_ATTEMPTS = 2
 const PENDING_PRE_LISTENER_DATA_MAX_CHARS = 512 * 1024
 
+function composeGuardedDaemonGitConfigEnv(
+  env: Record<string, string>,
+  explicitEnv: Record<string, string> | undefined,
+  launchAgent: TuiAgent | undefined
+): void {
+  const policy = explicitEnv?.[TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV]
+  delete env[TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV]
+  if (policy !== 'guard' && launchAgent === undefined) {
+    return
+  }
+  // Why: the daemon can outlive Electron, so only its process.env is the
+  // authoritative inherited config. The raw env merge already gives an
+  // explicit wire protocol normal override semantics; append only the guard.
+  Object.assign(env, gitCredentialPromptGuardEnv(env, process.platform))
+}
+
 export type PtySubprocessOptions = {
   sessionId: string
   cols: number
@@ -88,6 +113,7 @@ export type PtySubprocessOptions = {
   envToDelete?: string[]
   command?: string
   startupCommandDelivery?: StartupCommandDelivery
+  launchAgent?: TuiAgent
   /** Explicit shell executable path/basename the renderer asked for.
    *  Overrides env.COMSPEC / env.SHELL resolution inside the daemon so a user
    *  who picks "New WSL terminal" from the "+" menu actually gets WSL. */
@@ -540,8 +566,7 @@ function spawnDaemonPtyWithWindowsFallback(args: {
 export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandle {
   const size = normalizePtySize(opts.cols, opts.rows)
   const env: Record<string, string> = {
-    ...process.env,
-    ...opts.env,
+    ...mergeGitConfigEnvProtocol(process.env, opts.env),
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     TERM_PROGRAM: 'Orca',
@@ -558,6 +583,7 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
     // restores clickable refs like `owner/repo#123` / `PR#123`.
     FORCE_HYPERLINK: '1'
   } as Record<string, string>
+  composeGuardedDaemonGitConfigEnv(env, opts.env, opts.launchAgent)
   for (const key of opts.envToDelete ?? []) {
     delete env[key]
   }
@@ -716,6 +742,11 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
         // through Windows wsl.exe; non-default env vars need WSLENV import.
         addWslEnvKeys(env, ['CLAUDE_CONFIG_DIR'])
       }
+      if (env[ORCA_HERMES_STARTUP_QUERY_ENV] !== undefined) {
+        // Why: the startup wrapper expands this only inside WSL; wsl.exe
+        // otherwise drops custom Windows environment variables.
+        addWslEnvKeys(env, [ORCA_HERMES_STARTUP_QUERY_ENV])
+      }
     } else if (codexHomeWslInfo || isWslCodexHomeForHost(env.CODEX_HOME)) {
       // Why: WSL-managed Codex homes are Linux paths. Windows Codex cannot use
       // them. ORCA_CODEX_HOME must go too because shell-ready scripts restore
@@ -734,6 +765,17 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
     }
     if (opts.env?.TERM) {
       env.TERM = opts.env.TERM
+    }
+    // Why after the scrub: SHELL must reflect the shell that actually spawns,
+    // matching LocalPtyProvider; and before the launch-config derivation below
+    // so shell-ready wrappers target the resolved shell, not a missing one.
+    const preferredShellPath = shellPath
+    shellPath = resolveUnixShellPath(shellPath)
+    if (shellPath !== preferredShellPath) {
+      env.SHELL = shellPath
+      console.warn(
+        `[daemon/pty] Preferred shell "${preferredShellPath}" is unavailable, fell back to "${shellPath}"`
+      )
     }
     // Why: OpenCode/Codex path restoration and OMP's typed-command status
     // wrapper need shell-ready code after user startup files run.
@@ -940,10 +982,10 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
     // Why: daemon foreground reads are sync and run on the IPC hot path.
     // Refresh derived identities (shell/wrapper/helper -> codex/claude/etc.)
     // in the background and serve them from a short cache on later reads.
-    void resolveAgentForegroundProcess(proc.pid, fallbackProcess, {
+    void resolveAgentForegroundProcessWithAvailability(proc.pid, fallbackProcess, {
       contextPaths: agentForegroundContextPaths
     })
-      .then((processName) => {
+      .then(({ processName }) => {
         if (dead) {
           return
         }
@@ -1000,6 +1042,7 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
 
   return {
     pid: proc.pid,
+    shellPath,
     ...(startupCommandDeliveredInShellArgs ? { startupCommandDeliveredInShellArgs: true } : {}),
     getForegroundProcess: () => {
       // Why: node-pty's `.process` getter reports the PTY's live foreground
@@ -1045,6 +1088,56 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
         return null
       }
     },
+    confirmForegroundProcess: async () => {
+      if (dead || !proc.pid) {
+        return null
+      }
+      try {
+        const fallbackProcess = getFallbackForegroundProcess()
+        if (
+          !fallbackProcess ||
+          (recognizeAgentProcess(fallbackProcess) && process.platform !== 'win32') ||
+          (process.platform !== 'win32' && !shouldInspectFallbackForegroundProcess(fallbackProcess))
+        ) {
+          return fallbackProcess
+        }
+        // Why: cached/in-flight scans may predate the OSC command boundary.
+        // Confirmation requires one shared process snapshot started afterward.
+        const resolution = await resolveAgentForegroundProcessWithAvailability(
+          proc.pid,
+          fallbackProcess,
+          {
+            contextPaths: agentForegroundContextPaths,
+            fresh: true,
+            ...(process.platform === 'win32'
+              ? {
+                  forceProcessScan: true,
+                  readWindowsConptyProcessIds: () => readWindowsConptyProcessIds(proc.pid)
+                }
+              : {})
+          }
+        )
+        if (dead || !resolution.available) {
+          return null
+        }
+        const recognized = recognizeAgentProcess(resolution.processName)
+        if (recognized) {
+          cachedAgentForeground = {
+            processName: recognized.processName,
+            refreshedAt: Date.now()
+          }
+          startupAgentForeground = null
+          return recognized.processName
+        }
+        // Why: a successful post-boundary scan that resolves no agent is the
+        // authority that retires stale cached/startup identity.
+        cachedAgentForeground = null
+        startupAgentForeground = null
+        return resolution.processName
+      } catch {
+        return null
+      }
+    },
     write: (data) => {
       if (dead) {
         return
@@ -1066,6 +1159,30 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
         proc.resize(cols, rows)
       } catch {
         dead = true
+      }
+    },
+    // Why pause/resume work on Windows too: node-pty's base Terminal
+    // implements both as socket pause/resume (lib/terminal.js), and
+    // WindowsTerminal wires _socket to the ConPTY conout pipe — pausing stops
+    // conout reads so ConPTY's bounded buffer backpressures the child.
+    pause: () => {
+      if (dead) {
+        return
+      }
+      try {
+        proc.pause()
+      } catch {
+        /* native handle already torn down — flow control is best-effort */
+      }
+    },
+    resume: () => {
+      if (dead) {
+        return
+      }
+      try {
+        proc.resume()
+      } catch {
+        /* native handle already torn down — flow control is best-effort */
       }
     },
     clear: () => {
@@ -1094,7 +1211,9 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       // has run, proc.pid refers to a recycled pid. Sending SIGKILL would
       // terminate an unrelated process. The fd release is handled by
       // dispose()/destroy(); forceKill is strictly for signalling a live child.
-      if (dead) {
+      // Why: Windows node-pty kill already closes ConPTY; retrying it through
+      // forceKill can double-close the native handle during workspace teardown.
+      if (dead || (process.platform === 'win32' && nodePtyKillIssued)) {
         return
       }
       try {

@@ -60,6 +60,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useAppStore } from '@/store'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { ORCA_BROWSER_BLANK_URL, ORCA_BROWSER_PARTITION } from '../../../../shared/constants'
+import { getOrcaProfileBrowserDefaultPartition } from '../../../../shared/orca-profiles'
 import type {
   BrowserLoadError,
   BrowserPage as BrowserPageState,
@@ -180,6 +181,10 @@ import { shouldPollChromiumErrorPage } from './chromium-error-page-polling'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
 import { translate } from '@/i18n/i18n'
 import { isBrowserPagePanePaintable } from './browser-page-paintability'
+import { useMarkupMode, type MarkupCaptureContext } from './markup/useMarkupMode'
+import { MarkupOverlay } from './markup/MarkupOverlay'
+import { MarkupDrawButton } from './markup/MarkupDrawButton'
+import { deliverMarkupToClipboard } from './markup/markup-clipboard-delivery'
 
 type BrowserTabPageState = Partial<
   Pick<
@@ -2393,6 +2398,30 @@ function RemoteBrowserPagePane({
 
   const remoteFrameStyle = useMemo(() => getRemoteBrowserFrameStyle(frameMetadata), [frameMetadata])
 
+  // Why: markup works on remote panes by snapshotting the already-displayed
+  // screencast <img> — no in-page injection needed, so it is enabled here even
+  // though element-grab annotations are not.
+  const markup = useMarkupMode({
+    getCaptureContext: useCallback((): MarkupCaptureContext | null => {
+      const element = imageRef.current
+      const container = remoteViewportRef.current
+      if (!element || !container) {
+        return null
+      }
+      const rect = container.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) {
+        return null
+      }
+      return {
+        source: { kind: 'image', element },
+        cssWidth: rect.width,
+        cssHeight: rect.height,
+        outputScale: window.devicePixelRatio || 1
+      }
+    }, []),
+    onDeliver: deliverMarkupToClipboard
+  })
+
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col bg-background">
       {contextMenu
@@ -2599,12 +2628,26 @@ function RemoteBrowserPagePane({
             )}
           </TooltipContent>
         </Tooltip>
+        <MarkupDrawButton
+          onClick={() => (markup.isActive ? markup.cancel() : void markup.start())}
+          disabled={!frameUrl}
+          active={markup.isActive}
+          className="h-7 w-7"
+        />
       </div>
       <div
         ref={remoteViewportRef}
         tabIndex={-1}
         className="relative min-h-0 flex-1 overflow-hidden bg-background"
       >
+        {markup.isActive && markup.baseImage ? (
+          <MarkupOverlay
+            baseImage={markup.baseImage}
+            busy={markup.state === 'composing'}
+            onComplete={(input) => void markup.complete(input)}
+            onCancel={markup.cancel}
+          />
+        ) : null}
         {frameUrl ? (
           <img
             ref={imageRef}
@@ -2795,6 +2838,27 @@ function BrowserPagePane({
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const [findOpen, setFindOpen] = useState(false)
   const grab = useGrabMode(browserTab.id)
+
+  const markup = useMarkupMode({
+    getCaptureContext: useCallback((): MarkupCaptureContext | null => {
+      const webview = webviewRef.current
+      const container = containerRef.current
+      if (!webview || !container) {
+        return null
+      }
+      const rect = container.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) {
+        return null
+      }
+      return {
+        source: { kind: 'webview', webview },
+        cssWidth: rect.width,
+        cssHeight: rect.height,
+        outputScale: window.devicePixelRatio || 1
+      }
+    }, []),
+    onDeliver: deliverMarkupToClipboard
+  })
   const [grabIntent, setGrabIntent] = useState<GrabIntent>('copy')
   const grabIntentRef = useRef(grabIntent)
   grabIntentRef.current = grabIntent
@@ -2842,10 +2906,20 @@ function BrowserPagePane({
   const createBrowserTab = useAppStore((s) => s.createBrowserTab)
   const consumeAddressBarFocusRequest = useAppStore((s) => s.consumeAddressBarFocusRequest)
   const browserSessionProfiles = useAppStore((s) => s.browserSessionProfiles)
+  const activeOrcaProfileId = useAppStore((s) => s.activeOrcaProfileId)
+  const fallbackBrowserPartition = activeOrcaProfileId
+    ? getOrcaProfileBrowserDefaultPartition(activeOrcaProfileId)
+    : null
+  const defaultSessionProfile = browserSessionProfiles.find((p) => p.id === 'default') ?? null
   const sessionProfile = sessionProfileId
     ? (browserSessionProfiles.find((p) => p.id === sessionProfileId) ?? null)
-    : null
-  const webviewPartition = sessionPartition ?? sessionProfile?.partition ?? ORCA_BROWSER_PARTITION
+    : defaultSessionProfile
+  const webviewPartition =
+    sessionPartition ??
+    sessionProfile?.partition ??
+    defaultSessionProfile?.partition ??
+    fallbackBrowserPartition ??
+    ORCA_BROWSER_PARTITION
   const browserSessionImportState = useAppStore((s) => s.browserSessionImportState)
   const clearBrowserSessionImportState = useAppStore((s) => s.clearBrowserSessionImportState)
   const showBrowserZoomFeedback = useCallback((level: number): void => {
@@ -4138,14 +4212,19 @@ function BrowserPagePane({
       if (isEditableKeyboardTarget(e.target)) {
         return
       }
-      if (keybindingMatchesAction('browser.grabElement', e, shortcutPlatform, keybindings)) {
+      // Why: while the markup overlay is open, don't let the grab shortcut start
+      // the in-guest picker behind it — matching the disabled grab toolbar buttons.
+      if (
+        !markup.isActive &&
+        keybindingMatchesAction('browser.grabElement', e, shortcutPlatform, keybindings)
+      ) {
         e.preventDefault()
         startGrabIntent('copy')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isActive, keybindings, startGrabIntent])
+  }, [isActive, keybindings, markup.isActive, startGrabIntent])
 
   useEffect(() => {
     if (!isActive) {
@@ -4978,7 +5057,7 @@ function BrowserPagePane({
                       'bg-foreground/80 text-background hover:bg-foreground/90'
                   )}
                   onClick={() => startGrabIntent('copy')}
-                  disabled={isBlankTab}
+                  disabled={isBlankTab || markup.isActive}
                   aria-label={translate(
                     'auto.components.browser.pane.BrowserPane.fdfc7fe0ef',
                     'Grab page element'
@@ -5015,7 +5094,7 @@ function BrowserPagePane({
                       'bg-foreground/80 text-background hover:bg-foreground/90'
                   )}
                   onClick={() => startGrabIntent('annotate')}
-                  disabled={isBlankTab}
+                  disabled={isBlankTab || markup.isActive}
                   aria-label={translate(
                     'auto.components.browser.pane.BrowserPane.fc9be38f6f',
                     'Annotate page element'
@@ -5038,6 +5117,12 @@ function BrowserPagePane({
               )}
             </TooltipContent>
           </Tooltip>
+
+          <MarkupDrawButton
+            onClick={() => (markup.isActive ? markup.cancel() : void markup.start())}
+            disabled={isBlankTab || grab.state !== 'idle'}
+            active={markup.isActive}
+          />
 
           <Button
             size="icon"
@@ -5368,6 +5453,14 @@ function BrowserPagePane({
       {pageViewport?.container
         ? createPortal(
             <>
+              {markup.isActive && markup.baseImage ? (
+                <MarkupOverlay
+                  baseImage={markup.baseImage}
+                  busy={markup.state === 'composing'}
+                  onComplete={(input) => void markup.complete(input)}
+                  onCancel={markup.cancel}
+                />
+              ) : null}
               <div
                 role="status"
                 aria-live="polite"
