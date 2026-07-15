@@ -2409,6 +2409,9 @@ describe('updater', () => {
     await vi.waitFor(() => {
       expect(fetchNewerReleaseTagsMock).toHaveBeenCalledTimes(1)
     })
+    expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.4.26', 1, {
+      includePrerelease: false
+    })
     expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
     expect(setLastUpdateCheckAt).not.toHaveBeenCalled()
 
@@ -2426,7 +2429,7 @@ describe('updater', () => {
   it('keeps a nudge campaign pending when release assets are still publishing', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-24T21:40:00Z'))
-    appMock.getVersion.mockReturnValue('1.4.26')
+    appMock.getVersion.mockReturnValue('1.4.26-rc.1')
     fetchNudgeMock.mockResolvedValueOnce({ id: 'campaign-1', minVersion: '1.0.0' })
     fetchNudgeMock.mockResolvedValue(null)
     shouldApplyNudgeMock.mockReturnValue(true)
@@ -2457,6 +2460,9 @@ describe('updater', () => {
 
     await vi.waitFor(() => {
       expect(fetchNewerReleaseTagsMock).toHaveBeenCalledTimes(1)
+    })
+    expect(fetchNewerReleaseTagsMock).toHaveBeenCalledWith('1.4.26-rc.1', 2, {
+      includePrerelease: true
     })
     expect(setPendingUpdateNudgeId).toHaveBeenCalledWith('campaign-1')
     expect(setPendingUpdateNudgeId).not.toHaveBeenCalledWith(null)
