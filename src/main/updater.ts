@@ -37,7 +37,10 @@ type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
 type PrimaryEventSuppression = { failureKey: string; error: unknown }
 type UpdateCheckVariant = 'default' | 'prerelease' | 'perf'
-type ReleasePublishingError = Error & { updaterReleaseChannel?: UpdateCheckVariant }
+type ReleasePublishingError = Error & {
+  updaterReleaseChannel?: UpdateCheckVariant
+  updaterPreserveNudge?: boolean
+}
 type ReleaseFeedPreflightResult = 'ready' | 'not-available'
 
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -800,7 +803,7 @@ async function sendCheckFailureStatus(
           true
         )
       } else {
-        if (isReleaseAssetsPublishingFailure(message)) {
+        if (shouldPreserveNudgeForReleaseProbe(message, sourceError)) {
           // Why: a nudge-triggered check can land during the brief window where
           // GitHub exposes a release before its updater assets are reachable.
           // Keep the campaign pending so the short retry can still show it.
@@ -827,6 +830,13 @@ async function sendCheckFailureStatus(
     }
   })
   return pendingCheckFailurePromise
+}
+
+function shouldPreserveNudgeForReleaseProbe(message: string, sourceError: unknown): boolean {
+  return (
+    isReleaseAssetsPublishingFailure(message) ||
+    (sourceError as ReleasePublishingError | null)?.updaterPreserveNudge === true
+  )
 }
 
 function isStableReleasePublishingFailure(message: string, sourceError: unknown): boolean {
@@ -1033,6 +1043,20 @@ async function pinDefaultReleaseFeed(
         ? 'prerelease'
         : 'default'
     throw error
+  } else if (
+    releaseTagsResult.state === 'unavailable' &&
+    releaseTagsResult.unavailableReason === 'manifest'
+  ) {
+    clearPrereleaseFallbackContext()
+    clearPublishingWindowLastGoodCheck()
+    const error = new Error('Unable to find latest version on GitHub') as ReleasePublishingError
+    error.updaterReleaseChannel = isPerfCheck
+      ? 'perf'
+      : includePrerelease
+        ? 'prerelease'
+        : 'default'
+    error.updaterPreserveNudge = true
+    throw error
   } else if (isPerfCheck) {
     clearPrereleaseFallbackContext()
     clearPublishingWindowLastGoodCheck()
@@ -1043,13 +1067,6 @@ async function pinDefaultReleaseFeed(
       return 'not-available'
     }
     throw new Error('Could not resolve perf update feed')
-  } else if (
-    releaseTagsResult.state === 'unavailable' &&
-    releaseTagsResult.unavailableReason === 'manifest'
-  ) {
-    clearPrereleaseFallbackContext()
-    clearPublishingWindowLastGoodCheck()
-    throw new Error('Unable to find latest version on GitHub')
   } else {
     clearPrereleaseFallbackContext()
     clearPublishingWindowLastGoodCheck()
