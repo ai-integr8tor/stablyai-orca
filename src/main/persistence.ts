@@ -3955,6 +3955,13 @@ export class Store {
     return repo ? this.hydrateRepo(repo) : undefined
   }
 
+  getRepoForHost(id: string, hostId: ExecutionHostId): Repo | undefined {
+    const repo = this.state.repos.find(
+      (candidate) => candidate.id === id && getRepoExecutionHostId(candidate) === hostId
+    )
+    return repo ? this.hydrateRepo(repo) : undefined
+  }
+
   /**
    * Record a background-resolved git username (repo-git-username-enrichment).
    * Kept out of updateRepo's whitelist so the renderer-facing update surface
@@ -5691,6 +5698,17 @@ export class Store {
       return this.state.workspaceSession ?? getDefaultWorkspaceSession()
     }
     return this.state.workspaceSessionsByHostId?.[resolved] ?? getDefaultWorkspaceSession()
+  }
+
+  getWorkspaceSessionHostIds(): ExecutionHostId[] {
+    const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
+    for (const rawHostId of Object.keys(this.state.workspaceSessionsByHostId ?? {})) {
+      const hostId = normalizeExecutionHostId(rawHostId)
+      if (hostId) {
+        hostIds.add(hostId)
+      }
+    }
+    return [...hostIds]
   }
 
   readTerminalScrollbackSnapshot(ref: string): string | null {
