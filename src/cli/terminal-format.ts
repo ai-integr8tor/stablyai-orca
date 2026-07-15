@@ -22,7 +22,7 @@ export function formatTerminalList(result: RuntimeTerminalListResult): string {
   const body = result.terminals
     .map(
       (terminal) =>
-        `${terminal.handle}  ${terminal.title ?? '(untitled)'}  ${terminal.connected ? 'connected' : 'disconnected'}  ${terminal.worktreePath}\n${terminal.preview ? `preview: ${terminal.preview}` : 'preview: <empty>'}`
+        `${terminal.handle}  ${terminal.title ?? '(untitled)'}  ${terminal.connected ? 'connected' : 'disconnected'}  [${terminal.surface}]  ${terminal.worktreePath}\n${terminal.preview ? `preview: ${terminal.preview}` : 'preview: <empty>'}`
     )
     .join('\n\n')
   const visualLayout = formatTerminalVisualLayouts(result.visualLayouts)
@@ -97,6 +97,7 @@ export function formatTerminalShow(result: { terminal: RuntimeTerminalShow }): s
     `ptyId: ${terminal.ptyId ?? 'none'}`,
     `connected: ${terminal.connected}`,
     `writable: ${terminal.writable}`,
+    `surface: ${terminal.surface}`,
     `preview: ${terminal.preview || '<empty>'}`
   ].join('\n')
 }
