@@ -16,6 +16,10 @@ export const DEFAULT_WORKTREE_CARD_PROPERTIES: WorktreeCardProperty[] = [
   'automation',
   'comment',
   'ports',
+  // Identity badges default on so cards stay self-describing in the ungrouped
+  // list; the project badge is still suppressed while grouping by project.
+  'project-name',
+  'host-name',
   // Why: agent activity is the primary reason users opt into the feature, so
   // the Default mode keeps it inline on each card while Compact removes the
   // extra row.
@@ -49,6 +53,8 @@ const WORKTREE_CARD_PROPERTY_ORDER: WorktreeCardProperty[] = [
   'automation',
   'comment',
   'ports',
+  'project-name',
+  'host-name',
   'inline-agents'
 ]
 

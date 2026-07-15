@@ -154,10 +154,10 @@ describe('WorktreeCard pinned repo icon', () => {
   )
 
   it(
-    'uses the pinned-style repo icon in new card style instead of a metadata-row badge',
+    'uses the pinned-style repo icon in new card style when project name is enabled',
     async () => {
       settings = { compactWorktreeCards: false, experimentalNewWorktreeCardStyle: true }
-      worktreeCardProperties = ['status']
+      worktreeCardProperties = ['status', 'project-name']
       const { default: WorktreeCard } = await import('./WorktreeCard')
 
       const markup = renderToStaticMarkup(

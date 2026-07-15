@@ -4022,7 +4022,9 @@
           "65a9820bd1": "Agent ステータス",
           "219ebf1961": "ブランチ名",
           "automation": "自動化",
-          "folderPathIdentity": "ブランチ / フォルダパス"
+          "folderPathIdentity": "ブランチ / フォルダパス",
+          "projectName": "プロジェクト名",
+          "remoteHostname": "リモートホスト名"
         },
         "SshDisconnectedDialog": {
           "ca4a7892af": "接続中...",

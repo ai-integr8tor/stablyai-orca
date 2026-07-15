@@ -230,6 +230,30 @@ describe('buildRows with pinned worktrees', () => {
     ])
   })
 
+  it('adds non-local host context labels in ungrouped mode', () => {
+    const rows = buildRows(
+      'none',
+      [worktree, remoteWorktree],
+      new Map([
+        [repo.id, repo],
+        [remoteRepo.id, remoteRepo]
+      ]),
+      null,
+      new Set()
+    )
+
+    expect(rows).toMatchObject([
+      { type: 'header', key: 'all', label: 'All' },
+      { type: 'item', worktree: { id: worktree.id } },
+      { type: 'item', worktree: { id: remoteWorktree.id }, hostContextLabel: 'gpu-vm' }
+    ])
+    const localRow = rows.find((row) => row.type === 'item' && row.worktree.id === worktree.id)
+    expect(localRow?.type).toBe('item')
+    if (localRow?.type === 'item') {
+      expect(localRow.hostContextLabel).toBeUndefined()
+    }
+  })
+
   it('keeps pinned worktrees above the All group', () => {
     const rows = buildRows('none', [unpinned1, pinned, unpinned2], repoMap, null, new Set())
 
@@ -358,9 +382,14 @@ describe('buildRows with pinned worktrees', () => {
 
     expect(rows).toMatchObject([
       { type: 'header', key: 'project:github:stablyai/orca', label: 'Orca', count: 2 },
-      { type: 'item', worktree: { id: worktree.id }, hostContextLabel: LOCAL_HOST_LABEL },
+      { type: 'item', worktree: { id: worktree.id } },
       { type: 'item', worktree: { id: remoteWorktree.id }, hostContextLabel: 'gpu-vm' }
     ])
+    const localRow = rows.find((row) => row.type === 'item' && row.worktree.id === worktree.id)
+    expect(localRow?.type).toBe('item')
+    if (localRow?.type === 'item') {
+      expect(localRow.hostContextLabel).toBeUndefined()
+    }
   })
 
   it('renders same-project records with git remote identity as one mixed-host project header', () => {
@@ -457,10 +486,15 @@ describe('buildRows with pinned worktrees', () => {
         label: 'sample-app',
         count: 3
       },
-      { type: 'item', worktree: { id: localWorktree.id }, hostContextLabel: LOCAL_HOST_LABEL },
+      { type: 'item', worktree: { id: localWorktree.id } },
       { type: 'item', worktree: { id: sshWorktree.id }, hostContextLabel: 'build server' },
       { type: 'item', worktree: { id: runtimeWorktree.id }, hostContextLabel: 'dev-container' }
     ])
+    const localRow = rows.find((row) => row.type === 'item' && row.worktree.id === localWorktree.id)
+    expect(localRow?.type).toBe('item')
+    if (localRow?.type === 'item') {
+      expect(localRow.hostContextLabel).toBeUndefined()
+    }
   })
 
   it('keeps mixed-host project item order while inserting inbox rows before worktrees', () => {
@@ -992,7 +1026,7 @@ describe('buildRows with pinned worktrees', () => {
     ])
   })
 
-  it('uses saved host labels for mixed-host sidebar card badges', () => {
+  it('uses saved host labels only for non-local mixed-host sidebar card badges', () => {
     const runtimeRepo: Repo = {
       ...remoteRepo,
       id: 'repo-runtime',
@@ -1046,9 +1080,14 @@ describe('buildRows with pinned worktrees', () => {
 
     expect(rows).toMatchObject([
       { type: 'header', key: 'project:github:stablyai/orca', label: 'Orca', count: 2 },
-      { type: 'item', worktree: { id: worktree.id }, hostContextLabel: LOCAL_HOST_LABEL },
+      { type: 'item', worktree: { id: worktree.id } },
       { type: 'item', worktree: { id: runtimeWorktree.id }, hostContextLabel: 'dev box' }
     ])
+    const localRow = rows.find((row) => row.type === 'item' && row.worktree.id === worktree.id)
+    expect(localRow?.type).toBe('item')
+    if (localRow?.type === 'item') {
+      expect(localRow.hostContextLabel).toBeUndefined()
+    }
   })
 
   it('omits host context labels when a project group only has one host', () => {
@@ -1094,6 +1133,21 @@ describe('buildRows with pinned worktrees', () => {
         expect(row.hostContextLabel).toBeUndefined()
       }
     }
+  })
+
+  it('adds host context labels for single-host remote project groups', () => {
+    const rows = buildRows(
+      'repo',
+      [remoteWorktree],
+      new Map([[remoteRepo.id, remoteRepo]]),
+      null,
+      new Set()
+    )
+
+    expect(rows).toMatchObject([
+      { type: 'header', key: `repo:${remoteRepo.id}`, label: remoteRepo.displayName, count: 1 },
+      { type: 'item', worktree: { id: remoteWorktree.id }, hostContextLabel: 'gpu-vm' }
+    ])
   })
 
   it('keeps same-named repos separate without project setup identity', () => {

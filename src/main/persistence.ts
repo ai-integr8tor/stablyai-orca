@@ -3280,6 +3280,8 @@ export class Store {
             const inlineAgentsMigrated = parsed.ui?._inlineAgentsDefaultedForAllUsers === true
             const expandedCardPropsMigrated =
               parsed.ui?._expandedWorktreeCardPropertiesDefaulted === true
+            const identityCardPropsMigrated =
+              parsed.ui?._identityWorktreeCardPropertiesDefaulted === true
             const hadExperimentOn = readDeprecatedExperimentFlag(parsed)
             const deliberateUncheck =
               hadExperimentOn &&
@@ -3320,7 +3322,23 @@ export class Store {
                 }
                 return next
               })()
-              const normalized = normalizeWorktreeCardProperties(expandedCandidate)
+              const identityCandidate = (() => {
+                if (identityCardPropsMigrated) {
+                  return expandedCandidate
+                }
+                const next = [...expandedCandidate]
+                // Why: project + host name shipped as new card properties; default
+                // them on once so existing cards stay self-describing in the
+                // ungrouped list. Later deliberate unchecks stick via the flag.
+                if (!next.includes('project-name')) {
+                  next.push('project-name' as const)
+                }
+                if (!next.includes('host-name')) {
+                  next.push('host-name' as const)
+                }
+                return next
+              })()
+              const normalized = normalizeWorktreeCardProperties(identityCandidate)
               const changed =
                 normalized.length !== rawCardProps.length ||
                 normalized.some((property, index) => property !== rawCardProps[index])
@@ -3329,7 +3347,8 @@ export class Store {
             if (
               migratedCardProps !== undefined ||
               !inlineAgentsMigrated ||
-              !expandedCardPropsMigrated
+              !expandedCardPropsMigrated ||
+              !identityCardPropsMigrated
             ) {
               this.loadNeedsSave = true
             }
@@ -3400,7 +3419,8 @@ export class Store {
               // The new flag is the one that actually gates the migration.
               _inlineAgentsDefaultedForExperiment: true,
               _inlineAgentsDefaultedForAllUsers: true,
-              _expandedWorktreeCardPropertiesDefaulted: true
+              _expandedWorktreeCardPropertiesDefaulted: true,
+              _identityWorktreeCardPropertiesDefaulted: true
             }
           })(),
           // Why: the workspace session is the most volatile persisted surface

@@ -4022,7 +4022,9 @@
           "65a9820bd1": "智能体状态",
           "219ebf1961": "分支名称",
           "automation": "自动化",
-          "folderPathIdentity": "分支 / 文件夹路径"
+          "folderPathIdentity": "分支 / 文件夹路径",
+          "projectName": "项目名称",
+          "remoteHostname": "远程主机名"
         },
         "SshDisconnectedDialog": {
           "ca4a7892af": "正在连接...",

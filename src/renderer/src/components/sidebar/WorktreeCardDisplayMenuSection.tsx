@@ -33,6 +33,12 @@ export function WorktreeCardDisplayMenuSection({
   const agentActivityDisplayMode = useAppStore((s) => s.agentActivityDisplayMode)
   const setAgentActivityDisplayMode = useAppStore((s) => s.setAgentActivityDisplayMode)
   const projectGroups = useAppStore((s) => s.projectGroups)
+  const groupBy = useAppStore((s) => s.groupBy)
+  // Grouping by project already shows the project name in the group header, so
+  // hide the Project Name toggle there. The stored value is untouched, so the
+  // selection is preserved when the grouping rule changes back.
+  const groupingByProject = groupBy === 'repo'
+  const isHiddenIdentityOption = (id: string): boolean => groupingByProject && id === 'project-name'
   const newCardStyle = settings?.experimentalNewWorktreeCardStyle === true
   const cardLayout = settings?.compactWorktreeCards ? 'compact' : 'detailed'
   const cardLayoutLabel =
@@ -70,20 +76,22 @@ export function WorktreeCardDisplayMenuSection({
           className="w-56"
           data-workspace-board-preserve-open={preserveWorkspaceBoardOpen ? '' : undefined}
         >
-          {worktreeCardPropertyOptions.map((opt) => (
-            <DropdownMenuCheckboxItem
-              key={opt.id}
-              checked={opt.properties.every((property) =>
-                worktreeCardProperties.includes(property)
-              )}
-              onCheckedChange={(checked) =>
-                handleWorktreeCardPropertyChange(opt.properties, checked === true)
-              }
-              onSelect={(e) => e.preventDefault()}
-            >
-              {opt.label}
-            </DropdownMenuCheckboxItem>
-          ))}
+          {worktreeCardPropertyOptions
+            .filter((opt) => !isHiddenIdentityOption(opt.id))
+            .map((opt) => (
+              <DropdownMenuCheckboxItem
+                key={opt.id}
+                checked={opt.properties.every((property) =>
+                  worktreeCardProperties.includes(property)
+                )}
+                onCheckedChange={(checked) =>
+                  handleWorktreeCardPropertyChange(opt.properties, checked === true)
+                }
+                onSelect={(e) => e.preventDefault()}
+              >
+                {opt.label}
+              </DropdownMenuCheckboxItem>
+            ))}
         </DropdownMenuSubContent>
       </DropdownMenuSub>
     )
@@ -155,7 +163,7 @@ export function WorktreeCardDisplayMenuSection({
           className="w-48"
           data-workspace-board-preserve-open={preserveWorkspaceBoardOpen ? '' : undefined}
         >
-          {PROPERTY_OPTIONS.map((opt) => (
+          {PROPERTY_OPTIONS.filter((opt) => !isHiddenIdentityOption(opt.id)).map((opt) => (
             <DropdownMenuCheckboxItem
               key={opt.id}
               checked={worktreeCardProperties.includes(opt.id)}

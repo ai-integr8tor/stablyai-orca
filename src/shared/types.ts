@@ -3191,6 +3191,10 @@ export type WorktreeCardProperty =
   // default (see DEFAULT_WORKTREE_CARD_PROPERTIES in shared/constants.ts) —
   // live agent activity is the primary reason users opt into the feature.
   | 'inline-agents'
+  // Identity badges: the project (repo) name and the execution host name.
+  // Host name only renders for non-local hosts regardless of this toggle.
+  | 'project-name'
+  | 'host-name'
 
 export type WorktreeCardMode = 'Default' | 'Compact'
 
@@ -3435,6 +3439,10 @@ export type PersistedUIState = {
    *  the original metadata toggles shipped. Set once so later deliberate
    *  unchecks of Linear issue and Ports stick across restarts. */
   _expandedWorktreeCardPropertiesDefaulted?: boolean
+  /** One-shot migration flag for the identity card properties (project + host
+   *  name). Set once so an existing profile gets them on by default, while a
+   *  later deliberate uncheck still sticks across restarts. */
+  _identityWorktreeCardPropertiesDefaulted?: boolean
   /** Snapshot of totalAgentsSpawned captured the first time we see the current
    *  app version. Why: the nag threshold counts agents spawned *since the
    *  user's last update* so a fresh install or new release does not trigger

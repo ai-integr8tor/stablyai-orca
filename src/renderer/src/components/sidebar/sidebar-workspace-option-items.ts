@@ -156,6 +156,29 @@ const ISSUE_WORKTREE_CARD_PROPERTY_OPTIONS: WorktreeCardPropertyOption[] = [
   }
 ]
 
+const IDENTITY_WORKTREE_CARD_PROPERTY_OPTIONS: WorktreeCardPropertyOption[] = [
+  {
+    id: 'project-name',
+    properties: ['project-name'],
+    get label() {
+      return translate(
+        'auto.components.sidebar.SidebarWorkspaceOptionsMenu.projectName',
+        'Project Name'
+      )
+    }
+  },
+  {
+    id: 'host-name',
+    properties: ['host-name'],
+    get label() {
+      return translate(
+        'auto.components.sidebar.SidebarWorkspaceOptionsMenu.remoteHostname',
+        'Remote Hostname'
+      )
+    }
+  }
+]
+
 type WorktreeCardPropertyOptionsInput = {
   newCardStyle?: boolean
   hasProjectGroups?: boolean
@@ -183,13 +206,19 @@ export function getWorktreeCardPropertyOptions({
     }
   }
   if (newCardStyle) {
-    return [...issueOptions, ...BASE_WORKTREE_CARD_PROPERTY_OPTIONS.slice(1, -1), branchOption]
+    return [
+      ...issueOptions,
+      ...BASE_WORKTREE_CARD_PROPERTY_OPTIONS.slice(1, -1),
+      branchOption,
+      ...IDENTITY_WORKTREE_CARD_PROPERTY_OPTIONS
+    ]
   }
   return [
     BASE_WORKTREE_CARD_PROPERTY_OPTIONS[0],
     ...issueOptions,
     ...BASE_WORKTREE_CARD_PROPERTY_OPTIONS.slice(1, -1),
-    branchOption
+    branchOption,
+    ...IDENTITY_WORKTREE_CARD_PROPERTY_OPTIONS
   ]
 }
 

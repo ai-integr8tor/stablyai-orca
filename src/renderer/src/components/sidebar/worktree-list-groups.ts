@@ -34,7 +34,12 @@ import type { AppState } from '../../store/types'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from '../../store/slices/github-cache-key'
 import { getRepoDisplayLabelKey, getRepoDisplayLabelsByPath } from '@/lib/repo-display-labels'
 import { translate } from '@/i18n/i18n'
-import { getExecutionHostLabel, getRepoExecutionHostId } from '../../../../shared/execution-host'
+import {
+  getExecutionHostLabel,
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import { parseWslUncPath } from '../../../../shared/wsl-paths'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 
@@ -652,41 +657,71 @@ function appendWorktreeRows(
   }
 }
 
-function getRepoHostLabel(
+function getRepoHostContext(
   repoId: string,
   repoMap: Map<string, Repo>,
   projectIndex: ProjectGroupingIndex | null,
   hostLabelById: ReadonlyMap<string, string> | undefined
-): string | null {
+): { hostId: ExecutionHostId; label: string } | null {
   const setup = projectIndex?.setupByRepoId.get(repoId)
   if (setup) {
-    return hostLabelById?.get(setup.hostId) ?? getExecutionHostLabel(setup.hostId)
+    return {
+      hostId: setup.hostId,
+      label: hostLabelById?.get(setup.hostId) ?? getExecutionHostLabel(setup.hostId)
+    }
   }
   const repo = repoMap.get(repoId)
   if (!repo) {
     return null
   }
   const hostId = getRepoExecutionHostId(repo)
-  return hostLabelById?.get(hostId) ?? getExecutionHostLabel(hostId)
+  return {
+    hostId,
+    label: hostLabelById?.get(hostId) ?? getExecutionHostLabel(hostId)
+  }
 }
 
-function getMixedHostContextLabels(
+function getNonLocalHostContextLabels(
+  repoIds: Iterable<string>,
+  repoMap: Map<string, Repo>,
+  projectIndex: ProjectGroupingIndex | null,
+  hostLabelById: ReadonlyMap<string, string> | undefined
+): Map<string, string> | undefined {
+  const labelsByRepoId = new Map<string, string>()
+  for (const repoId of repoIds) {
+    const context = getRepoHostContext(repoId, repoMap, projectIndex, hostLabelById)
+    if (!context || context.hostId === LOCAL_EXECUTION_HOST_ID) {
+      continue
+    }
+    labelsByRepoId.set(repoId, context.label)
+  }
+  return labelsByRepoId.size > 0 ? labelsByRepoId : undefined
+}
+
+function getRepoGroupHostContextLabels(
   group: WorktreeGroupEntry,
   repoMap: Map<string, Repo>,
   projectIndex: ProjectGroupingIndex | null,
   hostLabelById: ReadonlyMap<string, string> | undefined
 ): Map<string, string> | undefined {
   const labelsByRepoId = new Map<string, string>()
-  const uniqueLabels = new Set<string>()
+  const hostIdsByRepoId = new Map<string, ExecutionHostId>()
   for (const repoId of group.repoIds) {
-    const label = getRepoHostLabel(repoId, repoMap, projectIndex, hostLabelById)
-    if (!label) {
+    const context = getRepoHostContext(repoId, repoMap, projectIndex, hostLabelById)
+    if (!context) {
       continue
     }
-    labelsByRepoId.set(repoId, label)
-    uniqueLabels.add(label)
+    labelsByRepoId.set(repoId, context.label)
+    hostIdsByRepoId.set(repoId, context.hostId)
   }
-  return uniqueLabels.size > 1 ? labelsByRepoId : undefined
+  // Local execution hosts never get a badge, even in mixed-host groups.
+  const nonLocalLabelsByRepoId = new Map<string, string>()
+  for (const [repoId, label] of labelsByRepoId) {
+    if (hostIdsByRepoId.get(repoId) !== LOCAL_EXECUTION_HOST_ID) {
+      nonLocalLabelsByRepoId.set(repoId, label)
+    }
+  }
+  return nonLocalLabelsByRepoId.size > 0 ? nonLocalLabelsByRepoId : undefined
 }
 
 function orderMainWorktreeFirst(worktrees: Worktree[]): Worktree[] {
@@ -908,7 +943,13 @@ export function buildRows(
           nestLineage,
           collapsedGroups,
           groupDepth: 0,
-          sectionKey: ALL_GROUP_KEY
+          sectionKey: ALL_GROUP_KEY,
+          hostContextLabelByRepoId: getNonLocalHostContextLabels(
+            worktrees.map((worktree) => worktree.repoId),
+            repoMap,
+            projectIndex,
+            hostLabelById
+          )
         })
       }
     }
@@ -1136,8 +1177,8 @@ export function buildRows(
         const items = groupBy === 'repo' ? orderMainWorktreeFirst(group.items) : group.items
         const hostContextLabelByRepoId =
           groupBy === 'repo'
-            ? getMixedHostContextLabels(group, repoMap, projectIndex, hostLabelById)
-            : undefined
+            ? getRepoGroupHostContextLabels(group, repoMap, projectIndex, hostLabelById)
+            : getNonLocalHostContextLabels(group.repoIds, repoMap, projectIndex, hostLabelById)
         if (groupBy === 'repo') {
           appendWorktreeRows(result, items, repoMap, lineageById, worktreeMap, {
             nestLineage,
