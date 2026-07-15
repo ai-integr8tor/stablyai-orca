@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -124,6 +124,26 @@ describe('resolveSessionFilePath', () => {
     expect(resolved).toBe(target)
   })
 
+  it('matches cold-compressed Codex rollouts and prefers a plain sibling', async () => {
+    const root = await makeRoot('orca-native-chat-resolve-codex-zst-')
+    const codexSessionsDir = join(root, 'codex-sessions')
+    const dayDir = join(codexSessionsDir, '2026', '06', '04')
+    await mkdir(dayDir, { recursive: true })
+    const compressed = join(dayDir, 'rollout-2026-06-04T10-00-00-dual-session.jsonl.zst')
+    await writeFile(compressed, 'zstd')
+
+    await expect(
+      resolveSessionFilePath('codex', 'dual-session', { codexSessionsDirs: [codexSessionsDir] })
+    ).resolves.toBe(compressed)
+
+    const plain = join(dayDir, 'rollout-2026-06-04T10-00-00-dual-session.jsonl')
+    await writeFile(plain, '{}\n')
+
+    await expect(
+      resolveSessionFilePath('codex', 'dual-session', { codexSessionsDirs: [codexSessionsDir] })
+    ).resolves.toBe(plain)
+  })
+
   it('resolves a rollout from the orca-managed Codex home (ORCA_USER_DATA_PATH)', async () => {
     // Orca launches Codex with its own managed CODEX_HOME, so rollout files land
     // under <userData>/codex-runtime-home/home/sessions, NOT ~/.codex/sessions.
@@ -196,9 +216,68 @@ describe('resolveSessionFilePath', () => {
 
     const resolved = await resolveSessionFilePath('claude', 'hook-session-id', {
       claudeProjectsDir,
-      transcriptPath: realFile
+      transcriptPath: realFile,
+      requireTranscriptPathInAgentRoots: true
     })
-    expect(resolved).toBe(realFile)
+    expect(resolved).toBe(await realpath(realFile))
+  })
+
+  it('rejects a client transcriptPath outside the agent transcript roots', async () => {
+    const root = await makeRoot('orca-native-chat-resolve-contained-')
+    const claudeProjectsDir = join(root, 'claude-projects')
+    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    await mkdir(projectDir, { recursive: true })
+    const fallback = join(projectDir, 'hook-session-id.jsonl')
+    const outside = join(root, 'outside.jsonl')
+    await writeFile(fallback, '{}\n')
+    await writeFile(outside, '{"secret":true}\n')
+
+    await expect(
+      resolveSessionFilePath('claude', 'hook-session-id', {
+        claudeProjectsDir,
+        transcriptPath: outside,
+        requireTranscriptPathInAgentRoots: true
+      })
+    ).resolves.toBe(fallback)
+  })
+
+  it('rejects a client transcriptPath that escapes through a directory symlink', async () => {
+    const root = await makeRoot('orca-native-chat-resolve-symlink-')
+    const claudeProjectsDir = join(root, 'claude-projects')
+    const outsideDir = join(root, 'outside')
+    await mkdir(claudeProjectsDir, { recursive: true })
+    await mkdir(outsideDir, { recursive: true })
+    await writeFile(join(outsideDir, 'secret.jsonl'), '{"secret":true}\n')
+    const linkedDir = join(claudeProjectsDir, 'linked-project')
+    await symlink(outsideDir, linkedDir, process.platform === 'win32' ? 'junction' : 'dir')
+
+    await expect(
+      resolveSessionFilePath('claude', 'missing', {
+        claudeProjectsDir,
+        transcriptPath: join(linkedDir, 'secret.jsonl'),
+        requireTranscriptPathInAgentRoots: true
+      })
+    ).resolves.toBeNull()
+  })
+
+  it('accepts a hook-reported .jsonl.zst path only for Codex', async () => {
+    const root = await makeRoot('orca-native-chat-resolve-hook-zst-')
+    const compressed = join(root, 'rollout-hook-session.jsonl.zst')
+    await writeFile(compressed, 'zstd')
+
+    await expect(
+      resolveSessionFilePath('codex', 'hook-session', {
+        codexSessionsDirs: [root],
+        transcriptPath: compressed,
+        requireTranscriptPathInAgentRoots: true
+      })
+    ).resolves.toBe(await realpath(compressed))
+    await expect(
+      resolveSessionFilePath('claude', 'hook-session', {
+        claudeProjectsDir: join(root, 'empty'),
+        transcriptPath: compressed
+      })
+    ).resolves.toBeNull()
   })
 
   it('falls back to the id glob when the hook transcriptPath does not exist', async () => {

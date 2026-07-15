@@ -1,7 +1,13 @@
 import { existsSync } from 'node:fs'
+import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, join } from 'node:path'
+import { basename, extname, isAbsolute, join, relative, sep } from 'node:path'
 import type { AgentType } from '../../shared/native-chat-types'
+import {
+  CODEX_SESSION_ROLLOUT_EXTENSIONS,
+  codexRolloutBaseName,
+  isCodexSessionRolloutPath
+} from '../ai-vault/session-scanner-codex-paths'
 import { walkSessionFiles } from '../ai-vault/session-scanner-discovery'
 import { getOrcaManagedCodexHomePath } from '../codex/codex-home-paths'
 import {
@@ -49,6 +55,51 @@ export type ResolveSessionFileOptions = {
    *  directly — recent Claude Code names the transcript with a UUID that differs
    *  from the hook session_id, so the id-based glob below would miss it. */
   transcriptPath?: string
+  /** Require a client-provided transcript path to resolve inside this agent's
+   *  transcript roots. Runtime RPC enables this for untrusted paired clients. */
+  requireTranscriptPathInAgentRoots?: boolean
+}
+
+function agentTranscriptRoots(agent: AgentType, options: ResolveSessionFileOptions): string[] {
+  if (agent === 'claude') {
+    return [options.claudeProjectsDir ?? claudeProjectsDir()]
+  }
+  if (agent === 'codex') {
+    return options.codexSessionsDirs ?? codexSessionsDirs()
+  }
+  if (agent === 'grok') {
+    return [options.grokSessionsDir ?? grokSessionsDir()]
+  }
+  return []
+}
+
+async function resolveContainedPath(
+  filePath: string,
+  roots: readonly string[]
+): Promise<string | null> {
+  let resolvedFile: string
+  try {
+    resolvedFile = await realpath(filePath)
+  } catch {
+    return null
+  }
+
+  for (const root of roots) {
+    try {
+      const resolvedRoot = await realpath(root)
+      const relativePath = relative(resolvedRoot, resolvedFile)
+      if (
+        relativePath === '' ||
+        (!isAbsolute(relativePath) && relativePath !== '..' && !relativePath.startsWith(`..${sep}`))
+      ) {
+        // Return the canonical path so a symlink cannot be swapped after validation.
+        return resolvedFile
+      }
+    } catch {
+      // Missing roots cannot contain an existing transcript; try the next root.
+    }
+  }
+  return null
 }
 
 /**
@@ -71,8 +122,21 @@ export async function resolveSessionFilePath(
   // stale/remote path falls through to the id-based search rather than returning
   // a non-existent file.
   const hookPath = options.transcriptPath?.trim()
-  if (hookPath && extname(hookPath) === '.jsonl' && existsSync(hookPath)) {
-    return hookPath
+  const hookPathIsTranscript =
+    extname(hookPath ?? '') === '.jsonl' ||
+    (agent === 'codex' && Boolean(hookPath && isCodexSessionRolloutPath(hookPath)))
+  if (hookPath && hookPathIsTranscript) {
+    if (options.requireTranscriptPathInAgentRoots) {
+      const containedPath = await resolveContainedPath(
+        hookPath,
+        agentTranscriptRoots(agent, options)
+      )
+      if (containedPath) {
+        return containedPath
+      }
+    } else if (existsSync(hookPath)) {
+      return hookPath
+    }
   }
 
   const trimmedId = sessionId.trim()
@@ -108,22 +172,25 @@ async function resolveCodexSessionFile(
   sessionId: string,
   sessionsDirs: string[]
 ): Promise<string | null> {
-  // Codex rollout file names embed the session id (rollout-<ts>-<id>.jsonl), so
-  // match the id as a suffix of the file's base name rather than an exact name.
+  // Codex rollout file names embed the session id. Prefer plain `.jsonl` when
+  // both it and a cold `.jsonl.zst` sibling exist.
   // Search each candidate root (managed home first) and stop at the first match.
   for (const sessionsDir of sessionsDirs) {
     if (!existsSync(sessionsDir)) {
       continue
     }
     const files = await walkSessionFiles(sessionsDir, 'codex', [], {
-      extensions: new Set(['.jsonl']),
+      extensions: new Set(CODEX_SESSION_ROLLOUT_EXTENSIONS),
       filePredicate: (path) => {
-        const name = basename(path, extname(path))
+        if (!isCodexSessionRolloutPath(path)) {
+          return false
+        }
+        const name = codexRolloutBaseName(path)
         return name === sessionId || name.endsWith(`-${sessionId}`)
       }
     })
-    if (files[0]) {
-      return files[0]
+    if (files.length > 0) {
+      return files.find((path) => path.endsWith('.jsonl')) ?? files[0] ?? null
     }
   }
   return null

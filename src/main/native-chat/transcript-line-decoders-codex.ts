@@ -8,29 +8,89 @@ import {
   timestampMs
 } from '../ai-vault/session-scanner-values'
 import { claudeContentBlocks, toolResultOutput } from './transcript-record-blocks'
+import { codexTurnItem } from './transcript-codex-turn-items'
 
 export function decodeCodexTranscriptLine(
   line: string,
   fallbackId: string
 ): NativeChatMessage | null {
+  return createCodexTranscriptLineDecoder()(line, fallbackId)
+}
+
+/** Keeps the rollout's history mode and adjacent cross-format duplicate state. */
+export function createCodexTranscriptLineDecoder(): (
+  line: string,
+  fallbackId: string
+) => NativeChatMessage | null {
+  let historyMode: string | null = null
+  let lastEmitted: { source: 'response-item' | 'turn-item'; fingerprint: string } | null = null
+
+  return (line, fallbackId) => {
+    const decoded = decodeCodexRecord(line, fallbackId, historyMode)
+    if (decoded.historyMode !== undefined) {
+      historyMode = decoded.historyMode
+    }
+    if (!decoded.message || !decoded.source) {
+      return null
+    }
+    const fingerprint = messageFingerprint(decoded.message)
+    if (
+      lastEmitted &&
+      lastEmitted.source !== decoded.source &&
+      lastEmitted.fingerprint === fingerprint
+    ) {
+      return null
+    }
+    lastEmitted = { source: decoded.source, fingerprint }
+    return decoded.message
+  }
+}
+
+function decodeCodexRecord(
+  line: string,
+  fallbackId: string,
+  historyMode: string | null
+): {
+  message: NativeChatMessage | null
+  source?: 'response-item' | 'turn-item'
+  historyMode?: string | null
+} {
   const record = parseJsonObject(line)
   if (!record) {
-    return null
+    return { message: null }
   }
   const payload = asRecord(record.payload)
   if (!payload) {
-    return null
+    return { message: null }
+  }
+  if (record.type === 'session_meta') {
+    return {
+      message: null,
+      historyMode: extractString(payload.history_mode) ?? extractString(payload.historyMode) ?? null
+    }
   }
   const timestamp = parseTimestamp(record.timestamp)
   const baseId = extractString(payload.id) ?? fallbackId
 
   if (record.type === 'response_item') {
-    return codexResponseItem(payload, baseId, timestamp)
+    // Why: paginated rollouts persist the same logical item in both formats;
+    // TurnItems are canonical and carry stable ids, so rendering both duplicates turns.
+    return {
+      message: historyMode === 'paginated' ? null : codexResponseItem(payload, baseId, timestamp),
+      source: 'response-item'
+    }
   }
   if (record.type === 'event_msg') {
-    return codexEventMessage(payload, baseId, timestamp)
+    return {
+      message: codexEventMessage(payload, baseId, timestamp),
+      source: payload.type === 'item_completed' ? 'turn-item' : undefined
+    }
   }
-  return null
+  return { message: null }
+}
+
+function messageFingerprint(message: NativeChatMessage): string {
+  return JSON.stringify([message.role, message.blocks])
 }
 
 function codexResponseItem(
@@ -98,6 +158,12 @@ function codexEventMessage(
     return text
       ? { id, role: 'assistant', blocks: [{ type: 'text', text }], timestamp, source: 'transcript' }
       : null
+  }
+  // Why: paginated history emits completed TurnItems instead of the legacy
+  // user_message/agent_message event variants.
+  if (payload.type === 'item_completed') {
+    const item = asRecord(payload.item)
+    return item ? codexTurnItem(item, extractString(item.id) ?? id, timestamp) : null
   }
   return null
 }

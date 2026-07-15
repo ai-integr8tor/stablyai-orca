@@ -55,6 +55,10 @@ const NativeChatUnsubscribe = z.object({
 // older history as the user scrolls back.
 const MOBILE_NATIVE_CHAT_DEFAULT_WINDOW = 40
 const MOBILE_NATIVE_CHAT_MAX_WINDOW = 2000
+// Why: paired clients must never make the host retain or decode an unbounded
+// transcript. The desktop IPC path remains uncapped for full-history access.
+const REMOTE_TRANSCRIPT_MAX_DECODED_BYTES = 64 * 1024 * 1024
+const REMOTE_TRANSCRIPT_MAX_LINE_BYTES = 8 * 1024 * 1024
 // Why: a single tool result (a big file read, a long diff) can be hundreds of KB.
 // The mobile view only previews block bodies, so truncate them on the wire to
 // keep the payload small; the marker tells the user content was clipped.
@@ -116,7 +120,17 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
       const result = await readNativeChatTranscriptCached(
         params.agent,
         params.sessionId,
-        params.transcriptPath
+        params.transcriptPath,
+        {
+          requireTranscriptPathInAgentRoots: true,
+          // Parse once into the largest supported tail so every smaller page
+          // reuses the same bounded cache entry.
+          limits: {
+            maxDecodedBytes: REMOTE_TRANSCRIPT_MAX_DECODED_BYTES,
+            maxLineBytes: REMOTE_TRANSCRIPT_MAX_LINE_BYTES,
+            maxMessages: MOBILE_NATIVE_CHAT_MAX_WINDOW
+          }
+        }
       )
       // Window to the conversation tail (all clients); clip blocks for mobile only.
       return 'messages' in result
@@ -130,9 +144,9 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
     handler: async (params, { runtime, connectionId, clientKind }, emit) => {
       let closed = false
       let unsubscribe = (): void => {}
-      // Why: the subscriber seeds its read offset at 0, so the first drain emits
-      // the whole transcript and later drains emit only appended turns. The first
-      // batch is windowed to the tail (a full transcript would freeze mobile);
+      // Why: the subscriber seeds from a bounded, newline-aligned transcript
+      // tail and later drains emit only appended turns. The first batch is
+      // windowed again by message count for a fast paired-client snapshot;
       // later incremental batches are smaller than the window so they pass through.
       // Clients merge by message id, so the initial windowed batch doubles as the
       // snapshot. Keyed by the client-supplied subscriptionId when present so
@@ -157,6 +171,12 @@ export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [
         agent: params.agent,
         sessionId: params.sessionId,
         transcriptPath: params.transcriptPath,
+        requireTranscriptPathInAgentRoots: true,
+        limits: {
+          maxDecodedBytes: REMOTE_TRANSCRIPT_MAX_DECODED_BYTES,
+          maxLineBytes: REMOTE_TRANSCRIPT_MAX_LINE_BYTES,
+          maxMessages: MOBILE_NATIVE_CHAT_MAX_WINDOW
+        },
         onAppend: (messages) => {
           if (closed) {
             return

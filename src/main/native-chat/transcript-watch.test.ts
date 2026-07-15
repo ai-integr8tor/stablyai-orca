@@ -16,7 +16,7 @@ afterEach(async () => {
   tempRoots = []
 })
 
-async function tempFile(initial: string): Promise<string> {
+async function tempFile(initial: string | Uint8Array): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'orca-native-chat-watch-'))
   tempRoots.push(root)
   const filePath = join(root, 'rollout.jsonl')
@@ -130,6 +130,59 @@ describe('subscribeNativeChatTranscript', () => {
     expect(seen.some((m) => m.id === 'a-2')).toBe(true)
   })
 
+  it('skips oversized initial history once and continues tailing later appends', async () => {
+    const filePath = await tempFile(claudeLine('u-large', 'user', 'x'.repeat(1024)))
+    const seen: NativeChatMessage[] = []
+    let appendedDuringRead = false
+
+    const sub = await subscribeNativeChatTranscript({
+      agent: 'claude',
+      sessionId: 'ignored',
+      filePath,
+      onAppend: (messages) => seen.push(...messages),
+      debounceMs: 5,
+      limits: { maxDecodedBytes: 256, maxLineBytes: 2048, maxMessages: 40 },
+      afterReadSnapshotForTests: async () => {
+        if (appendedDuringRead) {
+          return
+        }
+        appendedDuringRead = true
+        await appendFile(filePath, claudeLine('a-after-limit', 'assistant', 'still live'))
+        // Let the watcher turn this append into pendingReadRequested while the
+        // oversized seed read still owns the drain.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    })
+
+    await waitFor(() => seen.some((message) => message.id === 'a-after-limit'), 500)
+
+    sub.unsubscribe()
+    expect(seen.some((message) => message.id === 'u-large')).toBe(false)
+  })
+
+  it('seeds a newline-aligned tail when bounded history exceeds the remote window', async () => {
+    const initial = Array.from({ length: 8 }, (_unused, index) =>
+      claudeLine(`u-${index}`, 'user', `message-${index}-${'x'.repeat(80)}`)
+    ).join('')
+    const filePath = await tempFile(initial)
+    const seen: NativeChatMessage[] = []
+
+    const sub = await subscribeNativeChatTranscript({
+      agent: 'claude',
+      sessionId: 'ignored',
+      filePath,
+      onAppend: (messages) => seen.push(...messages),
+      debounceMs: 5,
+      limits: { maxDecodedBytes: 512, maxLineBytes: 256, maxMessages: 40 }
+    })
+
+    await waitFor(() => seen.some((message) => message.id === 'u-7'))
+    sub.unsubscribe()
+
+    expect(seen.some((message) => message.id === 'u-0')).toBe(false)
+    expect(seen.at(-1)?.id).toBe('u-7')
+  })
+
   it('releases the watcher on unsubscribe (no leak)', async () => {
     const filePath = await tempFile(claudeLine('u-1', 'user', 'hi'))
     const before = getActiveNativeChatWatcherCount()
@@ -202,6 +255,36 @@ describe('subscribeNativeChatTranscript', () => {
 
     sub.unsubscribe()
     expect(seen.filter((m) => m.id === 'a-partial')).toHaveLength(1)
+  })
+
+  it('keeps malformed UTF-8 from advancing into the next partial record', async () => {
+    const seed = claudeLine('u-seed', 'user', 'before malformed offset check')
+    const filePath = await tempFile(
+      Buffer.concat([Buffer.from([0xff, 0x0a]), Buffer.from(seed, 'utf8')])
+    )
+    const seen: NativeChatMessage[] = []
+
+    const sub = await subscribeNativeChatTranscript({
+      agent: 'claude',
+      sessionId: 'ignored',
+      filePath,
+      onAppend: (messages) => seen.push(...messages),
+      debounceMs: 5
+    })
+
+    await waitFor(() => seen.some((message) => message.id === 'u-seed'))
+
+    const line = claudeLine('a-after-malformed', 'assistant', 'offset stayed aligned')
+    const splitAt = Math.floor(line.length / 2)
+    await appendFile(filePath, line.slice(0, splitAt))
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(seen.some((message) => message.id === 'a-after-malformed')).toBe(false)
+
+    await appendFile(filePath, line.slice(splitAt))
+    await waitFor(() => seen.some((message) => message.id === 'a-after-malformed'))
+
+    sub.unsubscribe()
+    expect(seen.filter((message) => message.id === 'a-after-malformed')).toHaveLength(1)
   })
 
   it('survives file replacement / rotation (offset reset on shrink)', async () => {
