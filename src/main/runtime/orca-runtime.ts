@@ -1403,8 +1403,17 @@ type RuntimeNotifier = {
         leafId?: string
         layout?: TerminalLayoutSnapshot
         title?: string | null
+        rollback?: () => void | Promise<void>
+        complete?: () => void | Promise<void>
       }>
-    | { tabId: string; leafId?: string; layout?: TerminalLayoutSnapshot; title?: string | null }
+    | {
+        tabId: string
+        leafId?: string
+        layout?: TerminalLayoutSnapshot
+        title?: string | null
+        rollback?: () => void | Promise<void>
+        complete?: () => void | Promise<void>
+      }
     | void
   splitTerminal(
     tabId: string,
@@ -18692,6 +18701,42 @@ export class OrcaRuntimeService {
     return null
   }
 
+  private findActiveRendererOrchestrationGridTarget(): OrchestrationGridTarget | null {
+    for (const snapshot of this.mobileSessionTabsByWorktree.values()) {
+      const activeSurface = snapshot.tabs.find(
+        (tab) => tab.type === 'terminal' && tab.id === snapshot.activeTabId
+      )
+      if (activeSurface?.type !== 'terminal') {
+        continue
+      }
+      const target = this.findOrchestrationGridTarget(
+        snapshot.worktree,
+        activeSurface.parentTabId,
+        this.getWorkspaceExecutionHostId(snapshot.worktree)
+      )
+      if (target) {
+        return target
+      }
+    }
+
+    // Why: older/partial renderer graph publishers may omit mobile focus state;
+    // an active leaf still proves this mounted grid can own an implicit append.
+    for (const tab of this.tabs.values()) {
+      if (tab.layoutMode !== 'orchestration-grid' || !tab.activeLeafId) {
+        continue
+      }
+      const target = this.findOrchestrationGridTarget(
+        tab.worktreeId,
+        tab.tabId,
+        this.getWorkspaceExecutionHostId(tab.worktreeId)
+      )
+      if (target) {
+        return target
+      }
+    }
+    return null
+  }
+
   async createTerminal(
     worktreeSelector?: string,
     opts: TerminalCreateOptions = {},
@@ -18741,13 +18786,14 @@ export class OrcaRuntimeService {
     const rendererBackedGridTarget =
       opts.placement === 'orchestration-grid' &&
       opts.rendererBacked === true &&
-      rendererWindow !== null &&
-      resolvedGridWorkspace
-        ? this.findOrchestrationGridTarget(
-            resolvedGridWorkspace.id,
-            undefined,
-            this.getTerminalWorkspaceExecutionHostId(resolvedGridWorkspace)
-          )
+      rendererWindow !== null
+        ? resolvedGridWorkspace
+          ? this.findOrchestrationGridTarget(
+              resolvedGridWorkspace.id,
+              undefined,
+              this.getTerminalWorkspaceExecutionHostId(resolvedGridWorkspace)
+            )
+          : this.findActiveRendererOrchestrationGridTarget()
         : null
     // Why: the first renderer-backed grid pane has no mounted leaf that can
     // acknowledge adoption, so let the renderer own its initial spawn instead.
@@ -18907,6 +18953,8 @@ export class OrcaRuntimeService {
       let handle: string | null = null
       let spawnedPtyId: string | null = null
       let gridPersistedAtomically = false
+      let rendererGridRollback: (() => void | Promise<void>) | null = null
+      let rendererGridComplete: (() => void | Promise<void>) | null = null
       try {
         result = await ptyController.spawn({
           cols: 120,
@@ -18968,6 +19016,8 @@ export class OrcaRuntimeService {
                 }
               : {})
           })
+          rendererGridRollback = revealed?.rollback ?? null
+          rendererGridComplete = revealed?.complete ?? null
           if (revealed?.tabId !== tabId || revealed.leafId !== leafId) {
             throw new Error('Terminal renderer attached an unexpected grid identity')
           }
@@ -19015,6 +19065,16 @@ export class OrcaRuntimeService {
             console.error('[terminal-create] failed to persist orchestration grid:', error)
             throw new Error(createTerminalSessionStateSaveFailureMessage())
           }
+        }
+        if (rendererGridComplete) {
+          try {
+            await rendererGridComplete()
+          } catch (error) {
+            // Why: durable state already committed; renderer token cleanup is
+            // best-effort and must not destroy a successfully published pane.
+            console.warn('[terminal-create] failed to release renderer grid rollback:', error)
+          }
+          rendererGridRollback = null
         }
         if (!result.runtimeRegistration) {
           this.registerPreAllocatedHandleForPty(result.id, preAllocatedHandle)
@@ -19077,37 +19137,58 @@ export class OrcaRuntimeService {
         }
         result.runtimeRegistration?.complete()
       } catch (error) {
-        const cleanupErrors: unknown[] = []
-        let cleanupSucceeded = false
-        const hasRuntimeRegistrationReceipt = result?.runtimeRegistration !== undefined
-        if (result?.runtimeRegistration) {
-          for (let attempt = 0; attempt < 2 && !cleanupSucceeded; attempt += 1) {
+        let rendererCleanupError: unknown
+        let rendererCleanupSucceeded = rendererGridRollback === null
+        if (rendererGridRollback) {
+          for (let attempt = 0; attempt < 2 && !rendererCleanupSucceeded; attempt += 1) {
             try {
-              await result.runtimeRegistration.abort()
-              cleanupSucceeded = true
+              await rendererGridRollback()
+              rendererCleanupSucceeded = true
             } catch (cleanupError) {
-              cleanupErrors.push(cleanupError)
+              rendererCleanupError = cleanupError
             }
           }
         }
-        if (spawnedPtyId && !cleanupSucceeded) {
+
+        let runtimeCleanupError: unknown
+        let runtimeCleanupSucceeded = result === null && spawnedPtyId === null
+        const hasRuntimeRegistrationReceipt = result?.runtimeRegistration !== undefined
+        if (result?.runtimeRegistration) {
+          for (let attempt = 0; attempt < 2 && !runtimeCleanupSucceeded; attempt += 1) {
+            try {
+              await result.runtimeRegistration.abort()
+              runtimeCleanupSucceeded = true
+            } catch (cleanupError) {
+              runtimeCleanupError = cleanupError
+            }
+          }
+        }
+        if (spawnedPtyId && !runtimeCleanupSucceeded) {
           try {
             const killAccepted = ptyController.kill(spawnedPtyId)
             if (!hasRuntimeRegistrationReceipt) {
-              cleanupSucceeded = killAccepted
+              runtimeCleanupSucceeded = killAccepted
             }
             if (!killAccepted) {
-              cleanupErrors.push(new Error('PTY controller rejected staged rollback'))
+              runtimeCleanupError = new Error('PTY controller rejected staged rollback')
             }
           } catch (cleanupError) {
-            cleanupErrors.push(cleanupError)
+            runtimeCleanupError = cleanupError
           }
         }
-        if (!cleanupSucceeded && cleanupErrors.length > 0) {
+        const cleanupErrors = [
+          ...(!rendererCleanupSucceeded && rendererCleanupError !== undefined
+            ? [rendererCleanupError]
+            : []),
+          ...(!runtimeCleanupSucceeded && runtimeCleanupError !== undefined
+            ? [runtimeCleanupError]
+            : [])
+        ]
+        if (cleanupErrors.length > 0) {
           const message = error instanceof Error ? error.message : String(error)
           throw new AggregateError(
             [error, ...cleanupErrors],
-            `${message}; staged PTY rollback failed`
+            `${message}; terminal grid rollback failed`
           )
         }
         throw error
