@@ -1145,7 +1145,8 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       try {
         proc.write(data)
       } catch {
-        dead = true
+        // Don't flip `dead` here: onExit owns exit, and a thrown write on a
+        // live PTY must not permanently silence all subsequent input.
       }
     },
     resize: (cols, rows) => {
@@ -1158,7 +1159,7 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       try {
         proc.resize(cols, rows)
       } catch {
-        dead = true
+        // As with write: tolerate the throw without disabling a live PTY.
       }
     },
     // Why pause/resume work on Windows too: node-pty's base Terminal
