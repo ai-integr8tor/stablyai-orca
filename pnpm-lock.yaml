@@ -18,7 +18,7 @@ patchedDependencies:
     hash: cf737f93f193124ffc7f302bbbf81c2290b29b562335f24263209274caaf8e64
     path: config/patches/@xterm__addon-webgl@0.20.0-beta.286.patch
   node-pty@1.1.0:
-    hash: 0d4499586a8c5b8eb69eb3d8bac4c2c8a8d74f21b925d28837fc14104f4f4ffa
+    hash: 130cd0a937d9247560ac4602a6582fabd3805d2f03509495441c9ae96c0f4328
     path: config/patches/node-pty@1.1.0.patch
 
 importers:
@@ -60,7 +60,7 @@ importers:
         version: 3.3.1
       node-pty:
         specifier: ^1.1.0
-        version: 1.1.0(patch_hash=0d4499586a8c5b8eb69eb3d8bac4c2c8a8d74f21b925d28837fc14104f4f4ffa)
+        version: 1.1.0(patch_hash=130cd0a937d9247560ac4602a6582fabd3805d2f03509495441c9ae96c0f4328)
       posthog-node:
         specifier: ^5.33.3
         version: 5.33.3
@@ -12015,7 +12015,7 @@ snapshots:
       undici: 6.27.0
       which: 6.0.1
 
-  node-pty@1.1.0(patch_hash=0d4499586a8c5b8eb69eb3d8bac4c2c8a8d74f21b925d28837fc14104f4f4ffa):
+  node-pty@1.1.0(patch_hash=130cd0a937d9247560ac4602a6582fabd3805d2f03509495441c9ae96c0f4328):
     dependencies:
       node-addon-api: 7.1.1
 

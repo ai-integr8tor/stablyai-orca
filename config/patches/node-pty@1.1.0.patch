@@ -113,7 +113,7 @@ index 181ccabbbe9c4948a9725fb1db907a68e9de01fc..67f31facf85562b67adbfbd04ce28ddd
  process.send!({ consoleProcessList });
  process.exit(0);
 diff --git a/src/unix/pty.cc b/src/unix/pty.cc
-index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..0a8697f7c8bba3d7d5bb9a763f78af57649bef63 100644
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..310ba453b31430ed4752fdf6889455e18b18d6a6 100644
 --- a/src/unix/pty.cc
 +++ b/src/unix/pty.cc
 @@ -23,7 +23,9 @@
@@ -184,9 +184,9 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..0a8697f7c8bba3d7d5bb9a763f78af57
 +      // forkpty(3) cannot open the master with O_CLOEXEC; without FD_CLOEXEC
 +      // every later child of this process inherits the master, which keeps
 +      // dead sessions' PTYs alive and can break their EOF/hangup semantics.
-+      if (pty_cloexec(master) == -1) {
-+        throw Napi::Error::New(napiEnv, "Could not set master fd to close-on-exec.");
-+      }
++      // Best-effort: the child is already spawned, so failing the whole spawn
++      // over an fd-hygiene fcntl would be worse than tolerating the old leak.
++      pty_cloexec(master);
    }
  #endif
  
@@ -280,7 +280,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..0a8697f7c8bba3d7d5bb9a763f78af57
  
    for (; count < 3; count++) {
      low_fds[count] = posix_openpt(O_RDWR);
-@@ -706,80 +793,126 @@ pty_posix_spawn(char** argv, char** env,
+@@ -706,80 +793,123 @@ pty_posix_spawn(char** argv, char** env,
                POSIX_SPAWN_SETSID;
    *master = posix_openpt(O_RDWR);
    if (*master == -1) {
@@ -292,15 +292,12 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..0a8697f7c8bba3d7d5bb9a763f78af57
 -  int res = grantpt(*master) || unlockpt(*master);
 +  // POSIX_SPAWN_CLOEXEC_DEFAULT protects only the child spawned here; keep
 +  // the parent-held master out of every other child this process spawns.
-+  res = pty_cloexec(*master);
-   if (res == -1) {
--    return;
-+    pty_set_spawn_error(err, "fcntl(FD_CLOEXEC)", errno);
-+    goto done;
-+  }
++  // Best-effort for the same reason as the forkpty path.
++  pty_cloexec(*master);
 +
 +  res = grantpt(*master);
-+  if (res == -1) {
+   if (res == -1) {
+-    return;
 +    pty_set_spawn_error(err, "grantpt", errno);
 +    goto done;
 +  }
