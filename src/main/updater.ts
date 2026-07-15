@@ -1000,7 +1000,7 @@ async function pinDefaultReleaseFeed(
     )
     autoUpdater.setFeedURL({ provider: 'generic', url })
     return 'ready'
-  } else if (releaseTagsResult.state === 'not-ready' && !isPerfCheck) {
+  } else if (releaseTagsResult.state === 'not-ready') {
     clearPrereleaseFallbackContext()
     if (releaseTagsResult.lastGoodTag) {
       // Why: during a publish window the newest tag is unsafe, but a verified
@@ -1014,6 +1014,9 @@ async function pinDefaultReleaseFeed(
       return 'ready'
     }
     clearPublishingWindowLastGoodCheck()
+    if (isPerfCheck) {
+      throw new Error('Unable to find latest version on GitHub')
+    }
     console.info(
       `[updater] release feed deferred: current=${currentVersion} includePrerelease=${includePrerelease}; newest release assets are still publishing`
     )
@@ -1028,7 +1031,10 @@ async function pinDefaultReleaseFeed(
       return 'not-available'
     }
     throw new Error('Unable to find latest version on GitHub')
-  } else if (releaseTagsResult.state === 'unavailable') {
+  } else if (
+    releaseTagsResult.state === 'unavailable' &&
+    releaseTagsResult.unavailableReason === 'manifest'
+  ) {
     clearPrereleaseFallbackContext()
     clearPublishingWindowLastGoodCheck()
     throw new Error('Unable to find latest version on GitHub')
