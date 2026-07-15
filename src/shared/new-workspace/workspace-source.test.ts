@@ -34,6 +34,26 @@ describe('workspace source policy', () => {
     expect(shouldPreserveWorkspaceSourceOnRepoChange(linear)).toBe(true)
     expect(
       shouldPreserveWorkspaceSourceOnRepoChange({
+        provider: 'jira',
+        type: 'issue',
+        number: 0,
+        title: 'Workspace scoped',
+        url: 'https://acme.atlassian.net/browse/FUS-1'
+      })
+    ).toBe(true)
+    // Why: Jira items picked from smart search may arrive without an explicit
+    // provider; preservation must still hold via URL/identifier inference.
+    expect(
+      shouldPreserveWorkspaceSourceOnRepoChange({
+        type: 'issue',
+        number: 0,
+        title: 'Inferred Jira',
+        url: 'https://acme.atlassian.net/browse/FUS-1',
+        jiraIdentifier: 'FUS-1'
+      })
+    ).toBe(true)
+    expect(
+      shouldPreserveWorkspaceSourceOnRepoChange({
         provider: 'github',
         type: 'issue',
         number: 1,
