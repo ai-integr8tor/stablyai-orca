@@ -126,7 +126,8 @@ export function buildSettingsNavigationMetadata({
   const terminalPaneSearchEntries = getTerminalPaneSearchEntries({
     isWindows,
     isWindowsTerminalHost,
-    isMac
+    isMac,
+    supportsTerminalDefaultShell: showDesktopOnlySettings && !isWindowsTerminalHost
   })
   const runtimeEnvironmentsSearchEntry = isWebClient
     ? getWebRuntimeEnvironmentsSearchEntry()
