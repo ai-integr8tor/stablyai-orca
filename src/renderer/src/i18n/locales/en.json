@@ -13020,6 +13020,34 @@
         "searchLabels": "Filter labels…",
         "searchAssignee": "Filter assignee…",
         "back": "Back"
+      },
+      "browser-pane": {
+        "markup": {
+          "cancel": "Cancel",
+          "clear": "Clear all",
+          "copiedToast": "Markup copied — paste it into your agent ({{value0}})",
+          "copy": "Copy Markup",
+          "drawButton": "Draw on screenshot",
+          "drawHint": "New — draw on the page, then copy it to your agent",
+          "errorAttach": "Could not attach the markup screenshot.",
+          "errorCapture": "Could not capture the page to draw on.",
+          "errorUnavailable": "Screenshot markup is not available on this page.",
+          "fontSize": "Font size",
+          "hint": "Draw on the page, then copy the markup to paste into your agent.",
+          "redo": "Redo",
+          "style": "Color and thickness",
+          "textInput": "Annotation text",
+          "tool": {
+            "arrow": "Arrow",
+            "ellipse": "Ellipse",
+            "highlight": "Highlighter",
+            "pen": "Pen",
+            "rect": "Rectangle",
+            "text": "Text"
+          },
+          "undo": "Undo",
+          "widthOption": "{{value0}} px"
+        }
       }
     },
     "i18n": {
