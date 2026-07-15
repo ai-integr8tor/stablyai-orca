@@ -792,7 +792,12 @@ async function sendCheckFailureStatus(
         // prefixes "Could not check for updates." and Settings prefixes
         // "Update check failed.", so the message here only carries the
         // actionable cause.
-        sendErrorStatus("Couldn't reach the update server. Try again in a few minutes.", true)
+        sendErrorStatus(
+          isReleaseAssetsPublishingFailure(message)
+            ? 'A new release is still being published. Try again shortly.'
+            : "Couldn't reach the update server. Try again in a few minutes.",
+          true
+        )
       } else {
         if (isReleaseAssetsPublishingFailure(message)) {
           // Why: a nudge-triggered check can land during the brief window where
