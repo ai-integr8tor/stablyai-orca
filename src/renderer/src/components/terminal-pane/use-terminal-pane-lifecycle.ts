@@ -560,6 +560,15 @@ export function splitPaneWithOneShotStartup<TPane>(
   }
 }
 
+export function resolveTerminalMountLayout(
+  capturedLayout: TerminalLayoutSnapshot,
+  currentLayout: TerminalLayoutSnapshot | undefined
+): TerminalLayoutSnapshot {
+  // Why: a cold surface can render before an IPC append commits, then mount
+  // from that stale render after the exact new leaf is already in Zustand.
+  return currentLayout ?? capturedLayout
+}
+
 type TerminalPaneSplitManager = Pick<
   PaneManager,
   | 'arrangeOrchestrationGrid'
@@ -1058,6 +1067,10 @@ export function useTerminalPaneLifecycle({
       setPaneLayoutRevision((revision) => revision + 1)
     }
 
+    initialLayoutRef.current = resolveTerminalMountLayout(
+      initialLayoutRef.current,
+      useAppStore.getState().terminalLayoutsByTabId[tabId]
+    )
     const normalizedInitialLayout = normalizeTerminalLayoutSnapshot(initialLayoutRef.current)
     if (normalizedInitialLayout.changed) {
       initialLayoutRef.current = normalizedInitialLayout.snapshot
