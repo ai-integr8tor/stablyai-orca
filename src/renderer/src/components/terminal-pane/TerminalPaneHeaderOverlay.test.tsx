@@ -9,6 +9,8 @@ import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import TerminalPaneHeaderOverlay from './TerminalPaneHeaderOverlay'
 
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
 vi.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children?: ReactNode }) => children,
   TooltipTrigger: ({ children }: { children?: ReactNode }) => children,
@@ -44,6 +46,8 @@ function renderOverlay({
   paneTitles,
   paneCount = 2,
   showAlwaysOnHeaders = true,
+  canSplitPane = true,
+  onSplitPane = vi.fn(),
   onClosePane = vi.fn(),
   onRemoveTitle = vi.fn(),
   onRenameSubmit = vi.fn(),
@@ -53,6 +57,8 @@ function renderOverlay({
   paneTitles: Record<number, string>
   paneCount?: number
   showAlwaysOnHeaders?: boolean
+  canSplitPane?: boolean
+  onSplitPane?: ReturnType<typeof vi.fn>
   onClosePane?: ReturnType<typeof vi.fn>
   onRemoveTitle?: ReturnType<typeof vi.fn>
   onRenameSubmit?: ReturnType<typeof vi.fn>
@@ -63,6 +69,7 @@ function renderOverlay({
   onClosePane: ReturnType<typeof vi.fn>
   onRemoveTitle: ReturnType<typeof vi.fn>
   onRenameSubmit: ReturnType<typeof vi.fn>
+  onSplitPane: ReturnType<typeof vi.fn>
 } {
   const panes = [makePane(1), makePane(2)]
   const container = document.createElement('div')
@@ -75,6 +82,7 @@ function renderOverlay({
         worktreeId="wt-1"
         cwd={path.join(path.sep, 'tmp')}
         showAlwaysOnHeaders={showAlwaysOnHeaders}
+        canSplitPane={canSplitPane}
         paneCount={paneCount}
         activePaneId={1}
         panes={panes}
@@ -92,7 +100,9 @@ function renderOverlay({
         hiddenStartupStyle={{}}
         managerRef={{ current: null } as RefObject<PaneManager | null>}
         paneTransportsRef={{ current: new Map() } as RefObject<Map<number, PtyTransport>>}
-        onSplitPane={vi.fn()}
+        onSplitPane={
+          onSplitPane as (pane: ManagedPane, direction: 'vertical' | 'horizontal') => void
+        }
         onBeginPaneDrag={vi.fn()}
         onActivatePaneTitleInteraction={vi.fn()}
         onPaneTitleContextMenu={vi.fn()}
@@ -107,7 +117,7 @@ function renderOverlay({
     )
   })
   mounted.push({ container, root })
-  return { container, onClosePane, onRemoveTitle, onRenameSubmit }
+  return { container, onClosePane, onRemoveTitle, onRenameSubmit, onSplitPane }
 }
 
 function pressInputKey(
@@ -152,11 +162,16 @@ describe('TerminalPaneHeaderOverlay', () => {
   })
 
   it('keeps split and close-pane controls available for untitled split pane headers', () => {
-    const { container, onClosePane, onRemoveTitle } = renderOverlay({
+    const { container, onClosePane, onRemoveTitle, onSplitPane } = renderOverlay({
       paneTitles: { 1: '', 2: '' }
     })
 
-    expect(container.querySelector('button[aria-label="Split Terminal Right"]')).not.toBeNull()
+    const splitPane = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Split Terminal Right"]'
+    )
+    expect(splitPane?.getAttribute('aria-disabled')).toBe('false')
+    act(() => splitPane?.click())
+    expect(onSplitPane).toHaveBeenCalledTimes(1)
     expect(container.querySelector('.pane-title-drag-handle')).toBeNull()
     const closePane = container.querySelector<HTMLButtonElement>('button[aria-label="Close Pane"]')
     expect(closePane).not.toBeNull()
@@ -165,6 +180,26 @@ describe('TerminalPaneHeaderOverlay', () => {
 
     expect(onClosePane).toHaveBeenCalledWith(1)
     expect(onRemoveTitle).not.toHaveBeenCalled()
+  })
+
+  it('exposes a focusable explanation instead of an enabled split control for maintained grids', () => {
+    const { container, onSplitPane } = renderOverlay({
+      paneTitles: { 1: '', 2: '' },
+      canSplitPane: false
+    })
+
+    const splitPane = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Split Terminal Right"]'
+    )
+    expect(splitPane?.getAttribute('aria-disabled')).toBe('true')
+    const explanationId = splitPane?.getAttribute('aria-describedby')
+    expect(explanationId).toBeTruthy()
+    expect(container.querySelector(`#${explanationId}`)?.textContent).toBe(
+      'Pane layout is managed by this grid'
+    )
+
+    act(() => splitPane?.click())
+    expect(onSplitPane).not.toHaveBeenCalled()
   })
 
   it('ignores IME composition Enter before submitting a pane title rename', () => {

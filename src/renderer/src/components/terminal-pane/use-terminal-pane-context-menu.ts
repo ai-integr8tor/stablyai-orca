@@ -41,6 +41,7 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import { copyTerminalHandleForPane } from './terminal-handle-copy'
+import { runTerminalPaneUserSplit } from './terminal-pane-user-split'
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
 
@@ -72,6 +73,7 @@ type UseTerminalPaneContextMenuDeps = {
   onAgentSessionForkReady: (fork: PreparedAgentSessionFork) => void
   forceBracketedMultilineTextPaste: boolean
   rightClickToPaste: boolean
+  canSplitPane: boolean
 }
 
 type TerminalMenuState = {
@@ -118,7 +120,8 @@ export function useTerminalPaneContextMenu({
   onPasteError,
   onAgentSessionForkReady,
   forceBracketedMultilineTextPaste,
-  rightClickToPaste
+  rightClickToPaste,
+  canSplitPane
 }: UseTerminalPaneContextMenuDeps): TerminalMenuState {
   const contextPaneIdRef = useRef<number | null>(null)
   const menuOpenedAtRef = useRef(0)
@@ -327,23 +330,25 @@ export function useTerminalPaneContextMenu({
       direction: 'vertical' | 'horizontal',
       source: 'contextual_tour' | 'context_menu' = 'context_menu'
     ): void => {
-      const pane = resolveMenuPane()
-      const manager = managerRef.current
-      if (!pane || !manager) {
-        return
-      }
-      splitTerminalPaneWithInheritedCwd({
-        manager,
-        getManager: () => managerRef.current,
-        paneTransports: paneTransportsRef.current,
-        paneCwdMap: paneCwdRef.current,
-        fallbackCwd,
-        pane,
-        direction,
-        source
+      runTerminalPaneUserSplit(canSplitPane, () => {
+        const pane = resolveMenuPane()
+        const manager = managerRef.current
+        if (!pane || !manager) {
+          return
+        }
+        splitTerminalPaneWithInheritedCwd({
+          manager,
+          getManager: () => managerRef.current,
+          paneTransports: paneTransportsRef.current,
+          paneCwdMap: paneCwdRef.current,
+          fallbackCwd,
+          pane,
+          direction,
+          source
+        })
       })
     },
-    [fallbackCwd, managerRef, paneCwdRef, paneTransportsRef, resolveMenuPane]
+    [canSplitPane, fallbackCwd, managerRef, paneCwdRef, paneTransportsRef, resolveMenuPane]
   )
 
   const onSplitRight = (): void => splitWithInheritedCwd('vertical')

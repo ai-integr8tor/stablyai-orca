@@ -700,6 +700,7 @@ export default function TerminalPane({
     () => (terminalTab ? sanitizeTerminalLayoutPaneTitles(savedLayout, terminalTab) : savedLayout),
     [savedLayout, terminalTab]
   )
+  const canUserSplitPane = restoredLayout.layoutMode !== 'orchestration-grid'
   const expectedLayoutLeafIds = useMemo(
     () => collectLeafIdsInOrder(restoredLayout.root),
     [restoredLayout.root]
@@ -1841,6 +1842,7 @@ export default function TerminalPane({
     tabId,
     worktreeId,
     isActive,
+    canSplitPane: canUserSplitPane,
     keyboardScopeRef: containerRef,
     managerRef,
     paneTransportsRef,
@@ -2705,7 +2707,8 @@ export default function TerminalPane({
     onPasteError: setTerminalError,
     onAgentSessionForkReady: setAgentSessionFork,
     forceBracketedMultilineTextPaste,
-    rightClickToPaste
+    rightClickToPaste,
+    canSplitPane: canUserSplitPane
   })
   const getContextMenuLeafId = useCallback((): string | null => {
     const paneId = contextMenu.menuPaneId
@@ -3136,6 +3139,7 @@ export default function TerminalPane({
                 resolvedAgent={chatPaneResolvedAgent}
                 onSwitchToTerminal={() => toggleNativeChatForLeaf(chatPane.leafId)}
                 contextMenuActions={{
+                  canSplitPane: canUserSplitPane,
                   onSplitRight: () => contextMenu.runForPane(chatPane.id, contextMenu.onSplitRight),
                   onSplitDown: () => contextMenu.runForPane(chatPane.id, contextMenu.onSplitDown),
                   canEqualizePaneSizes: managedPanes.length > 1 && expandedPaneId === null,
@@ -3174,6 +3178,7 @@ export default function TerminalPane({
         }
         onCopy={() => void contextMenu.onCopy()}
         onPaste={() => void contextMenu.onPaste()}
+        canSplitPane={canUserSplitPane}
         onSplitRight={contextMenu.onSplitRight}
         onSplitDown={contextMenu.onSplitDown}
         keybindings={keybindings}
@@ -3223,6 +3228,7 @@ export default function TerminalPane({
         worktreeId={worktreeId}
         cwd={cwd ?? ''}
         showAlwaysOnHeaders={isActive && terminalContentVisible}
+        canSplitPane={canUserSplitPane}
         paneCount={paneCount}
         activePaneId={activePane?.id}
         panes={managedPanes}

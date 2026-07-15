@@ -8,6 +8,7 @@ import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/works
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import type { PtyTransport } from './pty-transport'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
+import { runTerminalPaneUserSplit } from './terminal-pane-user-split'
 
 export type PaneTitleOverlayRect = {
   left: number
@@ -20,6 +21,7 @@ type TerminalPaneHeaderOverlayProps = {
   worktreeId: string
   cwd: string
   showAlwaysOnHeaders: boolean
+  canSplitPane: boolean
   paneCount: number
   activePaneId: number | null | undefined
   panes: readonly ManagedPane[]
@@ -60,6 +62,7 @@ export default function TerminalPaneHeaderOverlay({
   worktreeId,
   cwd,
   showAlwaysOnHeaders,
+  canSplitPane,
   paneCount,
   activePaneId,
   panes,
@@ -93,6 +96,10 @@ export default function TerminalPaneHeaderOverlay({
     'auto.components.terminal.pane.TerminalContextMenu.20e565d865',
     'Split Terminal Right'
   )
+  const fixedGridSplitExplanation = translate(
+    'components.terminal.pane.fixedGridSplitExplanation',
+    'Pane layout is managed by this grid'
+  )
 
   return (
     <div
@@ -110,6 +117,7 @@ export default function TerminalPaneHeaderOverlay({
         const overlayRect = paneTitleOverlayRects[pane.id]
         const isActivePane = activePaneId === pane.id
         const isChromeless = showAlwaysOnHeaders && !title && !isEditing
+        const splitExplanationId = `terminal-pane-${tabId}-${pane.leafId}-split-unavailable`
         const showHeader = overlayRect && (showAlwaysOnHeaders || Boolean(title) || isEditing)
         if (!showHeader || !overlayRect) {
           return null
@@ -281,20 +289,29 @@ export default function TerminalPaneHeaderOverlay({
                           size="icon-xs"
                           className="pane-title-split-trigger"
                           data-contextual-tour-target={
-                            isActivePane ? 'terminal-pane-split-target' : undefined
+                            canSplitPane && isActivePane ? 'terminal-pane-split-target' : undefined
                           }
                           aria-label={splitRightLabel}
+                          aria-disabled={!canSplitPane}
+                          aria-describedby={!canSplitPane ? splitExplanationId : undefined}
                           onClick={(event) => {
                             event.stopPropagation()
-                            onSplitPane(pane, 'vertical')
+                            runTerminalPaneUserSplit(canSplitPane, () =>
+                              onSplitPane(pane, 'vertical')
+                            )
                           }}
                         >
                           <SquareSplitVertical className="size-3" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" sideOffset={4}>
-                        {splitRightLabel}
+                        {canSplitPane ? splitRightLabel : fixedGridSplitExplanation}
                       </TooltipContent>
+                      {!canSplitPane ? (
+                        <span id={splitExplanationId} className="sr-only">
+                          {fixedGridSplitExplanation}
+                        </span>
+                      ) : null}
                     </Tooltip>
                   ) : null}
                   {title ? (
