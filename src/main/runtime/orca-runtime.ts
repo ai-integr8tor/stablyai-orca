@@ -1229,6 +1229,7 @@ type StagedPtyRuntimeRegistrationState = {
   ptyId: string | null
   events: StagedPtyRuntimeEvent[]
   published: boolean
+  correlationId?: string
 }
 
 type RuntimePtyController = {
@@ -2249,9 +2250,11 @@ export class OrcaRuntimeService {
   private graphSyncCallbacks: (() => void)[] = []
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
   private ptyController: RuntimePtyController | null = null
-  private unclaimedPtyRuntimeRegistrations = new Set<StagedPtyRuntimeRegistrationState>()
+  private unclaimedPtyRuntimeRegistrationsByCorrelationId = new Map<
+    string,
+    StagedPtyRuntimeRegistrationState
+  >()
   private stagedPtyRuntimeRegistrationsById = new Map<string, StagedPtyRuntimeRegistrationState>()
-  private unclassifiedPtyRuntimeEvents = new Map<string, StagedPtyRuntimeEvent[]>()
   private notifier: RuntimeNotifier | null = null
   private clientEventListeners = new Set<(event: RuntimeClientEvent) => void>()
   private forkBackfillStarted = false
@@ -3085,30 +3088,35 @@ export class OrcaRuntimeService {
     return listAiVaultSessions(args)
   }
 
-  private isPtyRuntimeIdentityPublished(ptyId: string): boolean {
-    return (
-      this.ptysById.has(ptyId) || this.handleByPtyId.has(ptyId) || this.leavesByPtyId.has(ptyId)
-    )
-  }
-
-  private stagePtyRuntimeEvent(ptyId: string, event: StagedPtyRuntimeEvent): boolean {
+  private stagePtyRuntimeEvent(
+    ptyId: string,
+    event: StagedPtyRuntimeEvent,
+    correlationId?: string
+  ): boolean {
     const claimed = this.stagedPtyRuntimeRegistrationsById.get(ptyId)
     if (claimed) {
       claimed.events.push(event)
       return true
     }
     if (
-      this.unclaimedPtyRuntimeRegistrations.size === 0 ||
-      this.isPtyRuntimeIdentityPublished(ptyId)
+      this.ptysById.has(ptyId) ||
+      this.handleByPtyId.has(ptyId) ||
+      this.leavesByPtyId.has(ptyId)
     ) {
       return false
     }
-    const events = this.unclassifiedPtyRuntimeEvents.get(ptyId)
-    if (events) {
-      events.push(event)
-    } else {
-      this.unclassifiedPtyRuntimeEvents.set(ptyId, [event])
+    if (!correlationId) {
+      return false
     }
+    const candidate = this.unclaimedPtyRuntimeRegistrationsByCorrelationId.get(correlationId)
+    if (!candidate || this.stagedPtyRuntimeRegistrationsById.has(ptyId)) {
+      return false
+    }
+    candidate.status = 'claimed'
+    candidate.ptyId = ptyId
+    candidate.events.push(event)
+    this.unclaimedPtyRuntimeRegistrationsByCorrelationId.delete(correlationId)
+    this.stagedPtyRuntimeRegistrationsById.set(ptyId, candidate)
     return true
   }
 
@@ -3127,18 +3135,7 @@ export class OrcaRuntimeService {
     }
   }
 
-  private flushUnclassifiedPtyRuntimeEvents(): void {
-    if (this.unclaimedPtyRuntimeRegistrations.size > 0) {
-      return
-    }
-    const pending = [...this.unclassifiedPtyRuntimeEvents.values()]
-    this.unclassifiedPtyRuntimeEvents.clear()
-    for (const events of pending) {
-      this.replayStagedPtyRuntimeEvents(events)
-    }
-  }
-
-  beginStagedPtyRuntimeRegistration(): {
+  beginStagedPtyRuntimeRegistration(options?: { correlationId?: string }): {
     claim: (ptyId: string) => void
     commit: () => void
     abort: (providerExitObserved?: boolean) => void
@@ -3147,31 +3144,48 @@ export class OrcaRuntimeService {
       status: 'unclaimed',
       ptyId: null,
       events: [],
-      published: false
+      published: false,
+      ...(options?.correlationId ? { correlationId: options.correlationId } : {})
     }
-    this.unclaimedPtyRuntimeRegistrations.add(state)
+    if (state.correlationId) {
+      const existing = this.unclaimedPtyRuntimeRegistrationsByCorrelationId.get(state.correlationId)
+      if (existing) {
+        throw new Error('PTY runtime registration correlation is already staged')
+      }
+      this.unclaimedPtyRuntimeRegistrationsByCorrelationId.set(state.correlationId, state)
+    }
     const releaseClaim = (): void => {
-      this.unclaimedPtyRuntimeRegistrations.delete(state)
+      if (
+        state.correlationId &&
+        this.unclaimedPtyRuntimeRegistrationsByCorrelationId.get(state.correlationId) === state
+      ) {
+        this.unclaimedPtyRuntimeRegistrationsByCorrelationId.delete(state.correlationId)
+      }
       if (state.ptyId && this.stagedPtyRuntimeRegistrationsById.get(state.ptyId) === state) {
         this.stagedPtyRuntimeRegistrationsById.delete(state.ptyId)
       }
     }
     return {
       claim: (ptyId) => {
+        if (state.status === 'claimed' && state.ptyId === ptyId) {
+          return
+        }
         if (state.status !== 'unclaimed') {
           throw new Error('PTY runtime registration was already claimed')
         }
         state.status = 'claimed'
         state.ptyId = ptyId
-        this.unclaimedPtyRuntimeRegistrations.delete(state)
+        if (
+          state.correlationId &&
+          this.unclaimedPtyRuntimeRegistrationsByCorrelationId.get(state.correlationId) === state
+        ) {
+          this.unclaimedPtyRuntimeRegistrationsByCorrelationId.delete(state.correlationId)
+        }
         const existing = this.stagedPtyRuntimeRegistrationsById.get(ptyId)
         if (existing) {
           throw new Error('PTY runtime registration identity is already staged')
         }
         this.stagedPtyRuntimeRegistrationsById.set(ptyId, state)
-        state.events.push(...(this.unclassifiedPtyRuntimeEvents.get(ptyId) ?? []))
-        this.unclassifiedPtyRuntimeEvents.delete(ptyId)
-        this.flushUnclassifiedPtyRuntimeEvents()
       },
       commit: () => {
         if (state.status === 'committed') {
@@ -3211,7 +3225,6 @@ export class OrcaRuntimeService {
           }
           this.dropDisconnectedPtyRecord(ptyId)
         }
-        this.flushUnclassifiedPtyRuntimeEvents()
       }
     }
   }
@@ -6243,15 +6256,25 @@ export class OrcaRuntimeService {
    * Handles incoming data from a PTY process, running agent detection,
    * updating terminal tail buffers, and triggering foreground agent refreshes.
    */
-  onPtyData(ptyId: string, data: string, at: number, sequenceChars = data.length): number {
+  onPtyData(
+    ptyId: string,
+    data: string,
+    at: number,
+    sequenceChars = data.length,
+    spawnCorrelationId?: string
+  ): number {
     if (
-      this.stagePtyRuntimeEvent(ptyId, {
-        phase: 'lifecycle',
-        kind: 'data',
-        apply: () => {
-          this.onPtyData(ptyId, data, at, sequenceChars)
-        }
-      })
+      this.stagePtyRuntimeEvent(
+        ptyId,
+        {
+          phase: 'lifecycle',
+          kind: 'data',
+          apply: () => {
+            this.onPtyData(ptyId, data, at, sequenceChars)
+          }
+        },
+        spawnCorrelationId
+      )
     ) {
       return this.ptyOutputSequenceById.get(ptyId) ?? 0
     }
@@ -9016,13 +9039,17 @@ export class OrcaRuntimeService {
     }
   }
 
-  onPtyExit(ptyId: string, exitCode: number): void {
+  onPtyExit(ptyId: string, exitCode: number, spawnCorrelationId?: string): void {
     if (
-      this.stagePtyRuntimeEvent(ptyId, {
-        phase: 'lifecycle',
-        kind: 'exit',
-        apply: () => this.onPtyExit(ptyId, exitCode)
-      })
+      this.stagePtyRuntimeEvent(
+        ptyId,
+        {
+          phase: 'lifecycle',
+          kind: 'exit',
+          apply: () => this.onPtyExit(ptyId, exitCode)
+        },
+        spawnCorrelationId
+      )
     ) {
       return
     }

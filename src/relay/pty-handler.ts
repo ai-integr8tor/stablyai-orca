@@ -458,7 +458,11 @@ export class PtyHandler {
       }
       this.clearStartupCommandTimer(managed)
       this.flushPtyOutput(managed.id)
-      this.dispatcher.notify('pty.exit', { id: managed.id, code: exitCode })
+      this.dispatcher.notify('pty.exit', {
+        id: managed.id,
+        code: exitCode,
+        ...(managed.terminalHandle ? { terminalHandle: managed.terminalHandle } : {})
+      })
       this.notifyExitListener(managed)
       this.ptys.delete(managed.id)
       this.clearPtyFlowState(managed.id)
@@ -467,6 +471,11 @@ export class PtyHandler {
       // leaks (see docs/fix-pty-fd-leak.md).
       disposeManagedPty(managed)
     })
+  }
+
+  private getPtyNotificationIdentity(id: string): { terminalHandle?: string } {
+    const terminalHandle = this.ptys.get(id)?.terminalHandle
+    return terminalHandle ? { terminalHandle } : {}
   }
 
   private notifyExitListener(managed: ManagedPty): void {
@@ -547,7 +556,11 @@ export class PtyHandler {
       this.clearOutputFlushTimerIfIdle()
       // Why: remote agent TUIs redraw around each keystroke. Background relay
       // batching should reduce SSH chatter, not add visible input echo delay.
-      this.dispatcher.notify('pty.data', { id, data: pending.data })
+      this.dispatcher.notify('pty.data', {
+        id,
+        data: pending.data,
+        ...this.getPtyNotificationIdentity(id)
+      })
       return
     }
     this.pendingOutputByPty.set(id, pending)
@@ -574,7 +587,11 @@ export class PtyHandler {
       if (remaining) {
         this.pendingOutputByPty.set(id, { data: remaining })
       }
-      this.dispatcher.notify('pty.data', { id, data: chunk })
+      this.dispatcher.notify('pty.data', {
+        id,
+        data: chunk,
+        ...this.getPtyNotificationIdentity(id)
+      })
       writes++
     }
     if (this.pendingOutputByPty.size > 0 && writes > 0) {
@@ -590,7 +607,11 @@ export class PtyHandler {
       return
     }
     this.pendingOutputByPty.delete(id)
-    this.dispatcher.notify('pty.data', { id, data: pending.data })
+    this.dispatcher.notify('pty.data', {
+      id,
+      data: pending.data,
+      ...this.getPtyNotificationIdentity(id)
+    })
     this.clearOutputFlushTimerIfIdle()
   }
 
@@ -910,7 +931,11 @@ export class PtyHandler {
           // The natural onExit short-circuits on `managed.disposed`, so
           // without this notify the renderer never learns the pane is dead
           // when the SIGKILL fallback fires for a SIGTERM-ignoring child.
-          this.dispatcher.notify('pty.exit', { id, code: -1 })
+          this.dispatcher.notify('pty.exit', {
+            id,
+            code: -1,
+            ...(still.terminalHandle ? { terminalHandle: still.terminalHandle } : {})
+          })
           // Why: if SIGKILL's onExit never fires (kernel edge case,
           // uninterruptible sleep, child wedged on a bad NFS mount), the
           // fd and map entry would leak forever. Dispose synchronously so

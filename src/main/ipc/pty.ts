@@ -1534,6 +1534,8 @@ export function registerPtyHandlers(
   ipcMain.removeAllListeners('pty:deliveryResyncResponse')
   ipcMain.removeAllListeners('pty:serializeBuffer:response')
 
+  const stagedRuntimeRegistrationByHandle = new Map<string, { claim: (ptyId: string) => void }>()
+
   // Configure the local provider with app-specific hooks.
   // Why: only LocalPtyProvider has the configure() method — daemon-backed
   // providers handle subprocess spawning internally and don't need main-process
@@ -1578,6 +1580,12 @@ export function registerPtyHandlers(
           requestedHandle && trustedTerminalHandleEnv.has(requestedHandle)
             ? requestedHandle
             : runtime?.preAllocateHandleForPty(id)
+        if (requestedHandle && preAllocatedHandle === requestedHandle) {
+          // Why: local-provider callbacks can fire before spawn resolves; the
+          // trusted handle identifies exactly which staged create owns this id.
+          stagedRuntimeRegistrationByHandle.get(requestedHandle)?.claim(id)
+          stagedRuntimeRegistrationByHandle.delete(requestedHandle)
+        }
         if (requestedHandle && requestedHandle !== preAllocatedHandle) {
           delete env.ORCA_TERMINAL_HANDLE
         }
@@ -3150,12 +3158,24 @@ export function registerPtyHandlers(
       // Why: provider callbacks can beat spawn resolution; the runtime buffers
       // their identity/data until this transaction claims the returned PTY id.
       const stagedRuntimeRegistration = shouldDeferRuntimeRegistration
-        ? runtime?.beginStagedPtyRuntimeRegistration()
+        ? runtime?.beginStagedPtyRuntimeRegistration(
+            args.preAllocatedHandle ? { correlationId: args.preAllocatedHandle } : undefined
+          )
         : null
+      if (stagedRuntimeRegistration && args.preAllocatedHandle) {
+        stagedRuntimeRegistrationByHandle.set(args.preAllocatedHandle, stagedRuntimeRegistration)
+      }
       let stagedRuntimeRegistrationReleased = false
       const abortStagedRuntimeRegistration = (providerExitObserved = false): void => {
         if (stagedRuntimeRegistrationReleased) {
           return
+        }
+        if (
+          args.preAllocatedHandle &&
+          stagedRuntimeRegistrationByHandle.get(args.preAllocatedHandle) ===
+            stagedRuntimeRegistration
+        ) {
+          stagedRuntimeRegistrationByHandle.delete(args.preAllocatedHandle)
         }
         stagedRuntimeRegistration?.abort(providerExitObserved)
         stagedRuntimeRegistrationReleased = true
@@ -3167,6 +3187,11 @@ export function registerPtyHandlers(
             trustedTerminalHandleEnv.add(args.preAllocatedHandle)
           }
           const expectedPtyId = effectiveSessionAppId ?? sessionId
+          if (expectedPtyId) {
+            // Why: daemon and SSH session ids are known before provider callbacks,
+            // so unrelated providers never enter this staged transaction.
+            stagedRuntimeRegistration?.claim(expectedPtyId)
+          }
           const sequenceBeforeProviderSpawn = expectedPtyId
             ? (runtime?.getPtyOutputSequence?.(expectedPtyId) ?? 0)
             : 0
@@ -3209,6 +3234,13 @@ export function registerPtyHandlers(
           }
           throw spawnError
         } finally {
+          if (
+            args.preAllocatedHandle &&
+            stagedRuntimeRegistrationByHandle.get(args.preAllocatedHandle) ===
+              stagedRuntimeRegistration
+          ) {
+            stagedRuntimeRegistrationByHandle.delete(args.preAllocatedHandle)
+          }
           if (args.preAllocatedHandle) {
             trustedTerminalHandleEnv.delete(args.preAllocatedHandle)
           }

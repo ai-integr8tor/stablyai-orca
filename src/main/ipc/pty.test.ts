@@ -5481,7 +5481,9 @@ describe('registerPtyHandlers', () => {
       setPtyController: vi.fn((value) => {
         controller = value
       }),
-      beginStagedPtyRuntimeRegistration: vi.fn(() => stagedRuntimeRegistration),
+      beginStagedPtyRuntimeRegistration: vi.fn(
+        (_options?: { correlationId?: string }) => stagedRuntimeRegistration
+      ),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_remote'),
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
@@ -5525,6 +5527,10 @@ describe('registerPtyHandlers', () => {
       expect(runtime.registerPty).not.toHaveBeenCalled()
       expect(runtime.noteTerminalSpawnCommand).not.toHaveBeenCalled()
       expect(stagedRuntimeRegistration.claim).toHaveBeenCalledWith('ssh:ssh-grid-atomic@@relay-pty')
+      const stagedOptions = runtime.beginStagedPtyRuntimeRegistration.mock.calls[0]?.[0] as {
+        correlationId?: string
+      }
+      expect(stagedOptions.correlationId).toBe('term_grid')
 
       result.runtimeRegistration?.commit()
 

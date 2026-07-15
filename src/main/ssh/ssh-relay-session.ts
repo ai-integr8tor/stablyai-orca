@@ -1105,7 +1105,13 @@ export class SshRelaySession {
 
   private wireUpPtyEvents(ptyProvider: SshPtyProvider): void {
     ptyProvider.onData((payload) => {
-      const seq = this.runtime?.onPtyData(payload.id, payload.data, Date.now())
+      const seq = this.runtime?.onPtyData(
+        payload.id,
+        payload.data,
+        Date.now(),
+        payload.data.length,
+        payload.terminalHandle
+      )
       const rendererData = answerStartupTerminalColorQueriesForPty(payload.id, payload.data)
       const win = this.getMainWindow()
       if (!win || win.isDestroyed()) {
@@ -1153,7 +1159,7 @@ export class SshRelaySession {
       deletePtyOwnership(payload.id)
       this.forwardedReattachReplayByPty.delete(payload.id)
       this.store.markSshRemotePtyLease(this.targetId, relayPtyId, 'terminated')
-      this.runtime?.onPtyExit(payload.id, payload.code)
+      this.runtime?.onPtyExit(payload.id, payload.code, payload.terminalHandle)
       const win = this.getMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('pty:exit', payload)
