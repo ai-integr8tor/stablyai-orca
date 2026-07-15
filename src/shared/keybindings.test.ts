@@ -645,6 +645,38 @@ describe('keybindings', () => {
     )
   })
 
+  it('keeps the project navigation shortcuts unassigned until users customize them', () => {
+    const ids = ['project.navigateNext', 'project.navigatePrevious'] as const
+
+    // Ships unbound on every platform (issue #6674): assign-it-yourself.
+    for (const id of ids) {
+      expect(getEffectiveKeybindingsForAction(id, 'darwin')).toEqual([])
+      expect(getEffectiveKeybindingsForAction(id, 'linux')).toEqual([])
+      expect(getEffectiveKeybindingsForAction(id, 'win32')).toEqual([])
+    }
+
+    const binding = {
+      key: 'p',
+      code: 'KeyP',
+      control: false,
+      meta: true,
+      alt: true,
+      shift: false
+    }
+    expect(keybindingMatchesAction('project.navigateNext', binding, 'darwin')).toBe(false)
+    expect(
+      keybindingMatchesAction('project.navigateNext', binding, 'darwin', {
+        'project.navigateNext': ['Mod+Alt+P']
+      })
+    ).toBe(true)
+
+    const next = getKeybindingDefinition('project.navigateNext')
+    expect(next?.title).toBe('Next project')
+    expect(next?.group).toBe('Global')
+    expect(next?.searchKeywords).toEqual(expect.arrayContaining(['project', 'switch']))
+    expect(getKeybindingDefinition('project.navigatePrevious')?.title).toBe('Previous project')
+  })
+
   it('defines floating workspace panel action metadata', () => {
     const actionIds = [
       'floatingWorkspace.maximize' as KeybindingActionId,
