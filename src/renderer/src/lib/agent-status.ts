@@ -113,6 +113,7 @@ const WELL_KNOWN_LABELS: Record<string, string> = {
   antigravity: 'Antigravity',
   amp: 'Amp',
   copilot: 'GitHub Copilot',
+  bob: 'IBM Bob',
   opencode: 'OpenCode',
   'mimo-code': 'MiMo Code',
   cursor: 'Cursor',
@@ -181,6 +182,7 @@ const ICONABLE_AGENT_TYPES: Record<TuiAgent, true> = {
   hermes: true,
   openclaw: true,
   copilot: true,
+  bob: true,
   grok: true,
   devin: true,
   ante: true
