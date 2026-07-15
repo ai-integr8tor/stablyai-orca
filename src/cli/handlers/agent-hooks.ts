@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto'
 import type { CommandHandler } from '../dispatch'
 import { printResult } from '../format'
 import { RuntimeClientError, type RuntimeClient, type RuntimeRpcSuccess } from '../runtime-client'
-import type { AgentHookInstallStatus } from '../../shared/agent-hook-types'
+import type {
+  AgentHookInstallStatus,
+  RemoteAgentHookInstallReport
+} from '../../shared/agent-hook-types'
 import { getDefaultPersistedState } from '../../shared/constants'
 import type { PersistedState } from '../../shared/types'
 import {
@@ -19,6 +22,9 @@ type AgentHookCommandResult = {
   settingsPath: string
   appliedBy: 'runtime' | 'offline'
   statuses: AgentHookInstallStatus[]
+  /** Per-SSH-host install outcomes; null when the runtime is unreachable and
+   *  remote hosts therefore cannot be inspected (#8711). */
+  remotes?: RemoteAgentHookInstallReport[] | null
 }
 
 function getDataPath(): string {
@@ -115,14 +121,25 @@ function formatAgentHookCommandResult(result: AgentHookCommandResult): string {
   const statusSummary = result.statuses
     .map((status) => `${status.agent}: ${status.state}`)
     .join('\n')
-  return [
+  const lines = [
     `agentStatusHooksEnabled: ${result.enabled}`,
     `appliedBy: ${result.appliedBy}`,
     `settingsPath: ${result.settingsPath}`,
     statusSummary
-  ]
-    .filter(Boolean)
-    .join('\n')
+  ].filter(Boolean)
+  for (const remote of result.remotes ?? []) {
+    lines.push(formatRemoteReport(remote))
+  }
+  return lines.join('\n')
+}
+
+function formatRemoteReport(remote: RemoteAgentHookInstallReport): string {
+  const header = `ssh:${remote.targetId}: ${remote.state}${remote.detail ? ` — ${remote.detail}` : ''}`
+  const agentLines = remote.statuses.map((status) => {
+    const detail = status.state === 'error' && status.detail ? ` — ${status.detail}` : ''
+    return `  ${status.agent}: ${status.state}${detail}`
+  })
+  return [header, ...agentLines].join('\n')
 }
 
 async function setAgentHooksEnabled(
@@ -142,13 +159,38 @@ async function setAgentHooksEnabled(
   }
 }
 
+// Why: an SSH agent reads hooks on its remote host, so a purely local file
+// check reports `installed` for a host it never looked at (#8711). Only the
+// running runtime knows each relay session's actual install outcome; when it
+// is unreachable no SSH agents are running either, so local-only is truthful.
+async function fetchRuntimeHookStatuses(client: RuntimeClient): Promise<{
+  local: AgentHookInstallStatus[]
+  remotes: RemoteAgentHookInstallReport[]
+} | null> {
+  try {
+    const status = await client.getCliStatus()
+    if (!status.result.runtime.reachable) {
+      return null
+    }
+    const response = await client.call<{
+      local: AgentHookInstallStatus[]
+      remotes: RemoteAgentHookInstallReport[]
+    }>('agentHooks.status', undefined, { timeoutMs: 10_000 })
+    return response.result
+  } catch {
+    return null
+  }
+}
+
 export const AGENT_HOOK_HANDLERS: Record<string, CommandHandler> = {
-  'agent hooks status': async ({ json }) => {
+  'agent hooks status': async ({ client, json }) => {
+    const runtimeStatuses = await fetchRuntimeHookStatuses(client)
     const result: AgentHookCommandResult = {
       enabled: readEnabledFromDisk(),
       settingsPath: getDataPath(),
-      appliedBy: 'offline',
-      statuses: getManagedAgentHookStatuses()
+      appliedBy: runtimeStatuses ? 'runtime' : 'offline',
+      statuses: runtimeStatuses?.local ?? getManagedAgentHookStatuses(),
+      remotes: runtimeStatuses ? runtimeStatuses.remotes : null
     }
     printResult(localSuccess(result), json, formatAgentHookCommandResult)
   },
