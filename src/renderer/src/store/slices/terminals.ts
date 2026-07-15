@@ -34,7 +34,10 @@ import {
   parsePaneKey
 } from '../../../../shared/stable-pane-id'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../../../shared/terminal-tab-id'
-import { getRepoIdFromWorktreeId, splitWorktreeId } from '../../../../shared/worktree-id'
+import {
+  getRepoIdFromWorktreeId,
+  splitWorktreeIdForFilesystem
+} from '../../../../shared/worktree-id'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
 import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
@@ -64,7 +67,10 @@ import {
 // Why: import the store-free registry, not terminal-parked-tab-watchers —
 // that module imports @/store, and a slice importing it would re-enter store
 // creation before this slice finishes evaluating.
-import { disposeParkedTerminalWatchersForPtyIds } from '@/components/terminal-pane/terminal-parked-watcher-registry'
+import {
+  disposeParkedTerminalWatchersForPtyIds,
+  retireParkedTerminalTab
+} from '@/components/terminal-pane/terminal-parked-watcher-registry'
 import {
   normalizeTerminalLayoutSnapshot,
   resolvePtyBoundActiveLeafId
@@ -85,13 +91,20 @@ import {
   addAdditionalValidWorkspaceKeys,
   type WorkspaceSessionHydrationOptions
 } from '@/lib/workspace-session-hydration-keys'
+import { reconcileWorkspaceSessionWorktreeIds } from '@/lib/workspace-session-worktree-id-reconciliation'
 import {
   collectHibernatedCompletionEvidenceForWorktree,
   collectSleepingAgentSessionRecordsForWorktree,
   removeSleepingRecordsReplacedByManualWorktreeSleep,
   type AgentStatusWorktreeShutdownReason
 } from './agent-status'
-import { reconcileWorkspaceSessionWorktreeIds } from '@/lib/workspace-session-worktree-id-reconciliation'
+import {
+  buildTerminalTabRetirementPlan,
+  isTerminalTabPresent,
+  removeSleepingAgentSessionsForTab,
+  type TerminalTabCloseReason,
+  type TerminalTabRetirementPlan
+} from './terminal-tab-retirement'
 
 function getNextTerminalOrdinal(tabs: TerminalTab[]): number {
   const usedOrdinals = new Set<number>()
@@ -169,7 +182,11 @@ function buildRuntimeSessionPlaceholders({
     }
     const worktreeId =
       workspaceScope?.type === 'worktree' ? workspaceScope.worktreeId : workspaceSessionKey
-    const parsed = splitWorktreeId(worktreeId)
+    // Why: folder-workspace instance IDs carry a synthetic `::workspace:<uuid>`
+    // suffix. The placeholder's `id` keeps it for identity, but `path`/display
+    // must be the real folder path so Git and other filesystem callers do not
+    // spawn against a nonexistent cwd — matching the authoritative worktree.
+    const parsed = splitWorktreeIdForFilesystem(worktreeId)
     if (!parsed) {
       continue
     }
@@ -587,7 +604,16 @@ export type TerminalSlice = {
     }
   ) => TerminalTab
   openNewTerminalTabInActiveWorkspace: (groupId: string) => Promise<void>
-  closeTab: (tabId: string, opts?: { recordInteraction?: boolean }) => void
+  closeTab: (
+    tabId: string,
+    opts?: {
+      recordInteraction?: boolean
+      reason?: TerminalTabCloseReason
+      remoteCloseOwnedByHost?: boolean
+      localPtyTeardownOwnedExternally?: boolean
+      precomputedRetirementPlan?: TerminalTabRetirementPlan
+    }
+  ) => void
   reorderTabs: (worktreeId: string, tabIds: string[]) => void
   setTabBarOrder: (worktreeId: string, order: string[]) => void
   setActiveTab: (tabId: string) => void
@@ -1191,18 +1217,69 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   },
 
   closeTab: (tabId, opts) => {
+    const closeReason = opts?.reason ?? 'user'
+    const retiresSession = closeReason === 'user' || closeReason === 'cleanup'
+    const retirementPlan =
+      opts?.precomputedRetirementPlan?.tabId === tabId
+        ? opts.precomputedRetirementPlan
+        : buildTerminalTabRetirementPlan(get(), tabId)
     let closingWorktreeId: string | null = null
+
+    // Why: a parked tab has no mounted TerminalPane cleanup. Retirement must
+    // synchronously revoke its observer/candidate state before provider exit races.
+    retireParkedTerminalTab(tabId)
+    if (retiresSession) {
+      const fallbackRuntimeEnvironmentId = retirementPlan.worktreeId
+        ? getRuntimeEnvironmentIdForWorktree(get(), retirementPlan.worktreeId)
+        : null
+      const retirementTasks: Promise<unknown>[] = opts?.localPtyTeardownOwnedExternally
+        ? []
+        : retirementPlan.localOrSshPtyIds.map(async (ptyId) => window.api.pty.kill(ptyId))
+      const localOrSshTaskCount = retirementTasks.length
+      if (!opts?.remoteCloseOwnedByHost) {
+        for (const terminal of retirementPlan.runtimeTerminals) {
+          const environmentId = terminal.environmentId ?? fallbackRuntimeEnvironmentId
+          retirementTasks.push(
+            callRuntimeRpc(
+              environmentId ? { kind: 'environment', environmentId } : { kind: 'local' },
+              'terminal.close',
+              { terminal: terminal.handle }
+            )
+          )
+        }
+      }
+      if (retirementPlan.unroutablePtyIds.length > 0) {
+        console.warn('[terminal-retirement] skipped unroutable runtime handles', {
+          tabId,
+          count: retirementPlan.unroutablePtyIds.length
+        })
+      }
+      // Why: close remains synchronous and idempotent; provider failures must
+      // not reject into the UI or prevent renderer ownership from being revoked.
+      void Promise.allSettled(retirementTasks).then((results) => {
+        const localOrSshFailures = results
+          .slice(0, localOrSshTaskCount)
+          .filter((result) => result.status === 'rejected').length
+        const runtimeFailures = results
+          .slice(localOrSshTaskCount)
+          .filter((result) => result.status === 'rejected').length
+        if (localOrSshFailures > 0 || runtimeFailures > 0) {
+          console.warn('[terminal-retirement] provider teardown failed', {
+            tabId,
+            localOrSshFailures,
+            runtimeFailures
+          })
+        }
+      })
+    }
+
     set((s) => {
       const next = { ...s.tabsByWorktree }
-      let closingPtyId: string | null = null
       for (const wId of Object.keys(next)) {
         const before = next[wId]
         const closingTab = before.find((t) => t.id === tabId)
         if (closingTab) {
           closingWorktreeId = wId
-          if (!closingPtyId) {
-            closingPtyId = closingTab.ptyId ?? null
-          }
         }
         const after = before.filter((t) => t.id !== tabId)
         if (after.length !== before.length) {
@@ -1219,6 +1296,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       delete nextPtyIdsByTabId[tabId]
       const nextLastKnownRelay = { ...s.lastKnownRelayPtyIdByTabId }
       delete nextLastKnownRelay[tabId]
+      const nextDeferredSshSessionIdsByTabId = { ...s.deferredSshSessionIdsByTabId }
+      delete nextDeferredSshSessionIdsByTabId[tabId]
+      const nextPendingReconnectPtyIdByTabId = { ...s.pendingReconnectPtyIdByTabId }
+      delete nextPendingReconnectPtyIdByTabId[tabId]
       const nextRuntimePaneTitlesByTabId = { ...s.runtimePaneTitlesByTabId }
       delete nextRuntimePaneTitlesByTabId[tabId]
       // Why: preserve the unreadTerminalTabs reference when the closing tab had
@@ -1254,6 +1335,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           delete nextLastTerminalInputAtByPaneKey[paneKey]
         }
       }
+      const nextSleepingAgentSessionsByPaneKey = retiresSession
+        ? removeSleepingAgentSessionsForTab(s.sleepingAgentSessionsByPaneKey, tabId)
+        : s.sleepingAgentSessionsByPaneKey
       const nextPendingStartupByTabId = { ...s.pendingStartupByTabId }
       delete nextPendingStartupByTabId[tabId]
       const nextAutomaticAgentResumeClaimsByTabId = { ...s.automaticAgentResumeClaimsByTabId }
@@ -1301,14 +1385,20 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // prevent unbounded store growth across restarts.
       let nextSnapshots = s.pendingSnapshotByPtyId
       let nextColdRestores = s.pendingColdRestoreByPtyId
-      if (closingPtyId) {
-        if (closingPtyId in nextSnapshots) {
+      const closingPtyIds = new Set([
+        ...retirementPlan.localOrSshPtyIds,
+        ...retirementPlan.runtimeTerminals.map((terminal) => terminal.ptyId),
+        ...retirementPlan.cleanupOnlyPtyIds,
+        ...retirementPlan.unroutablePtyIds
+      ])
+      for (const closingId of closingPtyIds) {
+        if (closingId in nextSnapshots) {
           nextSnapshots = { ...nextSnapshots }
-          delete nextSnapshots[closingPtyId]
+          delete nextSnapshots[closingId]
         }
-        if (closingPtyId in nextColdRestores) {
+        if (closingId in nextColdRestores) {
           nextColdRestores = { ...nextColdRestores }
-          delete nextColdRestores[closingPtyId]
+          delete nextColdRestores[closingId]
         }
       }
 
@@ -1318,7 +1408,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         activeTabIdByWorktree: nextActiveTabIdByWorktree,
         ptyIdsByTabId: nextPtyIdsByTabId,
         lastKnownRelayPtyIdByTabId: nextLastKnownRelay,
+        deferredSshSessionIdsByTabId: nextDeferredSshSessionIdsByTabId,
+        pendingReconnectPtyIdByTabId: nextPendingReconnectPtyIdByTabId,
         runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
+        ...(nextSleepingAgentSessionsByPaneKey !== s.sleepingAgentSessionsByPaneKey
+          ? { sleepingAgentSessionsByPaneKey: nextSleepingAgentSessionsByPaneKey }
+          : {}),
         // Why: skip writing unreadTerminalTabs when the reference is unchanged —
         // avoids a no-op top-level state allocation that would force re-evaluation
         // of full-state selectors. Mirrors the sibling pattern in tabs.ts.
@@ -1376,7 +1471,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         (entry) => entry.contentType === 'terminal' && entry.entityId === tabId
       )
       if (workspaceItem) {
-        get().closeUnifiedTab(workspaceItem.id, opts)
+        get().closeUnifiedTab(workspaceItem.id, {
+          recordInteraction: opts?.recordInteraction,
+          terminalRetirementHandled: true
+        })
       }
     }
   },
@@ -1866,6 +1964,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   },
 
   updateTabPtyId: (tabId, ptyId) => {
+    // Why: async spawn owners must perform provider teardown themselves, but
+    // this final guard prevents any late caller from recreating retired tab maps.
+    if (!isTerminalTabPresent(get(), tabId)) {
+      return
+    }
     let worktreeId: string | null = null
     let wasActivationSpawn = false
     const isRemoteRuntimeMirror = isRemoteRuntimePtyId(ptyId)
@@ -2794,6 +2897,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     sourceTabId,
     targetTabId
   }) => {
+    const sourcePaneKey = makePaneKey(sourceTabId, detachedLeafId)
+    const targetPaneKey = makePaneKey(targetTabId, detachedLeafId)
     set((s) => {
       const layoutSourcePtyIds = uniquePtyIds(Object.values(sourceLayout.ptyIdsByLeafId ?? {}))
       const existingSourcePtyIds = (s.ptyIdsByTabId[sourceTabId] ?? []).filter(
@@ -2833,61 +2938,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         ? withTerminalTabPtyId(sourceTabsByWorktree, targetTabId, detachedPtyId)
         : sourceTabsByWorktree
 
-      const sourcePaneKey = makePaneKey(sourceTabId, detachedLeafId)
-      const targetPaneKey = makePaneKey(targetTabId, detachedLeafId)
-      const sourceForeground = s.paneForegroundAgentByPaneKey[sourcePaneKey]
-      const sourceLaunchConfig = s.agentLaunchConfigByPaneKey[sourcePaneKey]
-      const hadSourceHookStatus = sourcePaneKey in s.agentStatusByPaneKey
-      let nextPaneForegroundAgentByPaneKey = s.paneForegroundAgentByPaneKey
-      let nextAgentLaunchConfigByPaneKey = s.agentLaunchConfigByPaneKey
-      let nextAgentStatusByPaneKey = s.agentStatusByPaneKey
-      let nextRetentionSuppressedPaneKeys = s.retentionSuppressedPaneKeys
-      if (sourceForeground) {
-        nextPaneForegroundAgentByPaneKey = { ...s.paneForegroundAgentByPaneKey }
-        delete nextPaneForegroundAgentByPaneKey[sourcePaneKey]
-        nextPaneForegroundAgentByPaneKey[targetPaneKey] = sourceForeground
-      }
-      if (sourceLaunchConfig) {
-        nextAgentLaunchConfigByPaneKey = { ...s.agentLaunchConfigByPaneKey }
-        delete nextAgentLaunchConfigByPaneKey[sourcePaneKey]
-        nextAgentLaunchConfigByPaneKey[targetPaneKey] = {
-          ...sourceLaunchConfig,
-          identity: {
-            ...sourceLaunchConfig.identity,
-            tabId: targetTabId,
-            leafId: detachedLeafId
-          }
-        }
-      }
-      if (hadSourceHookStatus) {
-        nextAgentStatusByPaneKey = { ...s.agentStatusByPaneKey }
-        delete nextAgentStatusByPaneKey[sourcePaneKey]
-        nextRetentionSuppressedPaneKeys = {
-          ...s.retentionSuppressedPaneKeys,
-          [sourcePaneKey]: true
-        }
-      }
-
       return {
         ptyIdsByTabId: nextPtyIdsByTabId,
         lastKnownRelayPtyIdByTabId: nextLastKnownRelayPtyIdByTabId,
-        ...(nextTabsByWorktree !== s.tabsByWorktree ? { tabsByWorktree: nextTabsByWorktree } : {}),
-        ...(nextPaneForegroundAgentByPaneKey !== s.paneForegroundAgentByPaneKey
-          ? { paneForegroundAgentByPaneKey: nextPaneForegroundAgentByPaneKey }
-          : {}),
-        ...(nextAgentLaunchConfigByPaneKey !== s.agentLaunchConfigByPaneKey
-          ? { agentLaunchConfigByPaneKey: nextAgentLaunchConfigByPaneKey }
-          : {}),
-        ...(nextAgentStatusByPaneKey !== s.agentStatusByPaneKey
-          ? {
-              // Why: the PTY keeps its immutable source ORCA_PANE_KEY; retire
-              // rather than re-key a hook row that future events cannot update.
-              agentStatusByPaneKey: nextAgentStatusByPaneKey,
-              agentStatusEpoch: s.agentStatusEpoch + 1,
-              retentionSuppressedPaneKeys: nextRetentionSuppressedPaneKeys
-            }
-          : {})
+        ...(nextTabsByWorktree !== s.tabsByWorktree ? { tabsByWorktree: nextTabsByWorktree } : {})
       }
+    })
+    // Why: detach keeps the process and its immutable physical pane key alive;
+    // move resume/status authority to the new surface before the source can close.
+    get().transferAgentPaneAuthority({
+      fromPaneKey: sourcePaneKey,
+      toPaneKey: targetPaneKey,
+      ptyId: detachedPtyId
     })
   },
 
@@ -3270,7 +3332,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         if (existing) {
           continue
         }
-        const path = splitWorktreeId(worktreeId)?.worktreePath ?? ''
+        // Why: strip the synthetic `::workspace:<uuid>` folder-workspace suffix
+        // so the placeholder path is a real cwd; `id` above keeps it for identity.
+        const path = splitWorktreeIdForFilesystem(worktreeId)?.worktreePath ?? ''
         // Why: SSH worktree paths may use backslash separators on Windows remotes.
         const displayName = path.split(/[/\\]/).pop() || path
         const placeholder: Worktree = {
