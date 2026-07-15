@@ -10,16 +10,15 @@ const loadHostsMock = vi.fn()
 vi.mock('./rpc-client', () => ({
   connect: (...args: unknown[]) => connectMock(...args)
 }))
+vi.mock('./host-logical-client', () => ({
+  openHostLogicalClient: (...args: unknown[]) => connectMock(...args)
+}))
 vi.mock('./host-store', () => ({
   loadHosts: () => loadHostsMock()
 }))
 vi.mock('./connection-revival-triggers', () => ({
   subscribeConnectionRevivalTriggers: () => () => {}
 }))
-vi.mock('./device-identity', () => ({
-  resolveMobileDeviceDisplayName: () => 'Test Phone'
-}))
-
 import { RpcClientProvider, useCloseHost, useHostClient } from './client-context'
 
 type FakeClient = RpcClient & {
@@ -134,12 +133,7 @@ describe('useHostClient', () => {
     loadHostsMock.mockResolvedValue([HOST])
 
     const harness = await renderHarness(HOST.id)
-    expect(connectMock).toHaveBeenCalledWith(
-      HOST.endpoint,
-      HOST.deviceToken,
-      HOST.publicKeyB64,
-      expect.objectContaining({ deviceName: 'Test Phone' })
-    )
+    expect(connectMock).toHaveBeenCalledWith(HOST, expect.any(Function))
     expect(harness.hook.client).toBe(fake)
     expect(harness.hook.state).toBe('connected')
 

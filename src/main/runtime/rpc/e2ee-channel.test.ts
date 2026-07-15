@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { WebSocket } from 'ws'
-import { E2EEChannel, sanitizeReportedDeviceName, type E2EEChannelOptions } from './e2ee-channel'
+import { E2EEChannel, type E2EEChannelOptions } from './e2ee-channel'
 import { generateKeyPair, deriveSharedKey, encrypt, decrypt, encryptBytes } from './e2ee-crypto'
+import { sanitizeReportedMobileDeviceName } from './reported-mobile-device-name'
 
 function publicKeyToBase64(key: Uint8Array): string {
   return Buffer.from(key).toString('base64')
@@ -27,7 +28,10 @@ function setup(overrides?: Partial<E2EEChannelOptions>) {
 
   const channel = new E2EEChannel(ws as unknown as WebSocket, {
     serverSecretKey: serverKeys.secretKey,
-    validateToken: (token) => token === 'valid-token',
+    resolveAuthenticatedDevice: (token) =>
+      token === 'valid-token'
+        ? { deviceId: 'device-1', deviceToken: token, scope: 'mobile' }
+        : null,
     onReady,
     onError,
     ...overrides
@@ -49,9 +53,9 @@ function doHandshake(ctx: ReturnType<typeof setup>) {
   return sharedKey
 }
 
-describe('sanitizeReportedDeviceName', () => {
+describe('sanitizeReportedMobileDeviceName', () => {
   it('caps by Unicode code point without splitting an emoji', () => {
-    const sanitized = sanitizeReportedDeviceName(`${'x'.repeat(63)}😀z`)
+    const sanitized = sanitizeReportedMobileDeviceName(`${'x'.repeat(63)}😀z`)
 
     expect(sanitized).toBe(`${'x'.repeat(63)}😀`)
     expect(Array.from(sanitized ?? '')).toHaveLength(64)
@@ -72,9 +76,13 @@ describe('E2EEChannel', () => {
       const ctx = setup()
       doHandshake(ctx)
 
-      expect(ctx.onReady).toHaveBeenCalledWith(ctx.channel)
+      expect(ctx.onReady).toHaveBeenCalledWith(ctx.channel, {
+        deviceId: 'device-1',
+        deviceToken: 'valid-token',
+        scope: 'mobile'
+      })
       expect(ctx.onError).not.toHaveBeenCalled()
-      expect(ctx.channel.deviceToken).toBe('valid-token')
+      expect(ctx.channel.authenticatedDevice?.deviceToken).toBe('valid-token')
       expect(ctx.channel.reportedDeviceName).toBeNull()
 
       const readyMsg = JSON.parse(ctx.ws.sent[0]!)
