@@ -163,23 +163,29 @@ async function setAgentHooksEnabled(
 // check reports `installed` for a host it never looked at (#8711). Only the
 // running runtime knows each relay session's actual install outcome; when it
 // is unreachable no SSH agents are running either, so local-only is truthful.
+// A reachable runtime whose RPC fails is different: swallowing that error
+// would print a local-only report that can say `installed` while active SSH
+// state is unknown — the exact green-but-wrong output this command fixes —
+// so the RPC failure surfaces to the caller instead.
 async function fetchRuntimeHookStatuses(client: RuntimeClient): Promise<{
   local: AgentHookInstallStatus[]
   remotes: RemoteAgentHookInstallReport[]
 } | null> {
+  let reachable = false
   try {
     const status = await client.getCliStatus()
-    if (!status.result.runtime.reachable) {
-      return null
-    }
-    const response = await client.call<{
-      local: AgentHookInstallStatus[]
-      remotes: RemoteAgentHookInstallReport[]
-    }>('agentHooks.status', undefined, { timeoutMs: 10_000 })
-    return response.result
+    reachable = status.result.runtime.reachable
   } catch {
     return null
   }
+  if (!reachable) {
+    return null
+  }
+  const response = await client.call<{
+    local: AgentHookInstallStatus[]
+    remotes: RemoteAgentHookInstallReport[]
+  }>('agentHooks.status', undefined, { timeoutMs: 10_000 })
+  return response.result
 }
 
 export const AGENT_HOOK_HANDLERS: Record<string, CommandHandler> = {

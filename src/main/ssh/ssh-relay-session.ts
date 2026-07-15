@@ -652,7 +652,7 @@ export class SshRelaySession {
       return false
     }
 
-    await this.installManagedHooksOnRemote(mux)
+    await this.installManagedHooksOnRemote(mux, shouldContinue)
     if (shouldContinue && !shouldContinue()) {
       return false
     }
@@ -734,9 +734,18 @@ export class SshRelaySession {
   // files on the remote host to call Orca's managed script. Install those
   // configs before registering the PTY provider so newly spawned agent panes
   // report status from their first prompt.
-  private async installManagedHooksOnRemote(mux: SshChannelMultiplexer): Promise<void> {
+  private async installManagedHooksOnRemote(
+    mux: SshChannelMultiplexer,
+    shouldContinue?: () => boolean
+  ): Promise<void> {
     if (!isRemoteAgentHooksEnabled() || !this.areAgentStatusHooksEnabled()) {
-      this.recordAgentHookInstallReport(null, 'skipped', 'agent status hooks are disabled', [])
+      this.recordAgentHookInstallReport(
+        null,
+        'skipped',
+        'agent status hooks are disabled',
+        [],
+        shouldContinue
+      )
       return
     }
     if (
@@ -749,7 +758,8 @@ export class SshRelaySession {
         null,
         'skipped',
         'managed hook installers do not support Windows remotes',
-        []
+        [],
+        shouldContinue
       )
       return
     }
@@ -763,7 +773,13 @@ export class SshRelaySession {
         console.warn(
           `[ssh-relay-session] skipped remote managed hook install for ${this.targetId}: could not resolve remote home`
         )
-        this.recordAgentHookInstallReport(null, 'error', 'could not resolve remote home', [])
+        this.recordAgentHookInstallReport(
+          null,
+          'error',
+          'could not resolve remote home',
+          [],
+          shouldContinue
+        )
         return
       }
       remoteHome = result.resolvedPath
@@ -772,7 +788,7 @@ export class SshRelaySession {
       console.warn(
         `[ssh-relay-session] skipped remote managed hook install for ${this.targetId}: ${detail}`
       )
-      this.recordAgentHookInstallReport(null, 'error', detail, [])
+      this.recordAgentHookInstallReport(null, 'error', detail, [], shouldContinue)
       return
     }
 
@@ -791,14 +807,15 @@ export class SshRelaySession {
         failed.length === 0
           ? null
           : `${failed.length} agent hook install(s) failed on the remote host`,
-        statuses
+        statuses,
+        shouldContinue
       )
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       console.warn(
         `[ssh-relay-session] remote managed hook install failed for ${this.targetId}: ${detail}`
       )
-      this.recordAgentHookInstallReport(remoteHome, 'error', detail, [])
+      this.recordAgentHookInstallReport(remoteHome, 'error', detail, [], shouldContinue)
     } finally {
       ;(sftp as { end?: () => void } | null)?.end?.()
     }
@@ -808,8 +825,16 @@ export class SshRelaySession {
     remoteHome: string | null,
     state: RemoteAgentHookInstallReport['state'],
     detail: string | null,
-    statuses: RemoteAgentHookInstallReport['statuses']
+    statuses: RemoteAgentHookInstallReport['statuses'],
+    shouldContinue?: () => boolean
   ): void {
+    // Why: an aborted reconnect can resolve its awaits after a newer attempt
+    // already reinstalled hooks; committing its stale outcome would misreport
+    // the newer attempt's state. Only the attempt that still owns the session
+    // may write the report.
+    if (shouldContinue && !shouldContinue()) {
+      return
+    }
     this.agentHookInstallReport = {
       targetId: this.targetId,
       remoteHome,
