@@ -2423,6 +2423,7 @@ describe('registerPtyHandlers', () => {
           })
         )
         expect(store.persistPtyBinding).toHaveBeenCalledWith({
+          hostId: 'ssh:ssh-1',
           worktreeId: 'wt-1',
           tabId: 'tab-1',
           leafId,
@@ -5424,6 +5425,7 @@ describe('registerPtyHandlers', () => {
       })
     )
     expect(store.persistPtyBinding).toHaveBeenCalledWith({
+      hostId: 'ssh:ssh-1',
       worktreeId: 'wt-remote',
       tabId: 'tab-remote',
       leafId,
@@ -5718,6 +5720,7 @@ describe('registerPtyHandlers', () => {
       })
 
       expect(store.persistPtyBinding).toHaveBeenCalledWith({
+        hostId: 'ssh:ssh-reattach-ok',
         worktreeId: 'wt-remote',
         tabId: 'tab-remote',
         leafId,

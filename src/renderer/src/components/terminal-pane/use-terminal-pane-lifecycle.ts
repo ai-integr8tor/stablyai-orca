@@ -130,7 +130,10 @@ import { recordCreatedTerminalPaneSplit } from './terminal-pane-split-completion
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { registerTerminalSurfaceActionConsumer } from '@/hooks/terminal-surface-action-queue'
 import { seedStartupSessionRestoredBanner } from './session-restored-banner-pane-state'
-import { shouldClearLaunchAgentForClosedPane } from './terminal-pane-close-identity'
+import {
+  resolveTabTitleAfterPaneClose,
+  shouldClearLaunchAgentForClosedPane
+} from './terminal-pane-close-identity'
 
 export function resetTerminalKeyboardProtocolAfterInterrupt(terminal: Terminal): void {
   // Use the guarded output path so a certified/throwing xterm cannot escape a
@@ -1814,10 +1817,9 @@ export function useTerminalPaneLifecycle({
         // label reflects the focused agent — not a stale title from the
         // previously focused pane.
         const paneTitles = useAppStore.getState().runtimePaneTitlesByTabId[tabId] ?? {}
-        const paneTitle = paneTitles[pane.id]
-        if (paneTitle) {
-          updateTabTitle(tabId, paneTitle)
-        }
+        // Why: teardown promotes an untitled sibling through this callback; an
+        // empty update clears the closed pane's title back to the tab fallback.
+        updateTabTitle(tabId, resolveTabTitleAfterPaneClose(paneTitles, pane.id))
       },
       onLayoutChanged: () => {
         scheduleRuntimeGraphSync()
