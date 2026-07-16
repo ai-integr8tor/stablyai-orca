@@ -835,6 +835,9 @@ export function ResourceUsageStatusSegment({
   // fall to <body>. We park a ref on the popover body so we can restore focus
   // somewhere stable for keyboard users.
   const floatingDragRef = useRef<FloatingDragState | null>(null)
+  const floatingDragFrameRef = useRef<number | null>(null)
+  const pendingFloatingPositionRef = useRef<FloatingPosition | null>(null)
+  const floatingPositionRef = useRef<FloatingPosition | null>(floatingPosition)
   const floatingPanelRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyFocusFrameRef = useRef<number | null>(null)
@@ -863,6 +866,37 @@ export function ResourceUsageStatusSegment({
     event.preventDefault()
   }, [])
 
+  const applyFloatingPosition = useCallback(
+    (proposed: FloatingPosition): FloatingPosition => {
+      const current = floatingPositionRef.current ?? { x: 0, y: 0 }
+      const next = clampFloatingOffset(proposed, current)
+      floatingPositionRef.current = next
+      floatingPanelRef.current?.style.setProperty('--resource-manager-x', `${next.x}px`)
+      floatingPanelRef.current?.style.setProperty('--resource-manager-y', `${next.y}px`)
+      return next
+    },
+    [clampFloatingOffset]
+  )
+
+  useEffect(() => {
+    floatingPositionRef.current = floatingPosition
+    const panel = floatingPanelRef.current
+    if (!panel) {
+      return
+    }
+    panel.style.setProperty('--resource-manager-x', `${floatingPosition?.x ?? 0}px`)
+    panel.style.setProperty('--resource-manager-y', `${floatingPosition?.y ?? 0}px`)
+  }, [floatingPosition])
+
+  useEffect(
+    () => () => {
+      if (floatingDragFrameRef.current !== null) {
+        cancelAnimationFrame(floatingDragFrameRef.current)
+      }
+    },
+    []
+  )
+
   const cancelPopoverBodyFocusFrame = useCallback((): void => {
     if (popoverBodyFocusFrameRef.current === null) {
       return
@@ -887,7 +921,7 @@ export function ResourceUsageStatusSegment({
       if (event.button !== 0) {
         return
       }
-      const origin = floatingPosition ?? { x: 0, y: 0 }
+      const origin = floatingPositionRef.current ?? { x: 0, y: 0 }
       floatingDragRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
@@ -900,7 +934,7 @@ export function ResourceUsageStatusSegment({
       event.currentTarget.setPointerCapture(event.pointerId)
       stopDragEvent(event)
     },
-    [floatingPosition, stopDragEvent]
+    [stopDragEvent]
   )
 
   const handleFloatingDragMove = useCallback(
@@ -916,18 +950,23 @@ export function ResourceUsageStatusSegment({
         return
       }
       drag.activated = true
-      setFloatingPosition((current) =>
-        clampFloatingOffset(
-          {
-            x: drag.originX + deltaX,
-            y: drag.originY + deltaY
-          },
-          current ?? { x: 0, y: 0 }
-        )
-      )
+      pendingFloatingPositionRef.current = {
+        x: drag.originX + deltaX,
+        y: drag.originY + deltaY
+      }
+      if (floatingDragFrameRef.current === null) {
+        floatingDragFrameRef.current = requestAnimationFrame(() => {
+          floatingDragFrameRef.current = null
+          const pending = pendingFloatingPositionRef.current
+          pendingFloatingPositionRef.current = null
+          if (pending) {
+            applyFloatingPosition(pending)
+          }
+        })
+      }
       stopDragEvent(event)
     },
-    [clampFloatingOffset, stopDragEvent]
+    [applyFloatingPosition, stopDragEvent]
   )
 
   const handleFloatingDragEnd = useCallback(
@@ -936,14 +975,24 @@ export function ResourceUsageStatusSegment({
       if (!drag || drag.pointerId !== event.pointerId) {
         return
       }
+      if (floatingDragFrameRef.current !== null) {
+        cancelAnimationFrame(floatingDragFrameRef.current)
+        floatingDragFrameRef.current = null
+      }
+      const pending = pendingFloatingPositionRef.current
+      pendingFloatingPositionRef.current = null
+      const finalPosition = pending ? applyFloatingPosition(pending) : floatingPositionRef.current
       floatingDragRef.current = null
       setFloatingDragging(false)
+      if (drag.activated && finalPosition) {
+        setFloatingPosition(finalPosition)
+      }
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId)
       }
       stopDragEvent(event)
     },
-    [stopDragEvent]
+    [applyFloatingPosition, stopDragEvent]
   )
 
   useEffect(() => {
@@ -1399,13 +1448,10 @@ export function ResourceUsageStatusSegment({
         sideOffset={8}
         {...STATUS_BAR_CONTEXT_MENU_EXEMPT_PROPS}
         className="w-[26rem] max-w-[calc(100vw-2rem)] p-0"
-        style={
-          floatingPosition
-            ? {
-                transform: `translate(${floatingPosition.x}px, ${floatingPosition.y}px)`
-              }
-            : undefined
-        }
+        style={{
+          transform:
+            'translate(var(--resource-manager-x, 0px), var(--resource-manager-y, 0px))'
+        }}
         onOpenAutoFocus={(event) => event.preventDefault()}
         // Why: clicking a terminal row activates a tab, which causes xterm
         // to programmatically focus the terminal DOM node. Radix would
