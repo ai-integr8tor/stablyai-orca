@@ -92,19 +92,23 @@ clipboard *paste* path only — picker attachments already fail fast with a
 - Identical naming for local temp writes and SSH SFTP writes; the bracketed
   paste payload (`buildMobileImagePastePayload`) is unchanged.
 
-### 4. Version gate
+### 4. Capability gate
 
-- Desktop bumps `RUNTIME_PROTOCOL_VERSION` 3 → 4 in
-  `src/shared/protocol-version.ts` when it starts honoring `fileName`.
-- Mobile already receives `status.protocolVersion`. The session screen enables
-  the unfiltered picker only when `protocolVersion >= 4`; below that,
-  long-press keeps the current image-only behavior. Rationale: old hosts
-  silently strip unknown zod fields and would save a PDF as `….png`, which
-  agents then misread (extension sniffing).
-- `MIN_COMPATIBLE_DESKTOP_VERSION` does **not** bump — feature detection only,
-  no hard-block.
-- `mobile/src/transport/protocol-version.ts` mirrors the desktop constant per
-  the existing manual-sync comment.
+- A new static runtime capability `clipboard.file-upload.v1`
+  (`CLIPBOARD_FILE_UPLOAD_RUNTIME_CAPABILITY` in
+  `src/shared/protocol-version.ts`, added to `RUNTIME_CAPABILITIES`) signals
+  that the host honors `fileName` on the clipboard upload methods.
+- The mobile session screen already probes `status.get` capabilities on
+  connect (`browser.screencast.v1`, `aiVault.v1`,
+  `terminal.query-reply-input.v1`); it additionally records
+  `clipboard.file-upload.v1` and enables the unfiltered picker only when
+  advertised. Otherwise long-press keeps the current image-only filter.
+  Rationale: old hosts silently strip unknown zod fields and would save a PDF
+  as `….png`, which agents then misread (extension sniffing).
+- No protocol version changes. Repo policy in `protocol-version.ts` forbids
+  bumping for "new optional fields on existing methods";
+  `terminal.query-reply-input.v1` is the direct precedent for gating exactly
+  this zod-strips-unknown-keys hazard via a capability.
 
 ### 5. Error handling
 
@@ -128,9 +132,9 @@ clipboard *paste* path only — picker attachments already fail fast with a
 
 | Mobile | Desktop host | Behavior |
 | --- | --- | --- |
-| new | new (v4) | Any file attaches with sanitized original name |
-| new | old (v3) | Long-press stays image-filtered (gate); images work as today |
-| old | new (v4) | No `fileName` sent → exact current behavior (`.png` temp name) |
+| new | new (capability) | Any file attaches with sanitized original name |
+| new | old (no capability) | Long-press stays image-filtered (gate); images work as today |
+| old | new (capability) | No `fileName` sent → exact current behavior (`.png` temp name) |
 | old | old | Unchanged |
 
 ## Precedent
