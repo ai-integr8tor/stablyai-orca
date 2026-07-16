@@ -105,6 +105,7 @@ type MainWindowStub = {
     id?: number
     isDestroyed?: MockFn
     on: MockFn
+    once: MockFn
     send?: MockFn
     reload?: MockFn
     session: {
@@ -131,6 +132,7 @@ function createMainWindow(extraWebContents: { on?: MockFn; send?: MockFn } = {})
       id: 1,
       isDestroyed: vi.fn(() => false),
       on: vi.fn(),
+      once: vi.fn(),
       reload: vi.fn(),
       session: {
         setPermissionRequestHandler: setPermissionRequestHandlerMock,
@@ -142,7 +144,11 @@ function createMainWindow(extraWebContents: { on?: MockFn; send?: MockFn } = {})
 }
 
 function createStore(): Store & { flush: MockFn } {
-  return { flush: vi.fn() } as Store & { flush: MockFn }
+  // Why: eager SSH reconnect reads the persisted shutdown session at
+  // did-finish-load; an empty session keeps it a no-op in these tests.
+  return { flush: vi.fn(), getWorkspaceSession: vi.fn(() => ({})) } as unknown as Store & {
+    flush: MockFn
+  }
 }
 
 function createRuntime(): RuntimeStub {
@@ -223,6 +229,20 @@ describe('attachMainWindowServices', () => {
       ignoreCache: false
     })
     expect(mainWindow.webContents.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('wires eager SSH reconnect to fire at did-finish-load', () => {
+    const mainWindow = createMainWindow()
+
+    attachMainWindowServices(mainWindow as never, createStore(), createRuntime() as never)
+
+    const loadHandler = mainWindow.webContents.once.mock.calls.find(
+      ([event]) => event === 'did-finish-load'
+    )?.[1] as (() => void) | undefined
+    expect(loadHandler).toBeTypeOf('function')
+    // An empty persisted session makes the eager pass a safe no-op here; the
+    // connect/skip policy itself is covered in ssh.test.ts.
+    expect(() => loadHandler!()).not.toThrow()
   })
 
   it('retries local PTY registry hydration after local startup services are ready', async () => {

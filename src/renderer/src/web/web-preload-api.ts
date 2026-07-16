@@ -2942,6 +2942,7 @@ function createSshApi(): NonNullable<Partial<PreloadApi>['ssh']> {
     browseDir: () => Promise.resolve({ entries: [], resolvedPath: '' }),
     onCredentialRequest: () => noopUnsubscribe,
     onCredentialResolved: () => noopUnsubscribe,
+    notifyCredentialListenerReady: () => Promise.resolve(),
     submitCredential: () => Promise.resolve()
   }
 }

@@ -299,6 +299,7 @@ describe('useIpcEvents zoom routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {}
@@ -441,6 +442,7 @@ describe('useIpcEvents zoom routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {}
@@ -652,6 +654,7 @@ describe('useIpcEvents rate-limit hydration', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {}
@@ -1034,6 +1037,7 @@ describe('useIpcEvents browser tab create routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -1261,6 +1265,7 @@ describe('useIpcEvents updater integration', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: (listener: (data: { requestId: string }) => void) => {
@@ -1506,6 +1511,7 @@ describe('useIpcEvents updater integration', () => {
             return () => {}
           },
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {}
@@ -2003,6 +2009,7 @@ describe('useIpcEvents updater integration', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -2890,6 +2897,7 @@ describe('useIpcEvents browser tab close routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -3369,6 +3377,7 @@ describe('useIpcEvents browser tab close routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -3587,6 +3596,7 @@ describe('useIpcEvents browser tab close routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -3800,6 +3810,7 @@ describe('useIpcEvents browser tab close routing', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -4031,6 +4042,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -4279,6 +4291,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {},
           onCredentialResolved: () => () => {}
@@ -4520,6 +4533,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
+          notifyCredentialListenerReady: () => Promise.resolve(),
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
           onDetectedPortsChanged: () => () => {}

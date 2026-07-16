@@ -3112,6 +3112,7 @@ export type PreloadApi = {
       }) => void
     ) => () => void
     onCredentialResolved: (callback: (data: { requestId: string }) => void) => () => void
+    notifyCredentialListenerReady: () => Promise<void>
     submitCredential: (args: { requestId: string; value: string | null }) => Promise<void>
   }
   automations: {

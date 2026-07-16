@@ -2707,6 +2707,16 @@ export function useIpcEvents(): void {
       })
     )
 
+    // Why: main defers eager SSH reconnect until the credential listeners
+    // above provably exist, so a startup prompt can never fire into a void.
+    // A preload without this method (dev hot-reload skew) must never crash
+    // the app root; main then simply skips eager reconnect.
+    try {
+      void window.api.ssh.notifyCredentialListenerReady().catch(() => {})
+    } catch {
+      // Stale preload; the renderer's own startup reconnect still runs.
+    }
+
     unsubs.push(
       window.api.ssh.onPortForwardsChanged(({ targetId, forwards }) => {
         useAppStore.getState().setPortForwards(targetId, forwards)
