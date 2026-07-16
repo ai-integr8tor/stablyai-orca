@@ -32,6 +32,7 @@ import {
   getRuntimeGitDiff
 } from '@/runtime/runtime-git-client'
 import '@/lib/monaco-setup'
+import { resolveCurrentMonacoTheme } from '@/lib/editor-theme'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -239,9 +240,7 @@ export default function CombinedDiffViewer({
     selectWorktreeDiffCommentsOrEmpty(s, file.worktreeId)
   )
   const activeGroupId = useAppStore((s) => s.activeGroupIdByWorktree[file.worktreeId])
-  const isDark =
-    settings?.theme === 'dark' ||
-    (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const monacoTheme = resolveCurrentMonacoTheme(settings)
 
   const diffCommentCount = diffCommentsForWorktree.length
   const diffCommentsPrompt = React.useMemo(
@@ -1954,7 +1953,7 @@ export default function CombinedDiffViewer({
                         index={virtualItem.index}
                         isBranchMode={isBranchMode}
                         sideBySide={sideBySide}
-                        isDark={isDark}
+                        monacoTheme={monacoTheme}
                         settings={settings}
                         sectionHeight={sectionHeights[virtualItem.index]}
                         worktreeId={file.worktreeId}

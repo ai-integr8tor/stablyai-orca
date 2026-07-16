@@ -63,6 +63,7 @@ import {
   isMonacoAutoHeightCapped
 } from './monaco-auto-height'
 import { installMonacoE2EProbe } from './monaco-e2e-probe'
+import { resolveCurrentMonacoTheme } from '@/lib/editor-theme'
 
 type MonacoEditorProps = {
   fileId: string
@@ -198,9 +199,7 @@ export default function MonacoEditor({
   const [commentPopover, setCommentPopover] = useState<MarkdownCommentPopoverState | null>(null)
   const [selectionAnnotationTarget, setSelectionAnnotationTarget] =
     useState<MonacoMarkdownSelectionAnnotationTarget | null>(null)
-  const isDark =
-    settings?.theme === 'dark' ||
-    (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const monacoTheme = resolveCurrentMonacoTheme(settings)
 
   const updateMarkdownCompletionDocuments = useCallback((): void => {
     const modelKey = editorRef.current?.getModel()?.uri.toString() ?? null
@@ -844,7 +843,7 @@ export default function MonacoEditor({
         // Why: Orca's mount/layout reconciliation is the sole post-mount content
         // owner; the wrapper's controlled read-only path would also call setValue.
         defaultValue={content}
-        theme={isDark ? 'vs-dark' : 'vs'}
+        theme={monacoTheme}
         onChange={handleChange}
         onMount={handleMount}
         options={{
