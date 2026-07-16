@@ -85,7 +85,10 @@ clipboard *paste* path only — picker attachments already fail fast with a
   `orca-paste-<ts>-<uuid>.png` (byte-identical behavior for existing callers).
 - Sanitization is host-side only (`clipboard-image-temp-file.ts`) — the phone
   is untrusted input:
-  - Strip path separators (`/` and `\`), control characters, and leading dots.
+  - Strip path separators (`/` and `\`), Windows-reserved characters
+    (`<>:"|?*`), control characters, leading dots, and trailing dots/spaces
+    (Windows rejects or silently drops them, and hosts may be Windows locally
+    or over SSH).
   - Cap the sanitized basename at 80 characters (preserving the extension where
     possible).
   - If nothing survives sanitization, fall back to the generated name with no

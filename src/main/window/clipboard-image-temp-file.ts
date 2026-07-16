@@ -17,13 +17,15 @@ const REMOTE_CLIPBOARD_IMAGE_TEMP_DIR = '/tmp'
 const ATTACHMENT_FILE_NAME_MAX_CHARS = 80
 
 // Why: the phone-supplied name is untrusted input; strip anything that could
-// escape the temp dir or hide the file before it lands in a path.
+// escape the temp dir, hide the file, or fail the write on any supported host
+// platform (Windows rejects <>:"|?* and silently drops trailing dots/spaces).
 export function sanitizeAttachmentFileName(fileName: string): string | null {
   const cleaned = fileName
-    .replace(/[/\\]/g, '')
+    .replace(/[/\\<>:"|?*]/g, '')
     // eslint-disable-next-line no-control-regex -- intentional control-char strip
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/^\.+/, '')
+    .replace(/[. ]+$/, '')
     .trim()
   if (!cleaned) {
     return null
