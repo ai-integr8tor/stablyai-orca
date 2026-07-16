@@ -30,7 +30,8 @@
         "resourceUsageToggleDescription": "Muestra el Administrador de recursos. Haz clic para ver CPU, memoria, sesiones, controles del servicio en segundo plano y análisis de disco de los espacios de trabajo.",
         "portsToggleDescription": "Muestra los puertos activos de los espacios de trabajo. Haz clic para ver los puertos de cada espacio de trabajo y los puertos externos.",
         "antigravityToggleDescription": "Muestra el uso de suscripción de Antigravity para el espacio de trabajo activo.",
-        "grokToggleDescription": "Muestra el uso de créditos de suscripción de Grok cuando has iniciado sesión con Grok CLI."
+        "grokToggleDescription": "Muestra el uso de créditos de suscripción de Grok cuando has iniciado sesión con Grok CLI.",
+        "zaiToggleDescription": "Muestra el uso de Z.ai GLM para el espacio de trabajo activo."
       }
     }
   },
@@ -3060,7 +3061,9 @@
             "antigravityUsage": "Uso de Antigravity",
             "antigravityUsageDetails": "Abrir detalles de uso de Antigravity",
             "grokUsageAria": "Abrir detalles de uso de Grok",
-            "grokUsageMenu": "Uso de Grok"
+            "grokUsageMenu": "Uso de Grok",
+            "zaiUsageDetails": "Abrir detalles de uso de Z.ai GLM",
+            "zaiUsage": "Uso de Z.ai GLM"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "Conectar una cuenta",
@@ -4827,6 +4830,21 @@
           "8d61637a77": "Cookie de MiniMax guardada.",
           "b43e761fe5": "No se pudo actualizar la cookie de MiniMax.",
           "5d63bbfbec": "MiniMax",
+          "zaiTitle": "Z.ai GLM",
+          "zaiDescription": "Configura el seguimiento de uso de Z.ai GLM con una clave API.",
+          "zaiRequired": "Se requiere la clave API de Z.ai.",
+          "zaiNotSaved": "La clave API de Z.ai no se guardó.",
+          "zaiSaved": "Clave API de Z.ai guardada.",
+          "zaiUpdateFailed": "No se pudo actualizar la clave API de Z.ai.",
+          "openConsole": "Abrir consola",
+          "storedLocally": "Guardada localmente",
+          "apiKeyNotSet": "Clave API no configurada",
+          "zaiStoredCopy": "Se guarda localmente y solo se envía a api.z.ai para actualizar el uso.",
+          "zaiApiKeyLabel": "Clave API de Z.ai",
+          "zaiApiKeyDescription": "Pega tu clave API de Z.ai para consultar los límites de uso localmente.",
+          "zaiApiKeyPlaceholder": "Ingresa la clave API",
+          "zaiForget": "Olvidar clave",
+          "zaiConsoleCopy": "Crea o administra claves API en la consola oficial de Z.ai.",
           "15e831350e": "Configura el seguimiento de uso de MiniMax desde platform.minimax.io.",
           "21d6eb141e": "Cookie de sesión de MiniMax",
           "33bba5ad83": "Pega tu cookie de sesión de MiniMax para obtener límites de uso locales.",
@@ -7011,7 +7029,9 @@
             "d2c6a0e8f1": "grok",
             "c1b5f9d7e0": "xai",
             "b0a4e8c6d9": "OAuth",
-            "a9f3d7b5c8": "inicio de sesión"
+            "a9f3d7b5c8": "inicio de sesión",
+            "zaiTitle": "Uso de Z.ai GLM",
+            "zaiDescription": "Guarda una clave API de Z.ai para consultar los límites de uso localmente."
           }
         },
         "advanced": {
@@ -7184,6 +7204,13 @@
             "25e51b62ee": "límite de uso",
             "d9e7cef86f": "cookie",
             "d16378a88f": "minimax",
+            "zai": "z.ai",
+            "glm": "glm",
+            "apiKey": "api key",
+            "statusBar": "barra de estado",
+            "rateLimit": "límite de uso",
+            "zaiTitle": "Uso de Z.ai GLM",
+            "zaiDescription": "Muestra el uso de Z.ai GLM en la barra de estado.",
             "e46178eb1b": "Muestra el uso de la suscripción de MiniMax en la barra de estado.",
             "0f08f6b483": "Uso de MiniMax",
             "edbf0f63a0": "costo",

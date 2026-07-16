@@ -30,7 +30,8 @@
         "resourceUsageToggleDescription": "リソースマネージャーを表示します。これをクリックすると、CPU、メモリ、セッション、デーモン コントロール、およびワークスペース ディスク スキャンが行われます。",
         "portsToggleDescription": "ライブワークスペースポートを表示します。ワークスペーススコープのポートと外部リスナーの場合はこれをクリックします。",
         "antigravityToggleDescription": "アクティブなワークスペースの Antigravity サブスクリプション使用量を表示します。",
-        "grokToggleDescription": "Grok CLI でサインインしている場合に Grok サブスクリプションのクレジット使用量を表示します。"
+        "grokToggleDescription": "Grok CLI でサインインしている場合に Grok サブスクリプションのクレジット使用量を表示します。",
+        "zaiToggleDescription": "アクティブなワークスペースの Z.ai GLM 使用量を表示します。"
       }
     }
   },
@@ -3060,7 +3061,9 @@
             "antigravityUsage": "Antigravity の使用状況",
             "antigravityUsageDetails": "Antigravity の使用状況詳細を開く",
             "grokUsageAria": "Grok の使用状況詳細を開く",
-            "grokUsageMenu": "Grok の使用状況"
+            "grokUsageMenu": "Grok の使用状況",
+            "zaiUsageDetails": "Z.ai GLM 使用量の詳細を開く",
+            "zaiUsage": "Z.ai GLM 使用量"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "アカウントを接続する",
@@ -4812,6 +4815,21 @@
           "8d61637a77": "MiniMax Cookie を保存しました。",
           "b43e761fe5": "MiniMax Cookie の更新に失敗しました。",
           "5d63bbfbec": "MiniMax",
+          "zaiTitle": "Z.ai GLM",
+          "zaiDescription": "API キーで Z.ai GLM の使用量追跡を設定します。",
+          "zaiRequired": "Z.ai API キーが必要です。",
+          "zaiNotSaved": "Z.ai API キーを保存できませんでした。",
+          "zaiSaved": "Z.ai API キーを保存しました。",
+          "zaiUpdateFailed": "Z.ai API キーを更新できませんでした。",
+          "openConsole": "コンソールを開く",
+          "storedLocally": "ローカルに保存済み",
+          "apiKeyNotSet": "API キー未設定",
+          "zaiStoredCopy": "ローカルに保存され、使用量更新のため api.z.ai にのみ送信されます。",
+          "zaiApiKeyLabel": "Z.ai API キー",
+          "zaiApiKeyDescription": "ローカルでレート制限を取得する Z.ai API キーを貼り付けます。",
+          "zaiApiKeyPlaceholder": "API キーを入力",
+          "zaiForget": "キーを忘れる",
+          "zaiConsoleCopy": "Z.ai 公式コンソールで API キーを作成または管理します。",
           "15e831350e": "platform.minimax.io から MiniMax の使用量追跡を設定します。",
           "21d6eb141e": "MiniMax セッション Cookie",
           "33bba5ad83": "ローカルのレート制限取得用に MiniMax セッション Cookie を貼り付けます。",
@@ -7033,7 +7051,9 @@
             "d2c6a0e8f1": "grok",
             "c1b5f9d7e0": "xai",
             "b0a4e8c6d9": "認証",
-            "a9f3d7b5c8": "ログイン"
+            "a9f3d7b5c8": "ログイン",
+            "zaiTitle": "Z.ai GLM 使用量",
+            "zaiDescription": "ローカルでレート制限を取得するための Z.ai API キーを保存します。"
           }
         },
         "advanced": {
@@ -7206,6 +7226,13 @@
             "25e51b62ee": "レート制限",
             "d9e7cef86f": "Cookie",
             "d16378a88f": "minimax",
+            "zai": "z.ai",
+            "glm": "glm",
+            "apiKey": "api key",
+            "statusBar": "ステータスバー",
+            "rateLimit": "レート制限",
+            "zaiTitle": "Z.ai GLM 使用量",
+            "zaiDescription": "ステータスバーに Z.ai GLM 使用量を表示します。",
             "e46178eb1b": "ステータスバーに MiniMax サブスクリプションの使用状況を表示します。",
             "0f08f6b483": "MiniMax 使用量",
             "edbf0f63a0": "料金",

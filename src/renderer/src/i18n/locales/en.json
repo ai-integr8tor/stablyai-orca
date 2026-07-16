@@ -30,7 +30,8 @@
         "resourceUsageToggleDescription": "Show the Resource Manager. Click it for CPU, memory, sessions, daemon controls, and workspace disk scans.",
         "portsToggleDescription": "Show live workspace ports. Click it for workspace-scoped ports and external listeners.",
         "antigravityToggleDescription": "Show Antigravity subscription usage for the active workspace.",
-        "grokToggleDescription": "Show Grok subscription credit usage when signed in via Grok CLI."
+        "grokToggleDescription": "Show Grok subscription credit usage when signed in via Grok CLI.",
+        "zaiToggleDescription": "Show Z.ai GLM usage for the active workspace."
       }
     }
   },
@@ -3060,7 +3061,9 @@
             "antigravityUsage": "Antigravity Usage",
             "antigravityUsageDetails": "Open Antigravity usage details",
             "grokUsageAria": "Open Grok usage details",
-            "grokUsageMenu": "Grok Usage"
+            "grokUsageMenu": "Grok Usage",
+            "zaiUsageDetails": "Open Z.ai GLM usage details",
+            "zaiUsage": "Z.ai GLM Usage"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "Connect an account",
@@ -4827,6 +4830,21 @@
           "8d61637a77": "MiniMax cookie saved.",
           "b43e761fe5": "MiniMax cookie update failed.",
           "5d63bbfbec": "MiniMax",
+          "zaiTitle": "Z.ai GLM",
+          "zaiDescription": "Configure Z.ai GLM usage tracking with an API key.",
+          "zaiRequired": "Z.ai API key is required.",
+          "zaiNotSaved": "Z.ai API key was not saved.",
+          "zaiSaved": "Z.ai API key saved.",
+          "zaiUpdateFailed": "Z.ai API key update failed.",
+          "openConsole": "Open console",
+          "storedLocally": "Stored locally",
+          "apiKeyNotSet": "API key not set",
+          "zaiStoredCopy": "Stored locally and sent only to api.z.ai for usage refreshes.",
+          "zaiApiKeyLabel": "Z.ai API Key",
+          "zaiApiKeyDescription": "Paste your Z.ai API key for local rate-limit fetching.",
+          "zaiApiKeyPlaceholder": "Enter API key",
+          "zaiForget": "Forget key",
+          "zaiConsoleCopy": "Create or manage API keys in the official Z.ai console.",
           "15e831350e": "Configure MiniMax usage tracking from platform.minimax.io.",
           "21d6eb141e": "MiniMax Session Cookie",
           "33bba5ad83": "Paste your MiniMax session cookie for local rate-limit fetching.",
@@ -7048,7 +7066,9 @@
             "d2c6a0e8f1": "grok",
             "c1b5f9d7e0": "xai",
             "b0a4e8c6d9": "oauth",
-            "a9f3d7b5c8": "login"
+            "a9f3d7b5c8": "login",
+            "zaiTitle": "Z.ai GLM Usage",
+            "zaiDescription": "Save a Z.ai API key for local rate-limit fetching."
           }
         },
         "advanced": {
@@ -7223,6 +7243,13 @@
             "25e51b62ee": "rate limit",
             "d9e7cef86f": "cookie",
             "d16378a88f": "minimax",
+            "zai": "z.ai",
+            "glm": "glm",
+            "apiKey": "api key",
+            "statusBar": "status bar",
+            "rateLimit": "rate limit",
+            "zaiTitle": "Z.ai GLM Usage",
+            "zaiDescription": "Show Z.ai GLM usage in the status bar.",
             "e46178eb1b": "Show MiniMax subscription usage in the status bar.",
             "0f08f6b483": "MiniMax Usage",
             "edbf0f63a0": "cost",
