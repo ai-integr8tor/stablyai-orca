@@ -3219,7 +3219,10 @@
             "42fdd4da1d": "正在刷新 Claude 登录。智能体会话可能仍处于登录状态。",
             "c06c1d215d": "由于网络请求失败，无法刷新 Claude 用量。",
             "cabdc2a9e0": "无法读取 Claude 登录凭据。",
-            "a7517cccb6": "Claude 用量目前不可用。"
+            "a7517cccb6": "Claude 用量目前不可用。",
+            "3c639d6830": "Gemini models",
+            "8786272ed1": "Claude and GPT models",
+            "6ff013c8af": "Five-hour"
           },
           "SshTargetStatusRow": {
             "sshHost": "SSH 主机"
@@ -4756,10 +4759,10 @@
           "36223200ac": "OpenCode Go 会话 Cookie",
           "ea631977b5": "配置 OpenCode Go 提供商设置。",
           "4ac10b4d08": "OpenCode Go",
-          "c2aee76420": "从本地 Gemini CLI 安装中提取 OAuth 凭据，用于在 {{value0}} 通过 Google 进行身份验证。这将使用颁发给 Gemini CLI 应用的凭据，而非 Orca。若 Google 更新 CLI，可能会失效。请自行承担风险。",
-          "96f3649526": "使用 Gemini CLI 凭据（实验）",
-          "d676c41fc6": "从本地 Gemini CLI 安装中提取 OAuth 凭据以通过 Google 认证。这将使用颁发给 Gemini CLI 应用的凭据，而非 Orca。若 Google 更新 CLI，可能会失效。请自行承担风险。",
-          "0c7f915b01": "使用 Gemini CLI 凭据",
+          "c2aee76420": "从 {{value0}} 上运行的 Antigravity CLI 或应用读取配额，并以原生密钥环和本地 Gemini CLI 凭据作为后备。凭据保留在 {{value0}}，且仅发送到 Google API。若 Google 更改这些接口，可能会失效。请自行承担风险。",
+          "96f3649526": "使用 Antigravity 或 Gemini CLI 获取用量（实验）",
+          "d676c41fc6": "从运行中的 Antigravity CLI 或应用读取配额，并以原生密钥环和本地 Gemini CLI 凭据作为后备。凭据保留在此设备上，且仅发送到 Google API。若 Google 更改这些接口，可能会失效。请自行承担风险。",
+          "0c7f915b01": "使用 Antigravity 或 Gemini CLI 获取用量",
           "973741a871": "配置 Gemini 提供商设置。",
           "0c64dc2a64": "Gemini",
           "db209ee572": "移除",
@@ -6962,8 +6965,8 @@
             "933deaf732": "OAuth",
             "8630464352": "CLI",
             "e8e1ff3887": "gemini",
-            "bada4a3218": "从本地 Gemini CLI 安装中提取 OAuth 凭据以通过 Google 进行身份验证。",
-            "d819755b02": "使用 Gemini CLI 凭据",
+            "bada4a3218": "在本地读取 Antigravity 配额，并以原生密钥环和 Gemini CLI 凭据作为后备。",
+            "d819755b02": "使用 Antigravity 或 Gemini CLI 获取用量",
             "35b461d817": "登入",
             "f2d666a886": "可选",
             "8b06729e0f": "活跃",

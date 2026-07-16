@@ -9,6 +9,8 @@ import {
   type GeminiCredentials,
   type GoogleAuthEntry
 } from './gemini-oauth-sources'
+import { readAntigravityCredentials } from './antigravity-oauth-keyring'
+import { fetchAntigravityLocalRateLimits } from './antigravity-local-quota'
 import {
   buildRateLimitBucket,
   deduplicateBuckets,
@@ -20,6 +22,7 @@ const RETRIEVE_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retri
 
 type QuotaBucket = { remainingFraction: number; resetTime: string; modelId: string }
 
+/** Narrows raw quota entries before they are formatted for display. */
 function isQuotaBucket(o: unknown): o is QuotaBucket {
   return (
     typeof o === 'object' &&
@@ -31,6 +34,7 @@ function isQuotaBucket(o: unknown): o is QuotaBucket {
   )
 }
 
+/** Accepts both current wrapped quota responses and the legacy array shape. */
 function parseQuotaResponse(data: unknown): QuotaBucket[] {
   let rawBuckets: unknown[] = []
   if (Array.isArray(data)) {
@@ -41,6 +45,7 @@ function parseQuotaResponse(data: unknown): QuotaBucket[] {
   return rawBuckets.filter((b) => isQuotaBucket(b))
 }
 
+/** Retrieves and normalizes quota buckets for one Google access token and project. */
 async function fetchQuota(accessToken: string, projectId: string): Promise<ProviderRateLimits> {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
@@ -81,6 +86,7 @@ async function fetchQuota(accessToken: string, projectId: string): Promise<Provi
   }
 }
 
+/** Reads quota with an auth.json entry, refreshing its access token when necessary. */
 async function fetchViaAuthJson(
   auth: GoogleAuthEntry,
   geminiCliOAuthEnabled = false
@@ -131,6 +137,7 @@ async function fetchViaAuthJson(
   return result
 }
 
+/** Reads quota with Gemini CLI credentials and persists successful token refreshes. */
 async function fetchViaOauthCreds(
   creds: GeminiCredentials,
   geminiCliOAuthEnabled = false
@@ -200,6 +207,32 @@ async function fetchViaOauthCreds(
   return result
 }
 
+/** Uses a current Antigravity keyring token only when it produces valid quota data. */
+async function fetchViaAntigravityKeyring(): Promise<ProviderRateLimits | null> {
+  const credentials = await readAntigravityCredentials()
+  if (!credentials || credentials.expiry_date <= Date.now()) {
+    return null
+  }
+
+  try {
+    // Why: AGY owns refreshing and persisting its native-keyring token. Using
+    // only a current token avoids writing Antigravity auth into Gemini's file.
+    const projectId = await loadProjectId(credentials.access_token).catch(() => {
+      return ''
+    })
+    if (!projectId) {
+      return null
+    }
+    const result = await fetchQuota(credentials.access_token, projectId)
+    // Why: stale-but-current AGY credentials must not mask usable legacy
+    // Gemini sources when project or quota discovery fails.
+    return result.status === 'ok' ? result : null
+  } catch {
+    return null
+  }
+}
+
+/** Discovers Gemini-compatible quotas in preferred-source order. */
 export async function fetchGeminiRateLimits(
   geminiCliOAuthEnabled = false
 ): Promise<ProviderRateLimits> {
@@ -217,6 +250,16 @@ export async function fetchGeminiRateLimits(
   }
 
   try {
+    const antigravityRateLimits = await fetchAntigravityLocalRateLimits()
+    if (antigravityRateLimits) {
+      return antigravityRateLimits
+    }
+
+    const antigravityKeyringRateLimits = await fetchViaAntigravityKeyring()
+    if (antigravityKeyringRateLimits) {
+      return antigravityKeyringRateLimits
+    }
+
     const authJson = await readAuthJson()
     const result =
       authJson?.google?.type === 'oauth'

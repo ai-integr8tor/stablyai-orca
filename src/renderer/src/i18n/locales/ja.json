@@ -3219,7 +3219,10 @@
             "42fdd4da1d": "Claude サインインを更新中です。エージェントセッションはまだサインイン済みの場合があります。",
             "c06c1d215d": "ネットワークリクエストに失敗したため、Claude 使用量を更新できませんでした。",
             "cabdc2a9e0": "Claude サインイン認証情報を読み取れませんでした。",
-            "a7517cccb6": "Claude 使用量は現在利用できません。"
+            "a7517cccb6": "Claude 使用量は現在利用できません。",
+            "3c639d6830": "Gemini models",
+            "8786272ed1": "Claude and GPT models",
+            "6ff013c8af": "Five-hour"
           },
           "SshTargetStatusRow": {
             "sshHost": "SSH ホスト"
@@ -4756,10 +4759,10 @@
           "36223200ac": "OpenCode Go セッション Cookie",
           "ea631977b5": "OpenCode Go プロバイダー設定を構成します。",
           "4ac10b4d08": "OpenCode Go",
-          "c2aee76420": "ローカルの Gemini CLI インストールから OAuth 認証情報を抽出し、{{value0}} の Google 認証に使用します。これは、Orca ではなく、Gemini CLI アプリに発行された認証情報を使用します。Google が CLI を更新すると壊れる可能性があります。ご自身の責任でご使用ください。",
-          "96f3649526": "Gemini CLI 認証情報を使用する (実験的機能)",
-          "d676c41fc6": "ローカルの Gemini CLI インストールから OAuth 認証情報を抽出して、Google で認証します。これは、Orca ではなく、Gemini CLI アプリに発行された認証情報を使用します。 Google が CLI を更新すると壊れる可能性があります。ご自身の責任でご使用ください。",
-          "0c7f915b01": "Gemini CLI 認証情報を使用する",
+          "c2aee76420": "{{value0}} で実行中の Antigravity CLI またはアプリからクォータを読み取り、ネイティブキーチェーンとローカル Gemini CLI の認証情報をフォールバックとして使用します。認証情報は {{value0}} 内に保持され、Google API にのみ送信されます。Google がこれらのインターフェースを変更すると動作しなくなる可能性があります。自己責任で使用してください。",
+          "96f3649526": "使用量に Antigravity または Gemini CLI を使用する（実験的）",
+          "d676c41fc6": "実行中の Antigravity CLI またはアプリからクォータを読み取り、ネイティブキーチェーンとローカル Gemini CLI の認証情報をフォールバックとして使用します。認証情報はこのデバイス内に保持され、Google API にのみ送信されます。Google がこれらのインターフェースを変更すると動作しなくなる可能性があります。自己責任で使用してください。",
+          "0c7f915b01": "使用量に Antigravity または Gemini CLI を使用する",
           "973741a871": "Gemini プロバイダー設定を構成します。",
           "0c64dc2a64": "Gemini",
           "db209ee572": "削除",
@@ -6999,8 +7002,8 @@
             "933deaf732": "認証",
             "8630464352": "CLI",
             "e8e1ff3887": "gemini",
-            "bada4a3218": "ローカルの Gemini CLI インストールから OAuth 認証情報を抽出して、Google で認証します。",
-            "d819755b02": "Gemini CLI 認証情報を使用する",
+            "bada4a3218": "Antigravity のクォータをローカルで読み取り、ネイティブキーチェーンと Gemini CLI の認証情報をフォールバックとして使用します。",
+            "d819755b02": "使用量に Antigravity または Gemini CLI を使用する",
             "35b461d817": "サインイン",
             "f2d666a886": "オプション",
             "8b06729e0f": "アクティブ",

@@ -3219,7 +3219,10 @@
             "42fdd4da1d": "Claude sign-in is being refreshed. Agent sessions may still be signed in.",
             "c06c1d215d": "Claude usage could not be refreshed because the network request failed.",
             "cabdc2a9e0": "Claude sign-in credentials could not be read.",
-            "a7517cccb6": "Claude usage is unavailable right now."
+            "a7517cccb6": "Claude usage is unavailable right now.",
+            "3c639d6830": "Gemini models",
+            "8786272ed1": "Claude and GPT models",
+            "6ff013c8af": "Five-hour"
           },
           "SshTargetStatusRow": {
             "sshHost": "SSH Host"
@@ -4771,10 +4774,10 @@
           "36223200ac": "OpenCode Go Session Cookie",
           "ea631977b5": "Configure OpenCode Go provider settings.",
           "4ac10b4d08": "OpenCode Go",
-          "c2aee76420": "Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google for {{value0}}. This uses credentials issued to the Gemini CLI app, not Orca. May break if Google updates the CLI. Use at your own risk.",
-          "96f3649526": "Use Gemini CLI credentials (experimental)",
-          "d676c41fc6": "Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google. This uses credentials issued to the Gemini CLI app, not Orca. May break if Google updates the CLI. Use at your own risk.",
-          "0c7f915b01": "Use Gemini CLI credentials",
+          "c2aee76420": "Reads quota from a running Antigravity CLI or app for {{value0}}, with native keyring and local Gemini CLI credentials as fallbacks. Credentials stay on {{value0}} and are sent only to Google APIs. May break if Google changes these interfaces. Use at your own risk.",
+          "96f3649526": "Use Antigravity or Gemini CLI for usage (experimental)",
+          "d676c41fc6": "Reads quota from a running Antigravity CLI or app, with native keyring and local Gemini CLI credentials as fallbacks. Credentials stay on this device and are sent only to Google APIs. May break if Google changes these interfaces. Use at your own risk.",
+          "0c7f915b01": "Use Antigravity or Gemini CLI for usage",
           "973741a871": "Configure Gemini provider settings.",
           "0c64dc2a64": "Gemini",
           "db209ee572": "Remove",
@@ -7014,8 +7017,8 @@
             "933deaf732": "oauth",
             "8630464352": "cli",
             "e8e1ff3887": "gemini",
-            "bada4a3218": "Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google.",
-            "d819755b02": "Use Gemini CLI credentials",
+            "bada4a3218": "Reads Antigravity quota locally, with native keyring and Gemini CLI credentials as fallbacks.",
+            "d819755b02": "Use Antigravity or Gemini CLI for usage",
             "35b461d817": "sign in",
             "f2d666a886": "optional",
             "8b06729e0f": "active",

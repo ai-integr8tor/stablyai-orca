@@ -3219,7 +3219,10 @@
             "42fdd4da1d": "Se está actualizando el inicio de sesión de Claude. Las sesiones de agentes pueden seguir iniciadas.",
             "c06c1d215d": "No se pudo actualizar el uso de Claude porque falló la solicitud de red.",
             "cabdc2a9e0": "No se pudieron leer las credenciales de inicio de sesión de Claude.",
-            "a7517cccb6": "El uso de Claude no está disponible ahora."
+            "a7517cccb6": "El uso de Claude no está disponible ahora.",
+            "3c639d6830": "Gemini models",
+            "8786272ed1": "Claude and GPT models",
+            "6ff013c8af": "Five-hour"
           },
           "SshTargetStatusRow": {
             "sshHost": "Host SSH"
@@ -4771,10 +4774,10 @@
           "36223200ac": "Cookie de sesión de OpenCode Go",
           "ea631977b5": "Configura los ajustes del proveedor OpenCode Go.",
           "4ac10b4d08": "OpenCode Go",
-          "c2aee76420": "Extrae credenciales OAuth de tu instalación local de Gemini CLI para autenticarse con Google para {{value0}}. Usa credenciales emitidas para la app Gemini CLI, no para Orca. Puede romperse si Google actualiza la CLI. Úsalo bajo tu propio riesgo.",
-          "96f3649526": "Usar credenciales de Gemini CLI (experimental)",
-          "d676c41fc6": "Extrae credenciales OAuth de tu instalación local de Gemini CLI para autenticarse con Google. Usa credenciales emitidas para la app Gemini CLI, no para Orca. Puede romperse si Google actualiza la CLI. Úsalo bajo tu propio riesgo.",
-          "0c7f915b01": "Usar credenciales de Gemini CLI",
+          "c2aee76420": "Lee la cuota desde una CLI o aplicación Antigravity en ejecución para {{value0}}, con el llavero nativo y las credenciales locales de Gemini CLI como alternativas. Las credenciales permanecen en {{value0}} y solo se envían a las API de Google. Puede dejar de funcionar si Google cambia estas interfaces. Úsalo bajo tu propia responsabilidad.",
+          "96f3649526": "Usar Antigravity o Gemini CLI para el uso (experimental)",
+          "d676c41fc6": "Lee la cuota desde una CLI o aplicación Antigravity en ejecución, con el llavero nativo y las credenciales locales de Gemini CLI como alternativas. Las credenciales permanecen en este dispositivo y solo se envían a las API de Google. Puede dejar de funcionar si Google cambia estas interfaces. Úsalo bajo tu propia responsabilidad.",
+          "0c7f915b01": "Usar Antigravity o Gemini CLI para el uso",
           "973741a871": "Configura los ajustes del proveedor Gemini.",
           "0c64dc2a64": "Gemini",
           "db209ee572": "Eliminar",
@@ -6977,8 +6980,8 @@
             "933deaf732": "OAuth",
             "8630464352": "CLI",
             "e8e1ff3887": "Gemini",
-            "bada4a3218": "Extrae las credenciales de OAuth de tu instalación local de la CLI de Gemini para autenticarte con Google.",
-            "d819755b02": "Usar credenciales de la CLI de Gemini",
+            "bada4a3218": "Lee la cuota de Antigravity localmente, con el llavero nativo y las credenciales de Gemini CLI como alternativas.",
+            "d819755b02": "Usar Antigravity o Gemini CLI para el uso",
             "35b461d817": "iniciar sesión",
             "f2d666a886": "opcional",
             "8b06729e0f": "activo",

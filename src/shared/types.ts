@@ -2848,8 +2848,8 @@ export type GlobalSettings = {
   minimaxGroupId: string
   /** Comma-separated MiniMax model names to show in the status bar usage window. */
   minimaxUsageModels: string
-  /** Whether to extract OAuth credentials from the local Gemini CLI installation
-   *  for rate-limit fetching. Disabled by default for explicit opt-in. */
+  /** Whether to read Antigravity quota locally, with native-keyring and Gemini
+   *  CLI credentials as fallbacks. Disabled by default for explicit opt-in. */
   geminiCliOAuthEnabled: boolean
   /** Per-agent CLI command overrides. A missing key means use the catalog default binary name. */
   agentCmdOverrides: Partial<Record<TuiAgent, string>>

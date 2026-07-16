@@ -1381,13 +1381,14 @@ export function AccountsPane({
         <SearchableSetting
           title={translate(
             'auto.components.settings.AccountsPane.0c7f915b01',
-            'Use Gemini CLI credentials'
+            'Use Antigravity or Gemini CLI for usage'
           )}
           description={translate(
             'auto.components.settings.AccountsPane.d676c41fc6',
-            'Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google. This uses credentials issued to the Gemini CLI app, not Orca. May break if Google updates the CLI. Use at your own risk.'
+            'Reads quota from a running Antigravity CLI or app, with native keyring and local Gemini CLI credentials as fallbacks. Credentials stay on this device and are sent only to Google APIs. May break if Google changes these interfaces. Use at your own risk.'
           )}
           keywords={[
+            'antigravity',
             'gemini',
             'cli',
             'oauth',
@@ -1402,13 +1403,13 @@ export function AccountsPane({
             <Label>
               {translate(
                 'auto.components.settings.AccountsPane.96f3649526',
-                'Use Gemini CLI credentials (experimental)'
+                'Use Antigravity or Gemini CLI for usage (experimental)'
               )}
             </Label>
             <p className="text-xs text-muted-foreground">
               {translate(
                 'auto.components.settings.AccountsPane.c2aee76420',
-                'Extracts OAuth credentials from your local Gemini CLI installation to authenticate with Google for {{value0}}. This uses credentials issued to the Gemini CLI app, not Orca. May break if Google updates the CLI. Use at your own risk.',
+                'Reads quota from a running Antigravity CLI or app for {{value0}}, with native keyring and local Gemini CLI credentials as fallbacks. Credentials stay on {{value0}} and are sent only to Google APIs. May break if Google changes these interfaces. Use at your own risk.',
                 { value0: localAccountRuntimeSentenceLabel }
               )}
             </p>

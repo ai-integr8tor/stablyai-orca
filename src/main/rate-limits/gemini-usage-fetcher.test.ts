@@ -6,10 +6,18 @@ import {
   quotaResponse
 } from './gemini-usage-fetcher.test-fixtures'
 
-const { readFileMock, extractCredsMock, netFetchMock } = vi.hoisted(() => ({
+const {
+  readFileMock,
+  extractCredsMock,
+  netFetchMock,
+  readAntigravityCredentialsMock,
+  fetchAntigravityLocalRateLimitsMock
+} = vi.hoisted(() => ({
   readFileMock: vi.fn(),
   extractCredsMock: vi.fn(),
-  netFetchMock: vi.fn()
+  netFetchMock: vi.fn(),
+  readAntigravityCredentialsMock: vi.fn(),
+  fetchAntigravityLocalRateLimitsMock: vi.fn()
 }))
 
 // Why: mock the extractor at the module boundary rather than re-routing every
@@ -19,6 +27,14 @@ const { readFileMock, extractCredsMock, netFetchMock } = vi.hoisted(() => ({
 // already been integration-tested elsewhere.
 vi.mock('./gemini-cli-oauth-extractor', () => ({
   extractOAuthClientCredentials: extractCredsMock
+}))
+
+vi.mock('./antigravity-oauth-keyring', () => ({
+  readAntigravityCredentials: readAntigravityCredentialsMock
+}))
+
+vi.mock('./antigravity-local-quota', () => ({
+  fetchAntigravityLocalRateLimits: fetchAntigravityLocalRateLimitsMock
 }))
 
 vi.mock('node:fs/promises', () => ({
@@ -37,6 +53,10 @@ describe('fetchGeminiRateLimits', () => {
     readFileMock.mockReset()
     extractCredsMock.mockReset()
     netFetchMock.mockReset()
+    readAntigravityCredentialsMock.mockReset()
+    readAntigravityCredentialsMock.mockResolvedValue(null)
+    fetchAntigravityLocalRateLimitsMock.mockReset()
+    fetchAntigravityLocalRateLimitsMock.mockResolvedValue(null)
     netFetchMock.mockImplementation((url: string) => {
       if (url.includes('loadCodeAssist')) {
         return Promise.resolve(makeResponse({ cloudaicompanionProject: 'proj-123' }))
@@ -71,6 +91,155 @@ describe('fetchGeminiRateLimits', () => {
   it('returns unavailable when no credentials exist', async () => {
     const result = await fetchGeminiRateLimits(true)
     expect(result.status).toBe('unavailable')
+  })
+
+  it('uses Antigravity grouped quota before credential-based sources', async () => {
+    const groupedQuota = {
+      provider: 'gemini' as const,
+      session: { usedPercent: 4, windowMinutes: 300, resetsAt: null, resetDescription: null },
+      weekly: { usedPercent: 8, windowMinutes: 10_080, resetsAt: null, resetDescription: null },
+      groups: [],
+      updatedAt: Date.now(),
+      error: null,
+      status: 'ok' as const
+    }
+    fetchAntigravityLocalRateLimitsMock.mockResolvedValue(groupedQuota)
+
+    const result = await fetchGeminiRateLimits(true)
+
+    expect(result).toBe(groupedQuota)
+    expect(readAntigravityCredentialsMock).not.toHaveBeenCalled()
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(netFetchMock).not.toHaveBeenCalled()
+  })
+
+  it('uses a current Antigravity keyring token before legacy Gemini files', async () => {
+    readAntigravityCredentialsMock.mockResolvedValue({
+      access_token: 'agy-access-token',
+      refresh_token: 'agy-refresh-token',
+      expiry_date: Date.now() + 60_000
+    })
+    netFetchMock.mockImplementation((url: string) => {
+      if (url.includes('loadCodeAssist')) {
+        return Promise.resolve(makeResponse({ cloudaicompanionProject: 'agy-project' }))
+      }
+      if (url.includes('retrieveUserQuota')) {
+        return Promise.resolve(makeResponse(quotaResponse))
+      }
+      return Promise.resolve(makeResponse({}, 404))
+    })
+
+    const result = await fetchGeminiRateLimits(true)
+
+    expect(result.status).toBe('ok')
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(extractCredsMock).not.toHaveBeenCalled()
+    const quotaRequest = netFetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('retrieveUserQuota')
+    )
+    expect(quotaRequest).toBeDefined()
+    expect((quotaRequest![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer agy-access-token'
+    })
+  })
+
+  it('falls back to legacy Gemini credentials when the Antigravity token is expired', async () => {
+    readAntigravityCredentialsMock.mockResolvedValue({
+      access_token: 'expired-agy-access-token',
+      refresh_token: 'agy-refresh-token',
+      expiry_date: Date.now() - 60_000
+    })
+    setupAuthJsonValid()
+    netFetchMock.mockImplementation((url: string) => {
+      if (url.includes('loadCodeAssist')) {
+        return Promise.resolve(makeResponse({ cloudaicompanionProject: 'legacy-project' }))
+      }
+      if (url.includes('retrieveUserQuota')) {
+        return Promise.resolve(makeResponse(quotaResponse))
+      }
+      return Promise.resolve(makeResponse({}, 404))
+    })
+
+    const result = await fetchGeminiRateLimits(true)
+
+    expect(result.status).toBe('ok')
+    expect(readFileMock).toHaveBeenCalled()
+    const quotaRequest = netFetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('retrieveUserQuota')
+    )
+    expect((quotaRequest![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer auth-json-access-token'
+    })
+  })
+
+  it('falls back when a current Antigravity token cannot resolve a project', async () => {
+    readAntigravityCredentialsMock.mockResolvedValue({
+      access_token: 'stale-agy-access-token',
+      refresh_token: 'agy-refresh-token',
+      expiry_date: Date.now() + 60_000
+    })
+    setupAuthJsonValid()
+    netFetchMock.mockImplementation((url: string, options?: RequestInit) => {
+      const authorization = (options?.headers as Record<string, string> | undefined)?.Authorization
+      if (url.includes('loadCodeAssist')) {
+        return authorization === 'Bearer stale-agy-access-token'
+          ? Promise.resolve(makeResponse({}, 500))
+          : Promise.resolve(makeResponse({ cloudaicompanionProject: 'legacy-project' }))
+      }
+      if (url.includes('retrieveUserQuota')) {
+        return Promise.resolve(makeResponse(quotaResponse))
+      }
+      return Promise.resolve(makeResponse({}, 404))
+    })
+
+    const result = await fetchGeminiRateLimits(true)
+
+    expect(result.status).toBe('ok')
+    const quotaRequest = netFetchMock.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('retrieveUserQuota')
+    )
+    expect((quotaRequest![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer auth-json-access-token'
+    })
+  })
+
+  it('falls back when a current Antigravity token returns a quota error', async () => {
+    readAntigravityCredentialsMock.mockResolvedValue({
+      access_token: 'stale-agy-access-token',
+      refresh_token: 'agy-refresh-token',
+      expiry_date: Date.now() + 60_000
+    })
+    setupAuthJsonValid()
+    netFetchMock.mockImplementation((url: string, options?: RequestInit) => {
+      const authorization = (options?.headers as Record<string, string> | undefined)?.Authorization
+      if (url.includes('loadCodeAssist')) {
+        return Promise.resolve(
+          makeResponse({
+            cloudaicompanionProject:
+              authorization === 'Bearer stale-agy-access-token'
+                ? 'stale-agy-project'
+                : 'legacy-project'
+          })
+        )
+      }
+      if (url.includes('retrieveUserQuota')) {
+        return authorization === 'Bearer stale-agy-access-token'
+          ? Promise.resolve(makeResponse({}, 500))
+          : Promise.resolve(makeResponse(quotaResponse))
+      }
+      return Promise.resolve(makeResponse({}, 404))
+    })
+
+    const result = await fetchGeminiRateLimits(true)
+
+    expect(result.status).toBe('ok')
+    const quotaRequests = netFetchMock.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('retrieveUserQuota')
+    )
+    expect(quotaRequests).toHaveLength(2)
+    expect((quotaRequests[1]![1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer auth-json-access-token'
+    })
   })
 
   it('returns quota via auth.json', async () => {

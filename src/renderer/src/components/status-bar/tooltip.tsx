@@ -1,4 +1,8 @@
-import type { ProviderRateLimits, RateLimitWindow } from '../../../../shared/rate-limit-types'
+import type {
+  ProviderRateLimits,
+  RateLimitGroup,
+  RateLimitWindow
+} from '../../../../shared/rate-limit-types'
 import {
   formatResetCountdown,
   formatResetDuration
@@ -176,6 +180,53 @@ export function getWindowSections(
   return sections
 }
 
+type GroupedWindowSection = {
+  id: string
+  label: string
+  window: RateLimitWindow
+}
+
+type WindowGroupSection = {
+  id: string
+  label: string
+  windows: GroupedWindowSection[]
+}
+
+/** Localizes known model-family labels while preserving server-provided names. */
+function getWindowGroupLabel(group: RateLimitGroup): string {
+  if (group.id === 'gemini-models') {
+    return translate('auto.components.status.bar.tooltip.3c639d6830', 'Gemini models')
+  }
+  if (group.id === 'claude-gpt-models') {
+    return translate('auto.components.status.bar.tooltip.8786272ed1', 'Claude and GPT models')
+  }
+  return group.name
+}
+
+/** Localizes known window labels while preserving server-provided names. */
+function getGroupedWindowLabel(window: RateLimitGroup['windows'][number]): string {
+  if (window.id === 'session') {
+    return translate('auto.components.status.bar.tooltip.6ff013c8af', 'Five-hour')
+  }
+  if (window.id === 'weekly') {
+    return translate('auto.components.status.bar.tooltip.252c096536', 'Weekly')
+  }
+  return window.name
+}
+
+/** Keeps provider group identifiers stable while localizing their visible labels. */
+export function getWindowGroups(p: ProviderRateLimits): WindowGroupSection[] {
+  return (p.groups ?? []).map((group) => ({
+    id: group.id,
+    label: getWindowGroupLabel(group),
+    windows: group.windows.map((window) => ({
+      id: window.id,
+      label: getGroupedWindowLabel(window),
+      window: window.window
+    }))
+  }))
+}
+
 // ---------------------------------------------------------------------------
 // Tooltip — progress bar section for a single window
 // ---------------------------------------------------------------------------
@@ -268,6 +319,7 @@ export function ProviderPanel({
     resetCreditCount != null
       ? formatResetCreditExpiry(p.rateLimitResetCredits?.nextExpiresAt, resetCreditCount)
       : null
+  const windowGroups = getWindowGroups(p)
 
   const PanelWindowSection = ({
     w,
@@ -328,9 +380,22 @@ export function ProviderPanel({
 
       <div className={`border-t ${dividerClass}`} />
 
-      {getWindowSections(p).map((s) => (
-        <PanelWindowSection key={s.label} w={s.window} label={s.label} />
-      ))}
+      {windowGroups.length > 0
+        ? windowGroups.map((group) => (
+            <div key={group.id} className="space-y-3">
+              <div
+                className={`text-[11px] font-semibold uppercase tracking-[0.05em] ${faintClass}`}
+              >
+                {group.label}
+              </div>
+              {group.windows.map((window) => (
+                <PanelWindowSection key={window.id} w={window.window} label={window.label} />
+              ))}
+            </div>
+          ))
+        : getWindowSections(p).map((s) => (
+            <PanelWindowSection key={s.label} w={s.window} label={s.label} />
+          ))}
 
       {p.error ? (
         <ErrorMessage
