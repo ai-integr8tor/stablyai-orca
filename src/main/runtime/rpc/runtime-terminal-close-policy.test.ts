@@ -84,6 +84,34 @@ describe('runtime terminal close policy', () => {
     }
   )
 
+  it('does not record a scrollback-only terminal read as a live attachment', async () => {
+    const runtime = {
+      getRuntimeId: () => 'runtime-test',
+      resolveLeafForHandle: vi.fn().mockReturnValue({ ptyId: null }),
+      readTerminal: vi.fn().mockResolvedValue({ tail: ['disconnected'], truncated: false })
+    } as unknown as OrcaRuntimeService
+    const runtimeClosePolicy = new RuntimeClosePolicy()
+    const recordAttachedTarget = vi.spyOn(runtimeClosePolicy, 'recordAttachedTarget')
+    const dispatcher = new RpcDispatcher({
+      runtime,
+      methods: TERMINAL_METHODS,
+      runtimeClosePolicy
+    })
+    const replies: string[] = []
+
+    await dispatcher.dispatchStreaming(
+      request('req-subscribe', 'terminal.subscribe', { terminal: 'terminal-1' }),
+      (reply) => replies.push(reply),
+      RUNTIME_CLIENT
+    )
+
+    expect(recordAttachedTarget).not.toHaveBeenCalled()
+    expect(replies.map((reply) => JSON.parse(reply).result)).toEqual([
+      expect.objectContaining({ type: 'subscribed', streamId: null }),
+      { type: 'end' }
+    ])
+  })
+
   it('allows an explicit user close whose target matches the RPC', async () => {
     const runtime = runtimeStub()
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
@@ -251,6 +279,76 @@ describe('runtime terminal close policy', () => {
       result: { close: { blockedReason: 'close_rate_limited' } }
     })
     expect(runtime.closeTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not evict another runtime actor replay record at per-actor capacity', () => {
+    const now = 1_000_000
+    const policy = new RuntimeClosePolicy({
+      now: () => now,
+      maxTrackedEntriesPerActor: 1
+    })
+    const target = { kind: 'terminal' as const, terminal: 'terminal-1' }
+    const otherRuntime = {
+      ...RUNTIME_CLIENT,
+      connectionId: 'other-connection',
+      deviceId: 'other-device'
+    }
+
+    expect(
+      policy.evaluate(RUNTIME_CLIENT, target, userCloseIntent({ requestId: 'first' }))
+    ).toEqual({
+      allowed: true,
+      reason: 'explicit-user',
+      recentlyAttached: false
+    })
+    expect(
+      policy.evaluate(RUNTIME_CLIENT, target, userCloseIntent({ requestId: 'at-capacity' }))
+    ).toMatchObject({ allowed: false, reason: 'close_rate_limited' })
+    expect(
+      policy.evaluate(otherRuntime, target, userCloseIntent({ requestId: 'other-actor' }))
+    ).toMatchObject({ allowed: true })
+    expect(
+      policy.evaluate(RUNTIME_CLIENT, target, userCloseIntent({ requestId: 'first' }))
+    ).toEqual({
+      allowed: false,
+      reason: 'close_intent_duplicate',
+      recentlyAttached: false
+    })
+  })
+
+  it('keeps unexpired rollback ownership when the same actor reaches capacity', () => {
+    const now = 1_000_000
+    const policy = new RuntimeClosePolicy({
+      now: () => now,
+      maxTrackedEntriesPerActor: 1
+    })
+    const rollbackIntent = (terminal: string, requestId: string): RuntimeCloseIntent => ({
+      source: 'client-created-rollback',
+      userInitiated: false,
+      requestId,
+      occurredAt: now,
+      worktreeId: 'wt-1',
+      clientTabId: 'mirror-tab-1',
+      ptyOrHandle: terminal
+    })
+
+    policy.recordTerminalCreated(RUNTIME_CLIENT, 'terminal-owned')
+    policy.recordTerminalCreated(RUNTIME_CLIENT, 'terminal-over-capacity')
+
+    expect(
+      policy.evaluate(
+        { ...RUNTIME_CLIENT, deviceId: 'over-capacity-device' },
+        { kind: 'terminal', terminal: 'terminal-over-capacity' },
+        rollbackIntent('terminal-over-capacity', 'rollback-over-capacity')
+      )
+    ).toMatchObject({ allowed: false, reason: 'close_rollback_not_owned' })
+    expect(
+      policy.evaluate(
+        { ...RUNTIME_CLIENT, deviceId: 'owned-device' },
+        { kind: 'terminal', terminal: 'terminal-owned' },
+        rollbackIntent('terminal-owned', 'rollback-owned')
+      )
+    ).toMatchObject({ allowed: true, reason: 'owned-rollback' })
   })
 
   it('blocks lifecycle-only intent while retaining recent-attach evidence', () => {

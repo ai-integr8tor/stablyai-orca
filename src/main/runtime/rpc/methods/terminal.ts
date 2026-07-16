@@ -2087,10 +2087,6 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         }
         const request = parsed.data
         detachStream(request.streamId, false)
-        ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
-          kind: 'terminal',
-          terminal: request.terminal
-        })
 
         const isMobile = request.client?.type === 'mobile'
         let leaf: { ptyId: string | null } | null
@@ -2307,6 +2303,13 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               driver: runtime.getDriver(ptyId)
             })
           }
+          if (closed || signal?.aborted || streams.get(request.streamId) !== stream) {
+            return
+          }
+          ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+            kind: 'terminal',
+            terminal: request.terminal
+          })
           emit({
             type: 'subscribed',
             streamId: request.streamId,
@@ -2471,10 +2474,6 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     params: TerminalSubscribe,
     handler: async (params, ctx, emit) => {
       const { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal } = ctx
-      ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
-        kind: 'terminal',
-        terminal: params.terminal
-      })
       let leaf = runtime.resolveLeafForHandle(params.terminal)
       const isMobile = params.client?.type === 'mobile'
       const serializerGenerationBeforeAnyMount = isMobile
@@ -2639,6 +2638,14 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               cols: event.cols,
               rows: event.rows
             })
+          })
+          if (closed || signal?.aborted) {
+            runtime.cleanupSubscription(subscriptionId)
+            return
+          }
+          ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+            kind: 'terminal',
+            terminal: params.terminal
           })
           // Why: bind the exit-waiter to the connection dispatch signal so it is
           // removed on socket close/error instead of leaking until real exit.
@@ -3026,6 +3033,14 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         // that actually covered the buffered chunks or a query absorbed by a
         // recovery snapshot gets zero replies.
         let snapshotOutputSeq = serialized?.seq
+        if (closed || signal?.aborted) {
+          runtime.cleanupSubscription(subscriptionId)
+          return
+        }
+        ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+          kind: 'terminal',
+          terminal: params.terminal
+        })
         emit({
           type: 'subscribed',
           streamId,

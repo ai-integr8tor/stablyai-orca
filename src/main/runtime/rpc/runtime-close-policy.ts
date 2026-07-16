@@ -39,6 +39,7 @@ export type RuntimeClosePolicyOptions = {
   attachmentTtlMs?: number
   rateWindowMs?: number
   maxClosesPerWindow?: number
+  maxTrackedEntriesPerActor?: number
 }
 
 const USER_CLOSE_SOURCES: ReadonlySet<string> = new Set<RuntimeUserCloseSource>([
@@ -54,7 +55,9 @@ const DEFAULT_ATTACHMENT_TTL_MS = 10_000
 const DEFAULT_RATE_WINDOW_MS = 10_000
 const DEFAULT_MAX_CLOSES_PER_WINDOW = 128
 const REQUEST_ID_TTL_MS = 10 * 60_000
-const MAX_TRACKED_ENTRIES = 4096
+const DEFAULT_MAX_TRACKED_ENTRIES_PER_ACTOR = 4096
+
+type TimedRecordsByActor = Map<string, Map<string, number>>
 
 function deviceActorKey(ctx: RuntimeCloseClientContext): string {
   return ctx.deviceId ?? ctx.connectionId ?? 'runtime:anonymous'
@@ -79,19 +82,16 @@ function targetMatchesIntent(target: RuntimeCloseTarget, intent: RuntimeCloseInt
   return worktreeMatches(target.worktree, intent.worktreeId) && intent.hostTabId === target.tabId
 }
 
-function pruneTimedMap(map: Map<string, number>, cutoff: number): void {
-  for (const [key, recordedAt] of map) {
-    if (recordedAt >= cutoff) {
-      continue
+function pruneTimedRecordsByActor(recordsByActor: TimedRecordsByActor, cutoff: number): void {
+  for (const [actor, records] of recordsByActor) {
+    for (const [key, recordedAt] of records) {
+      if (recordedAt < cutoff) {
+        records.delete(key)
+      }
     }
-    map.delete(key)
-  }
-  while (map.size > MAX_TRACKED_ENTRIES) {
-    const oldest = map.keys().next().value as string | undefined
-    if (!oldest) {
-      break
+    if (records.size === 0) {
+      recordsByActor.delete(actor)
     }
-    map.delete(oldest)
   }
 }
 
@@ -101,9 +101,10 @@ export class RuntimeClosePolicy {
   private readonly attachmentTtlMs: number
   private readonly rateWindowMs: number
   private readonly maxClosesPerWindow: number
-  private readonly seenRequestIds = new Map<string, number>()
-  private readonly createdTerminalHandles = new Map<string, number>()
-  private readonly attachedTargets = new Map<string, number>()
+  private readonly maxTrackedEntriesPerActor: number
+  private readonly seenRequestIds: TimedRecordsByActor = new Map()
+  private readonly createdTerminalHandles: TimedRecordsByActor = new Map()
+  private readonly attachedTargets: TimedRecordsByActor = new Map()
   private readonly closeTimesByActor = new Map<string, number[]>()
 
   constructor(options: RuntimeClosePolicyOptions = {}) {
@@ -112,6 +113,8 @@ export class RuntimeClosePolicy {
     this.attachmentTtlMs = options.attachmentTtlMs ?? DEFAULT_ATTACHMENT_TTL_MS
     this.rateWindowMs = options.rateWindowMs ?? DEFAULT_RATE_WINDOW_MS
     this.maxClosesPerWindow = options.maxClosesPerWindow ?? DEFAULT_MAX_CLOSES_PER_WINDOW
+    this.maxTrackedEntriesPerActor =
+      options.maxTrackedEntriesPerActor ?? DEFAULT_MAX_TRACKED_ENTRIES_PER_ACTOR
   }
 
   recordTerminalCreated(ctx: RuntimeCloseClientContext, terminal: string): void {
@@ -120,7 +123,7 @@ export class RuntimeClosePolicy {
     }
     const now = this.now()
     this.prune(now)
-    this.createdTerminalHandles.set(`${connectionActorKey(ctx)}\0${terminal}`, now)
+    this.recordTimedEntry(this.createdTerminalHandles, connectionActorKey(ctx), terminal, now)
   }
 
   recordAttachedTarget(ctx: RuntimeCloseClientContext, target: RuntimeCloseTarget): void {
@@ -129,7 +132,7 @@ export class RuntimeClosePolicy {
     }
     const now = this.now()
     this.prune(now)
-    this.attachedTargets.set(`${connectionActorKey(ctx)}\0${targetKey(target)}`, now)
+    this.recordTimedEntry(this.attachedTargets, connectionActorKey(ctx), targetKey(target), now)
   }
 
   evaluate(
@@ -145,18 +148,19 @@ export class RuntimeClosePolicy {
     this.prune(now)
     const actor = deviceActorKey(ctx)
     const connection = connectionActorKey(ctx)
-    const recentlyAttached = this.attachedTargets.has(`${connection}\0${targetKey(target)}`)
+    const recentlyAttached = this.attachedTargets.get(connection)?.has(targetKey(target)) === true
     if (!intent) {
       return { allowed: false, reason: 'close_intent_required', recentlyAttached }
     }
     if (!targetMatchesIntent(target, intent)) {
       return { allowed: false, reason: 'close_intent_mismatch', recentlyAttached }
     }
-    const requestKey = `${actor}\0${intent.requestId}`
-    if (this.seenRequestIds.has(requestKey)) {
+    if (this.seenRequestIds.get(actor)?.has(intent.requestId)) {
       return { allowed: false, reason: 'close_intent_duplicate', recentlyAttached }
     }
-    this.seenRequestIds.set(requestKey, now)
+    if (!this.recordTimedEntry(this.seenRequestIds, actor, intent.requestId, now)) {
+      return { allowed: false, reason: 'close_rate_limited', recentlyAttached }
+    }
 
     // Why: occurredAt is diagnostic only. SSH/WSL/Windows hosts can have clock
     // skew, so replay safety comes from request-id dedupe rather than wall time.
@@ -171,16 +175,42 @@ export class RuntimeClosePolicy {
     }
 
     if (intent.source === 'client-created-rollback' && !intent.userInitiated) {
-      const createdKey = `${connection}\0${target.kind === 'terminal' ? target.terminal : ''}`
-      const createdAt = this.createdTerminalHandles.get(createdKey)
+      const createdRecords = this.createdTerminalHandles.get(connection)
+      const createdKey = target.kind === 'terminal' ? target.terminal : ''
+      const createdAt = createdRecords?.get(createdKey)
       if (createdAt !== undefined && createdAt >= now - this.rollbackTtlMs) {
-        this.createdTerminalHandles.delete(createdKey)
+        createdRecords?.delete(createdKey)
+        if (createdRecords?.size === 0) {
+          this.createdTerminalHandles.delete(connection)
+        }
         return { allowed: true, reason: 'owned-rollback', recentlyAttached }
       }
       return { allowed: false, reason: 'close_rollback_not_owned', recentlyAttached }
     }
 
     return { allowed: false, reason: 'close_source_not_allowed', recentlyAttached }
+  }
+
+  private recordTimedEntry(
+    recordsByActor: TimedRecordsByActor,
+    actor: string,
+    key: string,
+    recordedAt: number
+  ): boolean {
+    // Why: fail closed per actor at capacity; evicting a live global entry lets
+    // one paired device erase another device's replay or rollback protection.
+    const existing = recordsByActor.get(actor)
+    if (existing?.has(key)) {
+      existing.set(key, recordedAt)
+      return true
+    }
+    if (existing && existing.size >= this.maxTrackedEntriesPerActor) {
+      return false
+    }
+    const records = existing ?? new Map<string, number>()
+    records.set(key, recordedAt)
+    recordsByActor.set(actor, records)
+    return true
   }
 
   private consumeRateSlot(actor: string, now: number): boolean {
@@ -198,9 +228,9 @@ export class RuntimeClosePolicy {
   }
 
   private prune(now: number): void {
-    pruneTimedMap(this.seenRequestIds, now - REQUEST_ID_TTL_MS)
-    pruneTimedMap(this.createdTerminalHandles, now - this.rollbackTtlMs)
-    pruneTimedMap(this.attachedTargets, now - this.attachmentTtlMs)
+    pruneTimedRecordsByActor(this.seenRequestIds, now - REQUEST_ID_TTL_MS)
+    pruneTimedRecordsByActor(this.createdTerminalHandles, now - this.rollbackTtlMs)
+    pruneTimedRecordsByActor(this.attachedTargets, now - this.attachmentTtlMs)
     const rateCutoff = now - this.rateWindowMs
     for (const [actor, times] of this.closeTimesByActor) {
       const recent = times.filter((recordedAt) => recordedAt >= rateCutoff)
