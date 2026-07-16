@@ -1,6 +1,7 @@
 import { isCursorAgentTitle } from '../../../shared/agent-title-core'
 import { buildAgentNameRe } from '../../../shared/agent-name-token-match'
 import type { RuntimeTerminalSummary } from '../../../shared/runtime-types'
+import { isAtomCodeTerminalTitle } from '../../../shared/terminal-title-agent-type'
 
 // Why: group addresses enable broadcast messaging to logical groups of agents.
 // Resolution is done at send-time: one message record per recipient, same thread_id,
@@ -12,6 +13,7 @@ const AGENT_NAME_GROUPS = [
   'codex',
   'opencode',
   'mimo',
+  'atomcode',
   'gemini',
   'droid',
   'grok',
@@ -31,6 +33,7 @@ export function isGroupAddress(to: string): boolean {
 // blink"), so token-matching it would route @cursor into a live Claude/Codex prompt. Names
 // with that ambiguity register the identity predicate delivery already applies to them.
 const GROUP_TITLE_MATCHERS: Partial<Record<AgentNameGroup, (title: string) => boolean>> = {
+  atomcode: isAtomCodeTerminalTitle,
   cursor: isCursorAgentTitle
 }
 

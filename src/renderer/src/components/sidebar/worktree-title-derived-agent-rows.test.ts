@@ -109,6 +109,26 @@ describe('buildTitleDerivedAgentRows', () => {
     ])
   })
 
+  it('keeps AtomCode identity after its native status title switches to the task name', () => {
+    const rows = buildWorktreeAgentRows({
+      tabs: [makeTab('tab-1', { launchAgent: 'atomcode' })],
+      entries: [],
+      retained: [],
+      runtimePaneTitlesByTabId: {
+        'tab-1': {
+          1: '🟡 fix the login race'
+        }
+      },
+      ptyIdsByTabId: { 'tab-1': ['pty-atomcode'] },
+      terminalLayoutsByTabId: { 'tab-1': makeSingleLayout(LEAF_ID_1) },
+      now: 2000
+    })
+
+    expect(rows.map((row) => [row.agentType, row.state, row.entry.terminalTitle])).toEqual([
+      ['atomcode', 'working', '🟡 fix the login race']
+    ])
+  })
+
   it('does not add title-derived rows for panes without a live PTY', () => {
     const rows = buildWorktreeAgentRows({
       tabs: [makeTab('tab-1')],

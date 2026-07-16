@@ -11,6 +11,7 @@ import {
   titleHasAgentName
 } from './agent-title-core'
 import { getPiCompatibleSyntheticAgentLabel } from './pi-compatible-synthetic-title'
+import { isAtomCodeTerminalTitle } from './terminal-title-agent-type'
 
 /**
  * Returns true when the terminal title matches Claude Code's title conventions.
@@ -56,6 +57,10 @@ export function getAgentLabel(title: string): string | null {
   ) {
     return 'Claude Code'
   }
+  // Why: AtomCode status glyphs remain authoritative when task text names another agent.
+  if (isAtomCodeTerminalTitle(title)) {
+    return 'AtomCode'
+  }
   if (isGeminiTerminalTitle(title)) {
     return 'Gemini CLI'
   }
@@ -92,6 +97,9 @@ export function getAgentLabel(title: string): string | null {
   }
   if (titleHasAgentName(title, 'mimo')) {
     return 'MiMo Code'
+  }
+  if (titleHasAgentName(title, 'atomcode')) {
+    return 'AtomCode'
   }
   if (titleHasAgentName(title, 'aider')) {
     return 'Aider'

@@ -98,6 +98,13 @@ export const getAgentCatalog = createLocalizedCatalog((): AgentCatalogEntry[] =>
     homepageUrl: 'https://mimo.xiaomi.com/coder'
   },
   {
+    id: 'atomcode',
+    label: translate('auto.lib.agent.catalog.atomcode_label', 'AtomCode'),
+    cmd: 'atomcode',
+    faviconDomain: 'atomcode.atomgit.com',
+    homepageUrl: 'https://atomcode.atomgit.com/docs/en/index.html'
+  },
+  {
     id: 'ante',
     label: translate('auto.lib.agent.catalog.da41abbdd4', 'Ante'),
     cmd: 'ante',

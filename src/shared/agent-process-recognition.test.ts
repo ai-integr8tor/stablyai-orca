@@ -25,6 +25,19 @@ describe('agent process recognition', () => {
     expect(isExpectedAgentProcess('/usr/local/bin/openclaude', 'claude')).toBe(false)
   })
 
+  it('recognizes interactive AtomCode but filters its headless prompt modes', () => {
+    expect(recognizeAgentProcess('/usr/local/bin/atomcode')).toEqual({
+      agent: 'atomcode',
+      processName: 'atomcode'
+    })
+    expect(recognizeAgentProcessFromCommandLine('atomcode')).toEqual({
+      agent: 'atomcode',
+      processName: 'atomcode'
+    })
+    expect(recognizeAgentProcessFromCommandLine('atomcode -p "summarize this repo"')).toBeNull()
+    expect(recognizeAgentProcessFromCommandLine('atomcode --prompt-file /tmp/task.txt')).toBeNull()
+  })
+
   it('recognizes the Droid foreground process on Windows', () => {
     expect(recognizeAgentProcess(String.raw`C:\Users\dev\AppData\Roaming\npm\droid.cmd`)).toEqual({
       agent: 'droid',

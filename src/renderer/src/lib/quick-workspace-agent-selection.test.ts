@@ -19,6 +19,18 @@ describe('pickQuickWorkspaceAgent', () => {
     expect(
       pickQuickWorkspaceAgent(null, null, ['claude', 'claude-agent-teams', 'openclaude'])
     ).toBe('codex')
+    expect(
+      pickQuickWorkspaceAgent(null, null, [
+        'claude',
+        'claude-agent-teams',
+        'openclaude',
+        'codex',
+        'grok',
+        'copilot',
+        'opencode',
+        'mimo-code'
+      ])
+    ).toBe('atomcode')
   })
 
   it('respects blank and disabled preferred agents', () => {

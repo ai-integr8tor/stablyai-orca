@@ -23,7 +23,10 @@ import {
 } from './agent-title-core'
 import type { AgentStatus } from './agent-title-core'
 import { getPiCompatibleSyntheticAgentStatus } from './pi-compatible-synthetic-title'
-import { isGrokRotatingWorkingTitle } from './terminal-title-agent-type'
+import {
+  getAtomCodeTerminalTitleStatus,
+  isGrokRotatingWorkingTitle
+} from './terminal-title-agent-type'
 
 /**
  * Strip working-status indicators so stale exit titles stop reporting working.
@@ -140,6 +143,11 @@ export function detectAgentStatusFromTitle(title: string): AgentStatus | null {
   }
   if (title.trim().toLowerCase() === CURSOR_NATIVE_TITLE_LOWER) {
     return null
+  }
+
+  const atomCodeStatus = getAtomCodeTerminalTitleStatus(title)
+  if (atomCodeStatus) {
+    return atomCodeStatus
   }
 
   if (title.includes(GEMINI_PERMISSION)) {
