@@ -37,3 +37,33 @@ export function logStartupMilestone(event: string, details: Record<string, unkno
     logStartupDiagnostic(event, { t: Math.round(performance.now()), ...details })
   }
 }
+
+// Why: main-side analog of timeRendererStartupStep, sharing its -done/-failed
+// and durationMs conventions so one stderr stream parses uniformly.
+export async function timeStartupStep<T>(
+  event: string,
+  operation: () => Promise<T>,
+  details: Record<string, unknown> = {}
+): Promise<T> {
+  if (!isStartupDiagnosticsEnabled()) {
+    return operation()
+  }
+  const startedAt = performance.now()
+  try {
+    const result = await operation()
+    logStartupDiagnostic(`${event}-done`, {
+      t: Math.round(performance.now()),
+      durationMs: Math.round(performance.now() - startedAt),
+      ...details
+    })
+    return result
+  } catch (error) {
+    logStartupDiagnostic(`${event}-failed`, {
+      t: Math.round(performance.now()),
+      durationMs: Math.round(performance.now() - startedAt),
+      message: error instanceof Error ? error.message : String(error),
+      ...details
+    })
+    throw error
+  }
+}
