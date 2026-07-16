@@ -98,7 +98,11 @@ let eagerStartupReconnectAttempted = false
 // dead 120s wait. The renderer signals once the listener provably exists;
 // IPC ordering then guarantees any later prompt is delivered.
 let credentialListenerReadySignaled = false
-let credentialListenerReadyWaiters: (() => void)[] = []
+type CredentialListenerReadyWaiter = {
+  resolve: () => void
+  timer: ReturnType<typeof setTimeout>
+}
+let credentialListenerReadyWaiters: CredentialListenerReadyWaiter[] = []
 
 function signalSshCredentialListenerReady(): void {
   if (credentialListenerReadySignaled) {
@@ -108,7 +112,8 @@ function signalSshCredentialListenerReady(): void {
   const waiters = credentialListenerReadyWaiters
   credentialListenerReadyWaiters = []
   for (const waiter of waiters) {
-    waiter()
+    clearTimeout(waiter.timer)
+    waiter.resolve()
   }
 }
 
@@ -117,11 +122,18 @@ function whenSshCredentialListenerReady(timeoutMs: number): Promise<boolean> {
     return Promise.resolve(true)
   }
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), timeoutMs)
-    credentialListenerReadyWaiters.push(() => {
-      clearTimeout(timer)
-      resolve(true)
-    })
+    const waiter: CredentialListenerReadyWaiter = {
+      resolve: () => resolve(true),
+      // Why: drop the waiter as the timer fires so a later signal cannot
+      // resolve an already-settled promise or retain a dead callback.
+      timer: setTimeout(() => {
+        credentialListenerReadyWaiters = credentialListenerReadyWaiters.filter(
+          (entry) => entry !== waiter
+        )
+        resolve(false)
+      }, timeoutMs)
+    }
+    credentialListenerReadyWaiters.push(waiter)
   })
 }
 
@@ -1393,6 +1405,9 @@ export async function resetSshHandlerStateForTests(): Promise<void> {
   currentRuntime = undefined
   eagerStartupReconnectAttempted = false
   credentialListenerReadySignaled = false
+  for (const waiter of credentialListenerReadyWaiters) {
+    clearTimeout(waiter.timer)
+  }
   credentialListenerReadyWaiters = []
 }
 

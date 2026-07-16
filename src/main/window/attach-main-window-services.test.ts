@@ -17,7 +17,8 @@ const {
   hydrateLocalPtyRegistryAtBootMock,
   setupAutoUpdaterMock,
   browserManagerUnregisterAllMock,
-  runWorktreeChangeInvalidatorsMock
+  runWorktreeChangeInvalidatorsMock,
+  eagerReconnectSshTargetsFromShutdownMock
 } = vi.hoisted(() => ({
   onMock: vi.fn(),
   removeAllListenersMock: vi.fn(),
@@ -34,7 +35,8 @@ const {
   hydrateLocalPtyRegistryAtBootMock: vi.fn(),
   setupAutoUpdaterMock: vi.fn(),
   browserManagerUnregisterAllMock: vi.fn(),
-  runWorktreeChangeInvalidatorsMock: vi.fn()
+  runWorktreeChangeInvalidatorsMock: vi.fn(),
+  eagerReconnectSshTargetsFromShutdownMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -72,6 +74,11 @@ vi.mock('../ipc/worktree-change-invalidators', () => ({
 vi.mock('../ipc/pty', () => ({
   getLocalPtyProvider: vi.fn(),
   registerPtyHandlers: registerPtyHandlersMock
+}))
+
+vi.mock('../ipc/ssh', () => ({
+  registerSshHandlers: vi.fn(),
+  eagerReconnectSshTargetsFromShutdown: eagerReconnectSshTargetsFromShutdownMock
 }))
 
 vi.mock('../memory/hydrate-local-pty-registry', () => ({
@@ -201,6 +208,7 @@ describe('attachMainWindowServices', () => {
     hydrateLocalPtyRegistryAtBootMock.mockReset()
     setupAutoUpdaterMock.mockReset()
     browserManagerUnregisterAllMock.mockReset()
+    eagerReconnectSshTargetsFromShutdownMock.mockReset()
     systemPreferencesAskForMediaAccessMock.mockResolvedValue(true)
     systemPreferencesGetMediaAccessStatusMock.mockReturnValue('granted')
   })
@@ -231,18 +239,21 @@ describe('attachMainWindowServices', () => {
     expect(mainWindow.webContents.reload).toHaveBeenCalledTimes(1)
   })
 
-  it('wires eager SSH reconnect to fire at did-finish-load', () => {
+  it('fires eager SSH reconnect exactly once at did-finish-load, not before', () => {
     const mainWindow = createMainWindow()
 
     attachMainWindowServices(mainWindow as never, createStore(), createRuntime() as never)
 
+    // Registration alone must not reconnect; the load event drives it.
+    expect(eagerReconnectSshTargetsFromShutdownMock).not.toHaveBeenCalled()
     const loadHandler = mainWindow.webContents.once.mock.calls.find(
       ([event]) => event === 'did-finish-load'
     )?.[1] as (() => void) | undefined
     expect(loadHandler).toBeTypeOf('function')
-    // An empty persisted session makes the eager pass a safe no-op here; the
-    // connect/skip policy itself is covered in ssh.test.ts.
-    expect(() => loadHandler!()).not.toThrow()
+
+    loadHandler!()
+
+    expect(eagerReconnectSshTargetsFromShutdownMock).toHaveBeenCalledTimes(1)
   })
 
   it('retries local PTY registry hydration after local startup services are ready', async () => {
