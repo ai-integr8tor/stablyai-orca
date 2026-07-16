@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store'
 import type { TabContentType } from '../../../../shared/types'
+import type { RuntimeUserCloseSource } from '../../../../shared/runtime-close-intent'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { reconcileTabOrder } from '../tab-bar/reconcile-order'
 import {
@@ -51,6 +52,7 @@ export function closeTerminalTab(
     force?: boolean
     rejectPinned?: boolean
     reason?: TerminalTabCloseReason
+    remoteCloseSource?: RuntimeUserCloseSource
     captureRecentlyClosed?: boolean
     localPtyTeardownOwnedExternally?: boolean
     precomputedRetirementPlan?: TerminalTabRetirementPlan
@@ -126,13 +128,14 @@ export function closeTerminalTab(
         ? { precomputedRetirementPlan: options.precomputedRetirementPlan }
         : {})
     })
-    // Why: pty-exit can come from retiring a stale client-side mirror. Sending
-    // it back as session.tabs.close would kill the host's authoritative PTY.
-    if (options?.reason !== 'pty-exit') {
+    // Why: lifecycle callers frequently omit a reason. Require an affirmative
+    // user/CLI source instead of trying to blacklist every mirror-close cause.
+    if (options?.remoteCloseSource) {
       void closeWebRuntimeSessionTab({
         worktreeId: owningWorktreeId,
         tabId: hostBackedTabId,
-        environmentId: runtimeEnvironmentId
+        environmentId: runtimeEnvironmentId,
+        source: options.remoteCloseSource
       })
     }
     options?.onClosed?.()
@@ -222,7 +225,8 @@ export function closeOtherTerminalTabs(tabId: string, activeWorktreeId: string |
         void closeWebRuntimeSessionTab({
           worktreeId: activeWorktreeId,
           tabId: tab.id,
-          environmentId: runtimeEnvironmentId
+          environmentId: runtimeEnvironmentId,
+          source: 'user-bulk-close'
         })
       } else {
         state.closeTab(tab.id)
@@ -265,7 +269,8 @@ export function closeTerminalTabsToRight(tabId: string, activeWorktreeId: string
         void closeWebRuntimeSessionTab({
           worktreeId: activeWorktreeId,
           tabId: id,
-          environmentId: runtimeEnvironmentId
+          environmentId: runtimeEnvironmentId,
+          source: 'user-bulk-close'
         })
       } else {
         state.closeTab(id)

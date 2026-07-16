@@ -195,7 +195,7 @@ describe('closeTerminalTab', () => {
       setActiveTab: vi.fn()
     })
 
-    closeTerminalTab('local-tab-1')
+    closeTerminalTab('local-tab-1', { remoteCloseSource: 'user-tab-close' })
 
     expect(closeTab).toHaveBeenCalledWith('local-tab-1', {
       reason: undefined,
@@ -204,8 +204,33 @@ describe('closeTerminalTab', () => {
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'host-tab-1',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-tab-close'
     })
+  })
+
+  it('keeps a reasonless mirror close local without explicit user intent', () => {
+    const closeTab = vi.fn()
+    isWebRuntimeSessionActiveMock.mockReturnValue(true)
+    resolveHostSessionTabIdForWebSessionTabMock.mockReturnValue('host-tab-1')
+    getStateMock.mockReturnValue({
+      settings: { activeRuntimeEnvironmentId: 'web-runtime' },
+      tabsByWorktree: {
+        'wt-1': [{ id: 'local-tab-1' }, { id: 'local-tab-2' }]
+      },
+      activeWorktreeId: 'wt-1',
+      activeTabId: 'local-tab-1',
+      closeTab,
+      setActiveTab: vi.fn()
+    })
+
+    closeTerminalTab('local-tab-1')
+
+    expect(closeTab).toHaveBeenCalledWith('local-tab-1', {
+      reason: undefined,
+      remoteCloseOwnedByHost: true
+    })
+    expect(closeWebRuntimeSessionTabMock).not.toHaveBeenCalled()
   })
 
   it('does not close the host tab when a remote mirror reports pty-exit', () => {
@@ -348,7 +373,7 @@ describe('closeTerminalTab', () => {
       setActiveTab: vi.fn()
     })
 
-    closeTerminalTab('plain-uuid-tab')
+    closeTerminalTab('plain-uuid-tab', { remoteCloseSource: 'user-tab-close' })
 
     expect(closeTab).toHaveBeenCalledWith('plain-uuid-tab', {
       reason: undefined,
@@ -357,7 +382,8 @@ describe('closeTerminalTab', () => {
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'plain-uuid-tab',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-tab-close'
     })
   })
 
@@ -616,12 +642,14 @@ describe('closeOtherTerminalTabs', () => {
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'close-a',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-bulk-close'
     })
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'close-b',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-bulk-close'
     })
     expect(closeTab).not.toHaveBeenCalled()
   })
@@ -657,12 +685,14 @@ describe('closeTerminalTabsToRight', () => {
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'term-b',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-bulk-close'
     })
     expect(closeWebRuntimeSessionTabMock).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       tabId: 'term-c',
-      environmentId: 'web-runtime'
+      environmentId: 'web-runtime',
+      source: 'user-bulk-close'
     })
     expect(closeFile).toHaveBeenCalledWith('file-b')
     expect(closeTab).not.toHaveBeenCalled()

@@ -14521,10 +14521,49 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, manager as never, deps as never)
 
     expect(createRemoteRuntimePtyTransport).toHaveBeenCalledWith('env-1', expect.any(Object))
+    await vi.waitFor(() => expect(transport.attach).toHaveBeenCalled())
     expect(transport.attach).toHaveBeenCalledWith(
       expect.objectContaining({ existingPtyId: 'remote:env-1@@terminal-1' })
     )
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(2, 'remote:env-1@@terminal-1')
+
+    const onPtyDetach = createdTransportOptions[0]?.onPtyDetach as
+      | ((ptyId: string) => void)
+      | undefined
+    expect(onPtyDetach).toBeTypeOf('function')
+    onPtyDetach?.('remote:env-1@@terminal-1')
+    expect(manager.closePane).toHaveBeenCalledWith(2)
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+  })
+
+  it('reports a last-pane remote mirror detach separately from PTY exit', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'remote:env-1@@terminal-1' }]
+      },
+      settings: {
+        ...mockStoreState.settings,
+        activeRuntimeEnvironmentId: 'env-1'
+      }
+    } as StoreState
+
+    const deps = createDeps()
+    connectPanePty(createPane(1) as never, createManager(1) as never, deps as never)
+
+    await vi.waitFor(() => expect(transport.attach).toHaveBeenCalled())
+    const onPtyDetach = createdTransportOptions[0]?.onPtyDetach as
+      | ((ptyId: string) => void)
+      | undefined
+    expect(onPtyDetach).toBeTypeOf('function')
+    onPtyDetach?.('remote:env-1@@terminal-1')
+    expect(deps.onPtyExitRef.current).toHaveBeenCalledWith(
+      'remote:env-1@@terminal-1',
+      'mirror-detached'
+    )
   })
 
   it('spawns fresh PTYs through the worktree owner runtime when focus differs', async () => {

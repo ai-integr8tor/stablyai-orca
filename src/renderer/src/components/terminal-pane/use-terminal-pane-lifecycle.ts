@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import type { IDisposable, Terminal } from '@xterm/xterm'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
+import type { TerminalTabCloseReason } from '@/store/slices/terminal-tab-retirement'
 import {
   PaneManager,
   type PaneExternalDropHandler,
@@ -267,7 +268,7 @@ type UseTerminalPaneLifecycleDeps = {
   replayingPanesRef: ReplayingPanesRef
   isActiveRef: React.RefObject<boolean>
   isVisibleRef: React.RefObject<boolean>
-  onPtyExitRef: React.RefObject<(ptyId: string) => void>
+  onPtyExitRef: React.RefObject<(ptyId: string, reason?: TerminalTabCloseReason) => void>
   onPtyErrorRef?: React.RefObject<(paneId: number, message: string) => void>
   clearTabPtyId: (tabId: string, ptyId: string) => void
   consumeSuppressedPtyExit: (ptyId: string) => boolean
@@ -1720,7 +1721,7 @@ export function useTerminalPaneLifecycle({
         // Why: route through closeTerminalTab (not the raw store closeTab) so a
         // pinned tab hits the confirmation guard. Closing the last pane here was
         // the one path that silently dropped pinned tabs.
-        closeTerminalTab(tabId)
+        closeTerminalTab(tabId, { remoteCloseSource: 'cli' })
       } else {
         mgr.closePane(detail.paneRuntimeId)
         scheduleRuntimeGraphSync()

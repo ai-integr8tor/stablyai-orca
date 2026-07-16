@@ -1230,25 +1230,12 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     // synchronously revoke its observer/candidate state before provider exit races.
     retireParkedTerminalTab(tabId)
     if (retiresSession) {
-      const fallbackRuntimeEnvironmentId = retirementPlan.worktreeId
-        ? getRuntimeEnvironmentIdForWorktree(get(), retirementPlan.worktreeId)
-        : null
       const retirementTasks: Promise<unknown>[] = opts?.localPtyTeardownOwnedExternally
         ? []
         : retirementPlan.localOrSshPtyIds.map(async (ptyId) => window.api.pty.kill(ptyId))
-      const localOrSshTaskCount = retirementTasks.length
-      if (!opts?.remoteCloseOwnedByHost) {
-        for (const terminal of retirementPlan.runtimeTerminals) {
-          const environmentId = terminal.environmentId ?? fallbackRuntimeEnvironmentId
-          retirementTasks.push(
-            callRuntimeRpc(
-              environmentId ? { kind: 'environment', environmentId } : { kind: 'local' },
-              'terminal.close',
-              { terminal: terminal.handle }
-            )
-          )
-        }
-      }
+      // Why: runtime handles belong to the host. A raw store close has no
+      // trustworthy user intent, especially during reload/disconnect cleanup,
+      // so only the explicit session/pane close APIs may tear them down.
       if (retirementPlan.unroutablePtyIds.length > 0) {
         console.warn('[terminal-retirement] skipped unroutable runtime handles', {
           tabId,
@@ -1258,17 +1245,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // Why: close remains synchronous and idempotent; provider failures must
       // not reject into the UI or prevent renderer ownership from being revoked.
       void Promise.allSettled(retirementTasks).then((results) => {
-        const localOrSshFailures = results
-          .slice(0, localOrSshTaskCount)
-          .filter((result) => result.status === 'rejected').length
-        const runtimeFailures = results
-          .slice(localOrSshTaskCount)
-          .filter((result) => result.status === 'rejected').length
-        if (localOrSshFailures > 0 || runtimeFailures > 0) {
+        const localOrSshFailures = results.filter((result) => result.status === 'rejected').length
+        if (localOrSshFailures > 0) {
           console.warn('[terminal-retirement] provider teardown failed', {
             tabId,
-            localOrSshFailures,
-            runtimeFailures
+            localOrSshFailures
           })
         }
       })

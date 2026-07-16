@@ -36,6 +36,7 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import { setFitOverride } from '@/lib/pane-manager/mobile-fit-overrides'
 import { setDriverForPty } from '@/lib/pane-manager/mobile-driver-state'
 import { isWebTerminalSurfaceTabId, toHostSessionTabId } from '@/runtime/web-terminal-surface-id'
+import { createRuntimeCloseIntent } from '@/runtime/runtime-close-intent'
 
 const REMOTE_TERMINAL_INPUT_FLUSH_MS = 8
 const REMOTE_TERMINAL_VIEWPORT_FLUSH_MS = 33
@@ -71,7 +72,7 @@ export function createRemoteRuntimePtyTransport(
     tabId,
     leafId,
     activate,
-    onPtyExit,
+    onPtyDetach,
     onPtySpawn,
     onTitleChange,
     onBell,
@@ -260,7 +261,16 @@ export function createRemoteRuntimePtyTransport(
       return
     }
     try {
-      await callRuntime('terminal.close', { terminal: targetHandle })
+      await callRuntime('terminal.close', {
+        terminal: targetHandle,
+        closeIntent: createRuntimeCloseIntent({
+          source: 'client-created-rollback',
+          userInitiated: false,
+          worktreeId: worktreeId ?? '',
+          ...(tabId ? { clientTabId: tabId } : {}),
+          ptyOrHandle: targetHandle
+        })
+      })
     } catch {
       // Best-effort parity with local disconnect/kill.
     }
@@ -410,7 +420,9 @@ export function createRemoteRuntimePtyTransport(
     remotePtyId = null
     closeMultiplexedStream()
     if (stalePtyId) {
-      onPtyExit?.(stalePtyId)
+      // Why: losing a mirrored handle says nothing about the host PTY's
+      // process lifetime. Report a detach so renderer cleanup cannot echo kill.
+      onPtyDetach?.(stalePtyId)
     }
   }
 
@@ -545,7 +557,7 @@ export function createRemoteRuntimePtyTransport(
           storedCallbacks.onExit?.(0)
           storedCallbacks.onDisconnect?.()
           if (subscribedPtyId) {
-            onPtyExit?.(subscribedPtyId)
+            onPtyDetach?.(subscribedPtyId)
           }
         },
         onError: (message) => {
@@ -743,7 +755,7 @@ export function createRemoteRuntimePtyTransport(
       remotePtyId = null
       storedCallbacks.onDisconnect?.()
       if (id) {
-        onPtyExit?.(id)
+        onPtyDetach?.(id)
       }
     },
 

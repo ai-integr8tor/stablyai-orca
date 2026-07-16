@@ -234,7 +234,7 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
       isVisible={isVisible || activityTerminalPortal !== null}
       isWorktreeActive={isWorktreeActive || activityTerminalPortal !== null}
       isolatedPaneKey={activityTerminalPortal?.paneKey ?? null}
-      onPtyExit={(ptyId) => {
+      onPtyExit={(ptyId, reason = 'pty-exit') => {
         if (consumeSuppressedPtyExit(ptyId)) {
           return
         }
@@ -245,7 +245,7 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
           return
         }
         closeTerminalTab(terminalTabId, {
-          reason: 'pty-exit',
+          reason,
           onClosed: leaveWorktreeIfEmpty
         })
       }}
@@ -253,7 +253,10 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
         // Why: route through closeTerminalTab (not the raw store closeTab) so a
         // pinned tab hits the confirmation guard. The overlay's direct
         // store.closeTab was the path that closed pinned terminals silently.
-        closeTerminalTab(terminalTabId, { onClosed: leaveWorktreeIfEmpty })
+        closeTerminalTab(terminalTabId, {
+          remoteCloseSource: 'user-tab-close',
+          onClosed: leaveWorktreeIfEmpty
+        })
       }}
     />
   )

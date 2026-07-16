@@ -109,7 +109,7 @@ describe('terminal tab retirement store boundary', () => {
     expect(capturedPanesByTabId.has('tab-1')).toBe(false)
   })
 
-  it('routes runtime handles to runtime close and preserves shared PTYs', async () => {
+  it('keeps runtime-handle retirement local and preserves shared PTYs', async () => {
     const store = createTestStore()
     seedStore(store, {
       tabsByWorktree: {
@@ -125,12 +125,9 @@ describe('terminal tab retirement store boundary', () => {
     })
 
     store.getState().closeTab('tab-1')
-    await vi.waitFor(() => expect(mockRuntimeCall).toHaveBeenCalled())
+    await Promise.resolve()
 
-    expect(mockRuntimeCall).toHaveBeenCalledWith({
-      method: 'terminal.close',
-      params: { terminal: 'terminal-1' }
-    })
+    expect(mockRuntimeCall).not.toHaveBeenCalled()
     expect(mockKill).not.toHaveBeenCalled()
   })
 
@@ -248,8 +245,7 @@ describe('terminal tab retirement store boundary', () => {
     await vi.waitFor(() =>
       expect(warn).toHaveBeenCalledWith('[terminal-retirement] provider teardown failed', {
         tabId: 'tab-1',
-        localOrSshFailures: 1,
-        runtimeFailures: 0
+        localOrSshFailures: 1
       })
     )
 

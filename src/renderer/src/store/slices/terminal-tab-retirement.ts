@@ -6,7 +6,7 @@ import {
 } from '@/lib/worktree-runtime-owner'
 import { parseRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
 
-export type TerminalTabCloseReason = 'user' | 'cleanup' | 'pty-exit'
+export type TerminalTabCloseReason = 'user' | 'cleanup' | 'pty-exit' | 'mirror-detached'
 
 export type TerminalTabRetirementState = WorktreeRuntimeOwnerState &
   Pick<

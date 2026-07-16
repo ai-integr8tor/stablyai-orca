@@ -2005,7 +2005,7 @@ export function useIpcEvents(): void {
           const detail: CloseTerminalPaneDetail = { tabId, paneRuntimeId }
           window.dispatchEvent(new CustomEvent(CLOSE_TERMINAL_PANE_EVENT, { detail }))
         } else {
-          closeTerminalTab(tabId)
+          closeTerminalTab(tabId, { remoteCloseSource: 'cli' })
         }
       })
     )
@@ -2024,6 +2024,7 @@ export function useIpcEvents(): void {
             window.api.ui.respondTerminalTabClose({ requestId, ...(error ? { error } : {}) })
           }
           closeTerminalTab(tabId, {
+            remoteCloseSource: 'cli',
             rejectPinned: true,
             onCancel: () => respond('terminal_tab_pinned'),
             onClosed: () => {
@@ -2597,7 +2598,8 @@ export function useIpcEvents(): void {
               void closeWebRuntimeSessionTab({
                 worktreeId,
                 tabId,
-                environmentId
+                environmentId,
+                source: 'user-tab-close'
               })
               return
             }

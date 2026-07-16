@@ -131,6 +131,7 @@ import { showTerminalShortcutCaptureNotification } from '@/lib/terminal-shortcut
 import { useContextualTour } from './contextual-tours/use-contextual-tour'
 import { openTabBarEntry, type TabCreateEntryArgs } from './tab-bar/tab-create-entry-action'
 import { closeTerminalTab } from './terminal/terminal-tab-actions'
+import type { TerminalTabCloseReason } from '@/store/slices/terminal-tab-retirement'
 import { translate } from '@/i18n/i18n'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { getResolvedExecutionHostIdForWorktree } from '@/lib/resolved-worktree-execution-host'
@@ -1445,7 +1446,7 @@ function Terminal(): React.JSX.Element | null {
   }, [activeWorktreeId, openNewMarkdownInActiveWorkspace])
 
   const handleCloseTab = useCallback((tabId: string) => {
-    closeTerminalTab(tabId)
+    closeTerminalTab(tabId, { remoteCloseSource: 'user-tab-close' })
   }, [])
 
   const handleCloseBrowserTab = useCallback(
@@ -1469,7 +1470,8 @@ function Terminal(): React.JSX.Element | null {
         void closeWebRuntimeSessionTab({
           worktreeId: owningWorktreeId,
           tabId,
-          environmentId: runtimeEnvironmentId
+          environmentId: runtimeEnvironmentId,
+          source: 'user-tab-close'
         })
         return
       }
@@ -1515,7 +1517,7 @@ function Terminal(): React.JSX.Element | null {
   )
 
   const handlePtyExit = useCallback(
-    (tabId: string, ptyId: string) => {
+    (tabId: string, ptyId: string, reason: TerminalTabCloseReason = 'pty-exit') => {
       if (consumeSuppressedPtyExit(ptyId)) {
         return
       }
@@ -1525,7 +1527,7 @@ function Terminal(): React.JSX.Element | null {
       if (shouldDeferParkedPtyExitTabClose(tabId, ptyId)) {
         return
       }
-      closeTerminalTab(tabId, { reason: 'pty-exit' })
+      closeTerminalTab(tabId, { reason })
     },
     [consumeSuppressedPtyExit]
   )
@@ -1558,12 +1560,13 @@ function Terminal(): React.JSX.Element | null {
           if (unifiedTab.contentType === 'terminal') {
             // Why: paired-host bulk close must revoke renderer resume and hook
             // authority as well as removing the host-owned session tab.
-            closeTerminalTab(unifiedTab.entityId)
+            closeTerminalTab(unifiedTab.entityId, { remoteCloseSource: 'user-bulk-close' })
           } else {
             void closeWebRuntimeSessionTab({
               worktreeId: activeWorktreeId,
               tabId: unifiedTab.id,
-              environmentId: runtimeEnvironmentId
+              environmentId: runtimeEnvironmentId,
+              source: 'user-bulk-close'
             })
           }
           continue
@@ -1623,12 +1626,13 @@ function Terminal(): React.JSX.Element | null {
           if (unifiedTab.contentType === 'terminal') {
             // Why: route every terminal close through the destructive local
             // lifecycle boundary before the paired host RPC.
-            closeTerminalTab(unifiedTab.entityId)
+            closeTerminalTab(unifiedTab.entityId, { remoteCloseSource: 'user-bulk-close' })
           } else {
             void closeWebRuntimeSessionTab({
               worktreeId: activeWorktreeId,
               tabId: unifiedTab.id,
-              environmentId: runtimeEnvironmentId
+              environmentId: runtimeEnvironmentId,
+              source: 'user-bulk-close'
             })
           }
           continue
@@ -2392,7 +2396,7 @@ function Terminal(): React.JSX.Element | null {
                             // pane, isolate that leaf so split siblings stay
                             // hidden. Workspace renders pass null → no override.
                             isolatedPaneKey={activityTerminalPortal?.paneKey ?? null}
-                            onPtyExit={(ptyId) => handlePtyExit(tab.id, ptyId)}
+                            onPtyExit={(ptyId, reason) => handlePtyExit(tab.id, ptyId, reason)}
                             onCloseTab={() => handleCloseTab(tab.id)}
                           />
                         )

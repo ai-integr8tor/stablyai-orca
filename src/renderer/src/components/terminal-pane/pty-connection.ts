@@ -2423,7 +2423,10 @@ export function connectPanePty(
       })
     return claimKey
   }
-  const onExit = (ptyId: string): void => {
+  const onExit = (
+    ptyId: string,
+    closeReason: 'pty-exit' | 'mirror-detached' = 'pty-exit'
+  ): void => {
     if (handledExitPtyId === ptyId) {
       return
     }
@@ -2524,7 +2527,11 @@ export function connectPanePty(
       if (spawnedFreshPtyId === ptyId && !Number.isFinite(lastTerminalInputAt)) {
         return
       }
-      deps.onPtyExitRef.current(ptyId)
+      if (closeReason === 'mirror-detached') {
+        deps.onPtyExitRef.current(ptyId, closeReason)
+      } else {
+        deps.onPtyExitRef.current(ptyId)
+      }
       return
     }
     if (
@@ -3283,6 +3290,7 @@ export function connectPanePty(
     ...(paneStartup?.launchAgent ? { launchAgent: paneStartup.launchAgent } : {}),
     ...(paneStartup?.telemetry ? { telemetry: paneStartup.telemetry } : {}),
     onPtyExit: onExit,
+    onPtyDetach: (ptyId: string) => onExit(ptyId, 'mirror-detached'),
     onPtySpawn,
     ...(mainSideEffectAuthority
       ? {}

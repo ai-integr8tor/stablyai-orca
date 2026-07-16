@@ -842,7 +842,8 @@ describe('web runtime session tab actions', () => {
     await expect(
       closeWebRuntimeSessionTab({
         worktreeId: WORKTREE_ID,
-        tabId: 'local-browser-unified'
+        tabId: 'local-browser-unified',
+        source: 'user-tab-close'
       })
     ).resolves.toBe(true)
 
@@ -860,7 +861,16 @@ describe('web runtime session tab actions', () => {
       method: 'session.tabs.close',
       params: {
         worktree: `id:${WORKTREE_ID}`,
-        tabId: 'host-browser-unified'
+        tabId: 'host-browser-unified',
+        closeIntent: {
+          source: 'user-tab-close',
+          userInitiated: true,
+          requestId: expect.any(String),
+          occurredAt: expect.any(Number),
+          worktreeId: WORKTREE_ID,
+          clientTabId: 'local-browser-unified',
+          hostTabId: 'host-browser-unified'
+        }
       },
       timeoutMs: 15_000
     })
@@ -1013,14 +1023,29 @@ describe('closeWebRuntimeTerminal', () => {
       }
     })
 
-    expect(closeWebRuntimeTerminal('remote:web-env-1@@terminal-1')).toBe(true)
+    expect(
+      closeWebRuntimeTerminal('remote:web-env-1@@terminal-1', {
+        source: 'user-pane-close',
+        worktreeId: WORKTREE_ID,
+        clientTabId: 'tab-1'
+      })
+    ).toBe(true)
 
     await vi.waitFor(() => expect(runtimeCall).toHaveBeenCalledTimes(1))
     expect(runtimeCall).toHaveBeenCalledWith({
       selector: 'web-env-1',
       method: 'terminal.close',
       params: {
-        terminal: 'terminal-1'
+        terminal: 'terminal-1',
+        closeIntent: {
+          source: 'user-pane-close',
+          userInitiated: true,
+          requestId: expect.any(String),
+          occurredAt: expect.any(Number),
+          worktreeId: WORKTREE_ID,
+          clientTabId: 'tab-1',
+          ptyOrHandle: 'terminal-1'
+        }
       },
       timeoutMs: 15_000
     })
@@ -1046,9 +1071,14 @@ describe('closeWebRuntimeTerminal', () => {
       }
     })
 
-    expect(closeWebRuntimeTerminal('pty-local-1')).toBe(false)
+    const options = {
+      source: 'user-pane-close' as const,
+      worktreeId: WORKTREE_ID,
+      clientTabId: 'tab-1'
+    }
+    expect(closeWebRuntimeTerminal('pty-local-1', options)).toBe(false)
     vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-    expect(closeWebRuntimeTerminal('remote:web-env-1@@terminal-1')).toBe(true)
+    expect(closeWebRuntimeTerminal('remote:web-env-1@@terminal-1', options)).toBe(true)
 
     await vi.waitFor(() => expect(runtimeCall).toHaveBeenCalledTimes(1))
   })

@@ -251,7 +251,7 @@ export function useTabGroupWorkspaceModel({
         worktreeId
       )
       if (item.contentType === 'terminal') {
-        closeTerminalTab(item.entityId)
+        closeTerminalTab(item.entityId, { remoteCloseSource: 'user-tab-close' })
         if (!opts?.skipEmptyCheck) {
           leaveWorktreeIfEmpty()
         }
@@ -275,7 +275,8 @@ export function useTabGroupWorkspaceModel({
           void closeWebRuntimeSessionTab({
             worktreeId,
             tabId: item.id,
-            environmentId: runtimeEnvironmentId
+            environmentId: runtimeEnvironmentId,
+            source: 'user-tab-close'
           })
         }
         destroyWorkspaceWebviews(browserState.browserPagesByWorkspace, item.entityId)
@@ -318,7 +319,7 @@ export function useTabGroupWorkspaceModel({
         if (item.contentType === 'terminal' && isWebRuntimeSessionActive(runtimeEnvironmentId)) {
           // Why: paired-host bulk close must revoke local resume and hook
           // authority before asking the host to remove its canonical tab.
-          closeTerminalTab(item.entityId)
+          closeTerminalTab(item.entityId, { remoteCloseSource: 'user-bulk-close' })
           continue
         }
         if (item.contentType === 'browser') {
@@ -336,7 +337,8 @@ export function useTabGroupWorkspaceModel({
             void closeWebRuntimeSessionTab({
               worktreeId,
               tabId: item.id,
-              environmentId: runtimeEnvironmentId
+              environmentId: runtimeEnvironmentId,
+              source: 'user-bulk-close'
             })
           }
           destroyWorkspaceWebviews(browserState.browserPagesByWorkspace, item.entityId)

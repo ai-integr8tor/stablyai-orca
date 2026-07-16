@@ -8,6 +8,7 @@ import type { StartupCommandDelivery } from '../../../../shared/codex-startup-de
 import type { SetupSplitDirection, TuiAgent } from '../../../../shared/types'
 import type { SleepingAgentLaunchConfig } from '../../../../shared/agent-session-resume'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
+import type { TerminalTabCloseReason } from '@/store/slices/terminal-tab-retirement'
 
 export type PtyConnectionDeps = {
   tabId: string
@@ -47,7 +48,7 @@ export type PtyConnectionDeps = {
   restoredViewportBlankingPanesRef?: RestoredViewportBlankingPanesRef
   isActiveRef: React.RefObject<boolean>
   isVisibleRef: React.RefObject<boolean>
-  onPtyExitRef: React.RefObject<(ptyId: string) => void>
+  onPtyExitRef: React.RefObject<(ptyId: string, reason?: TerminalTabCloseReason) => void>
   onPtyErrorRef?: React.RefObject<(paneId: number, message: string) => void>
   clearTabPtyId: (tabId: string, ptyId: string) => void
   consumeSuppressedPtyExit: (ptyId: string) => boolean

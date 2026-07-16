@@ -47,7 +47,8 @@ export function notifyHostOfMirroredEditorClose(
     closeWebRuntimeSessionTab({
       worktreeId,
       tabId: unifiedTab.id,
-      environmentId: runtimeEnvironmentId
+      environmentId: runtimeEnvironmentId,
+      source: 'user-tab-close'
     })
   )
   return true
