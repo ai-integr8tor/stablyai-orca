@@ -80,6 +80,7 @@ import {
   type ResourceSessionBindingInputs
 } from './resource-session-bindings'
 import { createClosedResourceSessionCountSelector } from './resource-session-count-selector'
+import { clampResourceManagerPosition } from './resource-manager-drag-bounds'
 import { translate } from '@/i18n/i18n'
 
 const POLL_MS = 2_000
@@ -93,6 +94,7 @@ type FloatingPosition = {
 }
 
 type FloatingDragState = {
+  pointerId: number
   startX: number
   startY: number
   originX: number
@@ -104,8 +106,7 @@ const METRIC_COLUMNS_CLS = 'flex items-center shrink-0 tabular-nums'
 const CPU_COLUMN_CLS = 'w-12 text-right'
 const MEM_COLUMN_CLS = 'w-16 text-right'
 const FLOATING_DRAG_THRESHOLD_PX = 4
-const FLOATING_PANEL_MAX_OFFSET_X = 640
-const FLOATING_PANEL_MAX_OFFSET_Y = 480
+const FLOATING_PANEL_VIEWPORT_MARGIN_PX = 8
 // Why: every row (session, worktree, repo, app) AND the column header
 // reserve this same trailing gutter so the CPU/Memory columns line up
 // regardless of whether a row carries a kill-X. The X button sits inside
@@ -834,18 +835,30 @@ export function ResourceUsageStatusSegment({
   // fall to <body>. We park a ref on the popover body so we can restore focus
   // somewhere stable for keyboard users.
   const floatingDragRef = useRef<FloatingDragState | null>(null)
+  const floatingPanelRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyFocusFrameRef = useRef<number | null>(null)
   const mountedRef = useMountedRef()
 
-  const clampFloatingOffset = useCallback((position: FloatingPosition): FloatingPosition => {
-    return {
-      x: Math.min(Math.max(-FLOATING_PANEL_MAX_OFFSET_X, position.x), FLOATING_PANEL_MAX_OFFSET_X),
-      y: Math.min(Math.max(-FLOATING_PANEL_MAX_OFFSET_Y, position.y), FLOATING_PANEL_MAX_OFFSET_Y)
-    }
-  }, [])
+  const clampFloatingOffset = useCallback(
+    (position: FloatingPosition, current: FloatingPosition): FloatingPosition => {
+      const panel = floatingPanelRef.current
+      if (!panel) {
+        return current
+      }
+      return clampResourceManagerPosition({
+        current,
+        proposed: position,
+        rect: panel.getBoundingClientRect(),
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        margin: FLOATING_PANEL_VIEWPORT_MARGIN_PX
+      })
+    },
+    []
+  )
 
-  const stopDragEvent = useCallback((event: React.MouseEvent<HTMLElement>): void => {
+  const stopDragEvent = useCallback((event: React.PointerEvent<HTMLElement>): void => {
     event.stopPropagation()
     event.preventDefault()
   }, [])
@@ -870,12 +883,13 @@ export function ResourceUsageStatusSegment({
   )
 
   const handleFloatingDragStart = useCallback(
-    (event: React.MouseEvent<HTMLElement>): void => {
+    (event: React.PointerEvent<HTMLElement>): void => {
       if (event.button !== 0) {
         return
       }
       const origin = floatingPosition ?? { x: 0, y: 0 }
       floatingDragRef.current = {
+        pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         originX: origin.x,
@@ -883,53 +897,77 @@ export function ResourceUsageStatusSegment({
         activated: false
       }
       setFloatingDragging(true)
+      event.currentTarget.setPointerCapture(event.pointerId)
       stopDragEvent(event)
     },
     [floatingPosition, stopDragEvent]
   )
 
-  useEffect(() => {
-    if (!floatingDragging) {
-      return
-    }
-
-    const handleMouseMove = (event: MouseEvent): void => {
+  const handleFloatingDragMove = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
       const drag = floatingDragRef.current
-      if (!drag) {
+      if (!drag || drag.pointerId !== event.pointerId) {
         return
       }
       const deltaX = event.clientX - drag.startX
       const deltaY = event.clientY - drag.startY
       if (!drag.activated && Math.hypot(deltaX, deltaY) < FLOATING_DRAG_THRESHOLD_PX) {
-        event.preventDefault()
+        stopDragEvent(event)
         return
       }
       drag.activated = true
-      setFloatingPosition(
-        clampFloatingOffset({
-          x: drag.originX + deltaX,
-          y: drag.originY + deltaY
-        })
+      setFloatingPosition((current) =>
+        clampFloatingOffset(
+          {
+            x: drag.originX + deltaX,
+            y: drag.originY + deltaY
+          },
+          current ?? { x: 0, y: 0 }
+        )
       )
-      event.preventDefault()
-    }
+      stopDragEvent(event)
+    },
+    [clampFloatingOffset, stopDragEvent]
+  )
 
-    const handleMouseUp = (event: MouseEvent): void => {
-      if (!floatingDragRef.current) {
+  const handleFloatingDragEnd = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
+      const drag = floatingDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) {
         return
       }
       floatingDragRef.current = null
       setFloatingDragging(false)
-      event.preventDefault()
-    }
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      stopDragEvent(event)
+    },
+    [stopDragEvent]
+  )
 
-    window.addEventListener('mousemove', handleMouseMove, { passive: false })
-    window.addEventListener('mouseup', handleMouseUp, { passive: false })
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+  useEffect(() => {
+    if (!open) {
+      return
     }
-  }, [clampFloatingOffset, floatingDragging])
+    const keepPanelReachable = (): void => {
+      setFloatingPosition((current) => {
+        if (!current) {
+          return current
+        }
+        const clamped = clampFloatingOffset(current, current)
+        return clamped.x === current.x && clamped.y === current.y ? current : clamped
+      })
+    }
+    // Why: Radix can choose a new anchor placement when the popover reopens;
+    // revalidate the saved offset against that live surface before reuse.
+    const frameId = requestAnimationFrame(keepPanelReachable)
+    window.addEventListener('resize', keepPanelReachable)
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', keepPanelReachable)
+    }
+  }, [clampFloatingOffset, open])
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -1355,11 +1393,19 @@ export function ResourceUsageStatusSegment({
       </Tooltip>
 
       <PopoverContent
+        ref={floatingPanelRef}
         side="top"
         align="end"
         sideOffset={8}
         {...STATUS_BAR_CONTEXT_MENU_EXEMPT_PROPS}
         className="w-[26rem] max-w-[calc(100vw-2rem)] p-0"
+        style={
+          floatingPosition
+            ? {
+                transform: `translate(${floatingPosition.x}px, ${floatingPosition.y}px)`
+              }
+            : undefined
+        }
         onOpenAutoFocus={(event) => event.preventDefault()}
         // Why: clicking a terminal row activates a tab, which causes xterm
         // to programmatically focus the terminal DOM node. Radix would
@@ -1368,15 +1414,7 @@ export function ResourceUsageStatusSegment({
         // outside-click (onPointerDownOutside default) and Escape.
         onFocusOutside={(event) => event.preventDefault()}
       >
-        <div
-          style={
-            floatingPosition
-              ? {
-                  transform: `translate(${floatingPosition.x}px, ${floatingPosition.y}px)`
-                }
-              : undefined
-          }
-        >
+        <div>
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
             <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
               <span
@@ -1385,7 +1423,10 @@ export function ResourceUsageStatusSegment({
                   'auto.components.status.bar.ResourceUsageStatusSegment.0f41c4e8d1',
                   'Move Resource Manager'
                 )}
-                onMouseDown={handleFloatingDragStart}
+                onPointerDown={handleFloatingDragStart}
+                onPointerMove={handleFloatingDragMove}
+                onPointerUp={handleFloatingDragEnd}
+                onPointerCancel={handleFloatingDragEnd}
                 onClick={(event) => {
                   event.stopPropagation()
                   event.preventDefault()
@@ -1482,7 +1523,7 @@ export function ResourceUsageStatusSegment({
                     )}
                     className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    <X className="size-3.5" />
+                    <X className="size-3" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6}>
@@ -1493,7 +1534,7 @@ export function ResourceUsageStatusSegment({
                 </TooltipContent>
               </Tooltip>
             </div>
-        </div>
+          </div>
 
           {daemonUnreachable && (
             <div className="flex items-start gap-2 border-b border-border bg-yellow-500/10 px-3 py-2 text-[11px] text-foreground">
