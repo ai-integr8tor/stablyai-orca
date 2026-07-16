@@ -55,7 +55,7 @@ import {
   formatResetCreditExpiry,
   getProviderUsageStatusLabel
 } from './tooltip'
-import { ClaudeIcon, GeminiIcon, MiniMaxIcon, OpenAIIcon, OpenCodeGoIcon } from './icons'
+import { ClaudeIcon, GeminiIcon, MiniMaxIcon, OpenAIIcon, OpenCodeGoIcon, ZaiIcon } from './icons'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { formatWindowLabel } from '@/lib/window-label-formatter'
 import { markLiveCodexSessionsForRestart } from '@/lib/codex-session-restart'
@@ -1816,9 +1816,11 @@ export function ProviderDetailsMenu({
                           ? 'A'
                           : provider.provider === 'minimax'
                             ? 'M'
-                            : provider.provider === 'grok'
-                              ? 'R'
-                              : 'X'}
+                            : provider.provider === 'zai'
+                              ? 'Z'
+                              : provider.provider === 'grok'
+                                ? 'R'
+                                : 'X'}
               </span>
             </span>
           ) : (
@@ -1968,7 +1970,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     return null
   }
 
-  const { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok } = rateLimits
+  const { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, zai, grok } = rateLimits
 
   // Why: a provider earns a bar from either a usable live snapshot or durable
   // setup in Settings. The durable path keeps account switchers visible while
@@ -1989,6 +1991,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     ...settings,
     antigravityUsageConfigured,
     minimaxCookieConfigured: rateLimits.minimaxCookieConfigured,
+    zaiApiKeyConfigured: rateLimits.zaiApiKeyConfigured,
     grokAuthConfigured: rateLimits.grokAuthConfigured
   }
   const visibleClaude = getVisibleUsageProvider('claude', claude, usageSettings)
@@ -1997,6 +2000,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
   const visibleKimi = getVisibleUsageProvider('kimi', kimi, usageSettings)
   const visibleAntigravity = getVisibleUsageProvider('antigravity', antigravity, usageSettings)
   const visibleMiniMax = getVisibleUsageProvider('minimax', minimax, usageSettings)
+  const visibleZai = getVisibleUsageProvider('zai', zai, usageSettings)
   const visibleGrok = getVisibleUsageProvider('grok', grok, usageSettings)
   const showClaude =
     visibleClaude !== null &&
@@ -2021,6 +2025,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
   // Why: MiniMax is a cookie-auth provider, not a CLI on PATH, so detection-gating
   // doesn't apply (same rationale as OpenCode Go below).
   const showMiniMax = visibleMiniMax !== null && statusBarItems.includes('minimax')
+  const showZai = visibleZai !== null && statusBarItems.includes('zai')
   const showGrok =
     visibleGrok !== null &&
     statusBarItems.includes('grok') &&
@@ -2045,6 +2050,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     showKimi ||
     showAntigravity ||
     showMiniMax ||
+    showZai ||
     showGrok
   const anyVisible = hasVisibleUsageMeters || showResourceUsage
   // Why: a brand-new user with no provider configured would otherwise see an
@@ -2052,7 +2058,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
   // included because managed accounts are durable even when live usage
   // snapshots are still hydrating or unavailable after an update.
   const isEmptyUsageState = isUsageEmptyState(
-    { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok },
+    { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, zai, grok },
     usageSettings
   )
   // Why: the teaching CTA is a one-time nudge — once the user hides it, keep it
@@ -2066,6 +2072,7 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
     kimi?.status === 'fetching' ||
     antigravity?.status === 'fetching' ||
     minimax?.status === 'fetching' ||
+    zai?.status === 'fetching' ||
     grok?.status === 'fetching'
 
   const compact = containerWidth < 900
@@ -2165,6 +2172,17 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
                 ariaLabel={translate(
                   'auto.components.status.bar.StatusBar.06741a2f3d',
                   'Open MiniMax usage details'
+                )}
+              />
+            )}
+            {showZai && (
+              <ProviderDetailsMenu
+                provider={visibleZai}
+                compact={compact}
+                iconOnly={iconOnly}
+                ariaLabel={translate(
+                  'auto.components.status.bar.StatusBar.zaiUsageDetails',
+                  'Open Z.ai GLM usage details'
                 )}
               />
             )}
@@ -2324,6 +2342,16 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
           >
             <OpenCodeGoIcon size={14} />
             {translate('auto.components.status.bar.StatusBar.8c86cd77b0', 'OpenCode Go Usage')}
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={statusBarItems.includes('zai')}
+            onCheckedChange={() => {
+              recordFeatureInteraction('usage-tracking')
+              toggleStatusBarItem('zai')
+            }}
+          >
+            <ZaiIcon size={14} />
+            {translate('auto.components.status.bar.StatusBar.zaiUsage', 'Z.ai GLM Usage')}
           </DropdownMenuCheckboxItem>
           {isStatusBarItemAvailable('kimi', detectedAgentIds) && (
             <DropdownMenuCheckboxItem
