@@ -9,6 +9,7 @@ import type {
   HostedReviewProvider
 } from '../shared/hosted-review'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
+import type { FindDefinitionsRequest, FindDefinitionsResponse } from '../shared/symbol-index'
 import type {
   TerminalTabCloseRequest,
   TerminalTabCloseResponse
@@ -1892,6 +1893,12 @@ export type PreloadApi = {
         type: 'issue' | 'mr'
       }
     ) => Promise<Omit<GitLabWorkItem, 'repoId'> | null>
+  }
+  // Why: symbolIndex bindings live in `./symbol-index`, mirroring the
+  // `./gitlab` split above — see preload/index.ts.
+  symbolIndex: {
+    findDefinitions: (req: FindDefinitionsRequest) => Promise<FindDefinitionsResponse>
+    ensureIndexed: (args: { worktreeId: string; worktreeRoot: string }) => Promise<void>
   }
   linear: {
     connect: (args: {

@@ -137,6 +137,7 @@ import {
   seedLiveClaudePtysFromPersistence
 } from './claude-accounts/live-pty-gate'
 import { StarNagService } from './star-nag/service'
+import { SymbolIndexService } from './symbol-index/service'
 import { agentHookServer } from './agent-hooks/server'
 import { wslHookRelayManager } from './agent-hooks/wsl-hook-relay-manager'
 import { maybeAutoRenameBranchOnFirstWork } from './agent-hooks/first-work-branch-rename'
@@ -227,6 +228,7 @@ let desktopRelayStatus: RelayBrokerStatus = 'offline'
 let headlessBrowserDisplayAvailable = false
 
 let starNag: StarNagService | null = null
+let symbolIndexService: SymbolIndexService | null = null
 let agentAwakeService: AgentAwakeService | null = null
 let crashReports: CrashReportStore | null = null
 let unsubscribeAgentAwakeStatusChanges: (() => void) | null = null
@@ -1951,6 +1953,8 @@ app.whenReady().then(async () => {
   starNag = new StarNagService(store, stats)
   starNag.start()
   starNag.registerIpcHandlers()
+  symbolIndexService = new SymbolIndexService()
+  symbolIndexService.registerIpcHandlers()
   runtimeService.setAgentBrowserBridge(
     new AgentBrowserBridge(browserManager, {
       onTabsChanged: (worktreeId) => runtimeService.notifyMobileSessionTabsChanged(worktreeId)
@@ -2321,6 +2325,7 @@ app.on('will-quit', (e) => {
   // so without this ordering, running agents would produce orphaned
   // agent_start events with no matching stops.
   starNag?.stop()
+  symbolIndexService?.dispose()
   automations?.stop()
   setUnreadDockBadgeCount(0)
   agentHookServer.stop()
