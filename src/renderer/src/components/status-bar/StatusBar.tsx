@@ -678,6 +678,7 @@ function ClaudeSwitcherMenu({
     activeAccountIdsByRuntime: { host: null, wsl: {} }
   })
   const [isSwitching, setIsSwitching] = useState(false)
+  const [isReauthenticating, setIsReauthenticating] = useState(false)
   const mountedRef = useRef(true)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
@@ -808,6 +809,32 @@ function ClaudeSwitcherMenu({
     }
   }
 
+  // Why: Claude CLI auth lapses overnight, so offer a one-click re-auth of the
+  // active managed account here instead of forcing a trip into Settings.
+  const handleReauthenticateActiveAccount = async (
+    accountId: string,
+    runtimeTarget: CodexStatusRuntimeTarget
+  ): Promise<void> => {
+    if (isSwitching || isReauthenticating) {
+      return
+    }
+    setIsReauthenticating(true)
+    try {
+      const next = await window.api.claudeAccounts.reauthenticate({ accountId })
+      if (mountedRef.current) {
+        setAccounts(next)
+      }
+      await fetchSettings()
+      await refreshClaudeRateLimitsForTarget(runtimeTarget)
+    } catch (error) {
+      console.error('Failed to re-authenticate Claude account from status bar:', error)
+    } finally {
+      if (mountedRef.current) {
+        setIsReauthenticating(false)
+      }
+    }
+  }
+
   const selectedRuntimeKey = getCodexStatusRuntimeKey(
     normalizeClaudeStatusRuntimeTarget(accountState, toCodexStatusRuntimeTarget(claudeTarget))
   )
@@ -928,6 +955,24 @@ function ClaudeSwitcherMenu({
         </div>
       ) : null}
       <DropdownMenuSeparator />
+      {activeTarget?.id ? (
+        <DropdownMenuItem
+          disabled={isSwitching || isReauthenticating}
+          onSelect={(event) => {
+            // Keep the menu open so the re-auth spinner stays visible while the
+            // Claude CLI login round-trips.
+            event.preventDefault()
+            void handleReauthenticateActiveAccount(activeTarget.id!, activeTarget.runtimeTarget)
+          }}
+        >
+          {isReauthenticating ? (
+            <Loader2 className="mr-2 size-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-2 size-3.5" />
+          )}
+          {translate('auto.components.status.bar.StatusBar.b627e35f3c', 'Re-authenticate')}
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         onSelect={() => {
           openSettingsTarget({
