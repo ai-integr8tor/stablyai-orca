@@ -726,6 +726,20 @@ describe('remote hook service installers', () => {
     expect(byAgent.get('copilot')).toBe('installed')
   })
 
+  it('keeps installer result order and isolates per-agent failures under concurrency', async () => {
+    // Malformed Factory settings force droid into its error path while every
+    // other agent must still install.
+    const { sftp } = createFakeSftp({ '/home/dev/.factory/settings.json': '{"hooks": }' })
+
+    const results = await installRemoteManagedAgentHooks(sftp, '/home/dev')
+
+    expect(results.map((r) => r.agent)).toEqual([...REMOTE_MANAGED_HOOK_INSTALLER_AGENTS])
+    const byAgent = new Map(results.map((r) => [r.agent, r.state]))
+    expect(byAgent.get('droid')).toBe('error')
+    expect(byAgent.get('claude')).toBe('installed')
+    expect(byAgent.get('copilot')).toBe('installed')
+  })
+
   it('installs remote Droid hooks into Factory settings.json (issue #7253)', async () => {
     const { sftp, fs } = createFakeSftp()
 
