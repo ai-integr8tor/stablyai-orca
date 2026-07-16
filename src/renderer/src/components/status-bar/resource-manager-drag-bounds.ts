@@ -10,6 +10,7 @@ type ResourceManagerDragBounds = {
   viewportHeight: number
   viewportWidth: number
   margin: number
+  recoveryHeight: number
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -22,14 +23,16 @@ export function clampResourceManagerPosition({
   rect,
   viewportHeight,
   viewportWidth,
-  margin
+  margin,
+  recoveryHeight
 }: ResourceManagerDragBounds): ResourceManagerPosition {
   const minimumX = current.x + margin - rect.left
   const maximumX = current.x + viewportWidth - margin - rect.right
   const maximumVisibleX = current.x + viewportWidth - margin - rect.left
   const minimumY = current.y + margin - rect.top
   const maximumY = current.y + viewportHeight - margin - rect.bottom
-  const maximumVisibleY = current.y + viewportHeight - margin - rect.top
+  const maximumVisibleY =
+    current.y + viewportHeight - margin - recoveryHeight - rect.top
 
   // Why: an unusually tall panel cannot fit vertically, so keeping its header
   // visible preserves the drag, reset, and close recovery controls.

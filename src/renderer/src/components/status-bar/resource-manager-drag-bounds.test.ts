@@ -19,7 +19,8 @@ describe('clampResourceManagerPosition', () => {
         rect,
         viewportWidth: 1_000,
         viewportHeight: 800,
-        margin: 8
+        margin: 8,
+        recoveryHeight: 32
       })
     ).toEqual({ x: 92, y: -192 })
   })
@@ -32,7 +33,8 @@ describe('clampResourceManagerPosition', () => {
         rect: { ...rect, left: 550, right: 950, top: 100, bottom: 500 },
         viewportWidth: 1_000,
         viewportHeight: 800,
-        margin: 8
+        margin: 8,
+        recoveryHeight: 32
       })
     ).toEqual({ x: -492, y: 192 })
   })
@@ -45,7 +47,8 @@ describe('clampResourceManagerPosition', () => {
         rect: { ...rect, top: 40, bottom: 940, height: 900 },
         viewportWidth: 1_000,
         viewportHeight: 700,
-        margin: 8
+        margin: 8,
+        recoveryHeight: 32
       })
     ).toEqual({ x: 0, y: -32 })
   })
@@ -58,8 +61,9 @@ describe('clampResourceManagerPosition', () => {
         rect: { left: 40, right: 1_140, top: 40, bottom: 940, width: 1_100, height: 900 },
         viewportWidth: 1_000,
         viewportHeight: 700,
-        margin: 8
+        margin: 8,
+        recoveryHeight: 32
       })
-    ).toEqual({ x: 952, y: 652 })
+    ).toEqual({ x: 952, y: 620 })
   })
 })

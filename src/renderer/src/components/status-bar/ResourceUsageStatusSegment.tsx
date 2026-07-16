@@ -107,6 +107,7 @@ const CPU_COLUMN_CLS = 'w-12 text-right'
 const MEM_COLUMN_CLS = 'w-16 text-right'
 const FLOATING_DRAG_THRESHOLD_PX = 4
 const FLOATING_PANEL_VIEWPORT_MARGIN_PX = 8
+const FLOATING_PANEL_RECOVERY_HEIGHT_PX = 32
 // Why: every row (session, worktree, repo, app) AND the column header
 // reserve this same trailing gutter so the CPU/Memory columns line up
 // regardless of whether a row carries a kill-X. The X button sits inside
@@ -855,7 +856,8 @@ export function ResourceUsageStatusSegment({
         rect: panel.getBoundingClientRect(),
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
-        margin: FLOATING_PANEL_VIEWPORT_MARGIN_PX
+        margin: FLOATING_PANEL_VIEWPORT_MARGIN_PX,
+        recoveryHeight: FLOATING_PANEL_RECOVERY_HEIGHT_PX
       })
     },
     []
