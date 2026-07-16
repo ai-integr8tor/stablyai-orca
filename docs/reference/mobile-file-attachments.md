@@ -58,8 +58,9 @@ clipboard *paste* path only — picker attachments already fail fast with a
 
 ### 2. Mobile pipeline
 
-- The picker returns `{ base64, fileName, mimeType }` instead of bare
-  `{ base64 }`; `expo-document-picker` already supplies `name` and `mimeType`.
+- The picker returns `{ base64, fileName }` instead of bare `{ base64 }`;
+  `expo-document-picker` already supplies `name`. (`mimeType` is available but
+  unused — not captured, YAGNI.)
   Photo-library picks return no `fileName` (they are unnamed pastes today).
   Both sources keep today's fail-fast behavior when over the upload budget —
   no picker-path downscaling exists or is added.
@@ -119,9 +120,13 @@ clipboard *paste* path only — picker attachments already fail fast with a
 
 ### 6. Testing
 
-- Mobile (vitest): picker returns `fileName` for document picks; attachment
-  flow passes `fileName` through to the upload; version gate chooses filtered
-  vs unfiltered picker; oversized document pick surfaces the size toast.
+- Mobile (vitest): picker returns `fileName` for document picks and honors the
+  filtered/unfiltered mode; attachment flow passes `fileName` through to the
+  upload RPCs and requests the image-only picker when the capability is
+  absent; oversized picks keep failing fast (existing size-limit tests). The
+  toast-copy branch lives in the hook, which has no test harness (no
+  `@testing-library` in mobile) — it stays covered by typecheck and manual
+  verification.
 - Host (vitest): `fileName` sanitization table — path traversal (`../../x`),
   separators, control chars, leading dots, empty-after-sanitize, >80 chars,
   unicode names; commit naming with and without `fileName`; unchanged behavior
