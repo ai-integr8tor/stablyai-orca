@@ -48,7 +48,7 @@ export function MobilePairingSetupSection({
             )
           : translate(
               'auto.components.settings.MobilePairingSetupSection.localDescription',
-              'The pairing code connects only through the local network address below.'
+              'The pairing code connects only through the direct endpoint below.'
             )}
       </p>
       <div className="mt-2">{relayConnectionControl}</div>
@@ -78,13 +78,13 @@ export function MobilePairingSetupSection({
           <h4 className="text-xs font-medium">
             {translate(
               'auto.components.settings.MobilePairingSetupSection.localSettings',
-              'Local connection settings'
+              'Direct connection settings'
             )}
           </h4>
           <p className="text-xs text-muted-foreground">
             {translate(
               'auto.components.settings.MobilePairingSetupSection.localAddressDescription',
-              'Choose the LAN or private-network address that Orca Mobile can use to reach this computer directly.'
+              'Choose a LAN or private-network address, or advertise a secure WebSocket tunnel endpoint.'
             )}
           </p>
         </div>

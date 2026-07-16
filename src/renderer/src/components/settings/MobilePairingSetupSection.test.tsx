@@ -47,7 +47,7 @@ describe('MobilePairingSetupSection', () => {
   it('keeps local settings visible for local-only pairing', () => {
     renderSection()
     expect(screen.getByRole('combobox')).toHaveTextContent('100.64.1.20 (tailscale0)')
-    expect(screen.getByText(/connects only through the local network address/i)).toBeVisible()
+    expect(screen.getByText(/connects only through the direct endpoint/i)).toBeVisible()
   })
 
   it('keeps local settings visible for automatic direct-first pairing', () => {
@@ -63,6 +63,15 @@ describe('MobilePairingSetupSection', () => {
     await user.click(screen.getByRole('combobox'))
     await user.click(screen.getByRole('option', { name: '192.168.1.24 (en0)' }))
     expect(onSelectedAddressChange).toHaveBeenCalledWith('192.168.1.24')
+  })
+
+  it('commits a secure public-tunnel endpoint', async () => {
+    const { user, onSelectedAddressChange } = renderSection()
+    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByRole('option', { name: 'Add custom endpoint…' }))
+    await user.type(screen.getByLabelText('Address'), 'wss://orca.example.com')
+    await user.click(screen.getByRole('button', { name: 'Use address' }))
+    expect(onSelectedAddressChange).toHaveBeenCalledWith('wss://orca.example.com')
   })
 
   it('generates a pairing code with the selected mode', async () => {
