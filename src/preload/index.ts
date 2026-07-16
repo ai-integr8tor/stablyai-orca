@@ -1144,7 +1144,13 @@ const api = {
 
     sendSerializedBuffer: (
       requestId: string,
-      snapshot: { data: string; cols: number; rows: number; lastTitle?: string } | null
+      snapshot: {
+        data: string
+        cols: number
+        rows: number
+        seq?: number
+        lastTitle?: string
+      } | null
     ): void => {
       ipcRenderer.send('pty:serializeBuffer:response', { requestId, snapshot })
     },
@@ -1162,6 +1168,9 @@ const api = {
 
     clearPendingPaneSerializer: (paneKey: string, gen: number): Promise<void> =>
       ipcRenderer.invoke('pty:clearPendingPaneSerializer', { paneKey, gen }),
+
+    reportRendererSerializerReady: (ptyId: string): Promise<void> =>
+      ipcRenderer.invoke('pty:reportRendererSerializerReady', { ptyId }),
 
     management: {
       listSessions: () => ipcRenderer.invoke('pty:management:listSessions'),
@@ -1321,7 +1330,7 @@ const api = {
       repoId?: string
       limit?: number
       query?: string
-      before?: string
+      page?: number
       noCache?: boolean
     }): Promise<ListWorkItemsResult<Omit<GitHubWorkItem, 'repoId'>>> =>
       ipcRenderer.invoke('gh:listWorkItems', args),
@@ -1737,6 +1746,7 @@ const api = {
       siteUrl: string
       email: string
       apiToken: string
+      authType?: 'cloud' | 'server'
     }): Promise<{ ok: true; viewer: unknown } | { ok: false; error: string }> =>
       ipcRenderer.invoke('jira:connect', args),
 
@@ -2275,7 +2285,7 @@ const api = {
       callback: (event: {
         browserPageId: string
         origin: string
-        action: 'opened-external' | 'blocked'
+        action: 'opened-in-orca' | 'opened-external' | 'blocked'
       }) => void
     ): (() => void) => {
       const listener = (
@@ -2283,7 +2293,7 @@ const api = {
         data: {
           browserPageId: string
           origin: string
-          action: 'opened-external' | 'blocked'
+          action: 'opened-in-orca' | 'opened-external' | 'blocked'
         }
       ) => callback(data)
       ipcRenderer.on('browser:popup', listener)
@@ -2704,6 +2714,7 @@ const api = {
     get: (hostId) => ipcRenderer.invoke('session:get', hostId),
     set: (args, hostId) => ipcRenderer.invoke('session:set', args, hostId),
     patch: (args, hostId) => ipcRenderer.invoke('session:patch', args, hostId),
+    flush: () => ipcRenderer.invoke('session:flush'),
     readTerminalScrollback: (args) =>
       ipcRenderer.sendSync('session:read-terminal-scrollback-sync', args),
     /** Synchronous session save for beforeunload — blocks until flushed to disk. */
@@ -2964,7 +2975,11 @@ const api = {
       connectionId?: string
       includeIgnored?: boolean
       bypassEffectiveUpstreamNegativeCache?: boolean
+      reuseLineStats?: boolean
+      requestToken?: string
     }): Promise<unknown> => ipcRenderer.invoke('git:status', args),
+    cancelStatus: (args: { requestToken: string }): Promise<void> =>
+      ipcRenderer.invoke('git:cancelStatus', args),
     submoduleStatus: (args: {
       worktreePath: string
       submodulePath: string
@@ -3516,6 +3531,16 @@ const api = {
       ipcRenderer.on('terminal:requestTabCreate', listener)
       return () => ipcRenderer.removeListener('terminal:requestTabCreate', listener)
     },
+    onRequestTerminalTabMount: (
+      callback: (data: { worktreeId: string; tabId?: string; ptyId?: string }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { worktreeId: string; tabId?: string; ptyId?: string }
+      ) => callback(data)
+      ipcRenderer.on('terminal:requestTabMount', listener)
+      return () => ipcRenderer.removeListener('terminal:requestTabMount', listener)
+    },
     replyTerminalCreate: (reply: {
       requestId: string
       tabId?: string
@@ -3702,6 +3727,17 @@ const api = {
       ) => callback(data)
       ipcRenderer.on('ui:closeTerminal', listener)
       return () => ipcRenderer.removeListener('ui:closeTerminal', listener)
+    },
+    onTerminalTabCloseRequest: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        request: Parameters<typeof callback>[0]
+      ) => callback(request)
+      ipcRenderer.on('ui:terminalTabCloseRequest', listener)
+      return () => ipcRenderer.removeListener('ui:terminalTabCloseRequest', listener)
+    },
+    respondTerminalTabClose: (response) => {
+      ipcRenderer.send('ui:terminalTabCloseResponse', response)
     },
     onSleepWorktree: (callback: (data: { worktreeId: string }) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, data: { worktreeId: string }) =>

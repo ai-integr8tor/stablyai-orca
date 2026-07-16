@@ -139,6 +139,8 @@ export type ScrollState = {
   viewportY: number
   baseY: number
   firstVisibleLineMarker?: IMarker
+  firstVisibleLogicalLineMarker?: IMarker
+  firstVisibleLogicalCellOffset?: number
 }
 
 export type ManagedPaneInternal = {

@@ -5,9 +5,10 @@ import {
   detachPaneFitResizeObserver
 } from './pane-fit-resize-observer'
 import { clearPendingSplitScrollRestore } from './pane-split-scroll'
+import { cancelDeferredScrollRestore } from './pane-scroll'
 import { activateOrcaTerminalUnicodeProvider } from '../../../../shared/terminal-unicode-provider'
 import { attachTerminalMouseWheelMultiplier } from './pane-terminal-mouse-wheel'
-import { attachTerminalScrollIntentTracking } from './terminal-scroll-intent'
+import { attachTerminalScrollIntentTracking } from './terminal-scroll-intent-dom-tracking'
 import { attachDomRendererFocusClassSync } from './pane-dom-focus-class-sync'
 import { attachWebgl, cancelPendingWebglRefresh, disposeWebgl } from './pane-webgl-renderer'
 import { configureLazyArabicShapingJoiner } from './terminal-arabic-shaping-joiner'
@@ -334,6 +335,8 @@ function createPaneResourceCleanupLedger(pane: ManagedPaneInternal): PaneCleanup
     () => cancelPendingWebglRefresh(pane),
     () => detachPaneFitResizeObserver(pane),
     () => clearPendingSplitScrollRestore(pane),
+    // Why: fit retries and split restoration own independent callbacks.
+    () => cancelDeferredScrollRestore(pane.terminal),
     () => disposeWebgl(pane),
     () => pane.searchAddon.dispose(),
     () => pane.serializeAddon.dispose(),
@@ -365,9 +368,7 @@ export function disposePane(
   const ledger = paneCleanupLedgers.get(pane) ?? createPaneResourceCleanupLedger(pane)
   paneCleanupLedgers.set(pane, ledger)
   runPaneCleanupLedger(ledger.pending, `Pane ${pane.id} cleanup failed`)
-  for (const release of ledger.releases) {
-    release()
-  }
+  ledger.releases.forEach((release) => release())
   paneCleanupLedgers.delete(pane)
   // Why: a failed split can hand an already-disposed pane to the retained close
   // transaction; fixed xterm addons must not receive a second disposal.
