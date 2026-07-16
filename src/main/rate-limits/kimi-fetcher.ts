@@ -1,33 +1,21 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { net } from 'electron'
 import type { ProviderRateLimits, RateLimitWindow } from '../../shared/rate-limit-types'
+import { resolveKimiCredentialLocation } from './kimi-credential-location'
+import {
+  KimiRefreshError,
+  refreshKimiCredentials,
+  type KimiCredentials
+} from './kimi-oauth-refresh'
 
 // Why: Kimi Code's managed coding plan exposes subscription usage at
 // `${base}/usages` (see packages/oauth/src/managed-usage.ts in the CLI bundle).
 // The base URL is overridable via the same env var the CLI honours so Orca
 // stays aligned with a user's self-hosted/staging config.
-const KIMI_BASE_URL = process.env.KIMI_CODE_BASE_URL ?? 'https://api.kimi.com/coding/v1'
 const API_TIMEOUT_MS = 10_000
 
 const SESSION_WINDOW_MINUTES = 300 // 5h
 const WEEKLY_WINDOW_MINUTES = 10080 // 7d
-
-function getKimiHome(): string {
-  // Why: match the CLI's `KIMI_CODE_HOME ?? ~/.kimi-code` resolution so we read
-  // the same OAuth credentials the running Kimi CLI writes.
-  return process.env.KIMI_CODE_HOME ?? join(homedir(), '.kimi-code')
-}
-
-function getCredentialsPath(): string {
-  return join(getKimiHome(), 'credentials', 'kimi-code.json')
-}
-
-type KimiCredentials = {
-  access_token?: string
-  expires_at?: number
-}
 
 type CredentialsReadResult =
   | { status: 'missing' }
@@ -38,18 +26,29 @@ function parseCredentials(value: unknown): KimiCredentials | null {
   if (typeof value !== 'object' || value === null) {
     return null
   }
-  const credentials: KimiCredentials = {}
-  if ('access_token' in value && typeof value.access_token === 'string') {
-    credentials.access_token = value.access_token
+  const credentials: KimiCredentials = { ...(value as Record<string, unknown>) }
+  if (typeof credentials.access_token !== 'string') {
+    delete credentials.access_token
   }
-  if ('expires_at' in value && typeof value.expires_at === 'number') {
-    credentials.expires_at = value.expires_at
+  if (typeof credentials.refresh_token !== 'string') {
+    delete credentials.refresh_token
+  }
+  if (typeof credentials.expires_at !== 'number') {
+    delete credentials.expires_at
+  }
+  if (typeof credentials.expires_in !== 'number') {
+    delete credentials.expires_in
+  }
+  if (typeof credentials.scope !== 'string') {
+    delete credentials.scope
+  }
+  if (typeof credentials.token_type !== 'string') {
+    delete credentials.token_type
   }
   return credentials
 }
 
-function readCredentials(): CredentialsReadResult {
-  const path = getCredentialsPath()
+function readCredentials(path: string): CredentialsReadResult {
   if (!existsSync(path)) {
     return { status: 'missing' }
   }
@@ -213,18 +212,19 @@ function result(status: ProviderRateLimits['status'], error: string | null): Pro
 }
 
 /**
- * Read-only subscription usage for Kimi Code.
+ * Subscription usage for Kimi Code.
  *
- * Why read-only: the access token lives in `~/.kimi-code/credentials/kimi-code.json`
- * and is refreshed by the Kimi CLI itself (15-min TTL, refresh-token rotation).
- * Orca must NEVER refresh or rewrite that file — a rotated refresh token would
- * log out a live `kimi` session. We only read the current token and call the
- * same `GET /usages` endpoint, with the same headers, that the CLI's own
- * `/usage` command uses. The completion endpoint (the one Moonshot gates to
- * approved coding agents) is never touched here.
+ * Why refresh here: Kimi Code 0.9 stores a 15-minute access token plus a
+ * refresh token in `~/.kimi-code/credentials/kimi-code.json`. If the CLI is not
+ * running, nobody rotates that access token, so background usage polling goes
+ * stale. Orca only refreshes this usage token when the cached access token has
+ * already expired, persists any rotated refresh token atomically, then calls
+ * the CLI's same `GET /usages` endpoint. The completion endpoint (the one
+ * Moonshot gates to approved coding agents) is never touched here.
  */
 export async function fetchKimiRateLimits(): Promise<ProviderRateLimits> {
-  const readResult = readCredentials()
+  const location = resolveKimiCredentialLocation()
+  const readResult = readCredentials(location.credentialsPath)
   if (readResult.status === 'missing') {
     return result('unavailable', 'Not signed in to Kimi Code')
   }
@@ -236,14 +236,28 @@ export async function fetchKimiRateLimits(): Promise<ProviderRateLimits> {
     return result('error', 'Kimi credentials file is missing an access token')
   }
   if (!isAccessTokenFresh(creds)) {
-    // Why: don't refresh — the CLI owns the token lifecycle. Report a transient
-    // error so the rate-limit service keeps the last good snapshot (stale
-    // policy) until the user next runs Kimi and the CLI refreshes the file.
-    return result('error', 'Kimi token expired — open Kimi to refresh')
+    if (typeof creds.refresh_token !== 'string' || creds.refresh_token.length === 0) {
+      return result('error', 'Kimi token expired — open Kimi to refresh')
+    }
+    let refreshed: KimiCredentials | null
+    try {
+      refreshed = await refreshKimiCredentials(creds, location)
+    } catch (error) {
+      return result(
+        'error',
+        error instanceof KimiRefreshError && error.kind === 'unauthorized'
+          ? 'Kimi token refresh unauthorized - run kimi login'
+          : 'Kimi token refresh failed - run kimi login'
+      )
+    }
+    if (!refreshed) {
+      return result('error', 'Kimi token refresh failed - run kimi login')
+    }
+    creds.access_token = refreshed.access_token
   }
 
   try {
-    const res = await net.fetch(`${KIMI_BASE_URL.replace(/\/$/, '')}/usages`, {
+    const res = await net.fetch(location.usageUrl, {
       // Why: identical to the CLI's fetchManagedUsage — bearer token + Accept.
       // No extra User-Agent: the usages endpoint authenticates by token only.
       headers: { Authorization: `Bearer ${creds.access_token}`, Accept: 'application/json' },
