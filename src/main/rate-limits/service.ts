@@ -1530,7 +1530,7 @@ export class RateLimitService {
           }),
       zaiConfigResult.error
         ? Promise.resolve(this.getZaiCredentialError(zaiConfigResult.error))
-        : fetchZaiRateLimits({ apiKey: zaiApiKey })
+        : fetchZaiRateLimits({ apiKey: zaiApiKey, signal })
     ])
 
     if (signal.aborted) {
