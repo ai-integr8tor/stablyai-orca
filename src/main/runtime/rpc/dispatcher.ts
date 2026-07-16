@@ -29,19 +29,27 @@ import {
 import { ALL_RPC_METHODS } from './methods'
 import { emulatorProbe, emulatorProbeError } from '../../emulator/emulator-probe'
 import type { OrcaRuntimeService } from '../orca-runtime'
+import { RuntimeClosePolicy } from './runtime-close-policy'
 
 export type DispatcherOptions = {
   runtime: OrcaRuntimeService
   methods?: readonly RpcAnyMethod[]
+  runtimeClosePolicy?: RuntimeClosePolicy
 }
 
 export class RpcDispatcher {
   private readonly runtime: OrcaRuntimeService
   private readonly registry: RpcRegistry
+  private readonly runtimeClosePolicy: RuntimeClosePolicy
 
-  constructor({ runtime, methods = ALL_RPC_METHODS }: DispatcherOptions) {
+  constructor({
+    runtime,
+    methods = ALL_RPC_METHODS,
+    runtimeClosePolicy = new RuntimeClosePolicy()
+  }: DispatcherOptions) {
     this.runtime = runtime
     this.registry = buildRegistry(methods)
+    this.runtimeClosePolicy = runtimeClosePolicy
   }
 
   async dispatch(request: RpcRequest, options?: { signal?: AbortSignal }): Promise<RpcResponse> {
@@ -80,7 +88,8 @@ export class RpcDispatcher {
     try {
       const result = await method.handler(parsedParams.value, {
         runtime: this.runtime,
-        signal: options?.signal
+        signal: options?.signal,
+        runtimeClosePolicy: this.runtimeClosePolicy
       })
       this.recordRuntimeFeatureInteraction(request.method, result, undefined, request.params)
       return successResponse(request.id, meta, result)
@@ -139,6 +148,7 @@ export class RpcDispatcher {
           clientId: options?.clientId,
           deviceId: options?.deviceId,
           clientKind: options?.clientKind,
+          runtimeClosePolicy: this.runtimeClosePolicy,
           pairing: options?.pairing,
           sendBinary: options?.sendBinary,
           registerBinaryStreamHandler: options?.registerBinaryStreamHandler
@@ -175,6 +185,7 @@ export class RpcDispatcher {
           clientId: options?.clientId,
           deviceId: options?.deviceId,
           clientKind: options?.clientKind,
+          runtimeClosePolicy: this.runtimeClosePolicy,
           sendBinary: options?.sendBinary,
           registerBinaryStreamHandler: options?.registerBinaryStreamHandler
         },

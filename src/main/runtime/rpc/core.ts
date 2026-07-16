@@ -11,6 +11,7 @@ import type {
   PairingGetEndpointsResult,
   PairingProvisionRelayParams
 } from '../../../shared/mobile-relay-credential-contract'
+import type { RuntimeClosePolicy } from './runtime-close-policy'
 
 export type PairingRpcContext = {
   getEndpoints(params: PairingGetEndpointsParams): Promise<PairingGetEndpointsResult>
@@ -81,6 +82,9 @@ export type RpcContext = {
   // clients. Carries the paired device's scope so handlers can gate the diet to
   // phones only. Undefined for in-process callers → treat as full-class (no clip).
   clientKind?: 'mobile' | 'runtime'
+  // Why: the dispatcher owns cross-request close intent dedupe, ownership, and
+  // rate state. Optional keeps direct in-process method tests lightweight.
+  runtimeClosePolicy?: RuntimeClosePolicy
   pairing?: PairingRpcContext
   // Why: mobile terminal traffic is byte-oriented and bypasses JSON streaming
   // responses after the binary terminal cutover. Undefined on Unix/socket
