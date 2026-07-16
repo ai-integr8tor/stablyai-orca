@@ -103,6 +103,17 @@ export class ClaudeAccountService {
     return this.serializeMutation(() => this.doAddAccount(target))
   }
 
+  // Why: adds a managed account from an already-authenticated CLAUDE_CONFIG_DIR
+  // instead of driving the interactive browser login here. Enables the
+  // `orca account add` CLI to run `claude login` in the user's own terminal on a
+  // headless host, then register the captured credentials without a desktop GUI.
+  async addAccountFromConfigDir(
+    configDir: string,
+    target?: ClaudeAccountAddTarget
+  ): Promise<ClaudeRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doAddAccountFromConfigDir(configDir, target))
+  }
+
   async reauthenticateAccount(accountId: string): Promise<ClaudeRateLimitAccountsState> {
     return this.serializeMutation(() => this.doReauthenticateAccount(accountId))
   }
@@ -137,47 +148,112 @@ export class ClaudeAccountService {
   ): Promise<ClaudeRateLimitAccountsState> {
     const accountId = randomUUID()
     const managedAuth = this.createManagedAuthDir(accountId, target)
-    const { managedAuthPath } = managedAuth
     const previousSettings = this.store.getSettings()
-
     try {
       const captured = await this.runClaudeLoginAndCapture(managedAuth)
-      if (!captured.identity.email) {
-        throw new Error('Claude login completed, but Orca could not resolve the account email.')
-      }
-      await this.writeManagedAuth(accountId, managedAuthPath, captured)
-
-      const now = Date.now()
-      const account: ClaudeManagedAccount = {
-        id: accountId,
-        email: captured.identity.email,
-        managedAuthPath,
-        managedAuthRuntime: managedAuth.managedAuthRuntime,
-        wslDistro: managedAuth.wslDistro,
-        wslLinuxAuthPath: managedAuth.wslLinuxAuthPath,
-        authMethod: 'subscription-oauth',
-        organizationUuid: captured.identity.organizationUuid,
-        organizationName: captured.identity.organizationName,
-        createdAt: now,
-        updatedAt: now,
-        lastAuthenticatedAt: now
-      }
-
-      const selection = normalizeClaudeRuntimeSelection(previousSettings)
-      this.store.updateSettings({
-        claudeManagedAccounts: [...previousSettings.claudeManagedAccounts, account],
-        activeClaudeManagedAccountId: selection.host,
-        activeClaudeManagedAccountIdsByRuntime: selection
-      })
-      this.runtimeAuth.clearLastWrittenCredentialsJson(accountId)
-      this.rateLimits.evictInactiveClaudeCache(accountId)
-      return this.getSnapshot()
+      return await this.persistCapturedClaudeAccount(
+        accountId,
+        managedAuth,
+        previousSettings,
+        captured
+      )
     } catch (error) {
-      this.restoreClaudeSettings(previousSettings)
-      await this.runtimeAuth.forceMaterializeCurrentSelectionForRollback()
-      await this.safeRemoveManagedAuth(accountId, managedAuthPath)
+      await this.rollbackAddAccount(accountId, managedAuth.managedAuthPath, previousSettings)
       throw error
     }
+  }
+
+  private async doAddAccountFromConfigDir(
+    configDir: string,
+    target?: ClaudeAccountAddTarget
+  ): Promise<ClaudeRateLimitAccountsState> {
+    const accountId = randomUUID()
+    const managedAuth = this.createManagedAuthDir(accountId, target)
+    const previousSettings = this.store.getSettings()
+    try {
+      const captured = await this.captureFromExistingConfigDir(configDir)
+      return await this.persistCapturedClaudeAccount(
+        accountId,
+        managedAuth,
+        previousSettings,
+        captured
+      )
+    } catch (error) {
+      await this.rollbackAddAccount(accountId, managedAuth.managedAuthPath, previousSettings)
+      throw error
+    }
+  }
+
+  // Why: capture credentials from a CLAUDE_CONFIG_DIR the caller already
+  // authenticated (e.g. a temp dir the CLI ran `claude login` into), mirroring
+  // runClaudeLoginAndCapture's capture step but without spawning the interactive
+  // login. On Linux/Windows the credentials live in a plaintext `.credentials.json`.
+  private async captureFromExistingConfigDir(configDir: string): Promise<CapturedClaudeAuth> {
+    const trimmed = configDir.trim()
+    if (!trimmed) {
+      throw new Error('A Claude config directory path is required.')
+    }
+    const resolvedDir = resolve(trimmed)
+    if (!existsSync(join(resolvedDir, '.credentials.json'))) {
+      throw new Error(
+        `No Claude credentials found in ${resolvedDir}. Run \`claude login\` into this directory first.`
+      )
+    }
+    const status = await this.runClaudeCommand(
+      ['auth', 'status', '--json'],
+      { windowsPath: resolvedDir, linuxPath: null, wslDistro: null },
+      STATUS_TIMEOUT_MS,
+      { allowFailure: true }
+    )
+    return this.captureAuthFromConfigDir(resolvedDir, status, null)
+  }
+
+  private async persistCapturedClaudeAccount(
+    accountId: string,
+    managedAuth: ManagedClaudeAuthLocation,
+    previousSettings: ReturnType<Store['getSettings']>,
+    captured: CapturedClaudeAuth
+  ): Promise<ClaudeRateLimitAccountsState> {
+    if (!captured.identity.email) {
+      throw new Error('Claude login completed, but Orca could not resolve the account email.')
+    }
+    await this.writeManagedAuth(accountId, managedAuth.managedAuthPath, captured)
+
+    const now = Date.now()
+    const account: ClaudeManagedAccount = {
+      id: accountId,
+      email: captured.identity.email,
+      managedAuthPath: managedAuth.managedAuthPath,
+      managedAuthRuntime: managedAuth.managedAuthRuntime,
+      wslDistro: managedAuth.wslDistro,
+      wslLinuxAuthPath: managedAuth.wslLinuxAuthPath,
+      authMethod: 'subscription-oauth',
+      organizationUuid: captured.identity.organizationUuid,
+      organizationName: captured.identity.organizationName,
+      createdAt: now,
+      updatedAt: now,
+      lastAuthenticatedAt: now
+    }
+
+    const selection = normalizeClaudeRuntimeSelection(previousSettings)
+    this.store.updateSettings({
+      claudeManagedAccounts: [...previousSettings.claudeManagedAccounts, account],
+      activeClaudeManagedAccountId: selection.host,
+      activeClaudeManagedAccountIdsByRuntime: selection
+    })
+    this.runtimeAuth.clearLastWrittenCredentialsJson(accountId)
+    this.rateLimits.evictInactiveClaudeCache(accountId)
+    return this.getSnapshot()
+  }
+
+  private async rollbackAddAccount(
+    accountId: string,
+    managedAuthPath: string,
+    previousSettings: ReturnType<Store['getSettings']>
+  ): Promise<void> {
+    this.restoreClaudeSettings(previousSettings)
+    await this.runtimeAuth.forceMaterializeCurrentSelectionForRollback()
+    await this.safeRemoveManagedAuth(accountId, managedAuthPath)
   }
 
   private async doReauthenticateAccount(accountId: string): Promise<ClaudeRateLimitAccountsState> {
