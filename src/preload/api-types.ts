@@ -387,6 +387,7 @@ import type {
   WorkspacePortScanRequest,
   WorkspacePortScanResult
 } from '../shared/workspace-ports'
+import type { HostSessionsResult } from '../shared/host-session-types'
 import type { GhAuthDiagnostic } from '../shared/github-auth-types'
 import type {
   SshConnectionState,
@@ -3101,6 +3102,7 @@ export type PreloadApi = {
     removePortForward: (args: { id: string }) => Promise<PortForwardEntry | null>
     listPortForwards: (args?: { targetId?: string }) => Promise<PortForwardEntry[]>
     listDetectedPorts: (args: { targetId: string }) => Promise<EnrichedDetectedPort[]>
+    discoverHostSessions: (args: { targetId: string }) => Promise<HostSessionsResult>
     onPortForwardsChanged: (
       callback: (data: { targetId: string; forwards: PortForwardEntry[] }) => void
     ) => () => void
