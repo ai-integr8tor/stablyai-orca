@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useHostClient, useForceReconnect } from '../transport/client-context'
-import type { RpcSuccess } from '../transport/types'
+import type { RpcSuccess, RuntimeStatusResult } from '../transport/types'
 import type {
   AiVaultListResult,
   AiVaultScanIssue,
@@ -23,8 +23,6 @@ export type AgentHistoryScreenState =
   | { kind: 'unsupported' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; sessions: AiVaultSession[]; issues: AiVaultScanIssue[] }
-
-type StatusWithCapabilities = { capabilities?: string[] }
 
 export type MobileAgentHistoryStateParams = {
   hostId: string
@@ -95,7 +93,7 @@ export function useMobileAgentHistoryState(params: MobileAgentHistoryStateParams
         if (!statusResponse.ok) {
           throw new Error(statusResponse.error?.message || 'Unable to reach host')
         }
-        const status = (statusResponse as RpcSuccess).result as StatusWithCapabilities
+        const status = (statusResponse as RpcSuccess).result as RuntimeStatusResult
         setHostStatusResult(status)
         if (!status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY)) {
           setScreenState({ kind: 'unsupported' })

@@ -2,6 +2,11 @@ import type { RpcClient } from '../transport/rpc-client'
 import type { RpcFailure, RpcSuccess } from '../transport/types'
 
 export const MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS = 24 * 1024 * 1024
+// Binary-byte equivalent of the base64 budget (~18MB). Lets the picker reject an
+// oversized file up front, before reading gigabytes into RN memory (base64 is ~4/3).
+export const MOBILE_ATTACHMENT_MAX_SOURCE_BYTES = Math.floor(
+  (MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS / 4) * 3
+)
 export const MOBILE_CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS = 512 * 1024
 export const MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS = 256 * 1024
 // Why: PNG bytes don't scale exactly with pixel area, so undershoot the target on

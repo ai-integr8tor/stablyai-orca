@@ -3,6 +3,7 @@
 import { Buffer } from 'buffer'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
+import { MOBILE_ATTACHMENT_MAX_SOURCE_BYTES } from './mobile-clipboard-image'
 
 export type MobileAttachmentSource = 'library' | 'files'
 
@@ -76,6 +77,12 @@ async function pickFromFiles(
   const asset = result.assets[0]
   if (!asset?.uri) {
     return null
+  }
+  // Why: reject by the picker's reported size before materializing the file, so a
+  // multi-GB pick fails with the size toast instead of OOM-ing the RN process. The
+  // base64 length check still backstops sources that report no size.
+  if (asset.size != null && asset.size > MOBILE_ATTACHMENT_MAX_SOURCE_BYTES) {
+    throw new Error('Clipboard image is too large')
   }
   const base64 = await readUriAsBase64(asset.uri)
   return asset.name ? { base64, fileName: asset.name } : { base64 }

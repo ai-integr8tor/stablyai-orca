@@ -5,9 +5,7 @@ import {
   TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY
 } from '../../../src/shared/protocol-version'
 import type { RpcClient } from '../transport/rpc-client'
-import type { ConnectionState, RpcSuccess } from '../transport/types'
-
-type StatusWithCapabilities = { capabilities?: string[] }
+import type { ConnectionState, RpcSuccess, RuntimeStatusResult } from '../transport/types'
 
 type HostRuntimeCapabilities = {
   readonly browserScreencastSupported: boolean | null
@@ -26,8 +24,14 @@ type HostRuntimeCapabilities = {
   readonly hostQueryReplyInputSupportedRef: MutableRefObject<boolean>
 }
 
-// Probes status.get once per connection and exposes which gated host features
-// this session may use. Everything resets to "unsupported" on disconnect.
+// Why: a single transient status.get failure must not latch every gated feature
+// off for the whole connection (e.g. a capable host stuck on the image-only
+// picker), so retry a few times with backoff before giving up.
+const CAPABILITY_PROBE_MAX_ATTEMPTS = 3
+const CAPABILITY_PROBE_RETRY_BASE_MS = 1000
+
+// Probes status.get per connection (with bounded retry) and exposes which gated
+// host features this session may use. Everything resets on disconnect.
 export function useHostRuntimeCapabilities(
   client: Pick<RpcClient, 'sendRequest'> | null,
   connState: ConnectionState
@@ -48,35 +52,60 @@ export function useHostRuntimeCapabilities(
       return
     }
     let stale = false
-    void client
-      .sendRequest('status.get')
-      .then((response) => {
-        if (stale || !response.ok) {
-          return
-        }
-        const status = (response as RpcSuccess).result as StatusWithCapabilities
-        setBrowserScreencastSupported(
-          status.capabilities?.includes('browser.screencast.v1') === true
-        )
-        setAgentSessionHistorySupported(
-          status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY) === true
-        )
-        setFileAttachmentsSupported(
-          status.capabilities?.includes(CLIPBOARD_FILE_UPLOAD_RUNTIME_CAPABILITY) === true
-        )
-        hostQueryReplyInputSupportedRef.current =
-          status.capabilities?.includes(TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY) === true
-      })
-      .catch(() => {
-        if (!stale) {
-          setBrowserScreencastSupported(false)
-          setAgentSessionHistorySupported(false)
-          setFileAttachmentsSupported(false)
-          hostQueryReplyInputSupportedRef.current = false
-        }
-      })
+    const retryTimers: ReturnType<typeof setTimeout>[] = []
+
+    const applyUnsupported = (): void => {
+      setBrowserScreencastSupported(false)
+      setAgentSessionHistorySupported(false)
+      setFileAttachmentsSupported(false)
+      hostQueryReplyInputSupportedRef.current = false
+    }
+
+    const scheduleRetry = (attempt: number): void => {
+      if (attempt >= CAPABILITY_PROBE_MAX_ATTEMPTS) {
+        applyUnsupported()
+        return
+      }
+      retryTimers.push(
+        setTimeout(() => probe(attempt + 1), CAPABILITY_PROBE_RETRY_BASE_MS * attempt)
+      )
+    }
+
+    const probe = (attempt: number): void => {
+      void client
+        .sendRequest('status.get')
+        .then((response) => {
+          if (stale) {
+            return
+          }
+          if (!response.ok) {
+            scheduleRetry(attempt)
+            return
+          }
+          const status = (response as RpcSuccess).result as RuntimeStatusResult
+          setBrowserScreencastSupported(
+            status.capabilities?.includes('browser.screencast.v1') === true
+          )
+          setAgentSessionHistorySupported(
+            status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY) === true
+          )
+          setFileAttachmentsSupported(
+            status.capabilities?.includes(CLIPBOARD_FILE_UPLOAD_RUNTIME_CAPABILITY) === true
+          )
+          hostQueryReplyInputSupportedRef.current =
+            status.capabilities?.includes(TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY) === true
+        })
+        .catch(() => {
+          if (!stale) {
+            scheduleRetry(attempt)
+          }
+        })
+    }
+
+    probe(1)
     return () => {
       stale = true
+      retryTimers.forEach(clearTimeout)
     }
   }, [client, connState])
 
