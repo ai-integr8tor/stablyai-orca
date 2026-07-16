@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
-import { attachMobileImageToTerminal } from './mobile-image-attachment'
+import { attachMobileFileToTerminal } from './mobile-terminal-attachment'
 import {
   ImageLibraryPermissionError,
-  pickMobileImage,
-  type MobileImageSource
-} from './mobile-image-source-picker'
+  pickMobileAttachment,
+  type MobileAttachmentSource
+} from './mobile-attachment-picker'
 
 type CurrentRef<T> = {
   readonly current: T
@@ -14,11 +14,14 @@ type CurrentRef<T> = {
 
 type ShowToast = (message: string, durationMs?: number) => void
 
-type UseMobileImageAttachmentArgs = {
+type UseMobileTerminalAttachmentArgs = {
   readonly client: RpcClient | null
   readonly activeHandle: string | null
   readonly canSend: boolean
   readonly connState: ConnectionState
+  // True when the host advertises clipboard.file-upload.v1: unfiltered picker
+  // only on hosts that honor fileName.
+  readonly canAttachAnyFile: boolean
   readonly deviceTokenRef: CurrentRef<string | null>
   readonly getActiveWorktreeConnectionId: () => Promise<string | null>
   readonly showToast: ShowToast
@@ -27,10 +30,10 @@ type UseMobileImageAttachmentArgs = {
   readonly beforeTerminalSend?: (terminal: string) => Promise<boolean>
 }
 
-type MobileImageAttachment = {
-  readonly attachImage: (source: MobileImageSource) => Promise<void>
-  // True only while the picked image is uploading to the host (not while the
-  // picker is open) — drives the send spinner so the 3-5s transfer isn't a no-op.
+type MobileTerminalAttachment = {
+  readonly attachToTerminal: (source: MobileAttachmentSource) => Promise<void>
+  // True only while the picked attachment is uploading to the host (not while
+  // the picker is open) — drives the send spinner so the 3-5s transfer isn't a no-op.
   readonly isAttaching: boolean
 }
 
@@ -38,31 +41,36 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function useMobileImageAttachment({
+export function useMobileTerminalAttachment({
   client,
   activeHandle,
   canSend,
   connState,
+  canAttachAnyFile,
   deviceTokenRef,
   getActiveWorktreeConnectionId,
   showToast,
   onSuccess,
   onError,
   beforeTerminalSend
-}: UseMobileImageAttachmentArgs): MobileImageAttachment {
+}: UseMobileTerminalAttachmentArgs): MobileTerminalAttachment {
   const [isAttaching, setIsAttaching] = useState(false)
-  const attachImage = useCallback(
-    async (source: MobileImageSource): Promise<void> => {
+  const attachToTerminal = useCallback(
+    async (source: MobileAttachmentSource): Promise<void> => {
       if (!client || !activeHandle || !canSend) {
         return
       }
       try {
-        const sent = await attachMobileImageToTerminal(source, {
+        const sent = await attachMobileFileToTerminal(source, {
           client,
           terminal: activeHandle,
           deviceToken: deviceTokenRef.current,
           getConnectionId: getActiveWorktreeConnectionId,
-          pickImage: pickMobileImage,
+          // Explicit wrapper: pickMobileAttachment's second param is test-only
+          // deps, so passing it bare would swallow the picker options.
+          pickAttachment: (pickSource, options) =>
+            pickMobileAttachment(pickSource, undefined, options),
+          canAttachAnyFile,
           onUploadStart: () => setIsAttaching(true),
           beforeTerminalSend
         })
@@ -81,7 +89,12 @@ export function useMobileImageAttachment({
           return
         }
         if (getErrorMessage(error) === 'Clipboard image is too large') {
-          showToast('Image too large to attach', 1500)
+          // Document picks have no downscale path, so oversized files fail
+          // fast; word the toast for whichever picker the user came from.
+          showToast(
+            source === 'files' ? 'File too large to attach' : 'Image too large to attach',
+            1500
+          )
           return
         }
         showToast('Attach failed', 1500)
@@ -92,6 +105,7 @@ export function useMobileImageAttachment({
     [
       activeHandle,
       beforeTerminalSend,
+      canAttachAnyFile,
       canSend,
       client,
       connState,
@@ -103,5 +117,5 @@ export function useMobileImageAttachment({
     ]
   )
 
-  return { attachImage, isAttaching }
+  return { attachToTerminal, isAttaching }
 }

@@ -30,7 +30,7 @@ export function MobileTerminalLiveInputStatus({
       : dictation.isStarting
         ? 'Preparing microphone'
         : isAttaching
-          ? 'Uploading image to host'
+          ? 'Uploading attachment to host'
           : 'Tap to show keyboard'
 
   return (

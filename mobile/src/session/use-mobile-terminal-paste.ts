@@ -8,7 +8,7 @@ import type { ConnectionState } from '../transport/types'
 import {
   buildMobileImagePastePayload,
   prepareMobileClipboardImageBase64,
-  saveMobileClipboardImageAsTempFile,
+  saveMobileAttachmentAsTempFile,
   type MobileClipboardImageResizer
 } from './mobile-clipboard-image'
 
@@ -127,7 +127,7 @@ export function useMobileTerminalPaste({
         }
         const connectionId = await getActiveWorktreeConnectionId()
         const base64 = await prepareMobileClipboardImageBase64(image, resizeMobileClipboardImage)
-        const imagePath = await saveMobileClipboardImageAsTempFile(client, base64, {
+        const imagePath = await saveMobileAttachmentAsTempFile(client, base64, {
           connectionId
         })
         payload = buildMobileImagePastePayload(imagePath)

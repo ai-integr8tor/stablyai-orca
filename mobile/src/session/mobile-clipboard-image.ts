@@ -99,16 +99,20 @@ function assertSuccess<T>(response: RpcSuccess | RpcFailure): T {
   return response.result as T
 }
 
-export async function saveMobileClipboardImageAsTempFile(
+export async function saveMobileAttachmentAsTempFile(
   client: Pick<RpcClient, 'sendRequest'>,
   imageData: string,
-  args?: { connectionId?: string | null }
+  args?: { connectionId?: string | null; fileName?: string | null }
 ): Promise<string> {
   const contentBase64 = normalizeMobileClipboardImageBase64(imageData)
   const connectionId = args?.connectionId ?? null
+  // Why: omit fileName entirely when absent so existing image-paste requests
+  // stay byte-identical for old hosts.
+  const fileNameParam = args?.fileName ? { fileName: args.fileName } : {}
   const startResponse = await client.sendRequest('clipboard.startImageUpload', {
     expectedBase64Length: contentBase64.length,
-    connectionId
+    connectionId,
+    ...fileNameParam
   })
 
   if (!startResponse.ok) {
@@ -117,7 +121,11 @@ export async function saveMobileClipboardImageAsTempFile(
       contentBase64.length <= MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS
     ) {
       return assertSuccess<string>(
-        await client.sendRequest('clipboard.saveImageAsTempFile', { contentBase64, connectionId })
+        await client.sendRequest('clipboard.saveImageAsTempFile', {
+          contentBase64,
+          connectionId,
+          ...fileNameParam
+        })
       )
     }
     throw new Error(startResponse.error.message)

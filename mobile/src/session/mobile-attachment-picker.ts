@@ -4,11 +4,19 @@ import { Buffer } from 'buffer'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
 
-export type MobileImageSource = 'library' | 'files'
+export type MobileAttachmentSource = 'library' | 'files'
 
-export type PickedMobileImage = {
+export type PickedMobileAttachment = {
   // Raw base64 (no data: prefix); fed straight into the existing upload pipeline.
   readonly base64: string
+  // Original name of a document pick; photo-library picks stay nameless pastes.
+  readonly fileName?: string
+}
+
+export type MobileAttachmentPickerOptions = {
+  // Only set when the host advertises clipboard.file-upload.v1 — old hosts
+  // would strip the name and save any pick as `….png`.
+  readonly allowAnyFile?: boolean
 }
 
 export class ImageLibraryPermissionError extends Error {
@@ -30,7 +38,7 @@ async function readUriAsBase64(uri: string): Promise<string> {
 async function pickFromLibrary(
   requestPermission: typeof ImagePicker.requestMediaLibraryPermissionsAsync = ImagePicker.requestMediaLibraryPermissionsAsync,
   launch: typeof ImagePicker.launchImageLibraryAsync = ImagePicker.launchImageLibraryAsync
-): Promise<PickedMobileImage | null> {
+): Promise<PickedMobileAttachment | null> {
   const permission = await requestPermission()
   // Why: `granted` covers full + limited iOS access; only a hard denial blocks us.
   if (!permission.granted) {
@@ -54,10 +62,11 @@ async function pickFromLibrary(
 }
 
 async function pickFromFiles(
+  allowAnyFile: boolean,
   launch: typeof DocumentPicker.getDocumentAsync = DocumentPicker.getDocumentAsync
-): Promise<PickedMobileImage | null> {
+): Promise<PickedMobileAttachment | null> {
   const result = await launch({
-    type: 'image/*',
+    type: allowAnyFile ? '*/*' : 'image/*',
     multiple: false,
     copyToCacheDirectory: true
   })
@@ -68,19 +77,21 @@ async function pickFromFiles(
   if (!asset?.uri) {
     return null
   }
-  return { base64: await readUriAsBase64(asset.uri) }
+  const base64 = await readUriAsBase64(asset.uri)
+  return asset.name ? { base64, fileName: asset.name } : { base64 }
 }
 
-export async function pickMobileImage(
-  source: MobileImageSource,
+export async function pickMobileAttachment(
+  source: MobileAttachmentSource,
   deps?: {
     readonly requestLibraryPermission?: typeof ImagePicker.requestMediaLibraryPermissionsAsync
     readonly launchLibrary?: typeof ImagePicker.launchImageLibraryAsync
     readonly launchFiles?: typeof DocumentPicker.getDocumentAsync
-  }
-): Promise<PickedMobileImage | null> {
+  },
+  options?: MobileAttachmentPickerOptions
+): Promise<PickedMobileAttachment | null> {
   if (source === 'library') {
     return pickFromLibrary(deps?.requestLibraryPermission, deps?.launchLibrary)
   }
-  return pickFromFiles(deps?.launchFiles)
+  return pickFromFiles(options?.allowAnyFile === true, deps?.launchFiles)
 }
