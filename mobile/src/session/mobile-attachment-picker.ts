@@ -2,8 +2,12 @@
 // can't resolve Node's builtin in a React Native bundle.
 import { Buffer } from 'buffer'
 import * as DocumentPicker from 'expo-document-picker'
+import { File as FsFile } from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
-import { MOBILE_ATTACHMENT_MAX_SOURCE_BYTES } from './mobile-clipboard-image'
+import {
+  MOBILE_ATTACHMENT_MAX_SOURCE_BYTES,
+  MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR
+} from './mobile-clipboard-image'
 
 export type MobileAttachmentSource = 'library' | 'files'
 
@@ -18,6 +22,9 @@ export type MobileAttachmentPickerOptions = {
   // Only set when the host advertises clipboard.file-upload.v1 — old hosts
   // would strip the name and save any pick as `….png`.
   readonly allowAnyFile?: boolean
+  // Fired right before the picked file is read + base64-encoded, which blocks
+  // the JS thread for seconds on large picks — lets the UI show a spinner first.
+  readonly onWillReadFile?: () => void
 }
 
 export class ImageLibraryPermissionError extends Error {
@@ -28,8 +35,7 @@ export class ImageLibraryPermissionError extends Error {
 }
 
 // Why: expo-document-picker returns a file URI, not base64. Read it through
-// fetch + Buffer so we match the base64 contract the upload pipeline expects
-// without pulling in expo-file-system.
+// fetch + Buffer so we match the base64 contract the upload pipeline expects.
 async function readUriAsBase64(uri: string): Promise<string> {
   const response = await fetch(uri)
   const bytes = new Uint8Array(await response.arrayBuffer())
@@ -62,9 +68,21 @@ async function pickFromLibrary(
   return { base64 }
 }
 
+function statFileSize(uri: string): number | null {
+  // Why: some document providers omit size from the picker result; a filesystem
+  // stat is the last cheap chance to reject an oversized pick before the read
+  // materializes it (and its 4/3-size base64) in JS memory.
+  try {
+    return new FsFile(uri).size ?? null
+  } catch {
+    return null
+  }
+}
+
 async function pickFromFiles(
   allowAnyFile: boolean,
-  launch: typeof DocumentPicker.getDocumentAsync = DocumentPicker.getDocumentAsync
+  launch: typeof DocumentPicker.getDocumentAsync = DocumentPicker.getDocumentAsync,
+  onWillReadFile?: () => void
 ): Promise<PickedMobileAttachment | null> {
   const result = await launch({
     type: allowAnyFile ? '*/*' : 'image/*',
@@ -78,12 +96,14 @@ async function pickFromFiles(
   if (!asset?.uri) {
     return null
   }
-  // Why: reject by the picker's reported size before materializing the file, so a
-  // multi-GB pick fails with the size toast instead of OOM-ing the RN process. The
-  // base64 length check still backstops sources that report no size.
-  if (asset.size != null && asset.size > MOBILE_ATTACHMENT_MAX_SOURCE_BYTES) {
-    throw new Error('Clipboard image is too large')
+  // Why: reject by the picker's reported size (or a stat when it reports none)
+  // before materializing the file, so a multi-GB pick fails with the size toast
+  // instead of OOM-ing the RN process.
+  const size = asset.size ?? statFileSize(asset.uri)
+  if (size != null && size > MOBILE_ATTACHMENT_MAX_SOURCE_BYTES) {
+    throw new Error(MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR)
   }
+  onWillReadFile?.()
   const base64 = await readUriAsBase64(asset.uri)
   return asset.name ? { base64, fileName: asset.name } : { base64 }
 }
@@ -100,5 +120,5 @@ export async function pickMobileAttachment(
   if (source === 'library') {
     return pickFromLibrary(deps?.requestLibraryPermission, deps?.launchLibrary)
   }
-  return pickFromFiles(options?.allowAnyFile === true, deps?.launchFiles)
+  return pickFromFiles(options?.allowAnyFile === true, deps?.launchFiles, options?.onWillReadFile)
 }

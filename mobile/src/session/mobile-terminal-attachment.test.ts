@@ -46,7 +46,7 @@ describe('attachMobileFileToTerminal', () => {
       pickAttachment: vi.fn().mockResolvedValue({ base64: 'AAAA' })
     })
 
-    expect(sent).toBe(true)
+    expect(sent).toBe('sent')
     const sendCall = client.calls.find((c) => c.method === 'terminal.send')
     expect(sendCall?.params).toEqual({
       terminal: 'term-1',
@@ -80,7 +80,7 @@ describe('attachMobileFileToTerminal', () => {
     expect(saveCall?.params).toMatchObject({ connectionId: 'conn-ssh' })
   })
 
-  it('does nothing and returns false when the picker is cancelled', async () => {
+  it('does nothing and reports cancelled when the picker is closed', async () => {
     const client = clientWithResponses([])
 
     const sent = await attachMobileFileToTerminal('library', {
@@ -91,7 +91,7 @@ describe('attachMobileFileToTerminal', () => {
       pickAttachment: vi.fn().mockResolvedValue(null)
     })
 
-    expect(sent).toBe(false)
+    expect(sent).toBe('cancelled')
     expect(client.calls).toEqual([])
   })
 
@@ -128,7 +128,7 @@ describe('attachMobileFileToTerminal', () => {
         _meta: { runtimeId: 'r' }
       },
       ok('save', '/tmp/orca-file-notes.txt'),
-      ok('send', { ok: true })
+      ok('send', { send: { accepted: true } })
     ])
 
     await attachMobileFileToTerminal('files', {
@@ -195,7 +195,7 @@ describe('attachMobileFileToTerminal', () => {
       beforeTerminalSend
     })
 
-    expect(sent).toBe(false)
+    expect(sent).toBe('input-lease-dropped')
     expect(beforeTerminalSend).toHaveBeenCalledWith('term-pending')
     expect(client.calls.some((call) => call.method === 'terminal.send')).toBe(false)
   })
@@ -220,6 +220,6 @@ describe('attachMobileFileToTerminal', () => {
       pickAttachment: vi.fn().mockResolvedValue({ base64: 'EEEE' })
     })
 
-    expect(sent).toBe(false)
+    expect(sent).toBe('send-rejected')
   })
 })

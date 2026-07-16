@@ -30,10 +30,14 @@ export type AttachMobileFileDeps = {
   readonly beforeTerminalSend?: (terminal: string) => Promise<boolean>
 }
 
+// Discriminates the non-thrown outcomes so the caller can react precisely:
+// 'input-lease-dropped' is already toasted by the lease gate, while
+// 'send-rejected' happens after a completed upload and must not stay silent.
+export type AttachMobileFileResult = 'sent' | 'cancelled' | 'input-lease-dropped' | 'send-rejected'
+
 // Uploads a picked attachment to the host and pastes the resulting file path into
 // the active terminal — the same bracketed-path payload desktop image paste sends,
-// so TUIs (Claude Code, etc.) attach it exactly as a desktop paste. Returns false
-// when the user cancelled the picker.
+// so TUIs (Claude Code, etc.) attach it exactly as a desktop paste.
 export async function attachMobileFileToTerminal(
   source: MobileAttachmentSource,
   {
@@ -46,10 +50,15 @@ export async function attachMobileFileToTerminal(
     onUploadStart,
     beforeTerminalSend
   }: AttachMobileFileDeps
-): Promise<boolean> {
-  const picked = await pickAttachment(source, { allowAnyFile: canAttachAnyFile === true })
+): Promise<AttachMobileFileResult> {
+  const picked = await pickAttachment(source, {
+    allowAnyFile: canAttachAnyFile === true,
+    // Spinner must cover the base64 encode of large document picks, which
+    // blocks the JS thread before the upload itself even starts.
+    onWillReadFile: onUploadStart
+  })
   if (!picked) {
-    return false
+    return 'cancelled'
   }
   onUploadStart?.()
   const connectionId = await getConnectionId()
@@ -61,7 +70,7 @@ export async function attachMobileFileToTerminal(
   // bracketed (matching desktop paste) regardless of terminal mode.
   const payload = buildMobileImagePastePayload(imagePath)
   if (beforeTerminalSend && !(await beforeTerminalSend(terminal))) {
-    return false
+    return 'input-lease-dropped'
   }
   const response = await client.sendRequest('terminal.send', {
     terminal,
@@ -69,5 +78,5 @@ export async function attachMobileFileToTerminal(
     enter: false,
     ...(deviceToken ? { client: { id: deviceToken, type: 'mobile' as const } } : {})
   })
-  return isTerminalSendRpcAccepted(response)
+  return isTerminalSendRpcAccepted(response) ? 'sent' : 'send-rejected'
 }

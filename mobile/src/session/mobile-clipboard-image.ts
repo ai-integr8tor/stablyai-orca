@@ -14,13 +14,17 @@ export const MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS = 256 * 1
 const MOBILE_CLIPBOARD_IMAGE_DOWNSCALE_SAFETY = 0.85
 const MOBILE_CLIPBOARD_IMAGE_MAX_DOWNSCALE_ATTEMPTS = 3
 
+// Single source of truth: pickers throw it and the attach/paste hooks compare
+// against it to choose the size-specific toast.
+export const MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR = 'Clipboard image is too large'
+
 const DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+;base64,/i
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
 export function normalizeMobileClipboardImageBase64(data: string): string {
   const contentBase64 = data.replace(DATA_URL_PREFIX_RE, '')
   if (contentBase64.length > MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS) {
-    throw new Error('Clipboard image is too large')
+    throw new Error(MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR)
   }
   if (contentBase64.length % 4 === 1 || !BASE64_PATTERN.test(contentBase64)) {
     throw new Error('Clipboard image content must be base64')

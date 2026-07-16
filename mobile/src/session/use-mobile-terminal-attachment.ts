@@ -7,6 +7,7 @@ import {
   pickMobileAttachment,
   type MobileAttachmentSource
 } from './mobile-attachment-picker'
+import { MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR } from './mobile-clipboard-image'
 
 type CurrentRef<T> = {
   readonly current: T
@@ -18,7 +19,9 @@ type UseMobileTerminalAttachmentArgs = {
   readonly client: RpcClient | null
   readonly activeHandle: string | null
   readonly canSend: boolean
-  readonly connState: ConnectionState
+  // Ref, not value: uploads run for seconds, and the disconnect toast must
+  // reflect the connection state at failure time, not at callback creation.
+  readonly connStateRef: CurrentRef<ConnectionState>
   // True when the host advertises clipboard.file-upload.v1: unfiltered picker
   // only on hosts that honor fileName.
   readonly canAttachAnyFile: boolean
@@ -45,7 +48,7 @@ export function useMobileTerminalAttachment({
   client,
   activeHandle,
   canSend,
-  connState,
+  connStateRef,
   canAttachAnyFile,
   deviceTokenRef,
   getActiveWorktreeConnectionId,
@@ -61,7 +64,7 @@ export function useMobileTerminalAttachment({
         return
       }
       try {
-        const sent = await attachMobileFileToTerminal(source, {
+        const outcome = await attachMobileFileToTerminal(source, {
           client,
           terminal: activeHandle,
           deviceToken: deviceTokenRef.current,
@@ -74,13 +77,19 @@ export function useMobileTerminalAttachment({
           onUploadStart: () => setIsAttaching(true),
           beforeTerminalSend
         })
-        // Cancelled picker: no error, no toast.
-        if (sent) {
+        if (outcome === 'sent') {
           onSuccess()
+        } else if (outcome === 'send-rejected') {
+          // The upload finished but the terminal refused the pasted path —
+          // silent loss here would look like the attachment simply vanished.
+          onError()
+          showToast('Attach failed', 1500)
         }
+        // 'cancelled': user closed the picker. 'input-lease-dropped': the
+        // lease gate already showed its own toast.
       } catch (error) {
         onError()
-        if (connState !== 'connected') {
+        if (connStateRef.current !== 'connected') {
           showToast('Attach failed (disconnected)', 1500)
           return
         }
@@ -88,7 +97,7 @@ export function useMobileTerminalAttachment({
           showToast('Photo permission denied', 1500)
           return
         }
-        if (getErrorMessage(error) === 'Clipboard image is too large') {
+        if (getErrorMessage(error) === MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR) {
           // Document picks have no downscale path, so oversized files fail
           // fast; word the toast for whichever picker the user came from.
           showToast(
@@ -108,7 +117,7 @@ export function useMobileTerminalAttachment({
       canAttachAnyFile,
       canSend,
       client,
-      connState,
+      connStateRef,
       deviceTokenRef,
       getActiveWorktreeConnectionId,
       onError,

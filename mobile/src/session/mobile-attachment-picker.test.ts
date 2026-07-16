@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: vi.fn(),
@@ -6,6 +6,15 @@ vi.mock('expo-image-picker', () => ({
 }))
 vi.mock('expo-document-picker', () => ({
   getDocumentAsync: vi.fn()
+}))
+// Controls what the stat fallback sees when the picker omits asset.size.
+let statSize: number | null = null
+vi.mock('expo-file-system', () => ({
+  File: class {
+    get size(): number | null {
+      return statSize
+    }
+  }
 }))
 
 import { ImageLibraryPermissionError, pickMobileAttachment } from './mobile-attachment-picker'
@@ -16,6 +25,10 @@ const granted = { granted: true } as Awaited<
 const denied = { granted: false } as typeof granted
 
 describe('pickMobileAttachment', () => {
+  beforeEach(() => {
+    statSize = null
+  })
+
   it('returns base64 from the photo library', async () => {
     const result = await pickMobileAttachment('library', {
       requestLibraryPermission: vi.fn().mockResolvedValue(granted),
@@ -91,6 +104,44 @@ describe('pickMobileAttachment', () => {
       pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
     ).rejects.toThrow('too large')
     expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('stats the file when the picker omits size, still failing fast when oversized', async () => {
+    statSize = 999 * 1024 * 1024
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const launchFiles = vi.fn().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///big.zip', name: 'big.zip' }]
+    })
+
+    await expect(
+      pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
+    ).rejects.toThrow('too large')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('fires onWillReadFile after the size guard and before the base64 read', async () => {
+    const events: string[] = []
+    const bytes = new Uint8Array([9])
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      events.push('read')
+      return new Response(bytes.buffer)
+    })
+
+    await pickMobileAttachment(
+      'files',
+      {
+        launchFiles: vi.fn().mockResolvedValue({
+          canceled: false,
+          assets: [{ uri: 'file:///doc.pdf', name: 'doc.pdf', size: 10 }]
+        })
+      },
+      { allowAnyFile: true, onWillReadFile: () => events.push('will-read') }
+    )
+
+    expect(events).toEqual(['will-read', 'read'])
     fetchSpy.mockRestore()
   })
 

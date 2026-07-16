@@ -9,7 +9,8 @@ import {
   buildMobileImagePastePayload,
   prepareMobileClipboardImageBase64,
   saveMobileAttachmentAsTempFile,
-  type MobileClipboardImageResizer
+  type MobileClipboardImageResizer,
+  MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR
 } from './mobile-clipboard-image'
 
 const CLIPBOARD_IMAGE_DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+;base64,/i
@@ -173,7 +174,7 @@ export function useMobileTerminalPaste({
       console.warn('[mobile-clip] paste failed', { name: err.name, message: err.message })
       if (isDisconnected) {
         showToast('Paste failed (disconnected)', 1500)
-      } else if (err.message === 'Clipboard image is too large') {
+      } else if (err.message === MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR) {
         showToast('Image too large to paste', 1500)
       } else {
         showToast('Paste failed', 1500)
