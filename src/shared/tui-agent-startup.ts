@@ -13,13 +13,16 @@ import {
   resolveStartupShell,
   type AgentStartupShell
 } from './tui-agent-startup-shell'
-import { getTuiAgentLaunchCommand, TUI_AGENT_CONFIG } from './tui-agent-config'
+import {
+  getTuiAgentLaunchCommand,
+  getTuiAgentPromptInjectionMode,
+  TUI_AGENT_CONFIG
+} from './tui-agent-config'
 import type { StartupCommandDelivery } from './codex-startup-delivery'
 import { buildSleepingAgentLaunchConfig } from './sleeping-agent-launch-config'
 import { planHermesStartupQuery } from './hermes-startup-query'
 import { inlineAgentDraftFitsPlatform } from './agent-draft-platform-limit'
 import type { TuiAgent } from './types'
-
 export type AgentStartupPlan = {
   agent: TuiAgent
   launchCommand: string
@@ -64,15 +67,14 @@ export function buildAgentStartupPlan(args: {
   allowEmptyPromptLaunch?: boolean
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
-  /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
-   * `orca-ide` rename must be skipped for remote launches. */
   isRemote?: boolean
 }): AgentStartupPlan | null {
   const { agent, prompt, cmdOverrides, platform, allowEmptyPromptLaunch = false } = args
   const shell = resolveStartupShell(platform, args.shell)
   const trimmedPrompt = prompt.trim()
-  const config = TUI_AGENT_CONFIG[agent]
-  const usesQuery = config.promptInjectionMode === 'hermes-query' && Boolean(trimmedPrompt)
+  const config = TUI_AGENT_CONFIG[agent],
+    promptInjectionMode = getTuiAgentPromptInjectionMode(agent, platform)
+  const usesQuery = promptInjectionMode === 'hermes-query' && Boolean(trimmedPrompt)
   const baseCommand = resolveBaseCommand({
     agent,
     cmdOverrides,
@@ -88,7 +90,6 @@ export function buildAgentStartupPlan(args: {
     ...args,
     agentCommand: baseCommand.command
   })
-
   if (!trimmedPrompt) {
     if (!allowEmptyPromptLaunch) {
       return null
@@ -104,12 +105,10 @@ export function buildAgentStartupPlan(args: {
   }
 
   const quotedPrompt = quoteStartupArg(trimmedPrompt, shell)
-
-  if (config.promptInjectionMode === 'argv') {
-    const promptSeparator = config.argvPromptSeparator ? ` ${config.argvPromptSeparator}` : ''
+  if (promptInjectionMode === 'argv') {
     return {
       agent,
-      launchCommand: `${baseCommand.command}${promptSeparator} ${quotedPrompt}`,
+      launchCommand: `${baseCommand.command}${config.argvPromptSeparator ? ` ${config.argvPromptSeparator}` : ''} ${quotedPrompt}`,
       expectedProcess: config.expectedProcess,
       followupPrompt: null,
       launchConfig,
@@ -118,7 +117,7 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
-  if (config.promptInjectionMode === 'flag-prompt') {
+  if (promptInjectionMode === 'flag-prompt') {
     return {
       agent,
       launchCommand: `${baseCommand.command} --prompt ${quotedPrompt}`,
@@ -129,7 +128,7 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
-  if (config.promptInjectionMode === 'hermes-query') {
+  if (promptInjectionMode === 'hermes-query') {
     const queryPlan = planHermesStartupQuery({
       baseCommand: baseCommand.command,
       agentArgs: args.agentArgs,
@@ -144,8 +143,6 @@ export function buildAgentStartupPlan(args: {
     }
     return {
       agent,
-      // Why: Hermes owns readiness and submission for `chat --query`; Orca
-      // only bounds and quotes the native invocation before starting the TUI.
       launchCommand: queryPlan.command,
       expectedProcess: config.expectedProcess,
       followupPrompt: null,
@@ -154,7 +151,7 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
-  if (config.promptInjectionMode === 'flag-prompt-interactive') {
+  if (promptInjectionMode === 'flag-prompt-interactive') {
     return {
       agent,
       launchCommand: `${baseCommand.command} --prompt-interactive ${quotedPrompt}`,
@@ -165,7 +162,7 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
-  if (config.promptInjectionMode === 'flag-interactive') {
+  if (promptInjectionMode === 'flag-interactive') {
     return {
       agent,
       launchCommand: `${baseCommand.command} -i ${quotedPrompt}`,
@@ -195,7 +192,6 @@ export function buildAgentResumeStartupPlan(args: {
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
-  /** Why: see buildAgentStartupPlan — remote launches use the plain `orca` shim. */
   isRemote?: boolean
 }): AgentStartupPlan | null {
   const argv = getAgentResumeArgv(args.agent, args.providerSession)
