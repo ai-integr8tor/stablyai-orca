@@ -24,10 +24,16 @@ const ATTACHMENT_FILE_NAME_MAX_BYTES = 80
 // name lands in a path pasted verbatim into the user's live terminal, where a
 // space breaks path tokenization and `;`/`$()`/backticks would execute on Enter.
 const SAFE_ATTACHMENT_FILE_NAME_CHAR = /[\p{L}\p{N}\p{M}._-]/u
+// Cap the raw input before any per-code-point work: the RPC layer also bounds
+// fileName, but sanitization cost must never scale with attacker-sized input.
+const ATTACHMENT_FILE_NAME_MAX_INPUT_CHARS = 1024
 
 export function sanitizeAttachmentFileName(fileName: string): string | null {
   // NFC first so accented letters are single code points the allowlist keeps.
-  const filtered = Array.from(fileName.normalize('NFC'))
+  // (A surrogate pair split by the slice fails the allowlist and is dropped.)
+  const filtered = Array.from(
+    fileName.slice(0, ATTACHMENT_FILE_NAME_MAX_INPUT_CHARS).normalize('NFC')
+  )
     .filter((char) => SAFE_ATTACHMENT_FILE_NAME_CHAR.test(char))
     .join('')
     .replace(/^\.+/, '')

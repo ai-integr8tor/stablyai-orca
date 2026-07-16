@@ -1,6 +1,7 @@
 // Grok chat_history.jsonl line → NativeChatMessage decoder.
 
 import type { NativeChatBlock, NativeChatMessage } from '../../shared/native-chat-types'
+import { IMAGE_FILE_EXTENSIONS } from '../../shared/image-file-extensions'
 import {
   asRecord,
   extractString,
@@ -213,12 +214,19 @@ function normalizeGrokUserQueryBlock(block: NativeChatBlock): NativeChatBlock[] 
   ]
 }
 
+// Mobile Files-picker uploads use `orca-file-<ts>-<uuid>-<name>.<ext>`; only
+// image extensions (from the shared list) are recovered as image attachments.
+const GROK_PASTED_IMAGE_NAME = `(?:orca-paste-[^\\\\/\\r\\n]+?\\.png|orca-file-[^\\\\/\\r\\n]+?\\.(?:${IMAGE_FILE_EXTENSIONS.map((ext) => ext.slice(1)).join('|')}))`
+
+const GROK_PASTED_IMAGE_RE = new RegExp(
+  `^((?:[a-z]:[\\\\/]|\\/|[\\\\/]{2}[^\\\\/\\r\\n]+[\\\\/][^\\\\/\\r\\n]+[\\\\/])(?:.*?[\\\\/])?${GROK_PASTED_IMAGE_NAME})([\\s\\S]*)$`,
+  'i'
+)
+
 function splitGrokPastedImageQuery(text: string): { path: string; query: string } | null {
   // Why: Grok 0.2.93 persists clipboard images as an absolute temp path directly
   // concatenated with the prompt; recover Orca's attachment without exposing it.
-  const match = text.match(
-    /^((?:[a-z]:[\\/]|\/|[\\/]{2}[^\\/\r\n]+[\\/][^\\/\r\n]+[\\/])(?:.*?[\\/])?orca-paste-[^\\/\r\n]+?\.png)([\s\S]*)$/i
-  )
+  const match = text.match(GROK_PASTED_IMAGE_RE)
   if (!match?.[1]) {
     return null
   }

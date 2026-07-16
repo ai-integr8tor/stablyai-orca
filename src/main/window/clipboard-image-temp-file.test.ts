@@ -82,6 +82,14 @@ describe('sanitizeAttachmentFileName', () => {
     expect(sanitizeAttachmentFileName('a"b|c*d.txt')).toBe('abcd.txt')
   })
 
+  it('slices attacker-sized input before per-code-point work', () => {
+    // A frame-cap-sized name must not cost O(input) sanitization: only the
+    // first 1024 chars are ever examined, and the result still lands ≤ 80 bytes.
+    const sanitized = sanitizeAttachmentFileName(`${'x'.repeat(1_000_000)}.pdf`)
+    expect(Buffer.byteLength(sanitized ?? '')).toBeLessThanOrEqual(80)
+    expect(sanitized?.startsWith('x')).toBe(true)
+  })
+
   it('caps long names at 80 bytes preserving the extension', () => {
     const sanitized = sanitizeAttachmentFileName(`${'a'.repeat(100)}.pdf`)
     expect(Buffer.byteLength(sanitized ?? '')).toBe(80)
