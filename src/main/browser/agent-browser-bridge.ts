@@ -49,6 +49,7 @@ import type {
 } from '../../shared/runtime-types'
 import { assertClipboardTextWriteWithinLimitWithYield } from '../../shared/clipboard-text'
 import { iterateBrowserTextInsertionChunks } from './browser-text-insertion'
+import { getAgentBrowserBinaryName } from './agent-browser-binary-name'
 
 // Why: must exceed agent-browser's internal per-command timeouts (goto defaults to 30s,
 // wait can be up to 60s). Using 90s ensures the bridge never kills a command before
@@ -176,8 +177,7 @@ type AgentBrowserBridgeOptions = {
 }
 
 function agentBrowserNativeName(): string {
-  const ext = process.platform === 'win32' ? '.exe' : ''
-  return `agent-browser-${platform()}-${arch()}${ext}`
+  return getAgentBrowserBinaryName(platform(), arch())
 }
 
 function resolveAgentBrowserBinary(): string {

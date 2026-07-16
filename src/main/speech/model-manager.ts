@@ -20,6 +20,10 @@ import type {
 } from '../../shared/speech-types'
 import { SPEECH_MODEL_CATALOG, getCatalogModel, isLocalSpeechModel } from './model-catalog'
 import { hasOpenAiSpeechApiKey } from './openai-api-key-store'
+import {
+  assertLocalSpeechRecognitionSupported,
+  getSupportedSpeechModels
+} from './speech-platform-support'
 import { resolveTarExecutable } from './tar-executable'
 import {
   getSpeechModelCacheDirCandidates,
@@ -210,9 +214,12 @@ export class ModelManager {
     throw lastError instanceof Error ? lastError : new Error(String(lastError))
   }
 
-  async getModelStates(): Promise<SpeechModelState[]> {
+  async getModelStates(
+    platform: NodeJS.Platform = process.platform,
+    architecture: string = process.arch
+  ): Promise<SpeechModelState[]> {
     const states: SpeechModelState[] = []
-    for (const manifest of SPEECH_MODEL_CATALOG) {
+    for (const manifest of getSupportedSpeechModels(SPEECH_MODEL_CATALOG, platform, architecture)) {
       const state = await this.getModelState(manifest.id)
       states.push(state)
     }
@@ -273,7 +280,11 @@ export class ModelManager {
     return manifest.files.every((f) => existsSync(join(modelDir, f)))
   }
 
-  async downloadModel(modelId: string): Promise<void> {
+  async downloadModel(
+    modelId: string,
+    platform: NodeJS.Platform = process.platform,
+    architecture: string = process.arch
+  ): Promise<void> {
     // Why: no migration await here — migration only copies dirs already present
     // in the old cache (surfaced as ready via getModelState before download is
     // offered), so it never races a download, and awaiting would defer the
@@ -289,6 +300,7 @@ export class ModelManager {
     if (!isLocalSpeechModel(manifest)) {
       throw new Error(`Model does not support downloads: ${modelId}`)
     }
+    assertLocalSpeechRecognitionSupported(platform, architecture)
     if (!manifest.downloadUrl || !manifest.archiveSha256 || !manifest.sizeBytes) {
       throw new Error(`Model download metadata missing: ${modelId}`)
     }

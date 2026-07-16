@@ -763,6 +763,11 @@ import type { VoiceSettings } from '../../shared/speech-types'
 import { getSpeechModelManager, getSpeechSttService } from '../speech/speech-runtime-service'
 import { getCatalogModel, isLocalSpeechModel, SPEECH_MODEL_CATALOG } from '../speech/model-catalog'
 import {
+  assertLocalSpeechRecognitionSupported,
+  getSupportedSpeechModelSelection,
+  getSupportedSpeechModels
+} from '../speech/speech-platform-support'
+import {
   deleteLocalSpeechModel,
   getSpeechModelDeletionErrorCode
 } from '../speech/speech-model-deletion'
@@ -7748,7 +7753,8 @@ export class OrcaRuntimeService {
     const voice = this.store.getSettings().voice ?? getDefaultVoiceSettings()
     const states = await getSpeechModelManager(this.store).getModelStates()
     const stateById = new Map(states.map((state) => [state.id, state]))
-    const models: RuntimeSpeechModelSummary[] = SPEECH_MODEL_CATALOG.map((manifest) => {
+    const supportedModels = getSupportedSpeechModels(SPEECH_MODEL_CATALOG)
+    const models: RuntimeSpeechModelSummary[] = supportedModels.map((manifest) => {
       const state = stateById.get(manifest.id)
       return {
         id: manifest.id,
@@ -7762,7 +7768,7 @@ export class OrcaRuntimeService {
     })
     return {
       enabled: voice.enabled === true,
-      selectedModelId: voice.sttModel ?? '',
+      selectedModelId: getSupportedSpeechModelSelection(voice.sttModel ?? '', SPEECH_MODEL_CATALOG),
       dictationMode: voice.dictationMode === 'hold' ? 'hold' : 'toggle',
       models
     }
@@ -7778,6 +7784,7 @@ export class OrcaRuntimeService {
     if (!manifest || !isLocalSpeechModel(manifest)) {
       throw new Error('voice_model_not_downloadable')
     }
+    assertLocalSpeechRecognitionSupported()
     // Why: do not await — downloads run for tens of seconds; the call returns
     // immediately and mobile polls for progress/ready.
     void getSpeechModelManager(this.store)
@@ -7824,8 +7831,14 @@ export class OrcaRuntimeService {
     // An explicit '' clears the selected model (the OptionalString RPC schema
     // maps '' → undefined, so this only matters for direct callers); any other
     // non-empty modelId must be a known catalog entry.
-    if (params.modelId !== undefined && params.modelId !== '' && !getCatalogModel(params.modelId)) {
-      throw new Error('voice_model_unknown')
+    if (params.modelId !== undefined && params.modelId !== '') {
+      const manifest = getCatalogModel(params.modelId)
+      if (!manifest) {
+        throw new Error('voice_model_unknown')
+      }
+      if (isLocalSpeechModel(manifest)) {
+        assertLocalSpeechRecognitionSupported()
+      }
     }
     const nextVoice: VoiceSettings = {
       ...current,
@@ -7858,6 +7871,14 @@ export class OrcaRuntimeService {
     const modelId = params.modelId || voice.sttModel
     if (!modelId) {
       throw new Error('voice_model_not_selected')
+    }
+
+    const manifest = getCatalogModel(modelId)
+    if (!manifest) {
+      throw new Error('voice_model_unknown')
+    }
+    if (isLocalSpeechModel(manifest)) {
+      assertLocalSpeechRecognitionSupported()
     }
 
     const modelState = await getSpeechModelManager(this.store).getModelState(modelId)
