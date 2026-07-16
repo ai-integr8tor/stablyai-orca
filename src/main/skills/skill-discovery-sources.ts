@@ -85,6 +85,15 @@ export function buildSkillDiscoverySources(
         join(repoPath, '.claude', 'skills'),
         'repo',
         ['claude']
+      ),
+      // Why: Orca bundles built-in skills in `<repo>/skills`, so discovery
+      // must scan that root for agents and Settings to see them.
+      source(
+        `repo-bundled-${stablePathId(repoPath)}`,
+        `${label} skills`,
+        join(repoPath, 'skills'),
+        'repo',
+        ['claude', 'codex', 'agent-skills']
       )
     )
   }
