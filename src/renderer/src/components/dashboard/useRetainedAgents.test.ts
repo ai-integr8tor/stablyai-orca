@@ -35,7 +35,7 @@ function makeAgentRow(args: { paneKey: string; state: AgentStatusState; interrup
 }
 
 describe('collectRetainedAgentsOnDisappear', () => {
-  it('retains a clean done row that disappeared naturally', () => {
+  it('retains a clean done row when a different tab closed', () => {
     const previousAgents = new Map([
       ['tab-1:1', { row: makeAgentRow({ paneKey: 'tab-1:1', state: 'done' }), worktreeId: 'wt-1' }]
     ])
@@ -44,7 +44,8 @@ describe('collectRetainedAgentsOnDisappear', () => {
       previousAgents,
       currentAgents: new Map(),
       retainedAgentsByPaneKey: {},
-      retentionSuppressedPaneKeys: {}
+      retentionSuppressedPaneKeys: {},
+      recentlyClosedAgentStatusTabIds: { 'tab-2': true }
     })
 
     expect(result.toRetain).toHaveLength(1)
@@ -67,7 +68,8 @@ describe('collectRetainedAgentsOnDisappear', () => {
       previousAgents,
       currentAgents: new Map(),
       retainedAgentsByPaneKey: {},
-      retentionSuppressedPaneKeys: {}
+      retentionSuppressedPaneKeys: {},
+      recentlyClosedAgentStatusTabIds: {}
     })
 
     expect(result.toRetain).toEqual([])
@@ -95,7 +97,8 @@ describe('collectRetainedAgentsOnDisappear', () => {
       previousAgents,
       currentAgents: new Map(),
       retainedAgentsByPaneKey: { 'tab-1:1': staleRetained },
-      retentionSuppressedPaneKeys: {}
+      retentionSuppressedPaneKeys: {},
+      recentlyClosedAgentStatusTabIds: {}
     })
 
     expect(result.toRetain).toHaveLength(1)
@@ -119,7 +122,8 @@ describe('collectRetainedAgentsOnDisappear', () => {
       previousAgents,
       currentAgents: new Map(),
       retainedAgentsByPaneKey: { 'tab-1:1': sameRunRetained },
-      retentionSuppressedPaneKeys: {}
+      retentionSuppressedPaneKeys: {},
+      recentlyClosedAgentStatusTabIds: {}
     })
 
     expect(result.toRetain).toEqual([])
@@ -134,10 +138,28 @@ describe('collectRetainedAgentsOnDisappear', () => {
       previousAgents,
       currentAgents: new Map(),
       retainedAgentsByPaneKey: {},
-      retentionSuppressedPaneKeys: { 'tab-1:1': true }
+      retentionSuppressedPaneKeys: { 'tab-1:1': true },
+      recentlyClosedAgentStatusTabIds: {}
     })
 
     expect(result.toRetain).toEqual([])
     expect(result.consumedSuppressedPaneKeys).toEqual(['tab-1:1'])
+  })
+
+  it('does not retain a done row after its tab closed without a live suppressor', () => {
+    const previousAgents = new Map([
+      ['tab-1:1', { row: makeAgentRow({ paneKey: 'tab-1:1', state: 'done' }), worktreeId: 'wt-1' }]
+    ])
+
+    const result = collectRetainedAgentsOnDisappear({
+      previousAgents,
+      currentAgents: new Map(),
+      retainedAgentsByPaneKey: {},
+      retentionSuppressedPaneKeys: {},
+      recentlyClosedAgentStatusTabIds: { 'tab-1': true }
+    })
+
+    expect(result.toRetain).toEqual([])
+    expect(result.consumedSuppressedPaneKeys).toEqual([])
   })
 })
