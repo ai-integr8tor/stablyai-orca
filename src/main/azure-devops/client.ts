@@ -17,6 +17,7 @@ import {
   requestAzureDevOpsJson,
   requestAzureDevOpsJsonAtBase
 } from './azure-devops-api-request'
+import type { HostedReviewRequestFailurePolicy } from '../source-control/hosted-review-request-failure-policy'
 export { normalizeAzureDevOpsApiBaseUrl } from './azure-devops-api-request'
 
 export type AzureDevOpsAuthStatus = {
@@ -43,11 +44,13 @@ function encodePathSegment(value: string): string {
 }
 
 async function getRepository(
-  repo: AzureDevOpsRepoRef
+  repo: AzureDevOpsRepoRef,
+  failureMode: HostedReviewRequestFailurePolicy = 'return-null'
 ): Promise<{ idOrName: string; webBaseUrl: string } | null> {
   const raw = await requestAzureDevOpsJson<RawAzureDevOpsRepository>(
     repo,
-    `/_apis/git/repositories/${encodePathSegment(repo.repository)}`
+    `/_apis/git/repositories/${encodePathSegment(repo.repository)}`,
+    { failureMode }
   )
   if (!raw) {
     return { idOrName: repo.repository, webBaseUrl: repo.webBaseUrl }
@@ -209,7 +212,7 @@ export async function getAzureDevOpsPullRequestForBranch(
     connectionId,
     getHostedReviewLocalGitOptions(options)
   )
-  const repository = repo ? await getRepository(repo) : null
+  const repository = repo ? await getRepository(repo, 'throw-all') : null
   if (!repo || !repository) {
     return null
   }
@@ -223,7 +226,8 @@ export async function getAzureDevOpsPullRequestForBranch(
           'searchCriteria.sourceRefName': `refs/heads/${branchName}`,
           'searchCriteria.status': 'all',
           $top: 10
-        }
+        },
+        failureMode: 'throw-all'
       }
     )
     const raw = (list?.value ?? []).sort(sortPullRequestsForBranch)[0]
@@ -239,7 +243,8 @@ export async function getAzureDevOpsPullRequestForBranch(
     repo,
     `/_apis/git/repositories/${encodePathSegment(repository.idOrName)}/pullRequests/${encodePathSegment(
       String(linkedPRNumber)
-    )}`
+    )}`,
+    { failureMode: 'throw-transient' }
   )
   return raw ? normalizePullRequest(repo, repository.idOrName, repository.webBaseUrl, raw) : null
 }
