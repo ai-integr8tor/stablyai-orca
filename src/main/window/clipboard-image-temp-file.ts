@@ -14,30 +14,52 @@ export type SaveClipboardImageAsTempFileArgs = {
 }
 
 const REMOTE_CLIPBOARD_IMAGE_TEMP_DIR = '/tmp'
-const ATTACHMENT_FILE_NAME_MAX_CHARS = 80
+// Bytes, not code units: the name is appended to a temp path and must stay under
+// the 255-byte NAME_MAX on ext4/APFS (local temp and SSH-remote /tmp alike),
+// leaving headroom for the `orca-file-<ts>-<uuid>-` prefix.
+const ATTACHMENT_FILE_NAME_MAX_BYTES = 80
+// Safe = Unicode letters/numbers/marks plus ASCII dot, dash, underscore.
+// Everything else — whitespace, shell metacharacters, path separators, control
+// and Unicode format/separator characters — is dropped, because the sanitized
+// name lands in a path pasted verbatim into the user's live terminal, where a
+// space breaks path tokenization and `;`/`$()`/backticks would execute on Enter.
+const SAFE_ATTACHMENT_FILE_NAME_CHAR = /[\p{L}\p{N}\p{M}._-]/u
 
-// Why: the phone-supplied name is untrusted input; strip anything that could
-// escape the temp dir, hide the file, or fail the write on any supported host
-// platform (Windows rejects <>:"|?* and silently drops trailing dots/spaces).
 export function sanitizeAttachmentFileName(fileName: string): string | null {
-  const cleaned = fileName
-    .replace(/[/\\<>:"|?*]/g, '')
-    // eslint-disable-next-line no-control-regex -- intentional control-char strip
-    .replace(/[\u0000-\u001f\u007f]/g, '')
+  // NFC first so accented letters are single code points the allowlist keeps.
+  const filtered = Array.from(fileName.normalize('NFC'))
+    .filter((char) => SAFE_ATTACHMENT_FILE_NAME_CHAR.test(char))
+    .join('')
     .replace(/^\.+/, '')
-    .replace(/[. ]+$/, '')
-    .trim()
-  if (!cleaned) {
+    .replace(/\.+$/, '')
+  if (!filtered) {
     return null
   }
-  if (cleaned.length <= ATTACHMENT_FILE_NAME_MAX_CHARS) {
-    return cleaned
+  return truncateFileNameToBytes(filtered, ATTACHMENT_FILE_NAME_MAX_BYTES)
+}
+
+function truncateFileNameToBytes(name: string, maxBytes: number): string {
+  if (Buffer.byteLength(name) <= maxBytes) {
+    return name
   }
-  const extension = path.posix.extname(cleaned)
-  if (extension && extension.length < ATTACHMENT_FILE_NAME_MAX_CHARS) {
-    return cleaned.slice(0, ATTACHMENT_FILE_NAME_MAX_CHARS - extension.length) + extension
+  const extension = path.posix.extname(name)
+  const keepExtension = extension.length > 0 && Buffer.byteLength(extension) < maxBytes
+  const budget = keepExtension ? maxBytes - Buffer.byteLength(extension) : maxBytes
+  const body = keepExtension ? name.slice(0, name.length - extension.length) : name
+  let truncated = ''
+  let usedBytes = 0
+  // Iterate by code point so a multibyte character is never split at the cut.
+  for (const char of body) {
+    const charBytes = Buffer.byteLength(char)
+    if (usedBytes + charBytes > budget) {
+      break
+    }
+    truncated += char
+    usedBytes += charBytes
   }
-  return cleaned.slice(0, ATTACHMENT_FILE_NAME_MAX_CHARS)
+  // Re-strip a trailing dot the cut may have exposed (Windows drops it silently).
+  const result = (truncated + (keepExtension ? extension : '')).replace(/\.+$/, '')
+  return result || truncated
 }
 
 function buildAttachmentTempFileName(originalFileName: string | null | undefined): string {
