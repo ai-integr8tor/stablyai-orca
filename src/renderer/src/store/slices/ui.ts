@@ -946,6 +946,10 @@ export type UISlice = {
    *  whether the overlay can ever render; this controls whether it does now. */
   petVisible: boolean
   setPetVisible: (v: boolean) => void
+  /** Whether the pet is allowed to roam while idle. Persisted separately
+   *  from visibility so hiding and pinning remain distinct choices. */
+  petWanderEnabled: boolean
+  setPetWanderEnabled: (v: boolean) => void
   /** Which pet is active — either a bundled id or a custom UUID.
    *  Persisted alongside petVisible via the PersistedUIState pipeline. */
   petId: string
@@ -2294,6 +2298,11 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     window.api.ui.set({ petVisible: v }).catch(console.error)
     set({ petVisible: v })
   },
+  petWanderEnabled: false,
+  setPetWanderEnabled: (v) => {
+    window.api.ui.set({ petWanderEnabled: v }).catch(console.error)
+    set({ petWanderEnabled: v })
+  },
 
   petId: DEFAULT_PET_ID,
   setPetId: (id) => {
@@ -2514,6 +2523,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
         // they enable the experimental flag. Only an explicit Hide pet
         // dismissal persists a `false` value.
         petVisible: ui.petVisible ?? ui.sidekickVisible ?? true,
+        petWanderEnabled: ui.petWanderEnabled === true,
         petSize: clampPetSize(ui.petSize ?? ui.sidekickSize ?? PET_SIZE_DEFAULT),
         customPets,
         // Why: accept the persisted id if it matches a bundled pet or a
