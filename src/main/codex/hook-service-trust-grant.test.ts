@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import type * as Os from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +21,7 @@ import {
   escapeTomlString,
   parseTrustKey,
   readHookTrustEntries,
+  upsertHookTrustEntries,
   type CodexTrustEntry
 } from './config-toml-trust'
 import { codexAppServerCapabilityCache } from './codex-app-server-capability-cache'
@@ -20,6 +31,8 @@ import {
   writeCodexTrustGrantLedgerHome
 } from './codex-trust-grant-ledger'
 import type { CodexHookTrustGrantRequest } from './codex-app-server-client'
+import { getCodexHookTrustSignature } from './codex-hook-identity'
+import { _internals as rebaseInternals } from './codex-user-hook-trust-rebase'
 
 const { getPathMock, homedirMock, resolveCodexCommandMock } = vi.hoisted(() => ({
   getPathMock: vi.fn<(name: string) => string>(),
@@ -34,7 +47,7 @@ vi.mock('os', async (importOriginal) => {
 })
 vi.mock('../codex-cli/command', () => ({ resolveCodexCommand: resolveCodexCommandMock }))
 
-import { CodexHookService } from './hook-service'
+import { CodexHookService, getCodexManagedHookInstallMaterial } from './hook-service'
 
 let tmpHome: string
 let userDataDir: string
@@ -58,6 +71,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  rebaseInternals.setSessionRunnerSync(null)
   trustGrantInternals.setGrantSessionRunnerSync(null)
   trustGrantInternals.resetDiagnostics()
   codexAppServerCapabilityCache.clear()
@@ -170,6 +184,111 @@ describe('CodexHookService app-server trust grant lane', () => {
     expect(resolveCodexCommandMock).toHaveBeenCalledTimes(2)
     expect(readFileSync(join(managedHome, 'config.toml'))).toEqual(firstToml)
   })
+
+  it('retries ledger-proven real-home trust cleanup after the hook is already gone', () => {
+    prepareSystemHome()
+    const systemHome = join(tmpHome, '.codex')
+    const hooksPath = join(systemHome, 'hooks.json')
+    const configPath = join(systemHome, 'config.toml')
+    const material = getCodexManagedHookInstallMaterial()
+    const trustedHash = 'sha256:codex-real-home-stop'
+    const entry: CodexTrustEntry = {
+      sourcePath: hooksPath,
+      eventLabel: 'stop',
+      groupIndex: 0,
+      handlerIndex: 0,
+      command: material.command,
+      timeoutSec: 10,
+      trustedHash
+    }
+    const trustKey = computeTrustKey(entry)
+    writeFileSync(hooksPath, `${JSON.stringify({ hooks: {} }, null, 2)}\n`)
+    upsertHookTrustEntries(configPath, [entry])
+    writeCodexTrustGrantLedgerHome(systemHome, {
+      binary: null,
+      entries: {
+        [trustKey]: {
+          signature: getCodexHookTrustSignature(entry),
+          trustedHash
+        }
+      }
+    })
+    installCodexLikeGrantRunner()
+
+    expect(new CodexHookService().install().state).toBe('installed')
+
+    expect(readHookTrustEntries(configPath).has(trustKey)).toBe(false)
+    expect(readCodexTrustGrantLedgerHome(systemHome)).toBeNull()
+  })
+
+  it('keeps a real-home symlink and rebases later user trust during flag-off cleanup', () => {
+    prepareSystemHome()
+    const systemHome = join(tmpHome, '.codex')
+    const hooksPath = join(systemHome, 'hooks.json')
+    const targetPath = join(tmpHome, 'dotfiles-hooks.json')
+    const material = getCodexManagedHookInstallMaterial()
+    const userHook = { type: 'command' as const, command: 'after-orca.sh' }
+    writeFileSync(
+      targetPath,
+      `${JSON.stringify(
+        {
+          hooks: {
+            Stop: [
+              { hooks: [{ type: 'command', command: material.command }] },
+              { hooks: [userHook] }
+            ]
+          }
+        },
+        null,
+        2
+      )}\n`
+    )
+    symlinkSync(targetPath, hooksPath)
+    const operations: string[] = []
+    rebaseInternals.setSessionRunnerSync((request) => {
+      operations.push(request.operation)
+      if (request.operation === 'inspect-user-hook-trust') {
+        return {
+          outcome: 'inspected',
+          moves: request.moves.map((move) => ({
+            ...move,
+            reportedOldKey: move.oldKey,
+            wasTrusted: true,
+            enabled: true
+          }))
+        }
+      }
+      return { outcome: 'repaired', repaired: 1 }
+    })
+    installCodexLikeGrantRunner()
+
+    expect(new CodexHookService().install().state).toBe('installed')
+
+    expect(lstatSync(hooksPath).isSymbolicLink()).toBe(true)
+    expect(JSON.parse(readFileSync(targetPath, 'utf-8')).hooks.Stop).toEqual([
+      { hooks: [userHook] }
+    ])
+    expect(operations).toEqual(['inspect-user-hook-trust', 'repair-user-hook-trust'])
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves restrictive real-home hooks permissions during flag-off cleanup',
+    () => {
+      prepareSystemHome()
+      const hooksPath = join(tmpHome, '.codex', 'hooks.json')
+      const material = getCodexManagedHookInstallMaterial()
+      writeFileSync(
+        hooksPath,
+        `${JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: material.command }] }] } }, null, 2)}\n`
+      )
+      chmodSync(hooksPath, 0o600)
+      installCodexLikeGrantRunner()
+
+      expect(new CodexHookService().install().state).toBe('installed')
+
+      expect(statSync(hooksPath).mode & 0o777).toBe(0o600)
+    }
+  )
 
   it('does not accept a ledger hash after the recorded Codex binary stamp changes', () => {
     prepareSystemHome()

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: getStatus + install + remove all share the managed-command and trust-key derivation. Splitting would hide that the three operations must agree on group index, event label, and command bytes. */
-import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { join, win32 as pathWin32 } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
@@ -18,6 +18,8 @@ import {
   writeManagedScript,
   type HookDefinition
 } from '../agent-hooks/installer-utils'
+import { resolveHooksJsonWritePath } from '../agent-hooks/hook-config-write-path'
+import { writeFileAtomically } from '../codex-accounts/fs-utils'
 import {
   readHooksJsonRemote,
   readTextFileRemote,
@@ -35,7 +37,8 @@ import {
   computeTrustKey,
   computeTrustedHash,
   escapeTomlString,
-  getCodexCanonicalTrustPath,
+  getCodexExplicitHomeHookSourcePath,
+  normalizeCodexHookSourcePath,
   normalizeCodexProjectPathForLookup,
   normalizeHookTrustKeyForLookup,
   parseTrustKey,
@@ -75,6 +78,7 @@ import {
   removeStaleWslCodexManagedHookTrustEntries
 } from './codex-managed-trust-reconciliation'
 import type { CodexTrustGrantLedgerHome } from './codex-trust-grant-ledger'
+import { mutateRealHomeHooksPreservingUserTrust } from './codex-user-hook-trust-rebase'
 
 // Why: PreToolUse/PostToolUse give the dashboard a live readout of the
 // in-flight tool (name + input preview) between UserPromptSubmit and Stop.
@@ -145,6 +149,38 @@ function getManagedCommand(scriptPath: string): string {
     : wrapPosixHookCommand(scriptPath)
 }
 
+export type CodexManagedHookInstallMaterial = {
+  events: readonly (typeof CODEX_EVENTS)[number][]
+  eventLabel: Record<(typeof CODEX_EVENTS)[number], CodexEventLabel>
+  scriptPath: string
+  command: string
+  script: string
+}
+
+// Why: the real-home installer must byte-match the managed lane's events,
+// command, and script, or trust signatures diverge between the two homes.
+export function getCodexManagedHookInstallMaterial(): CodexManagedHookInstallMaterial {
+  const scriptPath = getManagedScriptPath()
+  return {
+    events: CODEX_EVENTS,
+    eventLabel: CODEX_EVENT_LABEL,
+    scriptPath,
+    command: getManagedCommand(scriptPath),
+    script: getManagedScript()
+  }
+}
+
+// Why: when the real-home lane owns ~/.codex/hooks.json (system-default flag ON
+// with hooks enabled), the legacy system-home sweep must stand down or every
+// managed install would delete the entry the real-home installer just wrote.
+// Injected as a gate because this module is bundled into plain-node CLI entries
+// that have no settings store; the CLI default keeps the sweep active.
+let systemCodexHomeHookSweepSuppressed: () => boolean = () => false
+
+export function setSystemCodexHomeHookSweepSuppressed(gate: () => boolean): void {
+  systemCodexHomeHookSweepSuppressed = gate
+}
+
 export { createCodexWslRuntimeHookInstallPlan }
 export type { CodexWslRuntimeHookInstallPlan }
 
@@ -196,7 +232,10 @@ function collectManagedTrustEntries(
   return entries
 }
 
-function removeMatchingTrustEntries(configPath: string, entries: readonly CodexTrustEntry[]): void {
+function removeSelfComputedMatchingTrustEntries(
+  configPath: string,
+  entries: readonly CodexTrustEntry[]
+): void {
   if (entries.length === 0) {
     return
   }
@@ -224,11 +263,11 @@ function removeStaleRuntimeHookTrustEntries(
       entry.trustedHash ?? computeTrustedHash(entry)
     ])
   )
-  const canonicalRuntimeHooksPath = getCodexCanonicalTrustPath(runtimeHooksPath)
+  const canonicalRuntimeHooksPath = getCodexExplicitHomeHookSourcePath(runtimeHooksPath)
   const staleKeys: string[] = []
   for (const [key, state] of readHookTrustEntries(tomlPath)) {
     const parsed = parseTrustKey(key)
-    if (!parsed || getCodexCanonicalTrustPath(parsed.sourcePath) !== canonicalRuntimeHooksPath) {
+    if (!parsed || normalizeCodexHookSourcePath(parsed.sourcePath) !== canonicalRuntimeHooksPath) {
       continue
     }
     if (expectedHashes.get(normalizeHookTrustKeyForLookup(key)) === state.trustedHash) {
@@ -396,13 +435,13 @@ function getTrustedSystemHookHashesByEvent(
   trustEntries: ReadonlyMap<string, CodexHookTrustState>
 ): Map<CodexEventLabel, Map<string, boolean>> {
   const trustedHashesByEvent = new Map<CodexEventLabel, Map<string, boolean>>()
-  const canonicalSystemConfigPath = getCodexCanonicalTrustPath(systemConfigPath)
+  const canonicalSystemConfigPath = normalizeCodexHookSourcePath(systemConfigPath)
   for (const [key, state] of trustEntries) {
     const parsed = parseTrustKey(key)
     if (!parsed || !state.trustedHash) {
       continue
     }
-    if (getCodexCanonicalTrustPath(parsed.sourcePath) !== canonicalSystemConfigPath) {
+    if (normalizeCodexHookSourcePath(parsed.sourcePath) !== canonicalSystemConfigPath) {
       continue
     }
     let hashes = trustedHashesByEvent.get(parsed.eventLabel)
@@ -431,6 +470,7 @@ function collectMirroredRuntimeUserHookTrustEntries(
   }
 
   const entries: MirroredRuntimeUserHookTrustEntry[] = []
+  const trustSourcePath = getCodexExplicitHomeHookSourcePath(runtimeConfigPath)
   for (const [eventName, definitions] of Object.entries(runtimeHooks)) {
     if (!Array.isArray(definitions)) {
       continue
@@ -442,7 +482,7 @@ function collectMirroredRuntimeUserHookTrustEntries(
           return
         }
         const entry = createCodexHookTrustEntry(
-          runtimeConfigPath,
+          trustSourcePath,
           eventName,
           groupIndex,
           handlerIndex,
@@ -541,15 +581,35 @@ function dedupeHookDefinitions(definitions: readonly HookDefinition[]): HookDefi
   })
 }
 
+function removeSystemManagedHookTrustEntries(systemHomePath: string, hooksJsonPath: string): void {
+  removeCodexManagedHookTrustEntries({
+    tomlPath: getSystemCodexConfigTomlPath(),
+    runtimeHomePath: systemHomePath,
+    sourcePath: hooksJsonPath,
+    command: getManagedCommand(getManagedScriptPath()),
+    managedEventLabels: CODEX_MANAGED_EVENT_LABELS,
+    timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS
+  })
+}
+
 function cleanupLegacySystemManagedHooks(): void {
+  if (systemCodexHomeHookSweepSuppressed()) {
+    return
+  }
   const legacyConfigPath = getSystemConfigPath()
   const runtimeConfigPath = getConfigPath()
   if (legacyConfigPath === runtimeConfigPath) {
     return
   }
 
+  const systemHomePath = getSystemCodexHomePath()
+  const hasRecordedRealHomeGrant =
+    readCodexTrustGrantLedgerHomeForReconciliation(systemHomePath) !== null
   const config = readHooksJson(legacyConfigPath)
   if (!config?.hooks) {
+    if (hasRecordedRealHomeGrant) {
+      removeSystemManagedHookTrustEntries(systemHomePath, legacyConfigPath)
+    }
     return
   }
 
@@ -587,9 +647,37 @@ function cleanupLegacySystemManagedHooks(): void {
   if (removedManagedHook) {
     // Why: this is the user's system hooks file, not Orca's runtime copy.
     // Remove only stale Orca hook entries and preserve other managers' metadata.
-    writeHooksJson(legacyConfigPath, { ...config, hooks: nextHooks })
+    const hooksWritePath = resolveHooksJsonWritePath(legacyConfigPath)
+    const previousRaw = readFileSync(legacyConfigPath, 'utf-8')
+    const previousMode = statSync(hooksWritePath).mode
+    mutateRealHomeHooksPreservingUserTrust({
+      sourcePath: legacyConfigPath,
+      runtimeHomePath: systemHomePath,
+      tomlPath: getSystemCodexConfigTomlPath(),
+      beforeHooks: config.hooks,
+      afterHooks: nextHooks,
+      writeHooks: () => {
+        if (
+          readFileSync(legacyConfigPath, 'utf-8') !== previousRaw ||
+          resolveHooksJsonWritePath(legacyConfigPath) !== hooksWritePath
+        ) {
+          // Why: the pre-mutation RPC may overlap a user save; downgrade must
+          // never replace that newer dotfiles generation with our stale parse.
+          throw new Error('System Codex hooks changed during trust repair')
+        }
+        writeHooksJson(hooksWritePath, { ...config, hooks: nextHooks }, { preserveMode: true })
+      },
+      restoreHooks: () => writeFileAtomically(hooksWritePath, previousRaw, { mode: previousMode })
+    })
+    // Why: stale dev/version entries can reference an older managed script
+    // path that is not represented by the current grant ledger.
+    removeSelfComputedMatchingTrustEntries(getSystemCodexConfigTomlPath(), trustEntries)
   }
-  removeMatchingTrustEntries(getSystemCodexConfigTomlPath(), trustEntries)
+  if (removedManagedHook || hasRecordedRealHomeGrant) {
+    // Why: the ledger recognizes Codex-computed hashes and remains a retry
+    // marker if a prior cleanup removed hooks.json but could not update TOML.
+    removeSystemManagedHookTrustEntries(systemHomePath, legacyConfigPath)
+  }
 }
 
 function stripLegacyManagedProfileBlock(content: string): string {
@@ -647,7 +735,8 @@ function removeRuntimeManagedHookTrustEntries(configPath: string): void {
       sourcePath: configPath,
       command: getManagedCommand(getManagedScriptPath()),
       managedEventLabels: CODEX_MANAGED_EVENT_LABELS,
-      timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS
+      timeoutSec: MANAGED_HOOK_TIMEOUT_SECONDS,
+      sourceUsesExplicitCodexHome: true
     })
   } catch (error) {
     // Best effort — stale trust entries are harmless once hooks.json no
@@ -1108,6 +1197,7 @@ export class CodexHookService {
     const missing: string[] = []
     const trustMissing: string[] = []
     const disabled: string[] = []
+    const trustSourcePath = getCodexExplicitHomeHookSourcePath(configPath)
     let presentCount = 0
     for (const eventName of CODEX_EVENTS) {
       const definitions = Array.isArray(config.hooks?.[eventName]) ? config.hooks![eventName]! : []
@@ -1141,7 +1231,7 @@ export class CodexHookService {
       // Codex folds the handler timeout into its trust hash. Hash the same
       // timeout here or status would report every managed hook as stale-trust.
       const trustInput: CodexTrustEntry = {
-        sourcePath: configPath,
+        sourcePath: trustSourcePath,
         eventLabel: CODEX_EVENT_LABEL[eventName],
         groupIndex: foundGroupIndex,
         handlerIndex: foundHandlerIndex,
@@ -1266,6 +1356,7 @@ export class CodexHookService {
       ({ entry }) => entry
     )
     const managedTrustEntries: CodexTrustEntry[] = []
+    const trustSourcePath = getCodexExplicitHomeHookSourcePath(configPath)
     for (const eventName of CODEX_EVENTS) {
       const current = Array.isArray(nextHooks[eventName]) ? nextHooks[eventName] : []
       const cleaned = removeManagedCommands(current, isManagedCommand)
@@ -1279,7 +1370,7 @@ export class CodexHookService {
       // timeoutSec mirrors the hook's `timeout` so the trust hash matches the
       // entry actually written to hooks.json.
       managedTrustEntries.push({
-        sourcePath: configPath,
+        sourcePath: trustSourcePath,
         eventLabel: CODEX_EVENT_LABEL[eventName],
         groupIndex: 0,
         handlerIndex: 0,

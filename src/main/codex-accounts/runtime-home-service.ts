@@ -60,6 +60,9 @@ import {
   type CodexAccountSelectionTarget
 } from './runtime-selection'
 import { getDefaultWslDistro, getWslHome } from '../wsl'
+import { isCodexSystemDefaultRealHomeEnabled } from '../codex/codex-real-home-flag'
+import { hasCustomCodexHomeOverride } from '../codex/codex-real-home-path'
+import { readShellStartupEnvVar } from '../pty/shell-startup-env'
 
 type CodexAuthIdentity = {
   email: string | null
@@ -90,6 +93,20 @@ type CodexReadBackMatch =
       managedAuthContents: string
     }
   | { kind: 'none' | 'ambiguous' }
+
+function readLaunchEnvValue(
+  launchEnv: NodeJS.ProcessEnv,
+  key: 'CODEX_HOME' | 'ORCA_CODEX_HOME' | 'HOME' | 'SHELL'
+): string | undefined {
+  return Object.prototype.hasOwnProperty.call(launchEnv, key) ? launchEnv[key] : process.env[key]
+}
+
+function getEffectiveCodexHomeEnv(launchEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    CODEX_HOME: readLaunchEnvValue(launchEnv, 'CODEX_HOME'),
+    ORCA_CODEX_HOME: readLaunchEnvValue(launchEnv, 'ORCA_CODEX_HOME')
+  }
+}
 
 export class CodexRuntimeHomeService {
   // Why: tracks whether the runtime auth.json currently mirrors a managed
@@ -138,7 +155,10 @@ export class CodexRuntimeHomeService {
    * Historical session bridging is requested in the background so launch setup
    * returns as soon as the active runtime home is ready.
    */
-  prepareForCodexLaunch(target?: CodexAccountSelectionTarget): string | null {
+  prepareForCodexLaunch(
+    target?: CodexAccountSelectionTarget,
+    launchEnv?: NodeJS.ProcessEnv
+  ): string | null {
     if (target?.runtime === 'wsl') {
       const wslTarget = this.resolveWslDefaultTarget(target)
       const syncedRuntimeHomePath = this.syncWslRuntimeForCurrentSelection(wslTarget)
@@ -146,6 +166,13 @@ export class CodexRuntimeHomeService {
       const runtimeHomePath = syncedRuntimeHomePath ?? this.getWslSystemCodexHomePath(wslTarget)
       this.startWslSessionBridgeForLaunch(wslTarget, runtimeHomePath)
       return runtimeHomePath
+    }
+    if (this.isHostSystemDefaultRealHome(launchEnv)) {
+      // Why (flag ON, system default): run Codex on the user's own ~/.codex.
+      // Returning null tells the PTY/env layer to inject no managed CODEX_HOME;
+      // sessions, auth, and config all live in the native home. No system->
+      // managed session bridge runs, so the real home stays the single source.
+      return null
     }
     this.syncForCurrentSelection()
     syncSystemCodexResourcesIntoManagedHome()
@@ -188,8 +215,54 @@ export class CodexRuntimeHomeService {
     })
   }
 
-  getHostRuntimeHomePath(): string {
-    return this.getRuntimeHomePath()
+  getHostCodexHomePathsForSessionDiscovery(): string[] {
+    const homes = [this.getRuntimeHomePath()]
+    if (this.isHostSystemDefaultRealHomeSelected()) {
+      // Why: nested Orca processes can retain an ambient managed CODEX_HOME;
+      // explicitly include the real lane so its sessions remain discoverable.
+      homes.push(getSystemCodexHomePath())
+    }
+    return homes.filter((home, index) => homes.indexOf(home) === index)
+  }
+
+  // Why: the real-home hook installer flips this gate off when the trust-grant
+  // client reports the host incapable, keeping that host byte-identical to the
+  // managed lane instead of shipping status-blind panes.
+  private realHomeLaneGate: () => boolean = () => true
+
+  setRealHomeLaneGate(gate: () => boolean): void {
+    this.realHomeLaneGate = gate
+  }
+
+  // Why: real-home routing applies only to the host system-default selection
+  // with the staged flag ON. Managed accounts keep hot-swap isolation; custom
+  // CODEX_HOMEs stay managed until phase 1 can track cleanup across old homes.
+  isHostSystemDefaultRealHomeSelected(launchEnv?: NodeJS.ProcessEnv): boolean {
+    const settings = this.store.getSettings()
+    if (
+      !isCodexSystemDefaultRealHomeEnabled(settings) ||
+      normalizeCodexRuntimeSelection(settings).host !== null
+    ) {
+      return false
+    }
+    // Why: PTY callers can overlay environment values that the Electron main
+    // process never inherited. Those custom homes must keep the managed lane.
+    const effectiveEnv = launchEnv ? getEffectiveCodexHomeEnv(launchEnv) : process.env
+    if (hasCustomCodexHomeOverride(effectiveEnv)) {
+      return false
+    }
+    // Why: Finder/Dock launches do not inherit shell exports, but the login
+    // shell can re-export a custom home after spawn and bypass the trusted lane.
+    const shellCodexHome = readShellStartupEnvVar(
+      'CODEX_HOME',
+      launchEnv ? readLaunchEnvValue(launchEnv, 'HOME') : process.env.HOME,
+      launchEnv ? readLaunchEnvValue(launchEnv, 'SHELL') : process.env.SHELL
+    )
+    return !hasCustomCodexHomeOverride({ CODEX_HOME: shellCodexHome })
+  }
+
+  isHostSystemDefaultRealHome(launchEnv?: NodeJS.ProcessEnv): boolean {
+    return this.isHostSystemDefaultRealHomeSelected(launchEnv) && this.realHomeLaneGate()
   }
 
   syncActiveWslSelectionsBeforeRestart(): void {
@@ -254,6 +327,13 @@ export class CodexRuntimeHomeService {
       const wslTarget = this.resolveWslDefaultTarget(target)
       const syncedRuntimeHomePath = this.getPreparedWslRateLimitHomePath(wslTarget)
       return syncedRuntimeHomePath ?? this.getWslSystemCodexHomePath(wslTarget)
+    }
+    if (this.isHostSystemDefaultRealHome()) {
+      // Why: null lets the fetcher fall back to the main process's inherited
+      // CODEX_HOME before ~/.codex. Nested Orca launches can inherit the
+      // managed home, restarting the background OAuth conflict (#5370), so
+      // pin this non-interactive lane to the native home explicitly.
+      return getSystemCodexHomePath()
     }
     this.syncForCurrentSelection()
     syncSystemCodexResourcesIntoManagedHome()
