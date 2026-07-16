@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { isOpenCodeNativeTitle } from './agent-title-core'
+import { getAgentLabel as getSharedAgentLabel } from './agent-title-identity'
 import {
   isClaudeAgent,
   isGrokRotatingWorkingTitle,
@@ -49,6 +51,23 @@ describe('resolveExplicitTerminalTitleAgentType', () => {
     expect(resolveExplicitTerminalTitleAgentType('⠸ investigating startup')).toBeNull()
     expect(resolveExplicitTerminalTitleAgentType('. Compare Opencode Vs Orca')).toBeNull()
     expect(resolveExplicitTerminalTitleAgentType('* Review Codex behavior')).toBeNull()
+  })
+
+  it('resolves OpenCode native abbreviated session titles before task-text identities', () => {
+    expect(resolveExplicitTerminalTitleAgentType('OC | Understand about the plugin')).toBe(
+      'opencode'
+    )
+    expect(resolveExplicitTerminalTitleAgentType('OC | Compare Codex and Claude')).toBe('opencode')
+    expect(resolveExplicitTerminalTitleAgentType('OC | ✦ Gemini CLI')).toBe('opencode')
+    expect(getSharedAgentLabel('OC | Compare Codex and Claude')).toBe('OpenCode')
+    expect(getSharedAgentLabel('OC | ✦ Gemini CLI')).toBe('OpenCode')
+    expect(resolveExplicitTerminalTitleAgentType('tmux | OC | ses_123')).toBe('opencode')
+    expect(resolveExplicitTerminalTitleAgentType('oc | Understand about the plugin')).toBeNull()
+  })
+
+  it('does not find an OpenCode marker inside another agent task title', () => {
+    expect(isOpenCodeNativeTitle('⠋ Fix foo | OC | bar')).toBe(false)
+    expect(resolveExplicitTerminalTitleAgentType('⠋ Fix foo | OC | bar')).toBeNull()
   })
 
   it('still resolves Claude when the title explicitly names Claude', () => {

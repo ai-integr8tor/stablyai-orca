@@ -7,6 +7,7 @@ import {
   isClaudeManagementTitle,
   isCursorAgentTitle,
   isGeminiTerminalTitle,
+  isOpenCodeNativeTitle,
   isPiAgentTitle,
   titleHasAgentName
 } from './agent-title-core'
@@ -45,6 +46,11 @@ export function isClaudeAgent(title: string): boolean {
 export function getAgentLabel(title: string): string | null {
   if (isClaudeManagementTitle(title)) {
     return null
+  }
+  // Why: the native marker owns the whole title; its session text may name or
+  // include status glyphs from other agents without changing OpenCode identity.
+  if (isOpenCodeNativeTitle(title)) {
+    return 'OpenCode'
   }
   // Why: Claude task titles can mention another CLI; the prefix is the identity
   // signal, not arbitrary task text.

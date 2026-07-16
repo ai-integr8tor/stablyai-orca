@@ -4,7 +4,7 @@ import {
   HERMES_AGENT_NAME_RE,
   titleHasAgentName
 } from './agent-name-token-match'
-import { isCursorAgentTitle } from './agent-title-core'
+import { isCursorAgentTitle, isOpenCodeNativeTitle } from './agent-title-core'
 import {
   getPiCompatibleSyntheticAgentLabel,
   isLegacyPiCompatibleTitle
@@ -123,6 +123,11 @@ export function isClaudeManagementTitle(title: string): boolean {
 export function getAgentLabel(title: string): string | null {
   if (isClaudeManagementTitle(title)) {
     return null
+  }
+  // Why: the native marker owns the whole title; its session text may name or
+  // include status glyphs from other agents without changing OpenCode identity.
+  if (isOpenCodeNativeTitle(title)) {
+    return 'OpenCode'
   }
   // Why: Claude Code title text is often the task title. If that task mentions
   // another CLI, the Claude-specific prefix is the identity signal, not the words.

@@ -109,6 +109,12 @@ export function isCursorNativeAgentTitle(title: string): boolean {
   return title.trim().toLowerCase() === CURSOR_NATIVE_TITLE_LOWER
 }
 
+// Why: OpenCode abbreviates its native session titles as `OC | …`, which has
+// no agent-name token and otherwise lets stale pane identity paint the tab.
+export function isOpenCodeNativeTitle(title: string): boolean {
+  return /^(?:[^|\s]+ \| )?OC \| \S/.test(title.trim())
+}
+
 // Why: `cursor` is also an ordinary editor noun that other agents type into their own
 // task-summary titles, so a name token is not identity. Cursor's identifying titles are
 // a closed set (the native literal plus the labels Orca synthesizes from Cursor hooks),
