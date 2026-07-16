@@ -4929,7 +4929,7 @@ export default function SessionScreen() {
                 ))}
                 <MobileNativeChatOverlay
                   controller={nativeChatController}
-                  onAttachImage={() => void attachImage('library')}
+                  onAttachImage={() => void attachToTerminal('library')}
                   isAttaching={isAttaching}
                   onMicPress={handleDictationToggle}
                   micActive={dictation.isRecording}
