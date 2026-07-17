@@ -12760,6 +12760,16 @@ export class OrcaRuntimeService {
         this.notifyReposChanged()
         return adopted
       }
+      if (kind === 'git' && isFolderRepo(existing)) {
+        const updated = this.store.updateRepo(existing.id, { kind: 'git' })
+        if (updated) {
+          await prepareLocalWorktreeRootForRepo(this.store, updated)
+          invalidateAuthorizedRootsCache()
+          this.invalidateResolvedWorktreeCache()
+          this.notifyReposChanged()
+          return updated
+        }
+      }
       return existing
     }
 
