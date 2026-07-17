@@ -1519,6 +1519,18 @@ export function useIpcEvents(): void {
       })
     )
 
+    // Why: a tray/menu-bar "Settings…" click can fire before this listener
+    // attaches on a fresh window; consume any intent queued for us. Guarded
+    // with `?.` so a stale preload bundle doesn't crash the listener set.
+    void window.api.ui
+      .consumePendingOpenSettings?.()
+      .then((open) => {
+        if (open) {
+          useAppStore.getState().openSettingsPage()
+        }
+      })
+      .catch(() => {})
+
     unsubs.push(
       window.api.ui.onOpenSetupGuide?.(() => {
         useAppStore.getState().openModal('setup-guide', { telemetrySource: 'help_menu' })
@@ -2651,6 +2663,18 @@ export function useIpcEvents(): void {
         })
       })
     )
+
+    const unsubscribeCertificateFailure = window.api.browser.onCertificateFailureChanged?.(
+      ({ browserPageId, failure }) => {
+        if (isRuntimeEnvironmentActive()) {
+          return
+        }
+        useAppStore.getState().setBrowserPageCertificateFailure(browserPageId, failure)
+      }
+    )
+    if (unsubscribeCertificateFailure) {
+      unsubs.push(unsubscribeCertificateFailure)
+    }
 
     // Why: agent-browser drives navigation via CDP, bypassing Electron's webview
     // event system. The renderer's did-navigate listener never fires for those

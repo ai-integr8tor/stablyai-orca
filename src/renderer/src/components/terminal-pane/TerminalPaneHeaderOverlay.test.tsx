@@ -48,6 +48,7 @@ function renderOverlay({
   showAlwaysOnHeaders = true,
   canSplitPane = true,
   onSplitPane = vi.fn(),
+  showSplitButton = true,
   onClosePane = vi.fn(),
   onRemoveTitle = vi.fn(),
   onRenameSubmit = vi.fn(),
@@ -59,6 +60,7 @@ function renderOverlay({
   showAlwaysOnHeaders?: boolean
   canSplitPane?: boolean
   onSplitPane?: ReturnType<typeof vi.fn>
+  showSplitButton?: boolean
   onClosePane?: ReturnType<typeof vi.fn>
   onRemoveTitle?: ReturnType<typeof vi.fn>
   onRenameSubmit?: ReturnType<typeof vi.fn>
@@ -83,6 +85,7 @@ function renderOverlay({
         cwd={path.join(path.sep, 'tmp')}
         showAlwaysOnHeaders={showAlwaysOnHeaders}
         canSplitPane={canSplitPane}
+        showSplitButton={showSplitButton}
         paneCount={paneCount}
         activePaneId={1}
         panes={panes}
@@ -200,6 +203,16 @@ describe('TerminalPaneHeaderOverlay', () => {
 
     act(() => splitPane?.click())
     expect(onSplitPane).not.toHaveBeenCalled()
+  })
+
+  it('omits the split control when the header affordance is hidden', () => {
+    const { container } = renderOverlay({
+      paneTitles: { 1: '', 2: '' },
+      paneCount: 1,
+      showSplitButton: false
+    })
+
+    expect(container.querySelector('button[aria-label="Split Terminal Right"]')).toBeNull()
   })
 
   it('ignores IME composition Enter before submitting a pane title rename', () => {

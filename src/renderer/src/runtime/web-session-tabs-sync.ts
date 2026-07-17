@@ -19,6 +19,7 @@ import type {
   RuntimeMobileSessionTerminalClientTab
 } from '../../../shared/runtime-types'
 import type {
+  BrowserCertificateFailure,
   BrowserPage,
   BrowserWorkspace,
   Tab,
@@ -104,6 +105,7 @@ type MirroredTerminalTab = {
 type MirroredBrowserTab = {
   workspace: BrowserWorkspace
   page: BrowserPage
+  certificateFailure: BrowserCertificateFailure | null
   remotePageId: string
   unifiedTab: Tab
   hostTabId: string
@@ -130,6 +132,7 @@ export type WebSessionTabsSyncState = Pick<
   | 'agentStatusByPaneKey'
   | 'agentStatusEpoch'
   | 'browserPagesByWorkspace'
+  | 'browserCertificateFailuresByPageId'
   | 'browserTabsByWorktree'
   | 'groupsByWorktree'
   | 'layoutByWorktree'
@@ -954,7 +957,7 @@ function buildMirroredBrowserTabs(
       faviconUrl: existing?.page.faviconUrl ?? null,
       canGoBack: tab.canGoBack,
       canGoForward: tab.canGoForward,
-      loadError: null,
+      loadError: tab.loadError ?? null,
       createdAt,
       browserRuntimeEnvironmentId: environmentId,
       viewportPresetId: existing?.page.viewportPresetId ?? null
@@ -978,6 +981,7 @@ function buildMirroredBrowserTabs(
     return {
       workspace,
       page,
+      certificateFailure: tab.certificateFailure ?? null,
       remotePageId: tab.browserPageId,
       unifiedTab: buildBrowserUnifiedTab(workspace, tab, existing?.unifiedTab ?? null, groupId),
       hostTabId: tab.id
@@ -1481,6 +1485,29 @@ function browserPageEqual(a: BrowserPage, b: BrowserPage): boolean {
     a.createdAt === b.createdAt &&
     a.browserRuntimeEnvironmentId === b.browserRuntimeEnvironmentId &&
     a.viewportPresetId === b.viewportPresetId
+  )
+}
+
+function browserCertificateFailureEqual(
+  a: BrowserCertificateFailure | null | undefined,
+  b: BrowserCertificateFailure | null | undefined
+): boolean {
+  const left = a ?? null
+  const right = b ?? null
+  if (left === right) {
+    return true
+  }
+  return Boolean(
+    left &&
+    right &&
+    left.challengeId === right.challengeId &&
+    left.browserPageId === right.browserPageId &&
+    left.errorCode === right.errorCode &&
+    left.error === right.error &&
+    left.origin === right.origin &&
+    left.displayHost === right.displayHost &&
+    left.canProceed === right.canProceed &&
+    left.observedAt === right.observedAt
   )
 }
 
@@ -2146,6 +2173,7 @@ export function applyWebSessionTabsSnapshot(
 
   let nextBrowserPagesByWorkspace = state.browserPagesByWorkspace
   let nextRemoteBrowserPageHandlesByPageId = state.remoteBrowserPageHandlesByPageId
+  let nextBrowserCertificateFailuresByPageId = state.browserCertificateFailuresByPageId
   for (const removedWorkspaceId of removedBrowserWorkspaceIds) {
     const pages = nextBrowserPagesByWorkspace[removedWorkspaceId] ?? []
     if (nextBrowserPagesByWorkspace[removedWorkspaceId]) {
@@ -2156,6 +2184,13 @@ export function applyWebSessionTabsSnapshot(
       delete nextBrowserPagesByWorkspace[removedWorkspaceId]
     }
     for (const page of pages) {
+      if (nextBrowserCertificateFailuresByPageId[page.id]) {
+        nextBrowserCertificateFailuresByPageId =
+          nextBrowserCertificateFailuresByPageId === state.browserCertificateFailuresByPageId
+            ? { ...state.browserCertificateFailuresByPageId }
+            : nextBrowserCertificateFailuresByPageId
+        delete nextBrowserCertificateFailuresByPageId[page.id]
+      }
       if (nextRemoteBrowserPageHandlesByPageId[page.id]) {
         nextRemoteBrowserPageHandlesByPageId =
           nextRemoteBrowserPageHandlesByPageId === state.remoteBrowserPageHandlesByPageId
@@ -2165,7 +2200,7 @@ export function applyWebSessionTabsSnapshot(
       }
     }
   }
-  for (const { page, remotePageId } of mirroredBrowserTabs) {
+  for (const { page, certificateFailure, remotePageId } of mirroredBrowserTabs) {
     const current = nextBrowserPagesByWorkspace[page.workspaceId] ?? []
     if (!sameBrowserPages(current, [page])) {
       nextBrowserPagesByWorkspace =
@@ -2186,6 +2221,22 @@ export function applyWebSessionTabsSnapshot(
       nextRemoteBrowserPageHandlesByPageId[page.id] = {
         environmentId,
         remotePageId
+      }
+    }
+    if (
+      !browserCertificateFailureEqual(
+        nextBrowserCertificateFailuresByPageId[page.id],
+        certificateFailure
+      )
+    ) {
+      nextBrowserCertificateFailuresByPageId =
+        nextBrowserCertificateFailuresByPageId === state.browserCertificateFailuresByPageId
+          ? { ...state.browserCertificateFailuresByPageId }
+          : nextBrowserCertificateFailuresByPageId
+      if (certificateFailure) {
+        nextBrowserCertificateFailuresByPageId[page.id] = certificateFailure
+      } else {
+        delete nextBrowserCertificateFailuresByPageId[page.id]
       }
     }
   }
@@ -2393,6 +2444,9 @@ export function applyWebSessionTabsSnapshot(
       : {}),
     ...(nextRemoteBrowserPageHandlesByPageId !== state.remoteBrowserPageHandlesByPageId
       ? { remoteBrowserPageHandlesByPageId: nextRemoteBrowserPageHandlesByPageId }
+      : {}),
+    ...(nextBrowserCertificateFailuresByPageId !== state.browserCertificateFailuresByPageId
+      ? { browserCertificateFailuresByPageId: nextBrowserCertificateFailuresByPageId }
       : {}),
     ...(nextActiveTabIdByWorktree !== state.activeTabIdByWorktree
       ? { activeTabIdByWorktree: nextActiveTabIdByWorktree }

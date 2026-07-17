@@ -22,6 +22,8 @@ type TerminalPaneHeaderOverlayProps = {
   cwd: string
   showAlwaysOnHeaders: boolean
   canSplitPane: boolean
+  /** Used by ephemeral one-off command terminals that omit the header affordance. */
+  showSplitButton?: boolean
   paneCount: number
   activePaneId: number | null | undefined
   panes: readonly ManagedPane[]
@@ -63,6 +65,7 @@ export default function TerminalPaneHeaderOverlay({
   cwd,
   showAlwaysOnHeaders,
   canSplitPane,
+  showSplitButton = true,
   paneCount,
   activePaneId,
   panes,
@@ -280,7 +283,7 @@ export default function TerminalPaneHeaderOverlay({
                       </TooltipContent>
                     </Tooltip>
                   ) : null}
-                  {showAlwaysOnHeaders ? (
+                  {showAlwaysOnHeaders && showSplitButton ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
