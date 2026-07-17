@@ -11,6 +11,7 @@ import {
 import { consumePendingWebRuntimeSplitMirrorTelemetry } from '@/runtime/web-runtime-session'
 import {
   normalizeTerminalFastScrollSensitivity,
+  normalizeTerminalMinimumContrastRatio,
   normalizeTerminalScrollSensitivity,
   resolveTerminalCursorInactiveStyle
 } from '@/lib/pane-manager/pane-terminal-options'
@@ -1489,6 +1490,9 @@ export function useTerminalPaneLifecycle({
           ),
           fastScrollSensitivity: normalizeTerminalFastScrollSensitivity(
             currentSettings?.terminalFastScrollSensitivity
+          ),
+          minimumContrastRatio: normalizeTerminalMinimumContrastRatio(
+            currentSettings?.terminalMinimumContrastRatio
           ),
           macOptionIsMeta: effectiveMacOptionAsAltRef.current === 'true',
           lineHeight: normalizeTerminalLineHeight(currentSettings?.terminalLineHeight),

@@ -2586,6 +2586,8 @@ export type GlobalSettings = {
   terminalFontFamily: string
   terminalFontWeight: number
   terminalLineHeight: number
+  /** xterm minimumContrastRatio (1–21). 1 disables correction; default 4.5. */
+  terminalMinimumContrastRatio: number
   terminalScrollSensitivity: number
   terminalFastScrollSensitivity: number
   terminalTuiScrollSensitivity: number
