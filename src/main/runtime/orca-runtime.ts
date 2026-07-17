@@ -143,7 +143,10 @@ import type {
   WorkspaceSessionState,
   DirEntry
 } from '../../shared/types'
-import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
+import {
+  assertWorktreeUnlockedForRemoval,
+  UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE
+} from '../../shared/worktree-removal'
 import {
   getRepoExecutionHostId,
   parseExecutionHostId,
@@ -701,6 +704,7 @@ import {
   getWorktreePathSettings,
   isOrphanCompatiblePreflightError,
   isOrphanedWorktreeError,
+  isSubmoduleWorktreeRemovalError,
   mergeWorktree,
   sanitizeWorktreeName,
   shouldSetDisplayName,
@@ -18119,9 +18123,22 @@ export class OrcaRuntimeService {
         let removalCompleted = false
         try {
           await this.stopPtysForDestructiveWorktreeRemoval(removalTarget.id, repo.connectionId)
-          rawRemovalResult = await (Object.keys(remoteRemoveOptions).length > 0
-            ? provider!.removeWorktree(canonicalWorktreePath, force, remoteRemoveOptions)
-            : provider!.removeWorktree(canonicalWorktreePath, force))
+          try {
+            rawRemovalResult = await (Object.keys(remoteRemoveOptions).length > 0
+              ? provider!.removeWorktree(canonicalWorktreePath, force, remoteRemoveOptions)
+              : provider!.removeWorktree(canonicalWorktreePath, force))
+          } catch (error) {
+            if (!isSubmoduleWorktreeRemovalError(error)) {
+              throw error
+            }
+            if (force) {
+              throw new Error(formatWorktreeRemovalError(error, canonicalWorktreePath, true))
+            }
+            // Why: a linked worktree can own the only copy of submodule Git
+            // objects. Remote-tracking refs cannot prove those objects still
+            // exist remotely, so only explicit Force Delete may override Git.
+            throw new Error(UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE)
+          }
           removalCompleted = true
         } finally {
           await removalGate.finish(removalCompleted)
@@ -18256,6 +18273,8 @@ export class OrcaRuntimeService {
           if (recoveredRemovalResult) {
             removalResult = recoveredRemovalResult
             removalCompleted = true
+          } else if (isSubmoduleWorktreeRemovalError(error) && !force) {
+            throw new Error(UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE)
           } else if (isOrphanedWorktreeError(error)) {
             const access = getLocalWorktreePathAccess(localWorktreeGitOptions)
             if (

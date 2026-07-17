@@ -39,6 +39,21 @@ describe('getDeleteWorktreeToastCopy', () => {
     })
   })
 
+  it('uses unpushed-submodule guidance when submodule work exists only in the workspace', () => {
+    expect(
+      getDeleteWorktreeToastCopy(
+        'feature/foo',
+        'unpushed-submodules',
+        'Worktree contains submodule work that may exist only in this workspace.'
+      )
+    ).toEqual({
+      title: 'Failed to delete workspace feature/foo',
+      description:
+        'Its submodules may have commits or other work that exists only in this workspace. Push or back them up first, or use Force Delete to discard them permanently.',
+      isDestructive: false
+    })
+  })
+
   it('preserves the raw error when force delete is unavailable', () => {
     expect(getDeleteWorktreeToastCopy('feature/foo', null, 'permission denied')).toEqual({
       title: 'Failed to delete workspace feature/foo',

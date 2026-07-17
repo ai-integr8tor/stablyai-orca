@@ -230,6 +230,20 @@ export function isOrphanedWorktreeError(error: unknown): boolean {
   return /is not a working tree/.test(msg)
 }
 
+/**
+ * Check whether a git error indicates the worktree could not be removed because
+ * it contains populated submodules. Non-forced `git worktree remove` refuses
+ * these outright even when the tree is clean. Orca classifies that refusal so
+ * only the user's explicit Force Delete may apply Git's `--force` override.
+ */
+export function isSubmoduleWorktreeRemovalError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const msg = (error as { stderr?: string }).stderr || error.message
+  return /containing submodules cannot be moved or removed/i.test(msg)
+}
+
 export function isWindowsLongPathWorktreeRemovalError(
   error: unknown,
   platform: NodeJS.Platform = process.platform

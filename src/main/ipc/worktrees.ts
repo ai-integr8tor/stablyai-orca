@@ -30,7 +30,10 @@ import type {
   Worktree,
   WorktreeMeta
 } from '../../shared/types'
-import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
+import {
+  assertWorktreeUnlockedForRemoval,
+  UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE
+} from '../../shared/worktree-removal'
 import { getRepoExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import {
   buildKnownOrcaWorkspaceLayouts,
@@ -71,7 +74,8 @@ import {
   areWorktreePathsEqual,
   formatWorktreeRemovalError,
   isOrphanCompatiblePreflightError,
-  isOrphanedWorktreeError
+  isOrphanedWorktreeError,
+  isSubmoduleWorktreeRemovalError
 } from './worktree-logic'
 import { dedupeWorktreesByPath } from './worktree-path-comparison'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
@@ -1739,9 +1743,22 @@ export function registerWorktreeHandlers(
           let removalCompleted = false
           try {
             await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, repo.connectionId)
-            rawRemovalResult = await (Object.keys(remoteRemoveOptions).length > 0
-              ? provider!.removeWorktree(canonicalWorktreePath, args.force, remoteRemoveOptions)
-              : provider!.removeWorktree(canonicalWorktreePath, args.force))
+            try {
+              rawRemovalResult = await (Object.keys(remoteRemoveOptions).length > 0
+                ? provider!.removeWorktree(canonicalWorktreePath, args.force, remoteRemoveOptions)
+                : provider!.removeWorktree(canonicalWorktreePath, args.force))
+            } catch (error) {
+              if (!isSubmoduleWorktreeRemovalError(error)) {
+                throw error
+              }
+              if (args.force) {
+                throw new Error(formatWorktreeRemovalError(error, canonicalWorktreePath, true))
+              }
+              // Why: a linked worktree can own the only copy of submodule Git
+              // objects. Remote-tracking refs cannot prove those objects still
+              // exist remotely, so only explicit Force Delete may override Git.
+              throw new Error(UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE)
+            }
             removalCompleted = true
           } finally {
             await removalGate.finish(removalCompleted)
@@ -1867,6 +1884,8 @@ export function registerWorktreeHandlers(
             if (recoveredRemovalResult) {
               removalResult = recoveredRemovalResult
               removalCompleted = true
+            } else if (isSubmoduleWorktreeRemovalError(error) && args.force !== true) {
+              throw new Error(UNPUSHED_SUBMODULE_WORKTREE_REMOVAL_MESSAGE)
             } else if (isOrphanedWorktreeError(error)) {
               // If git no longer tracks this worktree, clean up the directory and metadata
               console.warn(
