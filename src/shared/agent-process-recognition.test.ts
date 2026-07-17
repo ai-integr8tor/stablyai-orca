@@ -198,6 +198,24 @@ describe('agent process recognition', () => {
     ).toEqual({ agent: 'gemini', processName: 'gemini' })
   })
 
+  it('recognizes the versioned Cursor Node wrapper without accepting generic agent processes', () => {
+    const cursorEntrypoint = String.raw`C:\Users\dev\AppData\Local\cursor-agent\versions\2026.07.09-a3815c0\index.js`
+
+    expect(recognizeAgentProcessFromCommandLine(`node.exe ${cursorEntrypoint}`)).toEqual({
+      agent: 'cursor',
+      processName: 'cursor-agent'
+    })
+    expect(
+      recognizeAgentProcessFromCommandLine(`node.exe ${cursorEntrypoint} worker-server`)
+    ).toEqual({ agent: 'cursor', processName: 'cursor-agent' })
+    expect(
+      recognizeAgentProcessFromCommandLine(String.raw`node.exe C:\repo\cursor-agent\index.js`)
+    ).toBeNull()
+    expect(
+      recognizeAgentProcessFromCommandLine(String.raw`C:\Users\dev\.grok\bin\agent.exe`)
+    ).toBeNull()
+  })
+
   it('recognizes only the agent subcommand of the generic Orca CLI', () => {
     expect(recognizeAgentProcessFromCommandLine('orca claude-teams')).toEqual({
       agent: 'claude-agent-teams',
