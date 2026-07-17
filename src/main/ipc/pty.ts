@@ -290,9 +290,17 @@ function shouldRefreshNativeClaudeAgentTeamsEnv(args: {
   return /(^|\s)--teammate-mode(?:=|\s+)auto(?:\s|$)/.test(capturedLaunch)
 }
 
-function rememberPaneKeyForPty(ptyId: string, paneKey: unknown): string | null {
+function normalizePaneKey(paneKey: unknown): string | null {
   const normalizedPaneKey = typeof paneKey === 'string' ? paneKey.trim() : ''
   if (!isValidPaneKey(normalizedPaneKey)) {
+    return null
+  }
+  return normalizedPaneKey
+}
+
+function rememberPaneKeyForPty(ptyId: string, paneKey: unknown): string | null {
+  const normalizedPaneKey = normalizePaneKey(paneKey)
+  if (!normalizedPaneKey) {
     return null
   }
   ptyPaneKey.set(ptyId, normalizedPaneKey)
@@ -3516,10 +3524,9 @@ export function registerPtyHandlers(
             })
           }
         }
-        // Why: runtime-owned CLI PTYs bypass the renderer `pty:spawn` handler,
-        // so record their spawn-time paneKey here too. Synthetic hook titles and
-        // paneKey-scoped cache cleanup both depend on this reverse lookup.
-        const paneKey = rememberPaneKeyForPty(result.id, env?.ORCA_PANE_KEY)
+        // Why: staged ownership must remain unpublished until commit; only use
+        // the normalized key here to wire serializer readiness for the receipt.
+        const paneKey = normalizePaneKey(env?.ORCA_PANE_KEY)
         const pendingSerializer = paneKey ? pendingByPaneKey.get(paneKey) : undefined
         const inheritRendererReadiness =
           result.isReattach === true &&
@@ -3528,18 +3535,6 @@ export function registerPtyHandlers(
         rendererSerializerReadiness.beginIncarnation(result.id, inheritRendererReadiness)
         if (paneKey && pendingSerializer) {
           pendingPtyIdBySerializerGeneration.set(pendingSerializer.gen, result.id)
-        }
-        if (!args.connectionId) {
-          registerPty({
-            ptyId: result.id,
-            worktreeId: args.worktreeId ?? null,
-            sessionId: sessionId ?? null,
-            paneKey,
-            pid:
-              typeof result.pid === 'number' && Number.isFinite(result.pid) && result.pid > 0
-                ? result.pid
-                : null
-          })
         }
         stagedRuntimeRegistrationReceipts.set(result.id, runtimeRegistration)
         const response = { id: result.id, runtimeRegistration }

@@ -2758,6 +2758,7 @@ export function connectPanePty(
       syncPanePtyLayoutBinding?: 'always' | 'if-missing' | 'never'
       updateTabPtyId?: 'always' | 'if-missing' | 'never'
       sampleVisibleForegroundAgent?: boolean
+      publishRuntimeGraph?: boolean
     } = {}
   ): void => {
     if (activePanePtyBinding && activePanePtyBinding !== ptyId) {
@@ -2792,7 +2793,7 @@ export function connectPanePty(
     }
     // Spawn/attach completion is when a pane gains a concrete PTY ID. Main-owned
     // staged splits publish only from the renderer acknowledgement's afterCommit.
-    if (!trustedAdoptPtyId) {
+    if (options.publishRuntimeGraph !== false) {
       scheduleRuntimeGraphSync()
     }
     agentCompletionCoordinator.startProcessTracking()
@@ -7495,6 +7496,7 @@ export function connectPanePty(
         // must not publish or persist the staged identity from the renderer.
         syncPanePtyLayoutBinding: 'never',
         updateTabPtyId: 'never',
+        publishRuntimeGraph: false,
         sampleVisibleForegroundAgent: true
       })
       registerPaneSerializerFor(attachedPtyId)
