@@ -266,6 +266,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalFocusFollowsMouse: false,
     windowBackgroundBlur: false,
     minimizeToTrayOnClose: false,
+    keepServingOnClose: false,
     // Why: default-on everywhere so the value round-trips across platforms;
     // only the darwin consumers act on it.
     showMenuBarIcon: true,

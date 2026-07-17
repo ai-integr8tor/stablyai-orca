@@ -83,9 +83,7 @@ export function AppearancePane({
   )
   const isSearching = normalizeSettingsSearchQuery(searchQuery).length > 0
   const isWebClient = isWebClientLocation()
-  // Why: the system tray behavior is desktop-Electron Windows-only; a Windows
-  // browser web client has no local tray to control.
-  const isDesktopWindows = getRendererAppPlatform() === 'win32' && !isWebClient
+  const isDesktop = !isWebClient
   const isDesktopMac = getRendererAppPlatform() === 'darwin' && !isWebClient
 
   const [manuallyOpenSection, setManuallyOpenSection] = useState<AppearanceSectionKey | null>(
@@ -136,7 +134,7 @@ export function AppearancePane({
     ...getTypographyEntries(),
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktopWindows }),
+    ...getSystemTrayEntries({ showSystemTray: !isWebClient }),
     ...getMenuBarIconEntries({ showMenuBarIcon: isDesktopMac })
   ]
   const terminalSearchEntries = [
@@ -210,8 +208,8 @@ export function AppearancePane({
             applyTheme={applyTheme}
             fontSuggestions={fontSuggestions}
             onRequestFontSuggestions={onRequestFontSuggestions}
+            isDesktop={isDesktop}
             isDesktopMac={isDesktopMac}
-            isDesktopWindows={isDesktopWindows}
             forceVisiblePrimary={interfaceLabelMatches}
           />
         </AppearanceSection>
