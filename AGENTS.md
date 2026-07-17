@@ -55,3 +55,12 @@ Source-control and review changes must consider GitLab and other supported git p
 Be mindful of the user's `gh` CLI API rate limit — batch requests where possible and avoid unnecessary calls. All code, commands, and scripts must be compatible with macOS, Linux, and Windows.
 
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
+
+
+<claude-mem-context>
+# Memory Context
+
+# [orca] recent context, 2026-07-17 10:45pm GMT+8
+
+No previous sessions found.
+</claude-mem-context>

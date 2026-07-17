@@ -3751,6 +3751,12 @@ export function normalizeHookPayload(
     case 'claude':
       payload = normalizeClaudeEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
       break
+    case 'codebuddy':
+      // Why: CodeBuddy Code is built on the Claude Agent SDK, so its hook
+      // payloads are Claude-shaped (session_id, tool fields, etc.). Reuse the
+      // Claude normalizer so status + session-resume capture work unchanged.
+      payload = normalizeClaudeEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
+      break
     case 'codex':
       payload = normalizeCodexEvent(state, eventName, promptText, paneKey, hookPayloadRecord)
       break
@@ -3900,6 +3906,7 @@ export function normalizeHookPayload(
 
 export const HOOK_SOURCE_BY_PATHNAME: Readonly<Record<string, AgentHookSource>> = Object.freeze({
   '/hook/claude': 'claude',
+  '/hook/codebuddy': 'codebuddy',
   '/hook/codex': 'codex',
   '/hook/gemini': 'gemini',
   '/hook/antigravity': 'antigravity',

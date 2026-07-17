@@ -12,8 +12,8 @@ import {
 } from '../agent-hooks/installer-utils'
 
 export type ClaudeCompatibleHookSettings = {
-  configDirName: '.claude' | '.openclaude'
-  scriptBaseName: 'claude-hook' | 'openclaude-hook'
+  configDirName: '.claude' | '.openclaude' | '.codebuddy'
+  scriptBaseName: 'claude-hook' | 'openclaude-hook' | 'codebuddy-hook'
 }
 
 export const CLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
@@ -24,6 +24,14 @@ export const CLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
 export const OPENCLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
   configDirName: '.openclaude',
   scriptBaseName: 'openclaude-hook'
+}
+
+// Why: CodeBuddy Code keeps its Claude-SDK-shaped settings in `~/.codebuddy`
+// (verified: `codebuddy config set` writes `~/.codebuddy/settings.json`), so
+// reuse the Claude-compatible hook installer against that config dir.
+export const CODEBUDDY_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
+  configDirName: '.codebuddy',
+  scriptBaseName: 'codebuddy-hook'
 }
 
 export const CLAUDE_EVENTS = [

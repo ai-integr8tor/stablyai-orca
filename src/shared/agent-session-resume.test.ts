@@ -11,6 +11,10 @@ describe('agent session resume metadata', () => {
     expect(isResumableTuiAgent('devin')).toBe(true)
   })
 
+  it('treats ccb as a resumable TUI agent', () => {
+    expect(isResumableTuiAgent('ccb')).toBe(true)
+  })
+
   it.each([
     ['claude', { session_id: 'claude-session' }, { key: 'session_id', id: 'claude-session' }],
     ['codex', { session_id: 'codex-session' }, { key: 'session_id', id: 'codex-session' }],
@@ -31,6 +35,8 @@ describe('agent session resume metadata', () => {
 
   it.each([
     ['claude', { key: 'session_id', id: 's1' }, ['claude', '--resume', 's1']],
+    ['codebuddy', { key: 'session_id', id: 's1' }, ['codebuddy', '--resume', 's1']],
+    ['ccb', { key: 'session_id', id: 's1' }, ['ccb', '--resume', 's1']],
     ['codex', { key: 'session_id', id: 's1' }, ['codex', 'resume', 's1']],
     ['gemini', { key: 'session_id', id: 's1' }, ['gemini', '--resume', 's1']],
     ['antigravity', { key: 'conversation_id', id: 's1' }, ['agy', '--conversation', 's1']],

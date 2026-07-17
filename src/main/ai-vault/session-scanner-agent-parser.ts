@@ -33,6 +33,8 @@ export async function parseAgentSessionFile(
 ): Promise<AiVaultSession | null> {
   switch (candidate.agent) {
     case 'claude':
+    // Why: CodeBuddy writes the Claude transcript format, so the same parser applies.
+    case 'codebuddy':
       return parseClaudeSessionFile(candidate.file, platform)
     case 'codex':
       return parseCodexSessionFile(candidate.file, platform, candidate.codexHome)

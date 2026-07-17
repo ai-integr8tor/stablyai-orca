@@ -1,5 +1,6 @@
 import type { SFTPWrapper } from 'ssh2'
 import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
+import type { AgentHookSource } from '../../shared/agent-hook-relay'
 import {
   buildWindowsAgentHookCurlPostCommand,
   readHooksJson,
@@ -36,6 +37,11 @@ type ClaudeHookServiceOptions = {
   agent: AgentHookInstallStatus['agent']
   displayName: string
   settings: ClaudeCompatibleHookSettings
+  // Why: the managed hook script POSTs to `/hook/<source>`. Claude and
+  // OpenClaude share the `claude` source (OpenClaude has no distinct source),
+  // while agents with their own config dir + source (e.g. CodeBuddy) set their
+  // own. Defaults to `claude` so existing agents are unaffected.
+  hookSource?: AgentHookSource
 }
 
 const DEFAULT_CLAUDE_HOOK_SERVICE_OPTIONS: ClaudeHookServiceOptions = {
@@ -46,8 +52,13 @@ const DEFAULT_CLAUDE_HOOK_SERVICE_OPTIONS: ClaudeHookServiceOptions = {
 
 function getManagedScript(
   target: 'local' | 'posix' = 'local',
-  options: { skipWhenDevinImportsClaude?: boolean } = {}
+  options: { skipWhenDevinImportsClaude?: boolean; hookSource?: AgentHookSource } = {}
 ): string {
+  // Why: the POST target must match the source the server routes
+  // (`HOOK_SOURCE_BY_PATHNAME`). Default to `claude` so Claude/OpenClaude keep
+  // posting to `/hook/claude` (OpenClaude has no distinct source) and only
+  // agents that set `hookSource` (e.g. CodeBuddy) diverge.
+  const hookSource = options.hookSource ?? 'claude'
   if (target === 'local' && process.platform === 'win32') {
     return [
       '@echo off',
@@ -118,7 +129,7 @@ function getManagedScript(
     // Why: pipe payload to curl's stdin (`payload@-`) instead of an inline
     // `payload=$VALUE` arg, so tens-of-KB tool output stays off the curl
     // command line (EDR command-line false positives). Wire body is identical.
-    'printf \'%s\' "$payload" | curl -sS -X POST "http://127.0.0.1:${ORCA_AGENT_HOOK_PORT}/hook/claude" \\',
+    `printf '%s' "$payload" | curl -sS -X POST "http://127.0.0.1:${ORCA_AGENT_HOOK_PORT}/hook/${hookSource}" \\`,
     '  --connect-timeout 0.5 --max-time 1.5 \\',
     '  -H "Content-Type: application/x-www-form-urlencoded" \\',
     '  -H "X-Orca-Agent-Hook-Token: ${ORCA_AGENT_HOOK_TOKEN}" \\',
@@ -213,7 +224,10 @@ export class ClaudeHookService {
     )
     writeManagedScript(
       scriptPath,
-      getManagedScript('local', { skipWhenDevinImportsClaude: this.options.agent === 'claude' })
+      getManagedScript('local', {
+        skipWhenDevinImportsClaude: this.options.agent === 'claude',
+        hookSource: this.options.hookSource
+      })
     )
     writeHooksJson(configPath, nextConfig)
     return this.getStatus()
@@ -265,7 +279,10 @@ export class ClaudeHookService {
       await writeManagedScriptRemote(
         sftp,
         remoteScriptPath,
-        getManagedScript('posix', { skipWhenDevinImportsClaude: this.options.agent === 'claude' })
+        getManagedScript('posix', {
+          skipWhenDevinImportsClaude: this.options.agent === 'claude',
+          hookSource: this.options.hookSource
+        })
       )
       await writeHooksJsonRemote(sftp, remoteConfigPath, nextConfig)
 

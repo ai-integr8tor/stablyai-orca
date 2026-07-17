@@ -6,6 +6,7 @@ import { SUBAGENT_DIR_NAME } from './session-scanner-subagent-transcripts'
 import { discoverFiles, discoverOpenClawFiles } from './session-scanner-discovery'
 import { droidDiscoveries, kimiDiscoveries } from './session-scanner-droid-kimi-sources'
 import { opencodeDiscoveries } from './session-scanner-opencode-sources'
+import { codebuddyDiscoveries } from './session-scanner-codebuddy-sources'
 import type { AiVaultScanOptions, SessionFileDiscovery } from './session-scanner-types'
 import { normalizeAgentSessionsDir } from './session-scanner-values'
 import { resolveGrokSessionsDir } from '../../shared/grok-session-paths'
@@ -75,6 +76,7 @@ export async function discoverAiVaultSessionSources(args: {
     // and the SQLite scanner (1.17.x); dedup by sessionId happens inside.
     ...opencodeDiscoveries(options, wslHomeDirs, limitPerAgent, issues),
     ...claudeDiscoveries(options, wslHomeDirs, limitPerAgent, issues),
+    ...codebuddyDiscoveries(options, wslHomeDirs, limitPerAgent, issues),
     ...codexDiscoveries(codexSessionsDirs, limitPerAgent, issues),
     ...standardDiscoveries(options, wslHomeDirs, limitPerAgent, issues),
     openClawDiscovery(options, wslHomeDirs, limitPerAgent, issues),

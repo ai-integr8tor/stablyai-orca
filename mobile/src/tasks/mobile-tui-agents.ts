@@ -6,6 +6,8 @@ import type { TuiAgent } from '../../../src/shared/types'
 export const MOBILE_TUI_AGENT_AUTO_PICK_ORDER = [
   'claude',
   'claude-agent-teams',
+  'ccb',
+  'codebuddy',
   'openclaude',
   'codex',
   'grok',
@@ -43,6 +45,8 @@ export const MOBILE_TUI_AGENT_AUTO_PICK_ORDER = [
 export const MOBILE_TUI_AGENT_LABELS: Record<TuiAgent, string> = {
   claude: 'Claude',
   'claude-agent-teams': 'Claude Agent Teams',
+  ccb: 'Claude Code Best',
+  codebuddy: 'CodeBuddy',
   openclaude: 'OpenClaude',
   codex: 'Codex',
   grok: 'Grok',
@@ -79,6 +83,7 @@ export const MOBILE_TUI_AGENT_LABELS: Record<TuiAgent, string> = {
 
 export const MOBILE_TUI_AGENT_FAVICON_DOMAINS: Partial<Record<TuiAgent, string>> = {
   openclaude: 'openclaude.gitlawb.com',
+  codebuddy: 'codebuddy.ai',
   grok: 'x.ai',
   copilot: 'github.com',
   opencode: 'opencode.ai',
@@ -112,6 +117,8 @@ export const MOBILE_TUI_AGENT_FAVICON_DOMAINS: Partial<Record<TuiAgent, string>>
 export const MOBILE_TUI_AGENT_LAUNCH_COMMANDS: Record<TuiAgent, string> = {
   claude: 'claude',
   'claude-agent-teams': 'orca claude-teams',
+  ccb: 'ccb',
+  codebuddy: 'codebuddy',
   openclaude: 'openclaude',
   codex: 'codex',
   grok: 'grok',
