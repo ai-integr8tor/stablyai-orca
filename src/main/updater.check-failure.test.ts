@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { publishingIncident } from './updater-prerelease-feed-reproduction.fixture'
+
+const { netFetchMock } = vi.hoisted(() => ({ netFetchMock: vi.fn() }))
 
 const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, killAllPtyMock } =
   vi.hoisted(() => {
@@ -72,7 +75,7 @@ vi.mock('electron', () => ({
   BrowserWindow: browserWindowMock,
   autoUpdater: nativeUpdaterMock,
   powerMonitor: { on: vi.fn() },
-  net: { fetch: vi.fn() }
+  net: { fetch: netFetchMock }
 }))
 
 vi.mock('electron-updater', () => ({
@@ -99,14 +102,19 @@ vi.mock('./updater-nudge', () => ({
 const ONE_HOUR_MS = 60 * 60 * 1000
 const THIRTY_SECONDS_MS = 30 * 1000
 const FRIENDLY_MESSAGE = "Couldn't reach the update server. Try again in a few minutes."
+const PUBLISHING_MESSAGE = 'A new release is still being published. Try again shortly.'
 
 function makeBenignCheckFailure(message: string): void {
+  const error = new Error(message) as Error & { updaterReleaseChannel?: 'default' }
+  if (message === 'Latest release assets are still publishing') {
+    error.updaterReleaseChannel = 'default'
+  }
   autoUpdaterMock.checkForUpdates.mockImplementation(() => {
     autoUpdaterMock.emit('checking-for-update')
     queueMicrotask(() => {
-      autoUpdaterMock.emit('error', new Error(message))
+      autoUpdaterMock.emit('error', error)
     })
-    return Promise.reject(new Error(message))
+    return Promise.reject(error)
   })
 }
 
@@ -125,6 +133,11 @@ describe('updater check failure handling', () => {
     killAllPtyMock.mockReset()
     vi.unstubAllGlobals()
     vi.useRealTimers()
+    netFetchMock.mockReset().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<feed></feed>')
+    })
   })
 
   it('surfaces GitHub release-transition failures with calmer copy and no short retry', async () => {
@@ -189,6 +202,74 @@ describe('updater check failure handling', () => {
     })
   })
 
+  it('surfaces the publishing sentinel with publishing-specific copy', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-24T21:40:00Z'))
+    makeBenignCheckFailure('Latest release assets are still publishing')
+
+    const sendMock = vi.fn()
+    const mainWindow = { webContents: { send: sendMock } }
+    const setLastUpdateCheckAt = vi.fn()
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+    setupAutoUpdater(mainWindow as never, {
+      getLastUpdateCheckAt: () => Date.now(),
+      setLastUpdateCheckAt
+    })
+    checkForUpdatesFromMenu()
+    await vi.waitFor(() => {
+      expect(sendMock.mock.calls.map(([, status]) => status)).toContainEqual(
+        expect.objectContaining({
+          state: 'error',
+          userInitiated: true,
+          message: PUBLISHING_MESSAGE
+        })
+      )
+    })
+    expect(
+      sendMock.mock.calls.filter(([, status]) => status?.message === PUBLISHING_MESSAGE)
+    ).toHaveLength(1)
+    expect(setLastUpdateCheckAt).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('maps the captured release incident through readiness into publishing copy', async () => {
+    appMock.getVersion.mockReturnValue(publishingIncident.installedVersion)
+    const atom = `<feed>${publishingIncident.atomTags
+      .map(
+        (tag) =>
+          `<entry><link rel="alternate" type="text/html" href="https://github.com/stablyai/orca/releases/tag/${tag}"/><title>${tag}</title></entry>`
+      )
+      .join('')}</feed>`
+    netFetchMock.mockImplementation((url: string) =>
+      url === 'https://github.com/stablyai/orca/releases.atom'
+        ? Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(atom) })
+        : Promise.resolve({
+            ok: false,
+            status: publishingIncident.missingManifestStatus,
+            text: () => Promise.resolve('')
+          })
+    )
+
+    const sendMock = vi.fn()
+    const mainWindow = { webContents: { send: sendMock } }
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+    setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
+    checkForUpdatesFromMenu()
+
+    await vi.waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith('updater:status', {
+        state: 'error',
+        message: PUBLISHING_MESSAGE,
+        userInitiated: true
+      })
+    })
+    expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+  })
+
   it('silently drops background benign failures to idle and waits for the hourly retry', async () => {
     vi.useFakeTimers()
     makeBenignCheckFailure('Unable to find latest version on GitHub')
@@ -215,6 +296,28 @@ describe('updater check failure handling', () => {
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
 
     await vi.advanceTimersByTimeAsync(ONE_HOUR_MS - THIRTY_SECONDS_MS)
+    expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps background publishing failures idle and schedules the short retry', async () => {
+    vi.useFakeTimers()
+    makeBenignCheckFailure('Latest release assets are still publishing')
+
+    const sendMock = vi.fn()
+    const mainWindow = { webContents: { send: sendMock } }
+    const { setupAutoUpdater, checkForUpdates } = await import('./updater')
+
+    setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
+    checkForUpdates()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const statuses = sendMock.mock.calls
+      .filter(([channel]) => channel === 'updater:status')
+      .map(([, status]) => status)
+    expect(statuses).toContainEqual({ state: 'idle' })
+    expect(statuses).not.toContainEqual(expect.objectContaining({ state: 'error' }))
+
+    await vi.advanceTimersByTimeAsync(ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
   })
 

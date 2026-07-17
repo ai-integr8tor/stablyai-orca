@@ -37,6 +37,10 @@ type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
 type PrimaryEventSuppression = { failureKey: string; error: unknown }
 type UpdateCheckVariant = 'default' | 'prerelease' | 'perf'
+type ReleasePublishingError = Error & {
+  updaterReleaseChannel?: UpdateCheckVariant
+  updaterPreserveNudge?: boolean
+}
 type ReleaseFeedPreflightResult = 'ready' | 'not-available'
 
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
@@ -792,9 +796,14 @@ async function sendCheckFailureStatus(
         // prefixes "Could not check for updates." and Settings prefixes
         // "Update check failed.", so the message here only carries the
         // actionable cause.
-        sendErrorStatus("Couldn't reach the update server. Try again in a few minutes.", true)
+        sendErrorStatus(
+          isStableReleasePublishingFailure(message, sourceError)
+            ? 'A new release is still being published. Try again shortly.'
+            : "Couldn't reach the update server. Try again in a few minutes.",
+          true
+        )
       } else {
-        if (isReleaseAssetsPublishingFailure(message)) {
+        if (shouldPreserveNudgeForReleaseProbe(message, sourceError)) {
           // Why: a nudge-triggered check can land during the brief window where
           // GitHub exposes a release before its updater assets are reachable.
           // Keep the campaign pending so the short retry can still show it.
@@ -821,6 +830,21 @@ async function sendCheckFailureStatus(
     }
   })
   return pendingCheckFailurePromise
+}
+
+function shouldPreserveNudgeForReleaseProbe(message: string, sourceError: unknown): boolean {
+  return (
+    isReleaseAssetsPublishingFailure(message) ||
+    (sourceError as ReleasePublishingError | null)?.updaterPreserveNudge === true
+  )
+}
+
+function isStableReleasePublishingFailure(message: string, sourceError: unknown): boolean {
+  if (!isReleaseAssetsPublishingFailure(message)) {
+    return false
+  }
+  const channel = (sourceError as ReleasePublishingError | null)?.updaterReleaseChannel
+  return channel === 'default'
 }
 
 export function getUpdateStatus(): UpdateStatus {
@@ -1012,7 +1036,28 @@ async function pinDefaultReleaseFeed(
     console.info(
       `[updater] release feed deferred: current=${currentVersion} includePrerelease=${includePrerelease}; newest release assets are still publishing`
     )
-    throw new Error('Latest release assets are still publishing')
+    const error = new Error('Latest release assets are still publishing') as ReleasePublishingError
+    error.updaterReleaseChannel = isPerfCheck
+      ? 'perf'
+      : includePrerelease
+        ? 'prerelease'
+        : 'default'
+    throw error
+  } else if (
+    releaseTagsResult.state === 'unavailable' &&
+    releaseTagsResult.unavailableReason === 'manifest' &&
+    !includePrerelease
+  ) {
+    clearPrereleaseFallbackContext()
+    clearPublishingWindowLastGoodCheck()
+    const error = new Error('Unable to find latest version on GitHub') as ReleasePublishingError
+    error.updaterReleaseChannel = isPerfCheck
+      ? 'perf'
+      : includePrerelease
+        ? 'prerelease'
+        : 'default'
+    error.updaterPreserveNudge = true
+    throw error
   } else if (isPerfCheck) {
     clearPrereleaseFallbackContext()
     clearPublishingWindowLastGoodCheck()
