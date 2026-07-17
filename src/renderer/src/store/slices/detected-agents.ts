@@ -77,7 +77,12 @@ export const createDetectedAgentsSlice: StateCreator<AppState, [], [], DetectedA
     const context = getLocalAgentPreflightContext(get())
     const contextKey = localPreflightContextKey(context)
     const existing = get().detectedAgentIds
-    if (existing && detectedContextKey === contextKey) {
+    // Why: an empty result ([]) is truthy, so a prior "no agents found" detection
+    // (including WSL cold-start timeouts that soft-fail to []) must not be treated
+    // as cached — re-detect so a later install / PATH fix / warm distro is picked
+    // up without a context switch. Non-empty results still short-circuit.
+    // Mirrors ensureRemoteDetectedAgents / ensureRuntimeDetectedAgents (#6029).
+    if (existing?.length && detectedContextKey === contextKey) {
       return Promise.resolve(existing)
     }
     if (detectPromise?.key === contextKey) {
@@ -96,6 +101,12 @@ export const createDetectedAgentsSlice: StateCreator<AppState, [], [], DetectedA
         if (requestGeneration === localDetectionGeneration) {
           set({ detectedAgentIds: typed, isDetectingAgents: false })
           detectedContextKey = contextKey
+          // Why: empty detections must not leave a resolved detectPromise that
+          // short-circuits the next ensureDetectedAgents call — same non-sticky
+          // empty rule as the existing?.length guard above.
+          if (typed.length === 0) {
+            detectPromise = null
+          }
         }
         return typed
       })
@@ -139,9 +150,12 @@ export const createDetectedAgentsSlice: StateCreator<AppState, [], [], DetectedA
             pathFailureReason: result.pathFailureReason
           })
           // Why: once refresh has run, treat its result as the current detection
-          // snapshot so `ensureDetectedAgents` short-circuits.
+          // snapshot so `ensureDetectedAgents` short-circuits on non-empty hits.
+          // Empty stays non-sticky so a cold-start miss can recover without a
+          // manual clearLocalDetectedAgents.
           detectedContextKey = contextKey
-          detectPromise = { key: contextKey, promise: Promise.resolve(typed) }
+          detectPromise =
+            typed.length > 0 ? { key: contextKey, promise: Promise.resolve(typed) } : null
         }
         return typed
       })

@@ -10,6 +10,7 @@ import {
   RUNTIME_PROTOCOL_VERSION
 } from '../../../shared/protocol-version'
 
+const detectAgents = vi.fn()
 const detectRemoteAgents = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
 const initialAppState = useAppStore.getInitialState()
@@ -41,6 +42,7 @@ async function renderProbe(target: AgentDetectionTarget): Promise<Root> {
 
 beforeEach(() => {
   useAppStore.setState(initialAppState, true)
+  detectAgents.mockReset().mockResolvedValue([])
   detectRemoteAgents.mockReset().mockResolvedValue([])
   runtimeEnvironmentCall.mockReset().mockImplementation(({ method }: { method: string }) => {
     const result =
@@ -64,7 +66,7 @@ beforeEach(() => {
     })
   })
   globalThis.window.api = {
-    preflight: { detectRemoteAgents },
+    preflight: { detectAgents, detectRemoteAgents },
     runtimeEnvironments: { call: runtimeEnvironmentCall }
   } as unknown as Window['api']
 })
@@ -112,6 +114,42 @@ describe('useDetectedAgents (ssh call site)', () => {
 
     expect(detectRemoteAgents).toHaveBeenCalledTimes(2)
     expect(useAppStore.getState().remoteDetectedAgentIds['ssh-1']).toEqual(['kilo'])
+  })
+})
+
+describe('useDetectedAgents (local call site)', () => {
+  it('fires local detection once on mount and does not thrash after an empty result', async () => {
+    const root = await renderProbe({ kind: 'local' })
+
+    expect(detectAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual([])
+
+    await act(async () => {
+      root.render(createElement(HookProbe, { target: { kind: 'local' } }))
+    })
+    await flushEffects()
+
+    expect(detectAgents).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a cached empty local result when the launch surface is reopened', async () => {
+    // Why: WSL/local cold-start soft-fails to [] (#8366). Reopening TabBar /
+    // QuickLaunch must re-enter ensureDetectedAgents without a project switch.
+    const firstRoot = await renderProbe({ kind: 'local' })
+
+    expect(detectAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual([])
+
+    await act(async () => {
+      firstRoot.unmount()
+    })
+    roots.splice(roots.indexOf(firstRoot), 1)
+    detectAgents.mockResolvedValueOnce(['grok'])
+
+    await renderProbe({ kind: 'local' })
+
+    expect(detectAgents).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState().detectedAgentIds).toEqual(['grok'])
   })
 })
 

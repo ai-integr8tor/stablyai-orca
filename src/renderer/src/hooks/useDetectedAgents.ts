@@ -102,7 +102,7 @@ export function useDetectedAgents(
         ? `ssh:${targetId}`
         : targetKind === 'runtime' && targetId
           ? `runtime:${targetId}`
-          : null
+          : 'local'
     if (targetKind === 'ssh' && targetId) {
       if (detectedIds === null) {
         retriedEmptyTargetRef.current = emptyRetryKey
@@ -124,7 +124,14 @@ export function useDetectedAgents(
         void ensureRuntime(targetId)
       }
     } else {
+      // Why: local/WSL cold-start soft-fails to [] (see #8366). Store non-sticky
+      // empty is not enough — TabBar/QuickLaunch only re-enter via this hook, so
+      // mirror SSH/runtime: one fresh probe when a launch surface remounts on [].
       if (detectedIds === null) {
+        retriedEmptyTargetRef.current = emptyRetryKey
+        void ensureLocal()
+      } else if (detectedIds.length === 0 && retriedEmptyTargetRef.current !== emptyRetryKey) {
+        retriedEmptyTargetRef.current = emptyRetryKey
         void ensureLocal()
       }
     }
