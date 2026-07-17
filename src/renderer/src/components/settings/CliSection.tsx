@@ -8,6 +8,7 @@ import {
   ORCA_CLI_SKILL_NAME,
   ORCA_CLI_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
+import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import {
   AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
   ensureOrcaCliAvailableForAgentSkillTerminal,
@@ -23,6 +24,11 @@ import { Label } from '../ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
 import { CliRegistrationDialog } from './CliRegistrationDialog'
+import {
+  getFallbackCommandName,
+  getInstallDescription,
+  getRevealLabel
+} from './cli-section-platform-labels'
 import {
   buildSkillCommandForRuntime,
   ensureWslCliAvailableForAgentSkillTerminal,
@@ -42,33 +48,6 @@ type CliSectionProps = {
   wslCapabilitiesLoading?: boolean
 }
 
-function getRevealLabel(platform: string): string {
-  if (platform === 'darwin') {
-    return 'Show in Finder'
-  }
-  if (platform === 'win32') {
-    return 'Show in Explorer'
-  }
-  return 'Show in File Manager'
-}
-
-function getInstallDescription(platform: string): string {
-  if (platform === 'darwin') {
-    return 'Register `orca` in /usr/local/bin.'
-  }
-  if (platform === 'linux') {
-    return 'Register `orca-ide` in ~/.local/bin.'
-  }
-  if (platform === 'win32') {
-    return 'Register `orca` in your user PATH.'
-  }
-  return 'CLI registration is not yet available on this platform.'
-}
-
-function getFallbackCommandName(platform: string): string {
-  return platform === 'linux' ? 'orca-ide' : 'orca'
-}
-
 export function CliSection({
   currentPlatform,
   settings,
@@ -80,6 +59,11 @@ export function CliSection({
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [busyAction, setBusyAction] = useState<'install' | 'remove' | null>(null)
+  const [wslCliRefreshSignal, setWslCliRefreshSignal] = useState(0)
+  // Why: toasts vanish, leaving an install failure indistinguishable from
+  // "never attempted". Persist the last action error inline so the user can
+  // still read and act on it (e.g. permission/missing-directory guidance).
+  const [actionError, setActionError] = useState<string | null>(null)
   const mountedRef = useMountedRef()
   const agentRuntime = useMemo(
     () =>
@@ -124,6 +108,9 @@ export function CliSection({
     (nextStatus: CliInstallStatus): void => {
       if (mountedRef.current) {
         setStatus(nextStatus)
+        if (nextStatus.state === 'installed') {
+          setActionError(null)
+        }
       }
     },
     [mountedRef]
@@ -133,6 +120,9 @@ export function CliSection({
     setLoading(true)
     try {
       handleStatusChange(await window.api.cli.getInstallStatus())
+      if (mountedRef.current) {
+        setActionError(null)
+      }
     } catch (error) {
       if (mountedRef.current) {
         toast.error(
@@ -169,6 +159,7 @@ export function CliSection({
       const next = await window.api.cli.install()
       if (mountedRef.current) {
         setStatus(next)
+        setActionError(null)
         setDialogOpen(false)
         toast.success(
           translate(
@@ -180,15 +171,16 @@ export function CliSection({
       }
     } catch (error) {
       if (mountedRef.current) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : translate(
-                'auto.components.settings.CliSection.a2b13efa94',
-                'Failed to register `{{value0}}` in PATH.',
-                { value0: commandName }
-              )
+        const message = extractIpcErrorMessage(
+          error,
+          translate(
+            'auto.components.settings.CliSection.a2b13efa94',
+            'Failed to register `{{value0}}` in PATH.',
+            { value0: commandName }
+          )
         )
+        setActionError(message)
+        toast.error(message)
       }
     } finally {
       if (mountedRef.current) {
@@ -203,6 +195,7 @@ export function CliSection({
       const next = await window.api.cli.remove()
       if (mountedRef.current) {
         setStatus(next)
+        setActionError(null)
         setDialogOpen(false)
         toast.success(
           translate(
@@ -214,15 +207,16 @@ export function CliSection({
       }
     } catch (error) {
       if (mountedRef.current) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : translate(
-                'auto.components.settings.CliSection.d77352f2df',
-                'Failed to remove `{{value0}}` from PATH.',
-                { value0: commandName }
-              )
+        const message = extractIpcErrorMessage(
+          error,
+          translate(
+            'auto.components.settings.CliSection.d77352f2df',
+            'Failed to remove `{{value0}}` from PATH.',
+            { value0: commandName }
+          )
         )
+        setActionError(message)
+        toast.error(message)
       }
     } finally {
       if (mountedRef.current) {
@@ -333,6 +327,12 @@ export function CliSection({
           <p className="text-xs text-muted-foreground">{status.detail}</p>
         ) : null}
 
+        {actionError && !dialogOpen ? (
+          <p role="alert" className="text-xs text-destructive">
+            {actionError}
+          </p>
+        ) : null}
+
         <div className="flex items-center gap-2">
           {status?.commandPath ? (
             <Button
@@ -383,11 +383,16 @@ export function CliSection({
               getPrerequisiteStatus={getCliSkillPrerequisiteStatus}
               isPrerequisiteAvailable={isOrcaCliAvailableOnPath}
               onBeforeOpenTerminal={async () => {
-                await (agentRuntime.runtime === 'wsl'
-                  ? ensureWslCliAvailableForAgentSkillTerminal(agentRuntime)
-                  : ensureOrcaCliAvailableForAgentSkillTerminal({
-                      onStatusChange: handleStatusChange
-                    }))
+                if (agentRuntime.runtime === 'wsl') {
+                  const next = await ensureWslCliAvailableForAgentSkillTerminal(agentRuntime)
+                  if (next && isOrcaCliAvailableOnPath(next)) {
+                    setWslCliRefreshSignal((signal) => signal + 1)
+                  }
+                  return
+                }
+                await ensureOrcaCliAvailableForAgentSkillTerminal({
+                  onStatusChange: handleStatusChange
+                })
               }}
               onRecheck={refreshCliSkill}
               freshnessSkillName={agentRuntime.runtime === 'host' ? ORCA_CLI_SKILL_NAME : undefined}
@@ -396,9 +401,10 @@ export function CliSection({
         ) : null}
       </div>
 
-      <WslCliRegistration currentPlatform={currentPlatform} />
+      <WslCliRegistration currentPlatform={currentPlatform} refreshSignal={wslCliRefreshSignal} />
 
       <CliRegistrationDialog
+        actionError={actionError}
         busyAction={busyAction}
         commandName={commandName}
         commandPath={status?.commandPath}
