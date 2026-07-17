@@ -433,6 +433,7 @@ describe('registerCoreHandlers', () => {
     const agentAwakeService = { marker: 'agentAwakeService' }
     const onBeforeRelaunch = vi.fn()
     const getAdditionalAiVaultCodexHomePaths = vi.fn(() => ['/runtime/codex/home'])
+    const getLocalRuntimePublicKeyB64 = vi.fn(() => 'local-runtime-public-key')
 
     registerCoreHandlers(
       store as never,
@@ -450,7 +451,7 @@ describe('registerCoreHandlers', () => {
       agentAwakeService as never,
       undefined,
       undefined,
-      { getAdditionalAiVaultCodexHomePaths, onBeforeRelaunch }
+      { getAdditionalAiVaultCodexHomePaths, getLocalRuntimePublicKeyB64, onBeforeRelaunch }
     )
 
     const aiVaultOptions = registerAiVaultHandlersMock.mock.calls[0]?.[0]
@@ -499,7 +500,10 @@ describe('registerCoreHandlers', () => {
     expect(registerEmulatorVideoStreamHandlersMock).toHaveBeenCalled()
     expect(registerFilesystemHandlersMock).toHaveBeenCalledWith(store)
     expect(registerRuntimeHandlersMock).toHaveBeenCalledWith(runtime)
-    expect(registerRuntimeEnvironmentHandlersMock).toHaveBeenCalledWith(store)
+    expect(registerRuntimeEnvironmentHandlersMock).toHaveBeenCalledWith(
+      store,
+      getLocalRuntimePublicKeyB64
+    )
     expect(registerEphemeralVmHandlersMock).toHaveBeenCalledWith(store)
     expect(registerAiVaultHandlersMock).toHaveBeenCalledWith(
       expect.objectContaining({

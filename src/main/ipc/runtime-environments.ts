@@ -65,7 +65,10 @@ function listPublicRuntimeEnvironments(): PublicKnownRuntimeEnvironment[] {
   return listEnvironments(getUserDataPath()).map(redactRuntimeEnvironment)
 }
 
-export function registerRuntimeEnvironmentHandlers(store: Store): void {
+export function registerRuntimeEnvironmentHandlers(
+  store: Store,
+  getLocalRuntimePublicKeyB64: () => string | null = () => null
+): void {
   // Why: keep direct re-registration safe even though register-core-handlers
   // normally guards this path; otherwise the binary send listener can stack.
   resetSharedControlSupport()
@@ -83,7 +86,12 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
       _event,
       args: { name: string; pairingCode: string }
     ): { environment: PublicKnownRuntimeEnvironment } => ({
-      environment: redactRuntimeEnvironment(addEnvironmentFromPairingCode(getUserDataPath(), args))
+      environment: redactRuntimeEnvironment(
+        addEnvironmentFromPairingCode(getUserDataPath(), {
+          ...args,
+          localRuntimePublicKeyB64: getLocalRuntimePublicKeyB64()
+        })
+      )
     })
   )
   ipcMain.handle(

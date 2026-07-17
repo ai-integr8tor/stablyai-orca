@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { publicKeyFromBase64, publicKeyToBase64 } from './e2ee-crypto'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import { hardenExistingSecureFile, writeSecureJsonFile } from './secure-file'
 import {
@@ -37,13 +38,29 @@ export function listEnvironments(userDataPath: string): KnownRuntimeEnvironment[
 
 export function addEnvironmentFromPairingCode(
   userDataPath: string,
-  args: { name: string; pairingCode: string; now?: number; source?: RuntimeEnvironmentSource }
+  args: {
+    name: string
+    pairingCode: string
+    now?: number
+    source?: RuntimeEnvironmentSource
+    localRuntimePublicKeyB64?: string | null
+  }
 ): KnownRuntimeEnvironment {
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError(
       'invalid_argument',
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
+    )
+  }
+  if (
+    args.localRuntimePublicKeyB64 &&
+    pairingPublicKeysMatch(offer.publicKeyB64, args.localRuntimePublicKeyB64)
+  ) {
+    // Why: connecting the local runtime back to itself creates recursive host state.
+    throw new RuntimeEnvironmentStoreError(
+      'invalid_argument',
+      'This pairing code belongs to this Orca server. Add a different remote server.'
     )
   }
   const store = readEnvironmentStore(userDataPath)
@@ -72,6 +89,16 @@ export function addEnvironmentFromPairingCode(
   }
   writeEnvironmentStore(userDataPath, next)
   return environment
+}
+
+function pairingPublicKeysMatch(left: string, right: string): boolean {
+  try {
+    return (
+      publicKeyToBase64(publicKeyFromBase64(left)) === publicKeyToBase64(publicKeyFromBase64(right))
+    )
+  } catch {
+    return false
+  }
 }
 
 export function removeEnvironment(userDataPath: string, selector: string): KnownRuntimeEnvironment {

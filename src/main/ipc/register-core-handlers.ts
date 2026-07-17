@@ -85,6 +85,7 @@ type CoreHandlerLifecycleOptions = {
   onOrcaProfileAuthMutation?: () => void
   onBeforeOrcaProfileSignOut?: () => void
   getAdditionalAiVaultCodexHomePaths?: () => readonly string[]
+  getLocalRuntimePublicKeyB64?: () => string | null
 }
 
 export function registerCoreHandlers(
@@ -184,7 +185,7 @@ export function registerCoreHandlers(
   }
   registerFilesystemWatcherHandlers()
   registerRuntimeHandlers(runtime)
-  registerRuntimeEnvironmentHandlers(store)
+  registerRuntimeEnvironmentHandlers(store, lifecycleOptions.getLocalRuntimePublicKeyB64)
   registerEphemeralVmHandlers(store)
   registerAiVaultHandlers({
     getAdditionalCodexHomePaths: lifecycleOptions.getAdditionalAiVaultCodexHomePaths,
