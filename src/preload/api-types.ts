@@ -3028,6 +3028,14 @@ export type PreloadApi = {
       name: string
       pairingCode: string
     }) => Promise<{ environment: PublicKnownRuntimeEnvironment }>
+    rename: (args: {
+      selector: string
+      name: string
+    }) => Promise<{ environment: PublicKnownRuntimeEnvironment }>
+    updateFromPairingCode: (args: {
+      selector: string
+      pairingCode: string
+    }) => Promise<{ environment: PublicKnownRuntimeEnvironment }>
     resolve: (args: { selector: string }) => Promise<PublicKnownRuntimeEnvironment>
     remove: (args: { selector: string }) => Promise<{ removed: PublicKnownRuntimeEnvironment }>
     disconnect: (args: {

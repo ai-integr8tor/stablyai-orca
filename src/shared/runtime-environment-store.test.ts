@@ -7,7 +7,9 @@ import {
   RuntimeEnvironmentStoreError,
   addEnvironmentFromPairingCode,
   listEnvironments,
-  markEnvironmentUsed
+  markEnvironmentUsed,
+  renameEnvironment,
+  updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
@@ -94,5 +96,61 @@ describe('runtime environment store', () => {
       lastUsedAt: 2_000,
       runtimeId: 'runtime-2'
     })
+  })
+
+  it('renames a saved server while keeping its id and endpoint', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const env = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode('ws://127.0.0.1:6768')
+    })
+
+    const renamed = renameEnvironment(userDataPath, env.id, { name: 'lab box', now: 9_000 })
+    expect(renamed).toMatchObject({
+      id: env.id,
+      name: 'lab box',
+      updatedAt: 9_000
+    })
+    expect(renamed.endpoints[0]?.endpoint).toBe('ws://127.0.0.1:6768')
+    expect(listEnvironments(userDataPath)[0]?.name).toBe('lab box')
+  })
+
+  it('rejects rename to an existing server name', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    addEnvironmentFromPairingCode(userDataPath, {
+      name: 'alpha',
+      pairingCode: pairingCode('ws://127.0.0.1:6768')
+    })
+    const beta = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'beta',
+      pairingCode: pairingCode('ws://127.0.0.1:6769')
+    })
+
+    expect(() => renameEnvironment(userDataPath, beta.id, { name: 'Alpha' })).toThrow(
+      RuntimeEnvironmentStoreError
+    )
+    expect(listEnvironments(userDataPath).map((entry) => entry.name)).toEqual(['alpha', 'beta'])
+  })
+
+  it('updates connection details from a new pairing code without changing id or name', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const env = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode('ws://192.168.1.10:6768')
+    })
+
+    const updated = updateEnvironmentFromPairingCode(userDataPath, env.id, {
+      pairingCode: pairingCode('ws://100.64.0.5:6768'),
+      now: 12_000
+    })
+    expect(updated).toMatchObject({
+      id: env.id,
+      name: 'dev box',
+      updatedAt: 12_000
+    })
+    expect(updated.endpoints[0]?.endpoint).toBe('ws://100.64.0.5:6768')
   })
 })
