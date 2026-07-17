@@ -1,10 +1,5 @@
 import { useAppStore } from '@/store'
-import {
-  getSettingsForAgentTabRuntimeOwner,
-  pasteDraftToAgentPtyWhenReadyWithOutcome
-} from '@/lib/agent-paste-draft'
-import { sendFollowupPromptWhenAgentReadyWithOutcome } from '@/lib/agent-followup-delivery'
-import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
+import { deliverAgentStartupToTerminal } from '@/lib/agent-startup-terminal-delivery'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { LinkedWorkItemContext } from '@/lib/linked-work-item-context'
 import {
@@ -61,6 +56,7 @@ export type LinkedWorkItemSummary = Omit<FolderWorkspaceLinkedTask, 'provider'> 
   provider?: FolderWorkspaceLinkedTask['provider']
   linearWorkspaceId?: string
   linearOrganizationUrlKey?: string
+  linearBranchName?: string
   linkedContext?: LinkedWorkItemContext
 }
 
@@ -312,60 +308,6 @@ export async function ensureAgentStartupInTerminal(args: {
       })
     }
   }
-}
-
-async function deliverAgentStartupToTerminal(
-  tabId: string,
-  ptyId: string,
-  startup: AgentStartupPlan
-): Promise<AgentStartupDeliveryOutcome> {
-  const runtimeSettings = getSettingsForAgentTabRuntimeOwner(tabId)
-  let remainingStartup = startup
-  // Why: followupPrompt is the legacy path for stdin-after-start agents
-  // (aider, goose, etc.) that need their initial prompt typed into the live
-  // session and submitted. Wait until the agent owns the PTY before writing.
-  if (startup.followupPrompt) {
-    const followupOutcome = await sendFollowupPromptWhenAgentReadyWithOutcome({
-      ptyId,
-      expectedProcess: startup.expectedProcess,
-      prompt: startup.followupPrompt,
-      settings: runtimeSettings
-    })
-    if (followupOutcome !== 'delivered') {
-      if (followupOutcome === 'not-written') {
-        // Why: only a confirmed no-write can invite retry; a lost ACK may mean delivery succeeded.
-        showAutomationPromptNotSentToast(startup.agent)
-        return { kind: 'retryable', startup }
-      }
-      return { kind: 'delivery-uncertain' }
-    }
-    // Why: a later draft retry must not resubmit a follow-up that already
-    // reached the live agent.
-    remainingStartup = { ...startup, followupPrompt: null }
-  }
-
-  // Why: draftPrompt uses bracketed-paste so the URL lands atomically in the
-  // agent's input buffer (no per-char echo, no auto-submit). Shared with the
-  // launch-work-item-direct flow so both behave identically.
-  if (startup.draftPrompt) {
-    const draftOutcome = await pasteDraftToAgentPtyWhenReadyWithOutcome({
-      tabId,
-      ptyId,
-      content: startup.draftPrompt,
-      agent: startup.agent,
-      // Why: startup.draftPrompt is only attached after native draft launch
-      // planning is unavailable, so this paste is the first delivery attempt.
-      forcePaste: true,
-      // Why: surface a dropped draft instead of silently losing it.
-      onTimeout: () => showAutomationPromptNotSentToast(startup.agent)
-    })
-    if (draftOutcome !== 'delivered') {
-      return draftOutcome === 'not-written'
-        ? { kind: 'retryable', startup: remainingStartup }
-        : { kind: 'delivery-uncertain' }
-    }
-  }
-  return { kind: 'delivered' }
 }
 
 function ensureStartupLaunchToken(startup: AgentStartupPlan): string {

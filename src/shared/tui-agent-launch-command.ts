@@ -1,15 +1,32 @@
+import { resolveAgentSessionOptionLaunch } from './agent-session-option-launch'
+import type { SessionOptionValue } from './native-chat-session-options'
 import { getTuiAgentLaunchCommand, TUI_AGENT_CONFIG } from './tui-agent-config'
-import { planAgentCliArgsSuffix, type AgentStartupShell } from './tui-agent-startup-shell'
+import {
+  planAgentCliArgsSuffix,
+  quoteStartupArg,
+  tokenizeStartupCommand,
+  type AgentStartupShell
+} from './tui-agent-startup-shell'
 import type { TuiAgent } from './types'
 
-export function resolveTuiAgentBaseCommand(args: {
+export type ResolvedAgentLaunchCommand =
+  | {
+      ok: true
+      command: string
+      commandWithoutSessionOptions: string
+      appliedSessionOptions: Record<string, SessionOptionValue>
+    }
+  | { ok: false; error: string }
+
+export function resolveAgentLaunchCommand(args: {
   agent: TuiAgent
   cmdOverrides: Partial<Record<TuiAgent, string>>
   platform: NodeJS.Platform
   shell: AgentStartupShell
   agentArgs?: string | null
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
-}): { ok: true; command: string } | { ok: false; error: string } {
+}): ResolvedAgentLaunchCommand {
   const override = args.cmdOverrides[args.agent]
   const command =
     override ||
@@ -20,7 +37,26 @@ export function resolveTuiAgentBaseCommand(args: {
   if (!suffix.ok) {
     return suffix
   }
-  // Why: Codex status hooks live in Orca's runtime CODEX_HOME; a second
-  // profile representation would duplicate hooks and emit a warning.
-  return { ok: true, command: suffix.suffix ? `${command} ${suffix.suffix}` : command }
+  const trailingTokens = args.agentArgs?.trim()
+    ? tokenizeStartupCommand(args.agentArgs.trim(), args.shell)
+    : { ok: true as const, tokens: [] }
+  if (!trailingTokens.ok) {
+    return { ok: false, error: `CLI arguments are invalid: ${trailingTokens.error}` }
+  }
+  const resolvedOptions = resolveAgentSessionOptionLaunch(
+    args.agent,
+    args.sessionOptions,
+    trailingTokens.tokens
+  )
+  const optionSuffix = resolvedOptions.args.map((arg) => quoteStartupArg(arg, args.shell)).join(' ')
+  const commandWithOptions = optionSuffix ? `${command} ${optionSuffix}` : command
+  const commandWithoutSessionOptions = suffix.suffix ? `${command} ${suffix.suffix}` : command
+  // Why: session flags precede the free-form suffix so the user's explicit
+  // repeated flag remains the final, winning occurrence.
+  return {
+    ok: true,
+    command: suffix.suffix ? `${commandWithOptions} ${suffix.suffix}` : commandWithOptions,
+    commandWithoutSessionOptions,
+    appliedSessionOptions: resolvedOptions.appliedValues
+  }
 }
