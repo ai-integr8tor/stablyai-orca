@@ -92,6 +92,7 @@ import {
   addAdditionalValidWorkspaceKeys,
   type WorkspaceSessionHydrationOptions
 } from '@/lib/workspace-session-hydration-keys'
+import { reconcileWorkspaceSessionWorktreeIds } from '@/lib/workspace-session-worktree-id-reconciliation'
 import {
   collectHibernatedCompletionEvidenceForWorktree,
   collectSleepingAgentSessionRecordsForWorktree,
@@ -3118,12 +3119,18 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     return data
   },
 
-  hydrateWorkspaceSession: (session, options) => {
+  hydrateWorkspaceSession: (persistedSession, options) => {
     set((s) => {
       const runtimeSessionPlaceholders = buildRuntimeSessionPlaceholders({
         repos: s.repos,
         runtimeHostIdByWorkspaceSessionKey: options?.runtimeHostIdByWorkspaceSessionKey ?? {},
         worktreesByRepo: s.worktreesByRepo
+      })
+      const session = reconcileWorkspaceSessionWorktreeIds({
+        session: persistedSession,
+        repos: runtimeSessionPlaceholders.repos,
+        worktreesByRepo: runtimeSessionPlaceholders.worktreesByRepo,
+        runtimeHostIdByWorkspaceSessionKey: options?.runtimeHostIdByWorkspaceSessionKey ?? {}
       })
       const validWorktreeIds = new Set(
         Object.values(runtimeSessionPlaceholders.worktreesByRepo)
