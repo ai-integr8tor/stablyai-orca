@@ -23,6 +23,7 @@ import { bumpProviderRuntimeSessionGeneration } from '@/lib/provider-runtime-con
 import { normalizeUiLanguage } from '../../../../shared/ui-language'
 import { normalizeDesktopTerminalScrollbackRows } from '../../../../shared/terminal-scrollback-policy'
 import { translate } from '@/i18n/i18n'
+import { clearWebSessionTerminalCloseRoutesForEnvironment } from '@/runtime/web-session-terminal-close-route'
 
 export type SettingsSlice = SettingsSearchState & {
   settings: GlobalSettings | null
@@ -154,6 +155,11 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
       const nextSettings = await window.api.settings.set({
         activeRuntimeEnvironmentId: nextId
       })
+      if (previousId) {
+        // Why: a close queued behind a mirror exit must not retain destructive
+        // authority after this client has switched away from the route's host.
+        clearWebSessionTerminalCloseRoutesForEnvironment(previousId)
+      }
       bumpProviderRuntimeSessionGeneration()
       set((s) => ({
         // Why: in the multi-host model this is a focus/default-host change,
