@@ -2555,7 +2555,11 @@ function buildClaudeChildDrivenStatusPayload(
     stateName:
       leadState === 'done' && claudeRosterHasWorkingSubagent(roster) ? 'working' : leadState,
     updateToolSnapshot: false,
-    interrupted: lead?.interrupted
+    interrupted: lead?.interrupted,
+    // Why: a subagent lifecycle/tool event during the lead's compaction must not
+    // drop the compacting flag — otherwise the badge flickers off mid-compaction
+    // until PostCompact restores it.
+    compacting: lead?.compacting
   })
 }
 
@@ -2568,11 +2572,18 @@ function normalizeClaudePreCompactEvent(
   // Why: stash the state that existed before compaction so PostCompact can
   // restore it. A second PreCompact (Claude can fire more than one) must keep
   // the ORIGINAL pre-compaction state, not the interim 'working' this sets.
+  // With no prior lead state (Orca restarted mid-session, or PreCompact is the
+  // first event we see), fall back on the trigger: an auto-compact interrupted
+  // a live turn (restore 'working'), a manual/unknown one is a resting session
+  // (restore 'done').
   const stateBeforeCompact = lead?.compacting
     ? lead.stateBeforeCompact
     : lead
       ? { state: lead.state, ...(lead.interrupted ? { interrupted: true as const } : {}) }
-      : { state: 'done' as const }
+      : {
+          state:
+            readString(hookPayload, 'trigger') === 'auto' ? ('working' as const) : ('done' as const)
+        }
   state.claudeLeadStateByPaneKey.set(paneKey, {
     state: 'working',
     compacting: true,

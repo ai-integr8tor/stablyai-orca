@@ -311,6 +311,70 @@ describe('shared agent-hook-listener', () => {
     expect(post?.payload.compacting).toBeUndefined()
   })
 
+  it('restores to working on PostCompact when an auto-compact is the first event seen', () => {
+    // Why: Orca can restart mid-session and see PreCompact with no prior lead
+    // state. An auto trigger means a turn was interrupted, so it must restore
+    // 'working' — not 'done' — after PostCompact.
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PreCompact', trigger: 'auto' } },
+      'production'
+    )
+    const post = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PostCompact' } },
+      'production'
+    )
+    expect(post?.payload.state).toBe('working')
+    expect(post?.payload.compacting).toBeUndefined()
+  })
+
+  it('restores to done on PostCompact when a manual compact is the first event seen', () => {
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PreCompact', trigger: 'manual' } },
+      'production'
+    )
+    const post = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PostCompact' } },
+      'production'
+    )
+    expect(post?.payload.state).toBe('done')
+  })
+
+  it('keeps the compacting flag through a subagent event mid-compaction', () => {
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'UserPromptSubmit', prompt: 'go' } },
+      'production'
+    )
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PreCompact', trigger: 'auto' } },
+      'production'
+    )
+    // Why: a child-driven refresh during compaction must not blank the badge
+    // before PostCompact restores the lead.
+    const childRefresh = normalizeHookPayload(
+      state,
+      'claude',
+      {
+        paneKey: PANE_KEY,
+        payload: { hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'general-purpose' }
+      },
+      'production'
+    )
+    expect(childRefresh?.payload.state).toBe('working')
+    expect(childRefresh?.payload.compacting).toBe(true)
+  })
+
   it('ignores a PostCompact that arrives when not compacting', () => {
     normalizeHookPayload(
       state,
