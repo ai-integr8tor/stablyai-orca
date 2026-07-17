@@ -6828,7 +6828,7 @@ describe('Store', () => {
 
   // ── Workspace Session ──────────────────────────────────────────────
 
-  it('get/set workspace session round-trips', async () => {
+  it('get/set workspace session round-trips (and stamps the capture version)', async () => {
     const store = await createStore()
     const session = {
       activeRepoId: 'r1',
@@ -6838,7 +6838,9 @@ describe('Store', () => {
       terminalLayoutsByTabId: {}
     }
     store.setWorkspaceSession(session)
-    expect(store.getWorkspaceSession()).toEqual(session)
+    // Why: main stamps every full write so the next launch knows this build
+    // could preserve agent sessions across a restart (#5356).
+    expect(store.getWorkspaceSession()).toEqual({ ...session, agentSessionCaptureVersion: 1 })
   })
 
   it('patches workspace session without replacing unchanged slices', async () => {
