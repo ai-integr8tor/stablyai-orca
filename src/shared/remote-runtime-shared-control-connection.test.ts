@@ -34,7 +34,6 @@ const servers: WebSocketServer[] = []
 
 type TestableSharedControlConnection = {
   subscriptions: Map<string, SharedControlLogicalSubscription<unknown>>
-  inboundActivityGeneration: number
   reconnectAttempt: number
   scheduleReconnect: () => void
   closeSubscription: (requestId: string) => void
@@ -194,15 +193,9 @@ describe('RemoteRuntimeSharedControlConnection', () => {
   it('reconnects and replays passive subscriptions without closing them', async () => {
     const server = await createServer({ closeAfterFirstStreamingResponse: true })
     const connection = new RemoteRuntimeSharedControlConnection(server.pairing)
-    const unsafe = asTestableConnection(connection)
-    const activityGenerations: number[] = []
     const onClose = vi.fn()
 
-    await subscribeToClientEvents(
-      connection,
-      () => activityGenerations.push(unsafe.inboundActivityGeneration),
-      onClose
-    )
+    await subscribeToClientEvents(connection, vi.fn(), onClose)
 
     await vi.waitFor(() => expect(server.connectionCount()).toBe(2))
     await vi.waitFor(() =>
@@ -211,8 +204,6 @@ describe('RemoteRuntimeSharedControlConnection', () => {
         'runtime.clientEvents.subscribe'
       ])
     )
-    await vi.waitFor(() => expect(activityGenerations).toHaveLength(2))
-    expect(activityGenerations).toEqual([3, 6])
     expect(onClose).not.toHaveBeenCalled()
 
     connection.close()
@@ -588,28 +579,37 @@ describe('RemoteRuntimeSharedControlConnection', () => {
     connection.close()
   })
 
-  it('tears down the socket when a request times out and reconnects active subscriptions', async () => {
-    const server = await createServer({ silentMethods: ['worktree.hang'] })
+  it('keeps unrelated pending requests alive when one request times out', async () => {
+    const server = await createServer({
+      silentMethods: ['worktree.hang'],
+      delayedMethods: ['worktree.ps']
+    })
     const connection = new RemoteRuntimeSharedControlConnection(server.pairing)
-    const onResponse = vi.fn()
-    const onClose = vi.fn()
 
-    await subscribeToClientEvents(connection, onResponse, onClose)
-    await vi.waitFor(() => expect(onResponse).toHaveBeenCalled())
-
-    // Why: mirrors RemoteRuntimeRequestConnection — a request the server never
-    // answered marks the socket as suspect and must not leave it 'ready'.
-    await expect(connection.request('worktree.hang', undefined, 50)).rejects.toThrow('Timed out')
-
-    await vi.waitFor(() => expect(server.connectionCount()).toBe(2), { timeout: 5000 })
-    await vi.waitFor(
-      () =>
-        expect(
-          server.requests.filter((request) => request.method === 'runtime.clientEvents.subscribe')
-        ).toHaveLength(2),
-      { timeout: 5000 }
+    const timedOut = connection.request('worktree.hang', undefined, 250)
+    void timedOut.catch(() => undefined)
+    await vi.waitFor(() =>
+      expect(server.requests.map(({ method }) => method)).toContain('worktree.hang')
     )
-    expect(onClose).not.toHaveBeenCalled()
+    const survivor = connection.request('worktree.ps', undefined, 1000).then(
+      (response) => ({ ok: true as const, response }),
+      (error: unknown) => ({ ok: false as const, error })
+    )
+    await vi.waitFor(() =>
+      expect(server.requests.map(({ method }) => method)).toContain('worktree.ps')
+    )
+
+    await expect(timedOut).rejects.toThrow('Timed out')
+    // Why: a single slow method is not evidence that a shared socket is dead;
+    // liveness monitoring owns connection-wide failure detection.
+    expect(connection.getDiagnostics()).toMatchObject({ state: 'ready', pendingRequestCount: 1 })
+
+    server.flushDelayedResponses()
+    await expect(survivor).resolves.toMatchObject({
+      ok: true,
+      response: { ok: true, result: { method: 'worktree.ps' } }
+    })
+    expect(server.connectionCount()).toBe(1)
 
     connection.close()
   })
@@ -733,6 +733,7 @@ async function createServer(
     // Why: half-open simulation — the socket stays open but never answers
     // protocol pings, like a wedged tunnel that swallows frames silently.
     disableAutoPong?: boolean
+    delayedMethods?: string[]
     silentMethods?: string[]
   } = {}
 ): Promise<TestServer> {
@@ -832,6 +833,7 @@ function handleRequest(
     closeAfterStreamingResponse?: () => boolean
     closeBeforeResponse?: boolean
     terminateBeforeResponse?: boolean
+    delayedMethods?: string[]
     silentMethods?: string[]
   },
   delayedResponses: (() => void)[]
@@ -885,6 +887,10 @@ function handleRequest(
     sendEncrypted(ws, sharedKey, { _keepalive: true })
   }
   if (options.delaySubscriptionReady && streaming) {
+    delayedResponses.push(sendResponse)
+    return
+  }
+  if (options.delayedMethods?.includes(request.method)) {
     delayedResponses.push(sendResponse)
     return
   }
