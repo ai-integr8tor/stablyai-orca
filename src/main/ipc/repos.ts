@@ -40,6 +40,7 @@ import {
 } from '../../shared/cross-platform-path'
 import { isTuiAgent } from '../../shared/tui-agent-config'
 import { invalidateAuthorizedRootsCache } from './filesystem-auth'
+import { resolvePickerDefaultPath } from './repos-pick-default-path'
 import type { ChildProcess } from 'node:child_process'
 import { access, mkdir, readdir, rm } from 'node:fs/promises'
 import { gitExecFileAsync, gitSpawn, nonInteractiveGitEnv } from '../git/runner'
@@ -2190,9 +2191,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     notifySparsePresetsChanged(mainWindow, args.repoId)
   })
 
-  ipcMain.handle('repos:pickFolder', async () => {
+  ipcMain.handle('repos:pickFolder', async (_event, args?: { defaultPath?: string }) => {
+    const defaultPath = resolvePickerDefaultPath(
+      args?.defaultPath,
+      store.getSettings().projectDefaultPath
+    )
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
+      ...(defaultPath ? { defaultPath } : {})
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
@@ -2200,9 +2206,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     return result.filePaths[0]
   })
 
-  ipcMain.handle('repos:pickFolders', async () => {
+  ipcMain.handle('repos:pickFolders', async (_event, args?: { defaultPath?: string }) => {
+    const defaultPath = resolvePickerDefaultPath(
+      args?.defaultPath,
+      store.getSettings().projectDefaultPath
+    )
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'multiSelections']
+      properties: ['openDirectory', 'multiSelections'],
+      ...(defaultPath ? { defaultPath } : {})
     })
     if (result.canceled || result.filePaths.length === 0) {
       return []
@@ -2213,11 +2224,16 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   // Why: pickDirectory is a generic "choose a folder" picker, separate from
   // pickFolder which is specifically the "add project" flow. Clone needs a
   // destination directory that may not be a git repo yet.
-  ipcMain.handle('repos:pickDirectory', async () => {
+  ipcMain.handle('repos:pickDirectory', async (_event, args?: { defaultPath?: string }) => {
+    const defaultPath = resolvePickerDefaultPath(
+      args?.defaultPath,
+      store.getSettings().projectDefaultPath
+    )
     const result = await dialog.showOpenDialog(mainWindow, {
       // Why: macOS can materialize typed partial paths when directory creation
       // is enabled; clone/create actions already create the final path on submit.
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
+      ...(defaultPath ? { defaultPath } : {})
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
