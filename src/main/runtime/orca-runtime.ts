@@ -89,6 +89,7 @@ import type {
   ForceDeleteWorktreeBranchResult,
   GitHubPrStartPoint,
   GitPushTarget,
+  BranchPrefixStrategy,
   GitWorktreeInfo,
   GitHubCreateIssueFields,
   GitHubOwnerRepo,
@@ -692,7 +693,7 @@ import type { Store } from '../persistence'
 import type { StatsCollector } from '../stats/collector'
 import { AgentDetector } from '../stats/agent-detector'
 import {
-  computeBranchName,
+  computeValidatedBranchName,
   computeWorktreePath,
   computeWorkspaceRoot,
   ensurePathWithinWorkspace,
@@ -1678,7 +1679,13 @@ async function resolveCreateBranchName(
   gitOptions: { wslDistro?: string } = {}
 ): Promise<string> {
   if (!branchNameOverride) {
-    return computeBranchName(sanitizedName, settings, username)
+    // The runtime store's getSettings() types branchPrefix loosely as string;
+    // it is always one of the BranchPrefixStrategy literals at runtime.
+    return computeValidatedBranchName(
+      sanitizedName,
+      { ...settings, branchPrefix: settings.branchPrefix as BranchPrefixStrategy },
+      username
+    )
   }
   if (branchNameOverride.startsWith('-')) {
     throw new Error('Branch name must not start with "-"')

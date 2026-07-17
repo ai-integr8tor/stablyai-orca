@@ -2512,6 +2512,9 @@ export type SourceControlGroupOrder = 'changes-first' | 'staged-first' | 'untrac
 
 export type LeftSidebarAppearanceMode = 'default' | 'match-terminal' | 'tinted'
 
+/** Strategy for the prefix prepended to worktree branch names. */
+export type BranchPrefixStrategy = 'git-username' | 'custom' | 'none'
+
 export type FloatingTerminalCwdRequest = {
   path?: string
   requireTrusted?: boolean
@@ -2547,7 +2550,7 @@ export type GlobalSettings = {
   /** One-shot migration guard for the default-on rollout. Existing profiles
    *  without the guard are flipped on once; later explicit opt-outs stick. */
   autoRenameBranchFromWorkDefaultedOn?: boolean
-  branchPrefix: 'git-username' | 'custom' | 'none'
+  branchPrefix: BranchPrefixStrategy
   branchPrefixCustom: string
   enableGitHubAttribution: boolean
   theme: 'system' | 'dark' | 'light'
