@@ -26,6 +26,7 @@ import {
   resetAgentStartupDelayedDeliveryForTests
 } from '@/lib/agent-startup-delayed-delivery'
 import type { PaneForegroundAgentEntry } from '@/store/slices/pane-foreground-agent'
+import type { createPaneForegroundAgentTracker } from './pane-foreground-agent-tracker'
 
 // Repro command:
 //   pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/terminal-pane/pty-connection.test.ts -t "OpenTUI-style small ANSI redraw"
@@ -259,6 +260,12 @@ let mockStoreState: StoreState
 let transportFactoryQueue: MockTransport[] = []
 let createdTransportOptions: Record<string, unknown>[] = []
 let storeSubscribers: ((state: StoreState) => void)[] = []
+type PaneForegroundAgentTrackerFactory = typeof createPaneForegroundAgentTracker
+type PaneForegroundAgentTracker = ReturnType<PaneForegroundAgentTrackerFactory>
+type PaneForegroundAgentTrackerModule = {
+  createPaneForegroundAgentTracker: PaneForegroundAgentTrackerFactory
+}
+const paneForegroundAgentTrackers = new Set<PaneForegroundAgentTracker>()
 
 vi.mock('@/runtime/sync-runtime-graph', () => ({
   scheduleRuntimeGraphSync
@@ -279,6 +286,20 @@ vi.mock('@/store', () => ({
 vi.mock('./terminal-webgl-atlas-recovery', () => ({
   scheduleTerminalWebglAtlasRecovery
 }))
+
+vi.mock('./pane-foreground-agent-tracker', async (importOriginal) => {
+  const actual = await importOriginal<PaneForegroundAgentTrackerModule>()
+  return {
+    ...actual,
+    createPaneForegroundAgentTracker: (
+      ...args: Parameters<typeof actual.createPaneForegroundAgentTracker>
+    ) => {
+      const tracker = actual.createPaneForegroundAgentTracker(...args)
+      paneForegroundAgentTrackers.add(tracker)
+      return tracker
+    }
+  }
+})
 
 function notifyStoreSubscribers(): void {
   for (const listener of storeSubscribers.slice()) {
@@ -907,7 +928,14 @@ describe('connectPanePty', () => {
   })
 
   afterEach(() => {
+    // Why: most cases do not retain their pane binding; cancel its delayed reads
+    // before they can publish into the next case's freshly reset store mock.
+    for (const tracker of paneForegroundAgentTrackers) {
+      tracker.dispose()
+    }
+    paneForegroundAgentTrackers.clear()
     vi.useRealTimers()
+    vi.restoreAllMocks()
     if (originalRequestAnimationFrame) {
       globalThis.requestAnimationFrame = originalRequestAnimationFrame
     } else {
@@ -17442,6 +17470,9 @@ describe('connectPanePty', () => {
     const transport = createMockTransport('pty-replaced-codex')
     transportFactoryQueue.push(transport)
     vi.useFakeTimers()
+    // Why: this assertion places the hook update between two active-cadence
+    // inspections, so pin the coordinator's poll jitter like its unit tests do.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
     const getForegroundProcess = vi.mocked(window.api.pty.getForegroundProcess)
     getForegroundProcess.mockResolvedValue('codex')
     const paneKey = makePaneKey('tab-1', LEAF_1)
