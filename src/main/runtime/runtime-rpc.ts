@@ -1159,6 +1159,9 @@ export class OrcaRuntimeRpcServer {
       await this.dispatcher.dispatchStreaming(request, replyForRequest, {
         connectionId,
         clientId: token,
+        // Why: non-sensitive device id for action attribution; clientId is the
+        // bearer token and must never be logged.
+        deviceId: device.deviceId,
         // Why: gates the mobile-only payload diet (native-chat char clipping) so
         // full-screen web/desktop runtime clients aren't truncated.
         clientKind: device.scope,

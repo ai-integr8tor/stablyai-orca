@@ -3,6 +3,7 @@ import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../../shared/types'
 import { sleepingAgentLaunchConfigSchema } from '../../../../shared/workspace-session-sleeping-agents'
 import { OptionalBoolean } from '../schemas'
+import { RuntimeCloseIntentSchema } from '../runtime-close-intent-schema'
 
 export const WorktreeTabSelector = z.object({
   worktree: z
@@ -22,6 +23,10 @@ export const ActivateTab = WorktreeTabSelector.extend({
     .pipe(z.string().min(1, 'Missing tab id')),
   leafId: z.string().max(128).optional(),
   notifyClients: OptionalBoolean
+})
+
+export const CloseTab = ActivateTab.extend({
+  closeIntent: RuntimeCloseIntentSchema.optional()
 })
 
 export type TerminalPaneLayoutNodeInput =

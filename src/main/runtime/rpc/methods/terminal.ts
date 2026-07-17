@@ -4,7 +4,8 @@ import {
   InvalidArgumentError,
   defineMethod,
   defineStreamingMethod,
-  type RpcAnyMethod
+  type RpcAnyMethod,
+  type RpcContext
 } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
 import type { DriverState, OrcaRuntimeService } from '../../orca-runtime'
@@ -37,6 +38,10 @@ import {
   MOBILE_SNAPSHOT_BYTE_BUDGET,
   MOBILE_SUBSCRIBE_SCROLLBACK_ROWS
 } from '../../scrollback-limits'
+import type { RuntimeCloseIntent } from '../../../../shared/runtime-close-intent'
+import { RuntimeCloseIntentSchema } from '../runtime-close-intent-schema'
+import { recordRuntimeCloseAttribution } from '../runtime-close-attribution'
+import type { RuntimeCloseDecision } from '../runtime-close-policy'
 
 const REQUESTED_SNAPSHOT_BYTE_BUDGET = 2 * 1024 * 1024
 const TERMINAL_STREAM_CHUNK_BYTES = 48 * 1024
@@ -831,6 +836,41 @@ const TerminalHandle = z.object({
   terminal: requiredString('Missing terminal handle')
 })
 
+const TerminalClose = TerminalHandle.extend({
+  closeIntent: RuntimeCloseIntentSchema.optional()
+})
+
+function resolveRuntimeTerminalCloseDecision(
+  ctx: RpcContext,
+  terminal: string,
+  closeIntent: RuntimeCloseIntent | undefined
+): RuntimeCloseDecision {
+  return (
+    ctx.runtimeClosePolicy?.evaluate(ctx, { kind: 'terminal', terminal }, closeIntent) ??
+    (ctx.clientKind === 'runtime'
+      ? { allowed: false, reason: 'close_intent_required', recentlyAttached: false }
+      : { allowed: true, reason: 'legacy-client', recentlyAttached: false })
+  )
+}
+
+function blockedRuntimeTerminalClose(
+  terminal: string,
+  closeIntent: RuntimeCloseIntent | undefined,
+  decision: Extract<RuntimeCloseDecision, { allowed: false }>
+): {
+  handle: string
+  tabId: string
+  ptyKilled: false
+  blockedReason: string
+} {
+  return {
+    handle: terminal,
+    tabId: closeIntent?.hostTabId ?? closeIntent?.clientTabId ?? '',
+    ptyKilled: false,
+    blockedReason: decision.reason
+  }
+}
+
 const TerminalListParams = z.object({
   worktree: OptionalString,
   limit: OptionalFiniteNumber,
@@ -1400,8 +1440,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'terminal.create',
     params: TerminalCreateParams,
-    handler: async (params, { runtime }) => ({
-      terminal: await runtime.createTerminal(params.worktree, {
+    handler: async (params, ctx) => {
+      const terminal = await ctx.runtime.createTerminal(params.worktree, {
         command: params.command,
         startupCommandDelivery: params.startupCommandDelivery,
         env: params.env,
@@ -1416,7 +1456,11 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         tabId: params.tabId,
         leafId: params.leafId
       })
-    })
+      // Why: only the connection that created a terminal may use the narrow
+      // non-user rollback intent when its renderer disappears mid-create.
+      ctx.runtimeClosePolicy?.recordTerminalCreated(ctx, terminal.handle)
+      return { terminal }
+    }
   }),
   defineMethod({
     name: 'terminal.split',
@@ -1479,17 +1523,45 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   }),
   defineMethod({
     name: 'terminal.close',
-    params: TerminalHandle,
-    handler: async (params, { runtime }) => ({
-      close: await runtime.closeTerminal(params.terminal)
-    })
+    params: TerminalClose,
+    handler: async (params, ctx) => {
+      const target = { kind: 'terminal' as const, terminal: params.terminal }
+      const decision = resolveRuntimeTerminalCloseDecision(ctx, params.terminal, params.closeIntent)
+      return {
+        close: await recordRuntimeCloseAttribution(
+          'terminal.close',
+          ctx,
+          target,
+          params.closeIntent,
+          decision,
+          () =>
+            decision.allowed
+              ? ctx.runtime.closeTerminal(params.terminal)
+              : blockedRuntimeTerminalClose(params.terminal, params.closeIntent, decision)
+        )
+      }
+    }
   }),
   defineMethod({
     name: 'terminal.closeTab',
-    params: TerminalHandle,
-    handler: async (params, { runtime }) => ({
-      close: await runtime.closeTerminalTab(params.terminal)
-    })
+    params: TerminalClose,
+    handler: async (params, ctx) => {
+      const target = { kind: 'terminal' as const, terminal: params.terminal }
+      const decision = resolveRuntimeTerminalCloseDecision(ctx, params.terminal, params.closeIntent)
+      return {
+        close: await recordRuntimeCloseAttribution(
+          'terminal.closeTab',
+          ctx,
+          target,
+          params.closeIntent,
+          decision,
+          () =>
+            decision.allowed
+              ? ctx.runtime.closeTerminalTab(params.terminal)
+              : blockedRuntimeTerminalClose(params.terminal, params.closeIntent, decision)
+        )
+      }
+    }
   }),
   defineMethod({
     name: 'agentTeams.tmuxCompat',
@@ -1589,11 +1661,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'terminal.multiplex',
     params: TerminalMultiplex,
-    handler: async (
-      _params,
-      { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal },
-      emit
-    ) => {
+    handler: async (_params, ctx, emit) => {
+      const { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal } = ctx
       if (!sendBinary || !registerBinaryStreamHandler || !connectionId) {
         throw new Error('binary_terminal_stream_required')
       }
@@ -2304,6 +2373,13 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               driver: runtime.getDriver(ptyId)
             })
           }
+          if (closed || signal?.aborted || streams.get(request.streamId) !== stream) {
+            return
+          }
+          ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+            kind: 'terminal',
+            terminal: request.terminal
+          })
           emit({
             type: 'subscribed',
             streamId: request.streamId,
@@ -2466,11 +2542,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'terminal.subscribe',
     params: TerminalSubscribe,
-    handler: async (
-      params,
-      { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal },
-      emit
-    ) => {
+    handler: async (params, ctx, emit) => {
+      const { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal } = ctx
       let leaf = runtime.resolveLeafForHandle(params.terminal)
       const isMobile = params.client?.type === 'mobile'
       const serializerGenerationBeforeAnyMount = isMobile
@@ -2679,6 +2752,14 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               cols: event.cols,
               rows: event.rows
             })
+          })
+          if (closed || signal?.aborted) {
+            runtime.cleanupSubscription(subscriptionId)
+            return
+          }
+          ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+            kind: 'terminal',
+            terminal: params.terminal
           })
           // Why: bind the exit-waiter to the connection dispatch signal so it is
           // removed on socket close/error instead of leaking until real exit.
@@ -3061,6 +3142,14 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         // that actually covered the buffered chunks or a query absorbed by a
         // recovery snapshot gets zero replies.
         let snapshotOutputSeq = serialized?.seq
+        if (closed || signal?.aborted) {
+          runtime.cleanupSubscription(subscriptionId)
+          return
+        }
+        ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+          kind: 'terminal',
+          terminal: params.terminal
+        })
         emit({
           type: 'subscribed',
           streamId,

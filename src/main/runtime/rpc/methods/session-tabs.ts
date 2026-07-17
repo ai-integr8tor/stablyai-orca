@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod } from '../core'
+import { recordRuntimeCloseAttribution } from '../runtime-close-attribution'
+import type { RuntimeCloseDecision } from '../runtime-close-policy'
 import {
   ActivateTab,
+  CloseTab,
   CreateTerminalTab,
   MoveTab,
   SaveMarkdownTab,
@@ -34,9 +37,37 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
   }),
   defineMethod({
     name: 'session.tabs.close',
-    params: ActivateTab,
-    handler: async (params, { runtime }) =>
-      runtime.closeMobileSessionTab(params.worktree, params.tabId)
+    params: CloseTab,
+    handler: async (params, ctx) => {
+      const target = {
+        kind: 'session-tab' as const,
+        worktree: params.worktree,
+        tabId: params.tabId
+      }
+      const decision: RuntimeCloseDecision =
+        ctx.runtimeClosePolicy?.evaluate(ctx, target, params.closeIntent) ??
+        (ctx.clientKind === 'runtime'
+          ? {
+              allowed: false,
+              reason: 'close_intent_required',
+              recentlyAttached: false
+            }
+          : { allowed: true, reason: 'legacy-client', recentlyAttached: false })
+      // Why: host-PTY teardown must be attributable to the issuing device (#8871).
+      return recordRuntimeCloseAttribution(
+        'session.tabs.close',
+        ctx,
+        target,
+        params.closeIntent,
+        decision,
+        async () => {
+          if (decision.allowed) {
+            return await ctx.runtime.closeMobileSessionTab(params.worktree, params.tabId)
+          }
+          return { closed: false as const, blockedReason: decision.reason }
+        }
+      )
+    }
   }),
   defineMethod({
     name: 'session.tabs.createTerminal',
@@ -115,7 +146,8 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'session.tabs.subscribe',
     params: WorktreeTabSelector,
-    handler: async (params, { runtime, connectionId, requestId }, emit) => {
+    handler: async (params, ctx, emit) => {
+      const { runtime, connectionId, requestId } = ctx
       let subscribedWorktree: string | null = null
       let unsubscribe = (): void => {}
       let closed = false
@@ -125,6 +157,11 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
         return
       }
       subscribedWorktree = initial.worktree
+      ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+        kind: 'session-tab',
+        worktree: params.worktree,
+        tabId: '*'
+      })
       const cleanupPrefix = `session.tabs:${connectionId ?? 'local'}:${subscribedWorktree}`
       const subscriptionId = requestId ? `${cleanupPrefix}:${requestId}` : cleanupPrefix
       // Why: shared-control can carry multiple subscribers for one worktree on
@@ -180,7 +217,8 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
   defineStreamingMethod({
     name: 'session.tabs.subscribeAll',
     params: null,
-    handler: async (_params, { runtime, connectionId, requestId }, emit) => {
+    handler: async (_params, ctx, emit) => {
+      const { runtime, connectionId, requestId } = ctx
       let unsubscribe = (): void => {}
       let closed = false
       // Why: initial listAll errors should return one RPC error, not a leaked
@@ -212,6 +250,13 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
       if (closed) {
         return
       }
+      for (const snapshot of snapshots) {
+        ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+          kind: 'session-tab',
+          worktree: `id:${snapshot.worktree}`,
+          tabId: '*'
+        })
+      }
       emit({ type: 'snapshots', snapshots })
       initialized = true
 
@@ -219,6 +264,11 @@ export const SESSION_TAB_METHODS: RpcAnyMethod[] = [
         return
       }
       unsubscribe = runtime.onMobileSessionTabsChanged((snapshot) => {
+        ctx.runtimeClosePolicy?.recordAttachedTarget(ctx, {
+          kind: 'session-tab',
+          worktree: `id:${snapshot.worktree}`,
+          tabId: '*'
+        })
         emit({ type: 'updated', ...snapshot })
       })
     }

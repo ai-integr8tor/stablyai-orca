@@ -11,6 +11,7 @@ import type {
   PairingGetEndpointsResult,
   PairingProvisionRelayParams
 } from '../../../shared/mobile-relay-credential-contract'
+import type { RuntimeClosePolicy } from './runtime-close-policy'
 
 export type PairingRpcContext = {
   getEndpoints(params: PairingGetEndpointsParams): Promise<PairingGetEndpointsResult>
@@ -69,12 +70,21 @@ export type RpcContext = {
   requestId?: string
   // Why: WebSocket RPCs authenticate by mobile device token. State-owning
   // handlers use this to clean up when that paired device disconnects.
+  // SECURITY: this is the device's bearer credential — never log it or any
+  // reversible transform. For attribution use `deviceId` below.
   clientId?: string
+  // Why: the non-sensitive, stable per-device id (randomUUID) that pairs with
+  // the bearer token. Handlers that must attribute an action to a device log
+  // this instead of clientId. Undefined for in-process/Unix-socket callers.
+  deviceId?: string
   // Why: payload windowing/truncation tuned for the constrained mobile payload
   // (e.g. native-chat block char cap) must not clip full-screen web/desktop
   // clients. Carries the paired device's scope so handlers can gate the diet to
   // phones only. Undefined for in-process callers → treat as full-class (no clip).
   clientKind?: 'mobile' | 'runtime'
+  // Why: the dispatcher owns cross-request close intent dedupe, ownership, and
+  // rate state. Optional keeps direct in-process method tests lightweight.
+  runtimeClosePolicy?: RuntimeClosePolicy
   pairing?: PairingRpcContext
   // Why: mobile terminal traffic is byte-oriented and bypasses JSON streaming
   // responses after the binary terminal cutover. Undefined on Unix/socket
