@@ -503,6 +503,8 @@ const api = {
       ipcRenderer.invoke('app:getFloatingMarkdownDirectory'),
     pickFloatingMarkdownDocument: (): Promise<MarkdownDocument | null> =>
       ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
+    pickWorktreeMarkdownDocument: (cwd: string): Promise<MarkdownDocument | null> =>
+      ipcRenderer.invoke('app:pickWorktreeMarkdownDocument', cwd),
     pickFloatingWorkspaceDirectory: (): Promise<string | null> =>
       ipcRenderer.invoke('app:pickFloatingWorkspaceDirectory')
   },
@@ -3287,6 +3289,11 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent) => callback()
       ipcRenderer.on('ui:newMarkdownTab', listener)
       return () => ipcRenderer.removeListener('ui:newMarkdownTab', listener)
+    },
+    onOpenMarkdownTab: (callback: () => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent) => callback()
+      ipcRenderer.on('ui:openMarkdownTab', listener)
+      return () => ipcRenderer.removeListener('ui:openMarkdownTab', listener)
     },
     onNewSimulatorTab: (callback: () => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent) => callback()
