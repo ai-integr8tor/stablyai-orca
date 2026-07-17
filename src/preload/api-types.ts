@@ -3128,7 +3128,7 @@ export type PreloadApi = {
       callback: (data: { targetId: string; ports: EnrichedDetectedPort[] }) => void
     ) => () => void
     browseDir: (args: { targetId: string; dirPath: string }) => Promise<{
-      entries: { name: string; isDirectory: boolean }[]
+      entries: { name: string; isDirectory: boolean; isSymlink: boolean }[]
       resolvedPath: string
     }>
     onCredentialRequest: (
