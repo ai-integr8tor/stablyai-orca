@@ -11,6 +11,7 @@ function readSkill() {
 
 function getSection(markdown, heading) {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Why: skill checkouts may use CRLF on Windows; section headers still use ##.
   const match = markdown.match(
     new RegExp(`## ${escapedHeading}\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`)
   )
@@ -89,6 +90,58 @@ describe('orchestration skill guidance', () => {
     )
     expect(fullHandoffs).toContain('If the work should start from the repo default base')
     expect(fullHandoffs).toContain('omit `--base-branch`')
+  })
+
+  it('routes replyable reviews through ask or send/reply with concrete handles', () => {
+    // Why: lock the replyable-routing contract as complete lane bullets so token
+    // soup cannot pass while Messaging/Full Handoffs map conditions wrongly.
+    const skill = readSkill()
+    const messaging = getSection(skill, 'Messaging')
+    const fullHandoffs = getSection(skill, 'Full Handoffs')
+
+    expect(fullHandoffs).toContain(
+      'If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.'
+    )
+    expect(fullHandoffs).toContain(
+      'If one blocking review, verdict, or answer must return, use `orca orchestration ask` to a concrete terminal handle; `ask` does not accept group addresses:'
+    )
+    expect(fullHandoffs).toContain(
+      'orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json'
+    )
+    expect(fullHandoffs).toContain(
+      'If the exchange may be asynchronous or require multiple messages, use `orca orchestration send`, then have the recipient answer with `orca orchestration reply`:'
+    )
+    expect(fullHandoffs).toContain(
+      'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
+    )
+    expect(fullHandoffs).toContain('orca orchestration reply --id <msg_id> --body <text> --json')
+    expect(fullHandoffs).toContain(
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
+    )
+    expect(fullHandoffs).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(fullHandoffs).not.toContain('report or retry')
+
+    expect(messaging).toContain(
+      'For one blocking review, verdict, or answer that must return, target a concrete terminal handle'
+    )
+    expect(messaging).toContain(
+      'orca orchestration ask --to <concrete-handle> --question <text> --timeout-ms <n> --json'
+    )
+    expect(messaging).toContain(
+      'orca orchestration send --to <concrete-handle> --subject <text> --body <text> --json'
+    )
+    expect(messaging).toContain(
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
+    )
+    expect(messaging).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(messaging).not.toContain('report or retry')
+    expect(messaging).toContain(
+      'Raw `terminal send` is terminal input and does not carry a structured sender, message ID, thread, or reply route.'
+    )
   })
 
   it('classifies handoff wording as ownership transfer unless supervision is explicit', () => {

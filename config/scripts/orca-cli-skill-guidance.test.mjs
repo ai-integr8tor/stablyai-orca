@@ -11,6 +11,18 @@ function readSkill(path = skillPath) {
   return readFileSync(path, 'utf8')
 }
 
+function getSection(markdown, heading) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Why: skill checkouts may use CRLF on Windows; section headers still use ##.
+  const match = markdown.match(
+    new RegExp(`## ${escapedHeading}\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)`)
+  )
+
+  expect(match).not.toBeNull()
+
+  return match?.[1] ?? ''
+}
+
 describe('orca CLI skill guidance', () => {
   it('keeps independent worktree lineage separate from Git base selection', () => {
     const skill = readSkill()
@@ -82,6 +94,34 @@ describe('orca CLI skill guidance', () => {
     expect(cliSkill).toContain('two-part address')
     expect(orchestrationSkill).toContain('id:<newFullWorktreeId>')
     expect(emulatorSkill).not.toContain('id:abc123')
+  })
+
+  it('routes replyable reviews by return path instead of handoff wording', () => {
+    // Why: lock the design-doc return-path contract as complete lane bullets so
+    // independent token matches cannot pass while conditions map to wrong transports.
+    const skill = readSkill()
+    const fullHandoffs = getSection(skill, 'Full Handoffs')
+    const terminals = getSection(skill, 'Terminals')
+
+    expect(fullHandoffs).toContain(
+      'If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.'
+    )
+    expect(fullHandoffs).toContain(
+      'If one blocking review, verdict, or answer must return, use `orca orchestration ask --to <concrete-handle> ...`; `ask` does not accept group addresses.'
+    )
+    expect(fullHandoffs).toContain(
+      'If the exchange may be asynchronous or require multiple messages, use `orca orchestration send ...` and have the recipient answer with `orca orchestration reply ...`.'
+    )
+    expect(fullHandoffs).toContain(
+      'If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered.'
+    )
+    expect(fullHandoffs).toContain(
+      'Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined.'
+    )
+    expect(fullHandoffs).not.toContain('report or retry')
+    expect(terminals).toContain(
+      'When a review, verdict, or answer must return, do not use raw `terminal send`; choose the transport from the required return path in Full Handoffs (`orchestration ask` for one blocking answer, `orchestration send`/`reply` for asynchronous exchange).'
+    )
   })
 
   it('keeps browser injection guidance narrow and avoids literal secret examples', () => {

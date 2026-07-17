@@ -60,6 +60,14 @@ A full handoff transfers ownership to another agent or worktree, then the origin
 
 Do not use `orca orchestration task-create`, `orca orchestration dispatch --inject`, or `orca orchestration check --wait` for full handoffs. `task-create` is also forbidden because it records coordinator-owned tracking state; if a task row is needed, the user asked for supervised orchestration. Deliver the prompt with worktree/terminal commands, report the created worktree/terminal if useful, and stop monitoring.
 
+Choose the transport from the required return path:
+
+- If ownership transfers and no response is expected, use `orca terminal send ...` and stop monitoring.
+- If one blocking review, verdict, or answer must return, use `orca orchestration ask --to <concrete-handle> ...`; `ask` does not accept group addresses.
+- If the exchange may be asynchronous or require multiple messages, use `orca orchestration send ...` and have the recipient answer with `orca orchestration reply ...`.
+
+The required return path overrides words such as "handoff." If `ask` times out, do not resend automatically: the original `decision_gate` remains persisted and may still be answered. Reconcile its delivery state before retrying; because `ask` has no idempotency key, surface the timeout without resubmitting when delivery cannot be determined. Never fall back to raw `terminal send`.
+
 Independent new-worktree handoff:
 
 ```text
@@ -196,7 +204,7 @@ Terminal rules:
 
 - `--terminal` is optional for most commands; omitted means the active terminal in the current worktree.
 - Use `terminal read` before `terminal send` unless the next input is obvious.
-- Use `terminal send` only for direct terminal input or one-off prompts where no task state, inbox, or reply tracking is needed.
+- Use `terminal send` only for direct terminal input or one-off prompts where no task state, inbox, or reply tracking is needed. When a review, verdict, or answer must return, do not use raw `terminal send`; choose the transport from the required return path in Full Handoffs (`orchestration ask` for one blocking answer, `orchestration send`/`reply` for asynchronous exchange).
 - For structured coordination, invoke the `orchestration` skill; it uses `orca orchestration ...` commands for messages, handoffs, task DAGs, dispatches, inbox/reply flows, and coordinator loops. A receiving agent can run `orca orchestration check --unread --inject` to render its unread mail in agent-readable form; this checks the caller's inbox and does not remotely deliver input to another terminal.
 - Use `terminal create --worktree active --command "<agent>"` for a fresh agent in the current worktree. Use `worktree create --agent <agent>` only for a separate checkout (agent in the first terminal — do not also `terminal create` the same agent).
 - Use `terminal wait --for tui-idle` for agent CLIs such as Claude Code, Gemini, Codex, OMP, Pi, and Grok; always pass `--timeout-ms`.
