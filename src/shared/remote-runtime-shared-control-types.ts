@@ -12,14 +12,11 @@ export type SharedControlPendingRequest<TResult> = {
   resolve: (response: RuntimeRpcResponse<TResult>) => void
   reject: (error: Error) => void
   timeout: ReturnType<typeof setTimeout>
-  // Why: captured at actual send so timeout can distinguish a silent socket
-  // from one that is still carrying other valid application frames.
-  inboundActivityGenerationAtSend: number | null
   // Why: keepalives on the shared socket are armed for an unrelated long-poll,
   // not this request. Only requests that opt in (long-polls issued via the
   // short-RPC path) may have their deadline refreshed by a keepalive; ordinary
-  // short RPCs keep an absolute deadline so a stuck server call still times
-  // out, tears the socket down, and reconnects/replays as designed.
+  // short RPCs keep an absolute deadline while socket-wide liveness remains
+  // independently owned by the transport monitor.
   refreshTimeoutOnKeepalive: boolean
 }
 
