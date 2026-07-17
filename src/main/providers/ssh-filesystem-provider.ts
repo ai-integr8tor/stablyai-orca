@@ -23,7 +23,6 @@ import type {
 import type { DirEntry, FsChangeEvent, SearchOptions, SearchResult } from '../../shared/types'
 import { routeSshFilesystemWatchNotification } from './ssh-filesystem-watch-notifications'
 import type { WorkspaceSpaceDirectoryScanResult } from '../../shared/workspace-space-types'
-const WORKSPACE_SPACE_SCAN_TIMEOUT_MS = 130_000
 
 export class SshFilesystemProvider implements IFilesystemProvider {
   private connectionId: string
@@ -242,7 +241,9 @@ export class SshFilesystemProvider implements IFilesystemProvider {
     return (await this.mux.request(
       'fs.workspaceSpaceScan',
       { rootPath },
-      { signal: options?.signal, timeoutMs: WORKSPACE_SPACE_SCAN_TIMEOUT_MS }
+      // Why: accurate remote du scans can legitimately outlive the default
+      // request deadline; explicit cancellation still sends rpc.cancel.
+      { signal: options?.signal, timeoutMs: null }
     )) as WorkspaceSpaceDirectoryScanResult
   }
 
