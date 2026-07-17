@@ -169,7 +169,8 @@ import {
   canUseGitHubRepoContext,
   getGitHubMutationRoutingSettings,
   getGitHubRuntimeRepoId,
-  getGitHubSourceRuntimeHost
+  getGitHubSourceRuntimeHost,
+  resolveGitHubSourceSettings
 } from '@/lib/github-source-runtime-context'
 import IssueSourceIndicator, { sameGitHubOwnerRepo } from '@/components/github/IssueSourceIndicator'
 import {
@@ -491,13 +492,7 @@ function PRAssigneesPanel({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const { isPending, run } = useImmediateMutation()
@@ -729,13 +724,7 @@ function PRReviewersPanel({
     useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const reviewerInputRef = useRef<HTMLInputElement | null>(null)
@@ -5600,16 +5589,10 @@ function GHEditSection({
     })
   )
   const repoOwnerSettings = useAppStore(
-    useShallow((s) => getSettingsForRepoRuntimeOwner(s, item.repoId ?? null))
+    useShallow((s) => getSettingsForRepoRuntimeOwner(s, repoId ?? item.repoId ?? null))
   )
   const sourceSettings = useMemo(
-    () =>
-      sourceContext?.provider === 'github'
-        ? ({
-            ...repoOwnerSettings,
-            ...getTaskSourceRuntimeSettings(sourceContext)
-          } as typeof repoOwnerSettings)
-        : repoOwnerSettings,
+    () => resolveGitHubSourceSettings(repoOwnerSettings, sourceContext),
     [repoOwnerSettings, sourceContext]
   )
   const { isPending, run } = useImmediateMutation()

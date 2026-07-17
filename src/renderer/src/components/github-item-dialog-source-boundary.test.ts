@@ -30,7 +30,7 @@ describe('GitHubItemDialog source host boundaries', () => {
     const source = componentSource('GitHubItemDialog.tsx')
     const section = sourceBetween(source, 'function PRReviewersPanel', 'function isPRFileViewed')
 
-    expect(section).toContain('getTaskSourceRuntimeSettings(sourceContext)')
+    expect(section).toContain('resolveGitHubSourceSettings(repoOwnerSettings, sourceContext)')
     expect(section).toContain('useRepoAssigneesBySlug(')
     expect(section).toContain('sourceSettings')
     expect(section).toContain('useRepoAssignees(')
@@ -55,7 +55,7 @@ describe('GitHubItemDialog source host boundaries', () => {
       'function GitHubLabelsSettingsLink'
     )
 
-    expect(section).toContain('getTaskSourceRuntimeSettings(sourceContext)')
+    expect(section).toContain('resolveGitHubSourceSettings(repoOwnerSettings, sourceContext)')
     expect(section).toContain('useRepoLabels(')
     expect(section).toContain('useRepoLabelsBySlug(slugOwner, slugRepo, sourceSettings)')
     expect(section).toContain('useRepoAssignees(')

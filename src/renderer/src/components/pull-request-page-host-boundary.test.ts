@@ -21,7 +21,7 @@ describe('PullRequestPage host boundaries', () => {
     const source = componentSource('PullRequestPage.tsx')
     const section = sourceBetween(source, 'function PRReviewersPanel', 'function isPRFileViewed')
 
-    expect(section).toContain('getTaskSourceRuntimeSettings(sourceContext)')
+    expect(section).toContain('resolveGitHubSourceSettings(repoOwnerSettings, sourceContext)')
     expect(section).toContain('useRepoAssigneesBySlug(')
     expect(section).toContain('sourceSettings')
     expect(section).toContain('useRepoAssignees(')
@@ -46,7 +46,7 @@ describe('PullRequestPage host boundaries', () => {
     const section = sourceBetween(source, 'function GHEditSection', 'function GHCommentComposer')
 
     expect(section).toContain('getSettingsForRepoRuntimeOwner(s, item.repoId ?? repoId ?? null)')
-    expect(section).toContain('getTaskSourceRuntimeSettings(sourceContext)')
+    expect(section).toContain('resolveGitHubSourceSettings(repoOwnerSettings, sourceContext)')
     expect(section).toContain('useRepoLabels(')
     expect(section).toContain('useRepoLabelsBySlug(slugOwner, slugRepo, sourceSettings)')
     expect(section).toContain('useRepoAssignees(')
@@ -277,7 +277,7 @@ describe('PullRequestPage host boundaries', () => {
       "repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? '')"
     )
     expect(editHelperSection).toContain('{ local: false }')
-    expect(editSection).toContain('getTaskSourceRuntimeSettings(sourceContext)')
+    expect(editSection).toContain('resolveGitHubSourceSettings(repoOwnerSettings, sourceContext)')
     expect(editSection).toContain('sourceContext,')
   })
 
