@@ -506,3 +506,79 @@
   margin-top: var(--orca-pane-title-height);
   height: calc(100% - var(--orca-pane-title-height)); /* match margin-top */
 }
+
+/* Rich input is a real dock row rather than an overlay: xterm's observed
+   container shrinks, so its existing ResizeObserver refits instead of hiding
+   the last terminal lines behind the composer. */
+.pane[data-terminal-rich-input-mounted] {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.pane[data-terminal-rich-input-mounted] .xterm-container {
+  grid-row: 1;
+  min-height: 0;
+}
+
+.terminal-rich-input-dock {
+  position: relative;
+  z-index: 30;
+  display: grid;
+  grid-row: 2;
+  grid-template-rows: 0fr;
+}
+
+.terminal-rich-input-dock[data-layout-open] {
+  grid-template-rows: 1fr;
+}
+
+.terminal-rich-input-dock[data-layout-open] .terminal-rich-input-dock-content {
+  overflow: visible;
+}
+
+.terminal-rich-input-dock-content {
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out;
+}
+
+.terminal-rich-input-dock[data-visible] .terminal-rich-input-dock-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-rich-input-dock-content {
+    transition: none;
+  }
+}
+
+.pane-manager-root [data-terminal-rich-input-dock] {
+  border-color: var(--border);
+}
+
+.pane-manager-root [data-terminal-rich-input-card] {
+  border-color: var(--input);
+}
+
+.pane-manager-root [data-terminal-rich-input-card]:focus-within {
+  border-color: var(--ring);
+}
+
+.pane-manager-root [data-terminal-rich-input-menu],
+.pane-manager-root [data-terminal-rich-input-mention],
+.pane-manager-root [data-terminal-rich-input-attachment],
+.pane-manager-root [data-terminal-rich-input-send] {
+  border-color: var(--border);
+}
+
+.terminal-rich-input-editor {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-rich-input-editor .ProseMirror-selectednode [data-terminal-rich-input-mention] {
+  box-shadow: 0 0 0 1px var(--ring);
+}

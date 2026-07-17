@@ -2950,6 +2950,7 @@ export type PreloadApi = {
     onSystemResumed: (callback: () => void) => () => void
     readClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
     readSelectionClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
+    readClipboardImageDataUrl: () => Promise<string | null>
     saveClipboardImageAsTempFile: (args?: {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null

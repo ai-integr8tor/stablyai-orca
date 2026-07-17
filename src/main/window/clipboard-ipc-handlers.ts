@@ -9,7 +9,12 @@ import {
 import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import type { Store } from '../persistence'
-import { isENOENT, PATH_ACCESS_DENIED_MESSAGE, resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import {
+  authorizeExternalPath,
+  isENOENT,
+  PATH_ACCESS_DENIED_MESSAGE,
+  resolveAuthorizedPath
+} from '../ipc/filesystem-auth'
 import {
   assertClipboardTextWriteWithinLimitWithYield,
   assertClipboardTextWithinLimitWithYield,
@@ -35,6 +40,8 @@ import {
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
 
+const CLIPBOARD_IMAGE_PREVIEW_MAX_DIMENSION = 96
+
 let trustedClipboardRendererWebContentsId: number | null = null
 
 type ClipboardWriteFileRequest = {
@@ -51,7 +58,13 @@ async function saveClipboardImageBufferForTarget(
   if (runtimeEnvironmentId && !args?.connectionId) {
     return saveClipboardImageBufferInRuntime(app.getPath('userData'), runtimeEnvironmentId, buffer)
   }
-  return saveClipboardImageBufferAsTempFile(buffer, args)
+  const tempPath = await saveClipboardImageBufferAsTempFile(buffer, args)
+  if (!args?.connectionId) {
+    // Why: Orca-created clipboard files are safe preview sources even though
+    // the OS temp directory sits outside normal workspace authorization.
+    authorizeExternalPath(tempPath)
+  }
+  return tempPath
 }
 
 export function setTrustedClipboardRendererWebContentsId(webContentsId: number | null): void {
@@ -74,6 +87,7 @@ function runCommand(command: string, args: string[], stdin?: string): Promise<vo
 export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:readText')
   ipcMain.removeHandler('clipboard:readSelectionText')
+  ipcMain.removeHandler('clipboard:readImageDataUrl')
   ipcMain.removeHandler('clipboard:writeText')
   ipcMain.removeHandler('clipboard:writeSelectionText')
   ipcMain.removeHandler('clipboard:writeImage')
@@ -93,6 +107,34 @@ export function registerClipboardHandlers(store: Store): void {
       return assertClipboardTextWithinLimitWithYield(clipboard.readText('selection'), options)
     }
   )
+  ipcMain.handle('clipboard:readImageDataUrl', (event) => {
+    assertTrustedClipboardSender(event)
+    const image = clipboard.readImage()
+    if (image.isEmpty()) {
+      return null
+    }
+    const size = image.getSize()
+    assertClipboardImageDimensionsWithinLimit(size)
+    const scale = Math.min(
+      1,
+      CLIPBOARD_IMAGE_PREVIEW_MAX_DIMENSION / Math.max(size.width, size.height)
+    )
+    // Keep cached composer previews bounded; the full-resolution PNG is saved
+    // separately and remains the path submitted to the agent.
+    const preview =
+      scale < 1
+        ? image.resize({
+            width: Math.max(1, Math.round(size.width * scale)),
+            height: Math.max(1, Math.round(size.height * scale)),
+            quality: 'good'
+          })
+        : image
+    const png = preview.toPNG()
+    assertClipboardImageByteLengthWithinLimit(png.byteLength)
+    const contentBase64 = png.toString('base64')
+    assertClipboardImageBase64LengthWithinLimit(contentBase64.length)
+    return `data:image/png;base64,${contentBase64}`
+  })
   // Why: terminals need to detect clipboard images to support tools like Claude
   // Code that accept image input via paste. Writes the clipboard image to a
   // temp file and returns the path, or null if the clipboard has no image.

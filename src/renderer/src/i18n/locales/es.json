@@ -13291,6 +13291,23 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    },
+    "terminal": {
+      "richInput": {
+        "label": "Entrada enriquecida del terminal",
+        "placeholder": "Escribe una instrucción para el terminal…",
+        "sendFailed": "No se envió la entrada al terminal.",
+        "sendPartial": "Se pegó parte de la entrada. Revisa el terminal antes de volver a intentarlo.",
+        "hint": "Intro para enviar · Mayús+Intro para una nueva línea",
+        "send": "Enviar al terminal",
+        "loadingFiles": "Cargando archivos…",
+        "noFiles": "No hay archivos coincidentes",
+        "toggle": "Alternar entrada enriquecida del terminal",
+        "imagePasteFailed": "No se pudo pegar la imagen.",
+        "addingImage": "Añadiendo imagen…",
+        "slashCommands": "Comandos con barra",
+        "removeAttachment": "Eliminar archivo adjunto"
+      }
     }
   },
   "browser": {

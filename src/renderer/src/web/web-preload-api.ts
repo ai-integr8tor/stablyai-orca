@@ -2432,6 +2432,9 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
       ),
     readSelectionClipboardText: () =>
       Promise.reject(new Error('Selection clipboard is unavailable in the web client')),
+    // Runtime previews load from the saved target path; avoid retaining the
+    // full clipboard PNG as a second renderer-side copy in the web client.
+    readClipboardImageDataUrl: () => Promise.resolve(null),
     saveClipboardImageAsTempFile: async (args?: {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null

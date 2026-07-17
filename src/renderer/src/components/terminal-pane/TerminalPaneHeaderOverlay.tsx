@@ -1,5 +1,11 @@
 import type { CSSProperties, RefObject } from 'react'
-import { MessageSquare, SquareSplitVertical, SquareTerminal, X } from 'lucide-react'
+import {
+  MessageSquare,
+  SquareSplitVertical,
+  SquareTerminal,
+  TextCursorInput,
+  X
+} from 'lucide-react'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -36,6 +42,9 @@ type TerminalPaneHeaderOverlayProps = {
   hiddenStartupStyle: CSSProperties
   managerRef: RefObject<PaneManager | null>
   paneTransportsRef: RefObject<Map<number, PtyTransport>>
+  canToggleRichInput?: boolean
+  isRichInputOpen?: boolean
+  onToggleRichInput?: () => void
   /** When true, this pane can toggle the native chat view; renders a chat/terminal
    *  toggle as the first button in the pane header actions row (beside split/close).
    *  The caller gates it to the active pane to avoid duplicating it across splits. */
@@ -77,6 +86,9 @@ export default function TerminalPaneHeaderOverlay({
   hiddenStartupStyle,
   managerRef,
   paneTransportsRef,
+  canToggleRichInput,
+  isRichInputOpen,
+  onToggleRichInput,
   canToggleNativeChat,
   isChatViewMode,
   onToggleNativeChat,
@@ -234,6 +246,35 @@ export default function TerminalPaneHeaderOverlay({
                   </button>
                 ) : null}
                 <div className="pane-title-actions ml-auto flex shrink-0 items-center gap-0">
+                  {canToggleRichInput && isActivePane ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="pane-title-split-trigger"
+                          aria-label={translate(
+                            'components.terminal.richInput.toggle',
+                            'Toggle rich terminal input'
+                          )}
+                          aria-pressed={isRichInputOpen}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onToggleRichInput?.()
+                          }}
+                        >
+                          <TextCursorInput className="size-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" sideOffset={4}>
+                        {translate(
+                          'components.terminal.richInput.toggle',
+                          'Toggle rich terminal input'
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                   {canToggleNativeChat && isActivePane ? (
                     <Tooltip>
                       <TooltipTrigger asChild>

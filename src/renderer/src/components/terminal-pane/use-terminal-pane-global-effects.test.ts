@@ -1206,6 +1206,31 @@ describe('useTerminalPaneGlobalEffects', () => {
     })
   })
 
+  it('routes native drop paths through the resolver when rich input is open', () => {
+    const { onFileDrop, manager } = useMountForFileDrop()
+    const dispatchEvent = vi.fn()
+    manager.getPanes.mockReturnValue([
+      {
+        leafId: 'leaf-1',
+        container: { dataset: { terminalRichInputOpen: '' }, dispatchEvent }
+      }
+    ])
+    const data = {
+      paths: ['/tmp/image.png'],
+      target: 'terminal',
+      tabId: 'tab-1',
+      paneLeafId: 'leaf-1'
+    }
+
+    onFileDrop(data)
+    const args = mocks.handleTerminalFileDrop.mock.calls[0][0]
+    args.onResolvedPaths(['/remote/.orca/drops/image.png'])
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'terminal-rich-input-native-drop' })
+    )
+  })
+
   it('keeps handling legacy terminal file drops without a terminal tab id', () => {
     const { onFileDrop, manager, paneTransports } = useMountForFileDrop()
 
