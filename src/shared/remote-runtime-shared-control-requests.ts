@@ -36,7 +36,21 @@ export function requestSharedControl<TResult>(args: {
       refreshTimeoutOnKeepalive: args.refreshTimeoutOnKeepalive ?? false
     })
     void args.ensureReady().then(
-      () => args.send(requestId, args.method, args.params),
+      () => {
+        const pending = args.pendingRequests.get(requestId)
+        if (!pending) {
+          return
+        }
+        try {
+          args.send(requestId, args.method, args.params)
+        } catch (error) {
+          rejectSharedControlPendingRequest(
+            args.pendingRequests,
+            requestId,
+            toRemoteRuntimeClientError(error)
+          )
+        }
+      },
       (error) =>
         rejectSharedControlPendingRequest(
           args.pendingRequests,
