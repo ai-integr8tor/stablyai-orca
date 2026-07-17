@@ -1263,6 +1263,7 @@ export type PreloadApi = {
       cwd?: string
       cwdFallback?: 'worktree'
       env?: Record<string, string>
+      envToDelete?: string[]
       command?: string
       launchConfig?: SleepingAgentLaunchConfig
       launchToken?: string

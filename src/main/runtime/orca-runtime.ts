@@ -1043,6 +1043,7 @@ type TerminalCreateOptions = {
   claudeAgentTeamsSourceCommand?: string
   cwd?: string
   env?: Record<string, string>
+  envToDelete?: string[]
   launchConfig?: WorktreeStartupLaunch['launchConfig']
   launchToken?: string
   launchAgent?: TuiAgent
@@ -1063,6 +1064,14 @@ type TerminalCreateOptions = {
   // intermediate pty-backed publish so the new tab doesn't briefly flash in
   // the wrong (active) group before the corrected snapshot lands.
   deferMobileSessionPublish?: boolean
+}
+
+function mergeTerminalEnvDeletionKeys(
+  first: readonly string[] | undefined,
+  second: readonly string[] | undefined
+): string[] | undefined {
+  const merged = [...new Set([...(first ?? []), ...(second ?? [])])]
+  return merged.length > 0 ? merged : undefined
 }
 
 type PtyForegroundAgentRefresh = {
@@ -18562,7 +18571,10 @@ export class OrcaRuntimeService {
         commandDelivery: 'provider',
         startupCommandDelivery: launchOpts.startupCommandDelivery,
         env,
-        envToDelete: agentTeamsPlan?.envToDelete,
+        envToDelete: mergeTerminalEnvDeletionKeys(
+          launchOpts.envToDelete,
+          agentTeamsPlan?.envToDelete
+        ),
         telemetry: launchOpts.telemetry,
         connectionId: workspace.connectionId,
         worktreeId: workspace.id,
@@ -18760,6 +18772,7 @@ export class OrcaRuntimeService {
       command?: string
       cwd?: string
       env?: Record<string, string>
+      envToDelete?: string[]
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
       launchConfig?: SleepingAgentLaunchConfig
@@ -18805,6 +18818,7 @@ export class OrcaRuntimeService {
       command?: string
       cwd?: string
       env?: Record<string, string>
+      envToDelete?: string[]
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
       launchConfig?: SleepingAgentLaunchConfig
@@ -18841,6 +18855,7 @@ export class OrcaRuntimeService {
           command: startupCommand.command,
           cwd,
           env: startupCommand.env,
+          envToDelete: startupCommand.envToDelete,
           startupCommandDelivery: startupCommand.startupCommandDelivery,
           launchAgent: startupCommand.launchAgent,
           viewMode: opts.viewMode,
@@ -18890,6 +18905,7 @@ export class OrcaRuntimeService {
         command: startupCommand.command,
         cwd,
         ...(startupCommand.env ? { env: startupCommand.env } : {}),
+        ...(startupCommand.envToDelete ? { envToDelete: startupCommand.envToDelete } : {}),
         ...(startupCommand.launchConfig ? { launchConfig: startupCommand.launchConfig } : {}),
         ...(startupCommand.launchAgent ? { launchAgent: startupCommand.launchAgent } : {}),
         ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
@@ -18954,6 +18970,7 @@ export class OrcaRuntimeService {
           command: startupCommand.command,
           cwd,
           env: startupCommand.env,
+          envToDelete: startupCommand.envToDelete,
           startupCommandDelivery: startupCommand.startupCommandDelivery,
           identity: { tabId: pendingSurface.tab.parentTabId, leafId: pendingSurface.tab.leafId },
           launchAgent: startupCommand.launchAgent,
@@ -18999,6 +19016,7 @@ export class OrcaRuntimeService {
     opts: {
       command?: string
       env?: Record<string, string>
+      envToDelete?: string[]
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
       launchConfig?: SleepingAgentLaunchConfig
@@ -19007,6 +19025,7 @@ export class OrcaRuntimeService {
   ): Promise<{
     command?: string
     env?: Record<string, string>
+    envToDelete?: string[]
     startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
     launchConfig?: SleepingAgentLaunchConfig
     launchAgent?: TuiAgent
@@ -19015,6 +19034,7 @@ export class OrcaRuntimeService {
       return {
         command: opts.command,
         env: opts.env,
+        envToDelete: opts.envToDelete,
         launchConfig: opts.launchConfig,
         launchAgent: opts.launchAgent,
         startupCommandDelivery: opts.startupCommandDelivery
@@ -19078,6 +19098,7 @@ export class OrcaRuntimeService {
       command?: string
       cwd?: string
       env?: Record<string, string>
+      envToDelete?: string[]
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       identity?: { tabId: string; leafId: string; sessionId?: string }
       launchAgent?: TuiAgent
@@ -19097,6 +19118,7 @@ export class OrcaRuntimeService {
       command: opts.command,
       cwd,
       env: opts.env,
+      envToDelete: opts.envToDelete,
       ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
       ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
