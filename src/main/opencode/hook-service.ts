@@ -14,6 +14,7 @@ import {
   unlinkSync,
   writeFileSync
 } from 'node:fs'
+import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { mirrorEntry, safeRemoveTree } from '../pty/overlay-mirror'
 
@@ -56,6 +57,21 @@ function toSafeDirName(id: string): string {
   // to become likely, far beyond any real workload. Hex keeps the name
   // portable across all filesystems (no base64 padding, no `/`).
   return createHash('sha256').update(id).digest('hex').slice(0, 32)
+}
+
+// Why: OpenCode/OMO resolves its default global config dir via the same
+// XDG fallback that OMO itself uses: XDG_CONFIG_HOME/opencode, then
+// ~/.config/opencode. Detecting this lets Orca mirror the user's default
+// config into the overlay even when they have not explicitly set
+// OPENCODE_CONFIG_DIR, so plugins, auth, and oh-my-openagent.json are not
+// silently dropped.
+function getDefaultOpenCodeConfigDir(): string | undefined {
+  const xdgConfig = process.env.XDG_CONFIG_HOME?.trim()
+  const configDir =
+    xdgConfig && xdgConfig.length > 0
+      ? join(xdgConfig, 'opencode')
+      : join(homedir(), '.config', 'opencode')
+  return existsSync(configDir) ? configDir : undefined
 }
 
 export function getOpenCodePluginSource(): string {
@@ -430,7 +446,13 @@ export class OpenCodeHookService {
       return existingConfigDir ? { OPENCODE_CONFIG_DIR: existingConfigDir } : {}
     }
 
-    if (!existingConfigDir) {
+    // Why: when the user has not explicitly set OPENCODE_CONFIG_DIR, detect
+    // the default OpenCode global config directory so Orca can mirror it into
+    // an overlay. Without this, the bare shared/ dir lacks the user's plugins,
+    // auth, models, and oh-my-openagent configuration.
+    const sourceConfigDir = existingConfigDir ?? getDefaultOpenCodeConfigDir()
+
+    if (!sourceConfigDir) {
       // Why: OpenCode may install plugin dependencies under this root. Sharing
       // it prevents per-terminal node_modules churn and teardown freezes.
       const configDir = this.writeSharedPluginConfig()
@@ -444,15 +466,15 @@ export class OpenCodeHookService {
     // Orca-owned dir is the exact config-replacement failure mode documented in
     // docs/opencode-config-dir-collision.md. Let OpenCode surface the typo on
     // its own; we only forfeit our status plugin for this pane.
-    if (!existsSync(existingConfigDir)) {
-      return { OPENCODE_CONFIG_DIR: existingConfigDir }
+    if (!existsSync(sourceConfigDir)) {
+      return { OPENCODE_CONFIG_DIR: sourceConfigDir }
     }
 
-    const overlayDir = this.getSourceOverlayDir(existingConfigDir)
+    const overlayDir = this.getSourceOverlayDir(sourceConfigDir)
 
     try {
       mkdirSync(overlayDir, { recursive: true })
-      this.mirrorUserConfig(existingConfigDir, overlayDir)
+      this.mirrorUserConfig(sourceConfigDir, overlayDir)
       this.writePluginIntoOverlay(overlayDir)
     } catch {
       // Why: overlay creation is best-effort. Symlink-creation can fail on
@@ -460,7 +482,7 @@ export class OpenCodeHookService {
       // locked-down corporate machines, etc. In every case, preserve the
       // user's OPENCODE_CONFIG_DIR — a missing status plugin is a vastly
       // smaller harm than silently dropping the user's auth/models/keymap.
-      return { OPENCODE_CONFIG_DIR: existingConfigDir }
+      return { OPENCODE_CONFIG_DIR: sourceConfigDir }
     }
 
     return { OPENCODE_CONFIG_DIR: overlayDir }
