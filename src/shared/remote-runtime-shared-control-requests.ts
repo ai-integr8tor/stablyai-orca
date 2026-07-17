@@ -1,9 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { RemoteRuntimeClientError } from './remote-runtime-client-error'
-import {
-  remoteRuntimeTimeoutError,
-  remoteRuntimeUnavailableError
-} from './remote-runtime-request-frames'
+import { remoteRuntimeTimeoutError } from './remote-runtime-request-frames'
 import type { RuntimeRpcResponse } from './runtime-rpc-envelope'
 import { toRemoteRuntimeClientError } from './remote-runtime-shared-control-protocol'
 import { rejectSharedControlPendingRequest } from './remote-runtime-shared-control-state'
@@ -15,9 +11,7 @@ export function requestSharedControl<TResult>(args: {
   params: unknown
   timeoutMs: number
   ensureReady: () => Promise<void>
-  getInboundActivityGeneration: () => number
   send: (requestId: string, method: string, params: unknown) => void
-  onTimeout?: (error: RemoteRuntimeClientError) => void
   // Why: default off — ordinary short RPCs keep an absolute deadline. Only
   // long-polls routed through this path opt in so keepalives extend them.
   refreshTimeoutOnKeepalive?: boolean
@@ -30,25 +24,15 @@ export function requestSharedControl<TResult>(args: {
         return
       }
       args.pendingRequests.delete(requestId)
+      // Why: one stalled method does not prove the shared socket is dead;
+      // socket liveness owns connection-wide teardown so other RPCs survive.
       pending.reject(remoteRuntimeTimeoutError())
-      const sentAt = pending.inboundActivityGenerationAtSend
-      const socketIsUnproven = sentAt === null || args.getInboundActivityGeneration() === sentAt
-      // Why: the RPC deadline stays absolute, but newer validated traffic
-      // proves the shared socket is alive and avoids disrupting subscriptions.
-      if (socketIsUnproven) {
-        args.onTimeout?.(
-          remoteRuntimeUnavailableError(
-            'Remote Orca runtime did not answer in time; resetting the control connection.'
-          )
-        )
-      }
     }, args.timeoutMs)
     args.pendingRequests.set(requestId, {
       method: args.method,
       resolve: resolve as (response: RuntimeRpcResponse<unknown>) => void,
       reject,
       timeout,
-      inboundActivityGenerationAtSend: null,
       refreshTimeoutOnKeepalive: args.refreshTimeoutOnKeepalive ?? false
     })
     void args.ensureReady().then(
@@ -57,7 +41,6 @@ export function requestSharedControl<TResult>(args: {
         if (!pending) {
           return
         }
-        pending.inboundActivityGenerationAtSend = args.getInboundActivityGeneration()
         try {
           args.send(requestId, args.method, args.params)
         } catch (error) {

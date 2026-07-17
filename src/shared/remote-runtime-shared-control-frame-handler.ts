@@ -22,7 +22,6 @@ export function handleSharedControlTextFrame(args: {
   setState: (state: SharedControlConnectionState) => void
   handleSocketClosed: (error: RemoteRuntimeClientError) => void
   sendEncrypted: (payload: unknown) => boolean
-  markInboundActivity: () => void
   markReady: () => void
   replaySubscriptions: () => void
 }): void {
@@ -32,7 +31,6 @@ export function handleSharedControlTextFrame(args: {
       args.handleSocketClosed(error)
       return
     }
-    args.markInboundActivity()
     args.setState('awaiting_authenticated')
     args.sendEncrypted({ type: 'e2ee_auth', deviceToken: args.deviceToken })
     return
@@ -45,7 +43,6 @@ export function handleSharedControlTextFrame(args: {
       args.handleSocketClosed(error)
       return
     }
-    args.markInboundActivity()
     args.setState('ready')
     args.markReady()
     resolveSharedControlReadyWaiters(args.readyWaiters)
@@ -58,7 +55,6 @@ export function handleSharedControlTextFrame(args: {
     return
   }
 
-  args.markInboundActivity()
   dispatchSharedControlFrame({
     environmentId: args.environmentId,
     frame: parsed.frame,
