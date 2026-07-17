@@ -65,9 +65,7 @@ describe('ProviderSegment monthly window', () => {
     expect(markup).not.toContain('···')
   })
 
-  // Why: providers with session/weekly windows (OpenCode Go) keep monthly
-  // tooltip-only so the chip stays uncluttered.
-  it('keeps monthly out of the chip when session and weekly windows exist', async () => {
+  it('shows only the highest-used window when several windows exist', async () => {
     const { ProviderSegment } = await import('./StatusBar')
 
     const limits: ProviderRateLimits = {
@@ -83,9 +81,32 @@ describe('ProviderSegment monthly window', () => {
       <ProviderSegment p={limits} compact={false} display="used" />
     )
 
-    expect(markup).toContain('10% used 5h')
-    expect(markup).toContain('20% used wk')
-    expect(markup).not.toContain('30d')
+    expect(markup).toContain('30% used 30d')
+    expect(markup).not.toContain('10% used')
+    expect(markup).not.toContain('20% used')
+  })
+
+  it('selects a named bucket as the tightest provider window', async () => {
+    const { ProviderSegment } = await import('./StatusBar')
+    const limits: ProviderRateLimits = {
+      provider: 'gemini',
+      session: null,
+      weekly: null,
+      buckets: [
+        { ...windowOf(25, 300), name: 'Flash' },
+        { ...windowOf(80, 300), name: 'Pro' }
+      ],
+      updatedAt: Date.now(),
+      error: null,
+      status: 'ok'
+    }
+
+    const markup = renderToStaticMarkup(
+      <ProviderSegment p={limits} compact={false} display="used" />
+    )
+
+    expect(markup).toContain('80% used Pro')
+    expect(markup).not.toContain('25% used')
   })
 
   // Why: #8378 — status-bar chip showed fixed window size ("5h") while the
@@ -111,7 +132,8 @@ describe('ProviderSegment monthly window', () => {
 
       expect(markup).toContain('42% used 2h 33m')
       expect(markup).not.toContain('5h')
-      expect(markup).toContain('10% used 6d')
+      // The consolidated footer intentionally renders only the tightest window.
+      expect(markup).not.toContain('10% used')
       expect(markup).not.toContain('wk')
     } finally {
       dateNow.mockRestore()
