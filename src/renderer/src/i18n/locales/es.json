@@ -13301,6 +13301,7 @@
         "hint": "Intro para enviar · Mayús+Intro para una nueva línea",
         "send": "Enviar al terminal",
         "loadingFiles": "Cargando archivos…",
+        "files": "Archivos",
         "noFiles": "No hay archivos coincidentes",
         "toggle": "Alternar entrada enriquecida del terminal",
         "imagePasteFailed": "No se pudo pegar la imagen.",

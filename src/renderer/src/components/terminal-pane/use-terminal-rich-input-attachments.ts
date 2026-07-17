@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import {
@@ -32,15 +32,24 @@ export function useTerminalRichInputAttachments({
   attachmentPending: boolean
   notice: string | null
   appendImagePaths: (paths: string[], previewSrc?: string) => void
-  clearAttachments: () => void
   handlePaste: (event: ClipboardEventLike) => boolean
+  removeAttachments: (ids: readonly string[]) => void
   pasteImageFromClipboard: (confirmedImage?: boolean) => void
   removeAttachment: (id: string) => void
 } {
-  const [attachments, setAttachments] = useState<TerminalRichInputImageAttachment[]>(() =>
-    readTerminalRichInputAttachments(scopeKey)
+  const initialAttachments = useMemo(() => readTerminalRichInputAttachments(scopeKey), [scopeKey])
+  const [attachmentState, setAttachmentState] = useState(() => ({
+    scopeKey,
+    attachments: initialAttachments
+  }))
+  const attachments =
+    attachmentState.scopeKey === scopeKey ? attachmentState.attachments : initialAttachments
+  const [noticeState, setNoticeState] = useState({ scopeKey, notice: null as string | null })
+  const notice = noticeState.scopeKey === scopeKey ? noticeState.notice : null
+  const setNotice = useCallback(
+    (next: string | null) => setNoticeState({ scopeKey, notice: next }),
+    [scopeKey]
   )
-  const [notice, setNotice] = useState<string | null>(null)
   const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [attachmentPending, setAttachmentPending] = useState(false)
   const attachmentCounter = useRef(0)
@@ -51,10 +60,14 @@ export function useTerminalRichInputAttachments({
     (
       update: (previous: TerminalRichInputImageAttachment[]) => TerminalRichInputImageAttachment[]
     ) => {
-      setAttachments((previous) => {
-        const next = update(previous)
-        writeTerminalRichInputAttachments(scopeKey, next)
-        return next
+      setAttachmentState((previous) => {
+        const previousAttachments =
+          previous.scopeKey === scopeKey
+            ? previous.attachments
+            : readTerminalRichInputAttachments(scopeKey)
+        const attachments = update(previousAttachments)
+        writeTerminalRichInputAttachments(scopeKey, attachments)
+        return { scopeKey, attachments }
       })
     },
     [scopeKey]
@@ -80,7 +93,7 @@ export function useTerminalRichInputAttachments({
       setNotice(null)
       requestAnimationFrame(focusEditor)
     },
-    [focusEditor, updateAttachments]
+    [focusEditor, setNotice, updateAttachments]
   )
 
   const pasteImageFromClipboard = useCallback(
@@ -131,7 +144,7 @@ export function useTerminalRichInputAttachments({
           setAttachmentPending(false)
         })
     },
-    [appendImagePaths, connectionId, enabled, runtimeEnvironmentId]
+    [appendImagePaths, connectionId, enabled, runtimeEnvironmentId, setNotice]
   )
 
   const handlePaste = useCallback(
@@ -158,9 +171,14 @@ export function useTerminalRichInputAttachments({
     attachmentPending,
     notice,
     appendImagePaths,
-    clearAttachments: () => updateAttachments(() => []),
     handlePaste,
     pasteImageFromClipboard,
+    removeAttachments: (ids) => {
+      const removedIds = new Set(ids)
+      updateAttachments((previous) =>
+        previous.filter((attachment) => !removedIds.has(attachment.id))
+      )
+    },
     removeAttachment: (id) =>
       updateAttachments((previous) => previous.filter((attachment) => attachment.id !== id))
   }

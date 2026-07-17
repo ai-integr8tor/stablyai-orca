@@ -13301,6 +13301,7 @@
         "hint": "Enter로 보내기 · Shift+Enter로 줄 바꿈",
         "send": "터미널로 보내기",
         "loadingFiles": "파일 불러오는 중…",
+        "files": "파일",
         "noFiles": "일치하는 파일 없음",
         "toggle": "리치 터미널 입력 전환",
         "imagePasteFailed": "이미지 붙여넣기에 실패했습니다.",

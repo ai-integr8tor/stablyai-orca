@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, Loader2 } from 'lucide-react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 import { useRuntimeFileListForWorktree } from '@/components/quick-open-file-list'
@@ -29,6 +26,7 @@ import { TerminalRichInputFileMention } from './TerminalRichInputFileMention'
 import { TerminalRichInputFileMenu } from './TerminalRichInputFileMenu'
 import { TerminalRichInputAttachments } from './TerminalRichInputAttachments'
 import { TerminalRichInputSlashMenu } from './TerminalRichInputSlashMenu'
+import { TerminalRichInputSendButton } from './TerminalRichInputSendButton'
 import { TerminalRichInputStatus, type TerminalRichInputSendError } from './TerminalRichInputStatus'
 import {
   findTerminalRichInputMentionQuery,
@@ -36,6 +34,7 @@ import {
   type TerminalRichInputQuery
 } from './terminal-rich-input-autocomplete'
 import { useTerminalRichInputAnimation } from './use-terminal-rich-input-animation'
+import { useTerminalRichInputAutocompleteAria } from './use-terminal-rich-input-autocomplete-aria'
 import { useTerminalRichInputAttachments } from './use-terminal-rich-input-attachments'
 import { useTerminalRichInputDrop } from './use-terminal-rich-input-drop'
 import { handleTerminalRichInputKeyDown } from './terminal-rich-input-keydown'
@@ -54,7 +53,8 @@ export function TerminalRichInput({
   onSubmit
 }: TerminalRichInputProps): React.JSX.Element {
   const initialDraft = useMemo(() => readTerminalRichInputDraft(scopeKey), [scopeKey])
-  const [draft, setDraftState] = useState(initialDraft)
+  const [draftState, setDraftState] = useState(() => ({ scopeKey, value: initialDraft }))
+  const draft = draftState.scopeKey === scopeKey ? draftState.value : initialDraft
   const [mention, setMention] = useState<TerminalRichInputQuery | null>(null)
   const [slash, setSlash] = useState<TerminalRichInputQuery | null>(null)
   const [activeSuggestion, setActiveSuggestion] = useState(0)
@@ -78,7 +78,7 @@ export function TerminalRichInput({
 
   const setDraft = useCallback(
     (next: string) => {
-      setDraftState(next)
+      setDraftState({ scopeKey, value: next })
       writeTerminalRichInputDraft(scopeKey, next)
     },
     [scopeKey]
@@ -107,10 +107,10 @@ export function TerminalRichInput({
     attachmentPending,
     notice: attachmentNotice,
     appendImagePaths,
-    clearAttachments,
     handlePaste,
     pasteImageFromClipboard,
-    removeAttachment
+    removeAttachment,
+    removeAttachments
   } = useTerminalRichInputAttachments({
     scopeKey,
     connectionId,
@@ -130,6 +130,9 @@ export function TerminalRichInput({
       editorProps: {
         attributes: {
           'aria-label': translate('components.terminal.richInput.label', 'Rich terminal input'),
+          'aria-autocomplete': 'list',
+          'aria-expanded': 'false',
+          role: 'combobox',
           class:
             'terminal-rich-input-editor scrollbar-sleek min-h-12 max-h-40 overflow-y-auto px-2 py-1 text-sm outline-none'
         },
@@ -181,6 +184,18 @@ export function TerminalRichInput({
     [agent, slash?.query]
   )
   slashSuggestionsRef.current = slashSuggestions
+  const {
+    fileMenuId,
+    slashMenuId,
+    activeIndex: activeAutocompleteIndex
+  } = useTerminalRichInputAutocompleteAria({
+    editor,
+    fileMenuOpen: mention !== null,
+    fileSuggestionCount: suggestionPaths.length,
+    slashMenuOpen: slash !== null && slashSuggestions.length > 0,
+    slashSuggestionCount: slashSuggestions.length,
+    activeSuggestion
+  })
 
   const chooseFile = useCallback(
     (filePath: string) => {
@@ -257,6 +272,7 @@ export function TerminalRichInput({
     if (submissionBlocked || !hasSubmissionContent || !editor) {
       return
     }
+    const submittedAttachments = attachments
     setSending(true)
     setSendError(null)
     editor.setEditable(false)
@@ -264,7 +280,7 @@ export function TerminalRichInput({
     try {
       result = await onSubmit(
         draft,
-        attachments.map((attachment) => attachment.path)
+        submittedAttachments.map((attachment) => attachment.path)
       )
     } catch {
       result = { status: 'not-started' }
@@ -273,23 +289,28 @@ export function TerminalRichInput({
     editor.setEditable(true)
     if (result.status !== 'submitted') {
       if (result.status === 'partially-written') {
-        removeWrittenTerminalRichInputContent(result, attachments, editor, removeAttachment)
+        removeWrittenTerminalRichInputContent(
+          result,
+          submittedAttachments,
+          editor,
+          removeAttachment
+        )
       }
       setSendError(result.status)
       editor.commands.focus('end')
       return
     }
     editor.commands.clearContent()
-    clearAttachments()
+    removeAttachments(submittedAttachments.map((attachment) => attachment.id))
     editor.commands.focus('start')
   }, [
     attachments,
-    clearAttachments,
     draft,
     editor,
     hasSubmissionContent,
     onSubmit,
     removeAttachment,
+    removeAttachments,
     submissionBlocked
   ])
   submitRef.current = () => void submit()
@@ -322,17 +343,19 @@ export function TerminalRichInput({
           <div className="relative w-full">
             {mention ? (
               <TerminalRichInputFileMenu
+                id={fileMenuId}
                 loading={fileList.loading}
                 error={fileList.loadError}
                 paths={suggestionPaths}
-                activeIndex={activeSuggestion}
+                activeIndex={activeAutocompleteIndex}
                 onChoose={chooseFile}
               />
             ) : null}
             {slash ? (
               <TerminalRichInputSlashMenu
+                id={slashMenuId}
                 suggestions={slashSuggestions}
-                activeIndex={activeSuggestion}
+                activeIndex={activeAutocompleteIndex}
                 onChoose={(command) => chooseSlash(command, false)}
               />
             ) : null}
@@ -372,32 +395,11 @@ export function TerminalRichInput({
               </div>
               <div className="flex items-center gap-2 px-1 pt-0.5">
                 <TerminalRichInputStatus error={sendError} />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="ml-auto size-8 rounded-md border border-border text-muted-foreground shadow-none hover:bg-accent hover:text-accent-foreground"
-                      data-terminal-rich-input-send=""
-                      disabled={submissionBlocked || !hasSubmissionContent}
-                      onClick={() => void submit()}
-                      aria-label={translate(
-                        'components.terminal.richInput.send',
-                        'Send to terminal'
-                      )}
-                    >
-                      {sending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <ArrowUp className="size-3.5" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={4}>
-                    {translate('components.terminal.richInput.send', 'Send to terminal')}
-                  </TooltipContent>
-                </Tooltip>
+                <TerminalRichInputSendButton
+                  sending={sending}
+                  disabled={submissionBlocked || !hasSubmissionContent}
+                  onSend={() => void submit()}
+                />
               </div>
             </div>
           </div>

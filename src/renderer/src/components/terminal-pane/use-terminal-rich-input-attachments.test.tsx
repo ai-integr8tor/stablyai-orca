@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react'
+import { act, createElement, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clearTerminalRichInputAttachmentCacheForTests } from './terminal-rich-input-attachment-cache'
@@ -19,7 +19,9 @@ function Probe({ onReady }: { onReady: (api: ProbeApi) => void }): React.JSX.Ele
     focusEditor: () => {},
     enabled: true
   })
-  onReady(api)
+  useEffect(() => {
+    onReady(api)
+  }, [api, onReady])
   return createElement('div')
 }
 
@@ -133,6 +135,20 @@ describe('useTerminalRichInputAttachments', () => {
 
     await act(async () => probe.latest().removeAttachment(probe.latest().attachments[0].id))
     expect(probe.latest().attachments).toEqual([])
+    probe.root.unmount()
+  })
+
+  it('removes only attachments included in a completed submission', async () => {
+    const probe = await renderProbe()
+    await act(async () => probe.latest().appendImagePaths(['/tmp/first.png', '/tmp/second.png']))
+    const submittedIds = probe.latest().attachments.map((attachment) => attachment.id)
+
+    await act(async () => probe.latest().appendImagePaths(['/tmp/added-while-sending.png']))
+    await act(async () => probe.latest().removeAttachments(submittedIds))
+
+    expect(probe.latest().attachments.map((attachment) => attachment.path)).toEqual([
+      '/tmp/added-while-sending.png'
+    ])
     probe.root.unmount()
   })
 })

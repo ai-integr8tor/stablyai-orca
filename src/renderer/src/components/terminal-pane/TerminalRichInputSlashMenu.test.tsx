@@ -21,6 +21,7 @@ describe('TerminalRichInputSlashMenu', () => {
     await act(async () => {
       root.render(
         <TerminalRichInputSlashMenu
+          id="slash-menu"
           suggestions={[{ name: 'clear', description: 'Clear conversation' }]}
           activeIndex={0}
           onChoose={() => {}}
@@ -28,6 +29,9 @@ describe('TerminalRichInputSlashMenu', () => {
       )
     })
     expect(scrollIntoView).toHaveBeenCalledOnce()
+    expect(container.querySelector('[role="listbox"]')?.id).toBe('slash-menu')
+    expect(container.querySelector('[role="option"]')?.id).toBe('slash-menu-option-0')
+    expect(container.querySelector('[role="option"]')?.getAttribute('aria-selected')).toBe('true')
 
     expect(() => {
       act(() => root.unmount())

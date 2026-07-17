@@ -4,6 +4,7 @@ import { translate } from '@/i18n/i18n'
 import { basename } from '@/lib/path'
 import { useLocalImageSrc } from '@/components/editor/useLocalImageSrc'
 import { isNativeChatPastedImagePath } from '@/components/native-chat/native-chat-image-paste'
+import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { IMAGE_FILE_MIME_TYPES } from '../../../../shared/image-file-extensions'
 import type { TerminalRichInputImageAttachment } from './terminal-rich-input-attachment-cache'
@@ -112,17 +113,19 @@ function TerminalRichInputAttachment({
             )}
           </div>
           <span className="max-w-56 truncate font-medium">{label}</span>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onRemove(attachment.id)}
             aria-label={translate(
               'components.terminal.richInput.removeAttachment',
               'Remove attachment'
             )}
-            className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <X className="size-3.5" />
-          </button>
+          </Button>
         </div>
       </HoverCardTrigger>
       {previewOpen ? (

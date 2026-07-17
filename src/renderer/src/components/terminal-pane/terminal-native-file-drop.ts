@@ -35,7 +35,7 @@ export type NativeTerminalFileDropArgs = {
   tabId: string
   cwd: string | undefined
   data: { paths: string[]; target: string; tabId?: string; paneLeafId?: string }
-  onResolvedPaths?: (paths: string[]) => void | Promise<void>
+  onResolvedPaths?: (paths: string[]) => boolean | Promise<boolean>
 }
 
 /**
@@ -150,7 +150,7 @@ type NativeDropFlowArgs = {
   dataPaths: string[]
   dropTarget: ReturnType<typeof captureTerminalDropTarget>
   manager: PaneManager
-  onResolvedPaths?: (paths: string[]) => void | Promise<void>
+  onResolvedPaths?: (paths: string[]) => boolean | Promise<boolean>
   paneTransports: Map<number, PtyTransport>
   pane: ReturnType<typeof resolveNativeTerminalDropPane> & {}
   tabId: string
@@ -270,8 +270,7 @@ async function pasteResolvedDropPaths(
   if (!liveTransport) {
     return
   }
-  if (args.onResolvedPaths) {
-    await args.onResolvedPaths(args.paths)
+  if (args.onResolvedPaths && (await args.onResolvedPaths(args.paths))) {
     return
   }
   const writeResult = await writeTerminalDropPathsToCapturedTarget({

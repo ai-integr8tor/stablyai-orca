@@ -29,7 +29,10 @@ function makePane() {
 }
 
 function makeTransport(ptyId = 'pty-1') {
-  return { getPtyId: vi.fn(() => ptyId) } as unknown as PtyTransport
+  return {
+    getPtyId: vi.fn(() => ptyId),
+    isConnected: vi.fn(() => true)
+  } as unknown as PtyTransport
 }
 
 describe('terminal rich input submit', () => {
@@ -120,6 +123,34 @@ describe('terminal rich input submit', () => {
       imagePathsWritten: 1,
       textWritten: false
     })
+    expect(pane.terminal.input).not.toHaveBeenCalled()
+  })
+
+  it('does not report submission when the transport disconnects during the final delay', async () => {
+    const pane = makePane()
+    const transport = makeTransport()
+    const panes = new Map([[pane.id, transport]])
+    const delay = async () => {
+      vi.mocked(transport.isConnected).mockReturnValue(false)
+    }
+
+    await expect(
+      submitTerminalRichInput({
+        text: 'hello',
+        tabId: 'tab-1',
+        worktreeId: 'worktree-1',
+        pane,
+        transport,
+        getManager: () => ({ getPanes: () => [pane] }) as unknown as PaneManager,
+        getPaneTransports: () => panes,
+        delay
+      })
+    ).resolves.toEqual({
+      status: 'partially-written',
+      imagePathsWritten: 0,
+      textWritten: true
+    })
+
     expect(pane.terminal.input).not.toHaveBeenCalled()
   })
 

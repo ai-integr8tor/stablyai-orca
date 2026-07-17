@@ -87,7 +87,12 @@ export async function submitTerminalRichInput({
     ?.getPanes()
     .find((candidate) => candidate.leafId === pane.leafId)
   const currentTransport = currentPane ? getPaneTransports().get(currentPane.id) : undefined
-  if (!currentPane || currentTransport !== transport || currentTransport.getPtyId() !== ptyId) {
+  if (
+    !currentPane ||
+    currentTransport !== transport ||
+    !currentTransport.isConnected() ||
+    currentTransport.getPtyId() !== ptyId
+  ) {
     return interruptedResult()
   }
   currentPane.terminal.input('\r')

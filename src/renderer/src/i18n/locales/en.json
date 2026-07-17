@@ -13305,6 +13305,7 @@
         "hint": "Enter to send · Shift+Enter for newline",
         "send": "Send to terminal",
         "loadingFiles": "Loading files…",
+        "files": "Files",
         "noFiles": "No matching files",
         "toggle": "Toggle rich terminal input",
         "imagePasteFailed": "Image paste failed.",

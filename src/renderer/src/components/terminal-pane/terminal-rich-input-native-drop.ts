@@ -11,7 +11,7 @@ export type TerminalRichInputNativeDropDetail =
 
 export type TerminalRichInputDropPathReceiver = {
   begin: (sourcePaths: string[]) => void
-  receive: (paths: string[]) => void
+  receive: (paths: string[]) => boolean
   end: () => void
 }
 
@@ -40,8 +40,13 @@ export function getTerminalRichInputDropPathReceiver(
         phase: 'start',
         imagePending: sourcePaths.some(isImageDropPath)
       }),
-    receive: (paths) =>
-      dispatchTerminalRichInputNativeDrop(pane.container, { phase: 'resolved', paths }),
+    receive: (paths) => {
+      if (pane.container.dataset.terminalRichInputOpen === undefined) {
+        return false
+      }
+      dispatchTerminalRichInputNativeDrop(pane.container, { phase: 'resolved', paths })
+      return true
+    },
     end: () => dispatchTerminalRichInputNativeDrop(pane.container, { phase: 'end' })
   }
 }

@@ -13301,6 +13301,7 @@
         "hint": "Enter 发送 · Shift+Enter 换行",
         "send": "发送到终端",
         "loadingFiles": "正在加载文件…",
+        "files": "文件",
         "noFiles": "没有匹配的文件",
         "toggle": "切换增强型终端输入",
         "imagePasteFailed": "图片粘贴失败。",
