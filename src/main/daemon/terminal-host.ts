@@ -142,6 +142,9 @@ export class TerminalHost {
       rows: size.rows,
       terminalHandle: opts.env?.ORCA_TERMINAL_HANDLE,
       launchAgent: opts.launchAgent,
+      // Why: token association is a precondition of the spawn, persisted on the
+      // record at creation so a surviving session self-identifies after a crash.
+      ...(opts.launchToken ? { launchToken: opts.launchToken } : {}),
       subprocess,
       shellReadySupported,
       historySeed: opts.historySeed,
@@ -349,6 +352,9 @@ export class TerminalHost {
         shellState: session.shellState,
         isAlive: true,
         ...(session.terminalHandle ? { terminalHandle: session.terminalHandle } : {}),
+        // Echoed so crash reconciliation can rejoin a daemon-surviving terminal
+        // to its pending launch by token instead of false-settling spawn_failed.
+        ...(session.launchToken ? { launchToken: session.launchToken } : {}),
         pid: session.pid,
         cwd: session.getCwd(),
         cols: size?.cols ?? 0,

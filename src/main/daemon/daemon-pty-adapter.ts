@@ -258,6 +258,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
         command: opts.command,
         startupCommandDelivery: opts.startupCommandDelivery,
         launchAgent: opts.launchAgent,
+        ...(opts.launchToken ? { launchToken: opts.launchToken } : {}),
         // Why: without this, the daemon always spawns cmd.exe (COMSPEC) or
         // PowerShell as a fallback — regardless of which shell the renderer
         // asked for in the "+" menu or persisted as the default. Forwarding
@@ -786,7 +787,10 @@ export class DaemonPtyAdapter implements IPtyProvider {
         // still authoritative ownership until the daemon reports a live cwd.
         cwd: s.cwd ?? this.initialCwds.get(s.sessionId) ?? '',
         title: 'shell',
-        ...(s.terminalHandle ? { terminalHandle: s.terminalHandle } : {})
+        ...(s.terminalHandle ? { terminalHandle: s.terminalHandle } : {}),
+        // Crash reconcile matches pending launches by re-listed token; dropping
+        // it here would false-settle spawn_failed for live daemon PTYs.
+        ...(s.launchToken ? { launchToken: s.launchToken } : {})
       }))
   }
 

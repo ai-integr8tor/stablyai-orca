@@ -2622,7 +2622,8 @@
                   "c00421d320": "포크 컨텍스트가 복사되었습니다. agent를 실행하고 붙여넣어 포크를 시작합니다.",
                   "f62b40e2c7": "복사할 터미널 컨텍스트가 없습니다",
                   "373a3103e7": "컨텍스트가 복사되었습니다",
-                  "3fc568a49d": "컨텍스트 복사 실패"
+                  "3fc568a49d": "컨텍스트 복사 실패",
+                  "customForkUnavailable": "사용자 지정 에이전트에서는 아직 포크를 사용할 수 없습니다"
                 }
               }
             },
@@ -5002,7 +5003,9 @@
           "3f1bdf3cb4": "환경 텍스트가 너무 커서 안전하게 파싱할 수 없습니다.",
           "codexSessionSource": "가져올 Codex 홈",
           "codexSessionSourceInfo": "Codex 기록 가져오기 정보",
-          "codexSessionSourceTooltip": "Orca는 격리된 홈에서 Codex를 실행합니다. 기존 Codex 홈을 지정하여 세션 기록을 가져옵니다. 비워두면 ~/.codex를 사용합니다."
+          "codexSessionSourceTooltip": "Orca는 격리된 홈에서 Codex를 실행합니다. 기존 Codex 홈을 지정하여 세션 기록을 가져옵니다. 비워두면 ~/.codex를 사용합니다.",
+          "agentsReadOnlyTitle": "Agent 설정은 데스크톱에서 관리됩니다",
+          "agentsReadOnlyDescription": "페어링된 클라이언트입니다. agents를 추가, 편집, 삭제하거나 기본값을 변경하려면 Orca 데스크톱 앱을 사용하세요."
         },
         "AppIconSelector": {
           "d5a112dc9b": "다음 아이콘",
@@ -9160,6 +9163,235 @@
           "availability": "이용 가능:",
           "testFlight": "TestFlight",
           "androidApk": "Android APK"
+        },
+        "AgentCatalogList": {
+          "searchPlaceholder": "이름, 하니스 또는 명령으로 에이전트 검색…",
+          "searchLabel": "에이전트 검색",
+          "noMatch": "검색과 일치하는 에이전트가 없습니다.",
+          "listLabel": "에이전트"
+        },
+        "AgentCatalogManager": {
+          "title": "에이전트",
+          "refreshing": "새로 고치는 중…",
+          "refresh": "새로 고침",
+          "newAgent": "새 에이전트",
+          "zeroCustomHelper": "내장 에이전트를 복제하거나 사용자 지정 에이전트를 만들어 대체 인수와 환경을 저장하세요."
+        },
+        "AgentCatalogRowView": {
+          "enableSwitch": "{{agent}} 활성화",
+          "repairFallbackLabel": "사용자 지정 에이전트",
+          "repairHint": "실행하려면 먼저 이 정의를 복구해야 합니다.",
+          "repair": "복구",
+          "deleted": "삭제됨",
+          "deletedUsedBy": "삭제됨 — 여전히 {{items}}개 항목에서 사용 중",
+          "reviewReferences": "참조 검토"
+        },
+        "AgentCatalogSection": {
+          "loading": "에이전트를 불러오는 중…",
+          "stagedRepair": "에이전트 복구 기능은 아직 사용할 수 없습니다.",
+          "defaultTitle": "기본 에이전트",
+          "nullDefaultAttention": "기본 에이전트를 선택하세요. 선택하기 전에는 대화형 실행을 시작할 수 없으며 에이전트 선택을 요청받습니다.",
+          "migrationBlockedTitle": "에이전트 설정이 일시적으로 읽기 전용입니다",
+          "migrationBlockedDescription": "Orca가 기존 에이전트 설정을 업데이트하기 전에 백업할 수 없었기 때문에 데이터를 보호하기 위해 변경이 차단되었습니다. 아래 문제를 해결한 후 다시 시도하세요."
+        },
+        "AgentCatalogStatusBadge": {
+          "enabled": "활성화됨",
+          "disabled": "비활성화됨",
+          "baseDisabled": "기본 비활성화됨",
+          "notInstalled": "설치되지 않음",
+          "customExecutable": "사용자 지정 실행 파일",
+          "customPath": "사용자 지정 PATH",
+          "repairRequired": "복구 필요"
+        },
+        "AgentDefaultCombobox": {
+          "searchPlaceholder": "에이전트 검색...",
+          "noMatch": "검색과 일치하는 에이전트가 없습니다.",
+          "auto": "자동",
+          "blank": "빈 터미널",
+          "autoHint": "자동 모드는 사용자 지정 에이전트를 선택하지 않습니다.",
+          "staleWarning": "이 기본값을 사용할 수 없습니다. 다른 에이전트를 선택할 때까지 대화형 실행은 표준 기본 에이전트 명령을 사용합니다.",
+          "unsetPlaceholder": "기본 에이전트 선택",
+          "listLabel": "기본 에이전트 옵션",
+          "repairFallbackLabel": "Custom agent"
+        },
+        "BuiltInLaunchSettingsDialog": {
+          "reset": "재설정",
+          "fieldLabelCommand": "명령",
+          "argsPlaceholder": "기본 인수 없음",
+          "title": "실행 설정 편집",
+          "description": "{{harness}} 에이전트의 실행 명령, 인수, 환경을 설정하세요. 필드를 비우면 기본값으로 복원됩니다."
+        },
+        "BuiltInDisableDialog": {
+          "title": "{{base}}을(를) 비활성화하시겠습니까?",
+          "consequences": "{{base}}에서의 모든 새 실행(사용자 지정 에이전트 포함)은 다시 활성화할 때까지 차단되며, 그 위의 스냅샷 재개도 차단됩니다.",
+          "derivatives": "이를 기반으로 하는 활성화된 사용자 지정 에이전트 {{count}}개",
+          "references": "저장된 항목 {{count}}개에서 사용 중(사용자 지정 에이전트 포함)",
+          "referencesAtLeast": "저장된 항목 최소 {{count}}개에서 사용 중(사용자 지정 에이전트 포함)",
+          "sessions": "재개 가능한 세션 {{count}}개",
+          "sessionsAtLeast": "재개 가능한 세션 최소 {{count}}개",
+          "conflict": "이 창이 열려 있는 동안 설정이 변경되었습니다. 위 개수가 새로고침되었습니다. 비활성화하려면 다시 확인하세요.",
+          "error": "이 에이전트를 비활성화할 수 없습니다. 설정을 다시 열고 다시 시도하세요.",
+          "confirm": "에이전트 비활성화"
+        },
+        "CustomAgentEditorDialog": {
+          "fieldLabelArguments": "인수",
+          "cancel": "취소",
+          "saving": "저장 중…",
+          "save": "저장",
+          "argsPlaceholder": "--model gpt-5\n--flag value",
+          "argsTokenCount": "인수 {{count}}개",
+          "baseChoosePlaceholder": "기본 에이전트 선택",
+          "baseSearchPlaceholder": "기본 에이전트 검색...",
+          "baseNoMatch": "검색과 일치하는 기본 에이전트가 없습니다.",
+          "duplicateNote": "이 작업은 원본 에이전트의 구성을 새 에이전트로 복사합니다. 복사본에서는 페어링된 실행의 환경 공유가 꺼집니다.",
+          "syncEnvLabel": "페어링된 기기의 실행에서 이 환경 값을 사용하도록 허용",
+          "syncEnvDescription": "Orca는 이 값을 설정으로 페어링된 기기에 보내지 않습니다. 실행된 프로세스는 터미널에서 이 값에 접근하고 표시할 수 있습니다.",
+          "pairedVisibilityWarning": "에이전트 이름, 실행 파일, 인수는 페어링된 기기에 표시됩니다. 여기에 비밀 정보를 넣지 마세요.",
+          "titleNew": "새 사용자 지정 에이전트",
+          "titleEdit": "사용자 지정 에이전트 편집",
+          "titleDuplicate": "에이전트 복제",
+          "descriptionDuplicate": "새 이름으로 복사본을 만듭니다.",
+          "descriptionCreateEdit": "{{harness}} 에이전트에 대한 대체 인수와 환경을 저장하세요.",
+          "fieldLabelEnv": "환경 변수",
+          "envSizeMeter": "{{max}}바이트 중 {{bytes}}바이트",
+          "envPrecedenceHint": "여기서 설정한 변수는 기본 에이전트의 기본 환경보다 우선합니다.",
+          "envManagedAccountHint": "여기서 지정한 명시적 공급자 인증 또는 홈 디렉터리 값(CODEX_HOME 포함)은 이 에이전트의 실행에 대해 선택된 관리형 계정보다 우선합니다. Orca는 기본 에이전트에 필요한 컴패니언 및 훅 상태를 계속 설정합니다.",
+          "envAdd": "변수 추가",
+          "envAtCap": "변수는 최대 64개, 총 16KiB까지 추가할 수 있습니다.",
+          "envKeyPlaceholder": "이름",
+          "envKeyAriaLabel": "변수 이름",
+          "envValuePlaceholder": "값",
+          "envValueAriaLabel": "변수 값",
+          "envHide": "값 숨기기",
+          "envReveal": "값 표시",
+          "envRemove": "변수 제거",
+          "errorSummaryHeading": "저장하기 전에 다음을 수정하세요:",
+          "fieldLabelName": "이름",
+          "fieldLabelBase": "기본 에이전트",
+          "baseImmutable": "기본 에이전트는 생성 후 변경할 수 없습니다. 다른 에이전트를 사용하려면 새 에이전트를 만드세요.",
+          "baseReadOnlyLabel": "기본 에이전트(읽기 전용)",
+          "fieldLabelExecutable": "실행 파일",
+          "executableHelp": "하나의 실행 파일에 대한 선택적 경로입니다. 명령 목록과 파이프라인은 빠른 명령어에 설정하세요.",
+          "executablePlaceholder": "/usr/local/bin/my-agent",
+          "labelEmpty": "이 에이전트의 이름을 입력하세요.",
+          "labelBounds": "80자 이하로 입력하세요.",
+          "commandEmpty": "올바른 실행 파일 경로를 입력하거나 비워 두세요.",
+          "commandBounds": "4096자 이하로 입력하세요.",
+          "commandControlChar": "실행 파일 경로에서 제어 문자를 제거하세요.",
+          "commandQuote": "실행 파일 경로의 따옴표 짝을 맞추세요.",
+          "commandShellOperator": "셸 명령처럼 보입니다. 명령 목록이나 파이프라인은 빠른 명령어에 넣으세요.",
+          "argsBounds": "8192자 이하로 입력하세요.",
+          "argsControlChar": "지원되지 않는 제어 문자를 제거하세요.",
+          "argsQuote": "인수의 따옴표 짝을 맞추세요.",
+          "argsQuotedLineBreak": "따옴표로 묶인 인수는 여러 줄에 걸칠 수 없습니다.",
+          "envBounds": "이 변수를 이름 및 값 제한과 비교해 확인하세요.",
+          "envReserved": "ORCA_로 시작하는 이름은 예약되어 있습니다.",
+          "envPrototype": "이 변수 이름은 사용할 수 없습니다.",
+          "envCaseCollision": "다른 변수가 이미 이 이름을 사용하고 있습니다.",
+          "envControlChar": "값에는 줄바꿈이나 널 문자를 포함할 수 없습니다.",
+          "envTotalBounds": "환경 변수가 16KiB 제한을 초과합니다.",
+          "invalidValue": "이 값은 유효하지 않습니다.",
+          "labelReservedBuiltIn": "해당 이름은 내장 {{harness}} 에이전트용으로 예약되어 있습니다.",
+          "labelInUse": "해당 이름은 이미 사용 중입니다. 다른 이름을 선택하세요.",
+          "revisionConflict": "편집하는 동안 이 설정이 변경되었습니다. 변경 사항을 검토한 후 다시 시도하세요.",
+          "payloadTooLarge": "이 구성은 너무 커서 저장할 수 없습니다. 인수나 환경 변수를 일부 제거하세요.",
+          "reloadAndRetry": "설정을 다시 불러온 후 다시 시도하세요.",
+          "editorTooLarge": "이 에이전트는 구성이 너무 많아 여기서 편집할 수 없습니다. 데스크톱 호스트에서 줄이세요.",
+          "titleRepairReplace": "손상된 에이전트 교체",
+          "descriptionRepairEdit": "이 {{harness}} 에이전트를 다시 실행할 수 있도록 아래의 잘못된 값을 수정하세요.",
+          "descriptionRepairReplace": "손상된 에이전트를 대체할 새 에이전트를 저장하세요. 저장된 참조는 새 에이전트에 다시 연결되지 않습니다."
+        },
+        "CustomAgentDeleteDialog": {
+          "defaultBaseLabel": "기본값을 {{base}}(으)로 설정",
+          "defaultBaseDescription": "{{base}} 자체의 명령, 인수, 환경을 사용합니다.",
+          "defaultAutoLabel": "기본값을 자동으로 설정",
+          "defaultAutoDescription": "Orca가 실행 시 설치된 에이전트를 선택합니다.",
+          "defaultKeepLabel": "표준 {{base}}로의 대체 유지",
+          "defaultKeepDescription": "사용자 지정 설정 없이 일반 {{base}} 명령을 실행합니다.",
+          "defaultClearLabel": "기본값 지우기",
+          "defaultClearDescription": "설정에서 하나를 선택하도록 요청합니다.",
+          "defaultChoiceLabel": "기본 에이전트를 무엇으로 설정할까요?",
+          "recommendedBadge": "권장",
+          "error": "이 에이전트를 삭제할 수 없습니다. 설정을 다시 열고 다시 시도하세요.",
+          "title": "{{label}}을(를) 삭제하시겠습니까?",
+          "permanent": "이 작업은 되돌릴 수 없습니다. 사용자 지정 실행 설정이 영구적으로 사라집니다.",
+          "consequenceRunning": "열려 있는 터미널은 계속 실행됩니다.",
+          "consequenceAttended": "새 대화형 실행은 표준 {{base}}를 사용하고 알림을 표시합니다.",
+          "consequenceUnattended": "다시 할당될 때까지 자동화 및 백그라운드 실행이 실패합니다.",
+          "consequencePreserved": "재개, 작업 트리, 기록, 공급자 세션은 그대로 유지됩니다.",
+          "usedByAtLeast": "저장된 항목 최소 {{count}}개에서 사용 중",
+          "usedBy": "저장된 항목 {{count}}개에서 사용 중",
+          "reviewReferences": "참조 검토",
+          "defaultHeading": "이 에이전트가 현재 기본값입니다",
+          "availabilityNote": "가용성은 실행 시 확인되므로, 재할당된 항목이 설치되어 있다는 보장은 없습니다.",
+          "confirm": "에이전트 삭제"
+        },
+        "CustomAgentReferenceDialog": {
+          "title": "{{label}}에 대한 참조",
+          "deletedIntro": "이 에이전트는 삭제되었지만, 저장된 이 항목들은 여전히 이름으로 이를 참조하고 있습니다. 모든 참조가 해제될 때까지 이름은 예약된 상태로 유지됩니다. 삭제를 취소할 방법은 없습니다. 인수와 환경은 이미 사라졌습니다.",
+          "liveIntro": "저장된 이 항목들은 이 에이전트를 참조합니다. 삭제하기 전에 사용 위치를 검토하세요.",
+          "ownerDefault": "기본 에이전트",
+          "ownerQuickCommand": "빠른 명령어",
+          "ownerCommitMessage": "Commit 메시지",
+          "ownerSourceControl": "소스 제어 작업",
+          "ownerAutomation": "자동화",
+          "ownerSession": "터미널 세션",
+          "ownerBackground": "백그라운드 실행",
+          "ownerOrchestration": "오케스트레이션 실행",
+          "ownerWorkspace": "워크스페이스",
+          "rebindableHeading": "이름을 해제할 수 있음",
+          "removableHeading": "제거 가능한 레코드",
+          "retainedHeading": "아직 해제할 수 없음",
+          "rebindableHint": "각 항목을 열어 다른 에이전트를 선택하면 이름이 해제됩니다.",
+          "removableHint": "이 항목들은 소속된 레코드를 삭제하면 지워집니다.",
+          "retainedHint": "이 항목들은 완료되거나 만료될 때까지 이름을 보유합니다. 그때까지 이름은 예약된 상태로 유지됩니다.",
+          "countUnavailable": "개수를 사용할 수 없음",
+          "loading": "참조를 불러오는 중…",
+          "unavailable": "참조를 불러올 수 없습니다. 설정을 다시 열어 다시 시도하세요.",
+          "empty": "저장된 항목 중 이 에이전트를 참조하는 항목이 없습니다.",
+          "close": "닫기"
+        },
+        "CustomAgentDisableDialog": {
+          "title": "{{label}}을(를) 비활성화하시겠습니까?",
+          "usedBy": "저장된 항목 {{count}}개에서 사용 중입니다.",
+          "usedByAtLeast": "저장된 항목 최소 {{count}}개에서 사용 중입니다.",
+          "consequenceAttended": "새 대화형 실행은 표준 기본 에이전트를 사용하고 알림을 표시합니다.",
+          "consequenceUnattended": "다시 할당될 때까지 자동화, 백그라운드, 오케스트레이션이 실패합니다.",
+          "consequenceResumes": "세션 재개는 계속 작동합니다.",
+          "consequenceReversible": "언제든지 다시 활성화할 수 있습니다.",
+          "conflict": "이 창이 열려 있는 동안 설정이 변경되었습니다. 위 개수가 새로고침되었습니다. 비활성화하려면 다시 확인하세요.",
+          "error": "이 에이전트를 비활성화할 수 없습니다. 설정을 다시 열고 다시 시도하세요.",
+          "confirm": "에이전트 비활성화"
+        },
+        "CustomAgentRowActions": {
+          "trigger": "{{agent}}에 대한 작업",
+          "editBuiltIn": "실행 설정 편집",
+          "edit": "편집",
+          "duplicate": "복제",
+          "delete": "삭제"
+        },
+        "CustomAgentRepairDialog": {
+          "fallbackLabel": "이 사용자 지정 에이전트",
+          "discardError": "이 행을 삭제할 수 없습니다. 설정을 다시 열고 다시 시도하세요.",
+          "title": "{{label}} 복구",
+          "description": "이 정의가 손상되어 있어 그 자리에서 편집할 수 없습니다. 새 에이전트로 교체하거나 삭제하세요.",
+          "referencesNote": "저장된 참조는 계속 이전 에이전트를 가리킵니다. 교체 대상에 다시 연결되지 않습니다. 두 작업 모두 되돌릴 수 없습니다.",
+          "replaceAsNew": "새 에이전트로 교체",
+          "discard": "손상된 행 삭제"
+        },
+        "CustomAgentDuplicateRepairDialog": {
+          "mutationError": "이 에이전트를 해결할 수 없습니다. 설정을 다시 열고 다시 시도하세요.",
+          "title": "중복된 에이전트 해결",
+          "description": "이 에이전트들은 하나의 저장된 ID를 공유합니다. 기존 참조를 위해 유지할 하나를 선택하고 나머지는 교체하거나 삭제하세요. 이 작업은 한 번에 모두 적용됩니다.",
+          "referencesNote": "교체된 에이전트는 새 ID를 받습니다. 삭제된 에이전트는 제거됩니다. 저장된 참조는 유지한 에이전트에 대해서만 계속 작동합니다.",
+          "confirm": "에이전트 해결",
+          "fallbackLabel": "사용자 지정 에이전트",
+          "keep": "기존 참조를 위해 유지",
+          "replace": "새로 교체",
+          "discard": "삭제",
+          "tooLargeNote": "이 행은 너무 커서 여기서 유지하거나 교체할 수 없습니다. 삭제하거나 데스크톱 호스트에서 줄이세요.",
+          "draftUnavailableError": "이 에이전트 중 하나가 너무 커서 여기서 유지하거나 교체할 수 없습니다. 삭제하거나 데스크톱 호스트에서 줄이세요.",
+          "incompleteError": "모든 에이전트에 대해 작업을 선택하세요. 최대 하나만 유지할 수 있습니다."
         }
       },
       "right": {
@@ -9651,7 +9883,8 @@
             "c075d00de1": "워크스페이스 연결을 확인할 수 없습니다.",
             "808cfe0a3b": "이 repos",
             "994cddd1f7": "저장하지 않음",
-            "38b899cc02": "모든 리포지토리"
+            "38b899cc02": "모든 리포지토리",
+            "saveBeforeStartFailed": "Could not save the agent settings, so the agent was not started."
           },
           "SourceControlAgentActionDialogForm": {
             "1bc0bdbb5e": "실행:",
@@ -10084,7 +10317,8 @@
             "worktreeUnavailable": "워크트리는 더 이상 사용할 수 없습니다.",
             "openSupportedWorkspace": "Open a workspace before resuming a session.",
             "localSessionSshWorkspaceUnsupported": "이 세션의 기록은 이 컴퓨터에 저장되어 있어 SSH 워크스페이스에서는 재개할 수 없습니다. 대신 로컬 워크스페이스를 여세요.",
-            "sessionHostMismatchUnsupported": "이 세션은 다른 호스트에 속합니다. 재개하려면 같은 호스트의 워크스페이스를 여세요."
+            "sessionHostMismatchUnsupported": "이 세션은 다른 호스트에 속합니다. 재개하려면 같은 호스트의 워크스페이스를 여세요.",
+            "resumeSessionUnavailable": "이 세션은 더 이상 재개할 수 없습니다."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "세션 스캔 중",
@@ -10173,7 +10407,9 @@
             "recoverableEmptyOpenLogHint": "로그를 열어 복구하세요.",
             "emptyConversationDetail": "이 세션에는 저장된 대화가 없어 재개할 수 없습니다.",
             "queuedMessages": "대기 중인 메시지 {{value0}}개",
-            "subagentTranscripts": "서브에이전트 대화 기록 {{value0}}개"
+            "subagentTranscripts": "서브에이전트 대화 기록 {{value0}}개",
+            "resumeArguments": "재개 인수",
+            "loadingResumeArguments": "재개 인수를 불러오는 중…"
           },
           "AiVaultSessionRow": {
             "resumeAgentSession": "{{value0}} 세션 재개",
@@ -12701,7 +12937,10 @@
           "579c768bde": "검색어와 일치하는 agents가 없습니다.",
           "48c6a5a9b4": "agents 검색...",
           "9c6b59fe58": "기본값으로 설정",
-          "1b0d6965fa": "현재 기본값"
+          "1b0d6965fa": "현재 기본값",
+          "listLabel": "에이전트",
+          "unavailableAgent": "사용할 수 없는 에이전트",
+          "staleWarning": "이 에이전트를 사용할 수 없습니다. 다른 에이전트를 선택하세요. 그렇지 않으면 실행 시 빈 터미널을 사용합니다."
         },
         "AgentSettingsDialog": {
           "50cdb57c03": "AI agents를 관리하고, 기본값을 설정하고, 명령을 사용자 정의하세요.",
@@ -13149,6 +13388,29 @@
           "undo": "실행 취소",
           "widthOption": "{{value0}} px"
         }
+      },
+      "AgentLaunchNotices": {
+        "disabledFallback": "{{value0}}이(가) 비활성화되어 있습니다. 사용자 지정 실행 파일, 사용자 지정 인수 또는 사용자 지정 에이전트 환경 없이 기본 {{value1}}을(를) 시작했습니다.",
+        "missingFallback": "{{value0}}이(가) 삭제되었습니다. 사용자 지정 실행 파일, 사용자 지정 인수 또는 사용자 지정 에이전트 환경 없이 기본 {{value1}}을(를) 시작했습니다.",
+        "envWithheld": "이 실행은 {{value0}}의 모든 환경 값을 사용하지 않았습니다. 페어링된 실행 환경은 데스크톱 호스트에서 관리하세요.",
+        "snapshotChanged": "이 세션이 시작될 때 캡처된 설정으로 다시 시작했습니다.",
+        "vaultOriginalConfigUnavailable": "원래 실행 설정을 사용할 수 없습니다. 현재 {{value0}} 설정으로 다시 시작했습니다.",
+        "dismiss": "닫기"
+      },
+      "AgentLaunchRecoveryCard": {
+        "title": "이 워크스페이스의 에이전트를 시작하지 못했습니다.",
+        "retry": "다시 시도",
+        "retryCurrentSettings": "현재 설정으로 다시 시도",
+        "launchCurrentSettings": "현재 설정으로 시작",
+        "chooseAgent": "에이전트 선택",
+        "editAgentSettings": "에이전트 설정 편집",
+        "repairOnHost": "데스크톱 호스트에서 복구",
+        "reconnectSecurely": "안전하게 다시 연결",
+        "reconnect": "다시 연결",
+        "recoverCapacity": "실행 용량 복구…",
+        "openTerminal": "터미널 열기",
+        "forgetLaunch": "실행 지우기…",
+        "manageAgents": "에이전트 관리"
       }
     },
     "i18n": {
@@ -13306,6 +13568,81 @@
       "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
       "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
       "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
+    }
+  },
+  "agentLaunch": {
+    "failure": {
+      "unknownAgent": "해당 에이전트가 더 이상 존재하지 않습니다. 다른 에이전트를 선택한 후 다시 시도하세요.",
+      "noAgentSelected": "실행하기 전에 에이전트를 선택하세요.",
+      "needsRepair": "이 에이전트의 설정이 완료되지 않았습니다. 설정에서 구성을 마친 후 다시 시도하세요.",
+      "customDisabled": "이 에이전트가 꺼져 있습니다. 실행하려면 설정에서 켜세요.",
+      "configurationChangedPostCreate": "이 워크스페이스를 만드는 동안 에이전트 설정이 변경되었습니다. 현재 설정으로 실행하려면 다시 시도하거나 다른 에이전트를 선택하세요.",
+      "configurationChangedPreSpawn": "실행 전에 에이전트 설정이 변경되었습니다. 현재 설정으로 다시 시도하거나 다른 에이전트를 선택하세요.",
+      "baseDisabled": "기본 에이전트가 꺼져 있습니다. 실행하려면 설정에서 켜세요.",
+      "baseUnavailable": "기본 에이전트를 이 호스트에서 사용할 수 없습니다.",
+      "missingVariable": "이 실행의 작업 공간 경로를 확인할 수 없습니다.",
+      "missingTargetHome": "대상 호스트의 홈 디렉터리를 확인할 수 없습니다.",
+      "invalidCommandOverride": "이 에이전트의 명령 재정의가 잘못되었습니다. 설정에서 수정하세요.",
+      "invalidArgs": "이 에이전트의 실행 인수가 잘못되었습니다. 설정에서 수정하세요.",
+      "invalidEnv": "이 에이전트의 실행 환경이 잘못되었습니다. 설정에서 수정하세요.",
+      "secureEnvUnavailable": "이 에이전트의 환경을 원격 호스트에 안전하게 보낼 수 없습니다.",
+      "commandTooLong": "실행 명령이 너무 길어 실행할 수 없습니다. 에이전트 인수나 프롬프트를 줄이세요.",
+      "invalidSnapshot": "이 에이전트의 저장된 실행 정보가 더 이상 유효하지 않습니다.",
+      "trustPreflightFailed": "이 에이전트의 작업 공간 신뢰를 확인할 수 없습니다. 다시 시도하세요.",
+      "spawnFailed": "에이전트를 시작할 수 없습니다. 다시 시도하세요.",
+      "stateUnknown": "실행 상태를 알 수 없습니다. 다시 시도하기 전에 터미널을 확인하세요.",
+      "capacityExceeded": "이 호스트에서 대기 중인 에이전트 실행이 너무 많습니다. 중단된 실행을 다시 연결하거나 삭제한 후 다시 시도하세요."
+    },
+    "unattendedFailure": {
+      "title": {
+        "automation": "자동화의 에이전트를 시작할 수 없습니다.",
+        "orchestration": "작업의 에이전트를 시작할 수 없습니다.",
+        "background": "백그라운드 에이전트를 시작할 수 없습니다.",
+        "generic": "에이전트 실행을 완료하지 못했습니다."
+      },
+      "forgotten": "이 실행을 지웠으므로 다시 실행되지 않습니다.",
+      "rowBadge": {
+        "didNotStart": "시작되지 않음",
+        "forgotten": "지워짐"
+      }
+    },
+    "forgetConfirm": {
+      "title": "이 실행을 지우시겠습니까?",
+      "warning": "Orca가 터미널 호스트에 연결할 수 없습니다. 지운다고 해서 원격 프로세스가 중지되는 것은 아니며, 계속 실행 중일 수 있습니다.",
+      "confirmLabel": "실행 지우기",
+      "failed": "이 실행을 지울 수 없습니다. 다시 시도하세요.",
+      "alsoForgetSibling": "{{host}}의 중단된 다른 실행 1개도 함께 지웁니다.",
+      "alsoForgetSiblings": "{{host}}의 중단된 다른 실행 {{count}}개도 함께 지웁니다."
+    },
+    "requestError": {
+      "idempotencyConflict": "이 실행이 이미 진행 중입니다.",
+      "staleFailure": "이 실행은 이미 처리되었습니다. 새로 고친 후 다시 시도하세요.",
+      "untrustedReference": "이 실행 소스를 확인할 수 없습니다."
+    },
+    "capacity": {
+      "title": "실행 용량 복구",
+      "description": "이 에이전트 실행은 이 호스트에서 아직 대기 중입니다. 워크스페이스를 열어 다시 연결하거나 해결한 후 다시 실행해 보세요.",
+      "loadFailed": "대기 중인 실행을 불러오지 못했습니다. 닫았다가 다시 열어 재시도하세요.",
+      "loading": "대기 중인 실행을 불러오는 중…",
+      "empty": "실행 용량이 현재 비어 있습니다. 이 호스트에 대기 중인 실행이 없습니다.",
+      "action": {
+        "open": "열기",
+        "goToWorkspace": "워크스페이스로 이동",
+        "goToRun": "실행으로 이동"
+      },
+      "source": {
+        "interactive": "워크스페이스",
+        "cli": "CLI",
+        "automation": "자동화",
+        "background": "백그라운드",
+        "orchestration": "오케스트레이션",
+        "resume": "재개"
+      },
+      "liveness": {
+        "live": "실행 중",
+        "absent": "중지됨",
+        "unknown": "접근 불가"
+      }
     }
   }
 }

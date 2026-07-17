@@ -9,55 +9,34 @@
 //   window we cancel and reuse the same client.
 // - removeHost() forces an immediate close so re-pairing gets a fresh
 //   transport.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode
-} from 'react'
+  HostClientContext,
+  useHostClientContext as useRpcClientContext,
+  type HostClientContextValue
+} from './host-client-context-contract'
 import type { RpcClient } from './rpc-client'
 import { connectionLogStore } from './connection-log-buffer'
 import { subscribeConnectionRevivalTriggers } from './connection-revival-triggers'
 import { HostClientOpenRegistry } from './host-client-open-registry'
+import { mountAgentSync, type AgentSyncHandle } from './agent-sync-connection'
 import { loadHosts } from './host-store'
 import { openHostLogicalClient } from './host-logical-client'
 import type { MobileConnectionPath, StableLogicalRpcClient } from './stable-logical-rpc-client'
 import type { ConnectionState, HostProfile } from './types'
+
+export { useRpcClientContext }
+export type RpcClientContextValue = HostClientContextValue
 
 type StoreEntry = {
   client: RpcClient
   state: ConnectionState
   refCount: number
   unsubState: () => void
+  // One agent catalog/reference sync per connection: owns a single client-event
+  // subscription, disposed before the client is replaced or closed.
+  agentSync: AgentSyncHandle
 }
-
-export type RpcClientContextValue = {
-  acquire: (hostId: string, host?: HostProfile) => RpcClient | null
-  release: (hostId: string) => void
-  forceReconnect: (hostId: string) => Promise<void>
-  closeHost: (hostId: string) => void
-  getState: (hostId: string) => ConnectionState
-  getReconnectAttempt: (hostId: string) => number
-  // Why: timestamp (ms epoch) of the last successful 'connected' state
-  // transition for this host, or null if never connected this session.
-  // Used by the UI to escalate "Reconnecting…" into a "host appears
-  // unreachable, re-pair?" prompt.
-  getLastConnectedAt: (hostId: string) => number | null
-  getActivePath: (hostId: string) => MobileConnectionPath
-  subscribeHostState: (hostId: string, listener: (state: ConnectionState) => void) => () => void
-  getAllClients: () => Array<{ hostId: string; client: RpcClient }>
-  subscribeAllHosts: (listener: () => void) => () => void
-  // Why: lets the home screen feed already-loaded HostProfiles in so we
-  // don't pay loadHosts() latency twice (once in the focus-effect, again
-  // inside openEntry).
-  primeHosts: (hosts: HostProfile[]) => void
-}
-
-const Ctx = createContext<RpcClientContextValue | null>(null)
 
 export function RpcClientProvider({ children }: { children: ReactNode }) {
   // Why: entries live in a ref so updates don't force re-renders of the
@@ -99,6 +78,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
     primedHostsRef.current.delete(hostId)
     const entry = storeRef.current.get(hostId)
     entry?.unsubState()
+    entry?.agentSync.dispose()
     storeRef.current.delete(hostId)
     entry?.client.close()
     notifyHostState(hostId, 'disconnected')
@@ -175,11 +155,14 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
         cur.state = state
         notifyHostState(hostId, state)
       })
+      // One agent catalog/reference sync per connection; it hydrates on connect
+      // and owns a single client-event subscription (see mountAgentSync).
       const entry: StoreEntry = {
         client,
         state: client.getState(),
         refCount: 0,
-        unsubState
+        unsubState,
+        agentSync: mountAgentSync(client, hostId)
       }
       storeRef.current.set(hostId, entry)
       notifyHostState(hostId, entry.state)
@@ -254,6 +237,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       const savedRefCount = entry?.refCount ?? Math.max(1, listenerCount)
       if (entry) {
         entry.unsubState()
+        entry.agentSync.dispose()
         entry.client.close()
         storeRef.current.delete(hostId)
       }
@@ -350,7 +334,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const value = useMemo<RpcClientContextValue>(
+  const value = useMemo<HostClientContextValue>(
     () => ({
       acquire,
       release,
@@ -381,15 +365,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
     ]
   )
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
-}
-
-export function useRpcClientContext(): RpcClientContextValue {
-  const ctx = useContext(Ctx)
-  if (!ctx) {
-    throw new Error('useHostClient must be used inside <RpcClientProvider>')
-  }
-  return ctx
+  return <HostClientContext.Provider value={value}>{children}</HostClientContext.Provider>
 }
 
 // Why: the primary hook for screens. Acquires the shared client for a

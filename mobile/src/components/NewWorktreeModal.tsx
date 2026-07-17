@@ -27,20 +27,22 @@ import {
   wasSetupHookPreviouslyApproved,
   type SetupHookTrust
 } from '../tasks/setup-hook-trust'
+import { isMobileTuiAgentEnabled } from '../tasks/mobile-tui-agents'
+import { hostSupportsAgentLaunchIdentity } from '../session/agent-launch-identity-capability'
 import {
-  isMobileTuiAgent,
-  isMobileTuiAgentEnabled,
-  MOBILE_TUI_AGENT_LAUNCH_COMMANDS
-} from '../tasks/mobile-tui-agents'
+  buildInteractiveLaunchParams,
+  legacyAgentLaunchCommand
+} from './interactive-worktree-launch-params'
 import type { PersistedTrustedOrcaHooks, TuiAgent } from '../../../src/shared/types'
 import type { SshConnectionState } from '../../../src/shared/ssh-types'
 import {
+  buildNewWorktreePickerOptions,
   NEW_WORKTREE_AGENT_OPTIONS as AGENT_OPTIONS,
-  NEW_WORKTREE_BLANK_AGENT as BLANK_TERMINAL,
   pickPreferredNewWorktreeAgent,
   resolveNewWorktreeAgentSelection,
   type NewWorktreeAgentOption as AgentOption
 } from './new-worktree-agent-selection'
+import { useAgentCatalogSnapshot } from './use-agent-catalog-snapshot'
 import { getCachedRepos, setCachedRepos } from '../cache/repo-cache'
 import { useLastVisitedWorktreeRepoId } from '../worktree/use-last-visited-worktree-repo'
 import {
@@ -51,7 +53,6 @@ import {
 import { createBlankWorkspace } from '../tasks/blank-workspace-create'
 import { createWorkspaceFromComposerSource } from '../tasks/source-workspace-create'
 import { MOBILE_TASKS_CAPABILITY } from '../tasks/mobile-tasks-capability'
-import { normalizeWorkspaceAgent } from '../tasks/workspace-agent-selection'
 import {
   filterAvailableTaskProviders,
   normalizeVisibleTaskProviders,
@@ -228,6 +229,7 @@ function NewWorktreeModalContent({
     () => getComposerRepoWorktreeBranches(existingWorktrees ?? [], selectedRepo?.id ?? null),
     [existingWorktrees, selectedRepo]
   )
+  const agentCatalog = useAgentCatalogSnapshot(hostId)
 
   useEffect(() => {
     return () => {
@@ -281,7 +283,8 @@ function NewWorktreeModalContent({
     selectedAgent: selectedAgentState,
     agentOverridden: agentOverriddenState,
     runtimeSettings,
-    detectedAgentIds
+    detectedAgentIds,
+    catalogSnapshot: agentCatalog
   })
   // Why: agent preference repair is pure render dataflow; doing it here
   // avoids a stale selected-agent commit while preserving user overrides.
@@ -622,23 +625,43 @@ function NewWorktreeModalContent({
       } catch {
         // Best-effort refresh; the runtime validates the same setting before spawning.
       }
+      let hasIdentityCapability = false
+      try {
+        const statusResponse = await client.sendRequest('status.get')
+        if (statusResponse.ok) {
+          hasIdentityCapability = hostSupportsAgentLaunchIdentity(
+            (statusResponse as RpcSuccess).result
+          )
+        }
+      } catch {
+        // Best-effort probe; an unreachable status keeps the legacy client-assembled
+        // launch path, which every host still accepts.
+      }
       if (
         selectedAgent.id !== '__blank__' &&
         !isMobileTuiAgentEnabled(selectedAgent.id, latestRuntimeSettings?.disabledTuiAgents)
       ) {
-        setSelectedAgent(pickPreferredNewWorktreeAgent(latestRuntimeSettings, detectedAgentIds))
+        setSelectedAgent(
+          pickPreferredNewWorktreeAgent(latestRuntimeSettings, detectedAgentIds, agentCatalog)
+        )
         setAgentOverridden(false)
         setError('Selected agent is disabled. Choose an enabled agent before creating.')
         return
       }
 
-      const command =
-        selectedAgent.id !== '__blank__'
-          ? (latestRuntimeSettings?.agentCmdOverrides?.[selectedAgent.id] ??
-            (isMobileTuiAgent(selectedAgent.id)
-              ? MOBILE_TUI_AGENT_LAUNCH_COMMANDS[selectedAgent.id]
-              : undefined))
-          : undefined
+      const legacyCommand = legacyAgentLaunchCommand(
+        selectedAgent.id,
+        latestRuntimeSettings?.agentCmdOverrides
+      )
+      // Capable hosts own launch resolution: send the agent identity only and let the
+      // host derive the command + env. An un-overridden selection defers to the host's
+      // atomic default pick; incapable hosts get the legacy startupCommand.
+      const launchParams = buildInteractiveLaunchParams({
+        selectedAgentId: selectedAgent.id,
+        hasIdentityCapability,
+        deferToHostDefault: !selectedAgentResolution.agentOverridden,
+        legacyCommand
+      })
 
       // Why: blank name field — match desktop behavior by computing the
       // next available marine-creature name at submit time and passing it
@@ -693,8 +716,9 @@ function NewWorktreeModalContent({
             targetRepoId: selectedRepo.id,
             setupDecision,
             agent: {
-              choice: normalizeWorkspaceAgent(selectedAgent.id) ?? 'blank',
-              startupCommand: command
+              choice: selectedAgent.id === '__blank__' ? 'blank' : selectedAgent.id,
+              startupCommand: legacyCommand,
+              launchParams
             },
             workspaceName: trimmedName || undefined,
             note: trimmedNote,
@@ -704,8 +728,9 @@ function NewWorktreeModalContent({
             client,
             repoId: selectedRepo.id,
             baseName,
-            startupCommand: command,
+            startupCommand: legacyCommand,
             createdWithAgentId,
+            launchParams,
             comment: trimmedNote,
             setupDecision
           })
@@ -729,20 +754,11 @@ function NewWorktreeModalContent({
     !creating &&
     !sshGate.requiresConnection &&
     (!needsSetupChoice || setupDecisionChoice != null)
-  const visibleAgentOptions =
-    detectedAgentIds === null
-      ? AGENT_OPTIONS.filter(
-          (agent) =>
-            agent.id !== '__blank__' &&
-            isMobileTuiAgentEnabled(agent.id, runtimeSettings?.disabledTuiAgents)
-        )
-      : AGENT_OPTIONS.filter(
-          (agent) =>
-            agent.id !== '__blank__' &&
-            detectedAgentIds.has(agent.id) &&
-            isMobileTuiAgentEnabled(agent.id, runtimeSettings?.disabledTuiAgents)
-        )
-  const pickerAgentOptions = [...visibleAgentOptions, BLANK_TERMINAL]
+  const pickerAgentOptions = buildNewWorktreePickerOptions({
+    snapshot: agentCatalog,
+    detectedAgentIds,
+    disabledTuiAgents: runtimeSettings?.disabledTuiAgents
+  })
   const repoPickerItems = useMemo(
     () => repos.map((repo) => ({ id: repo.id, label: repo.displayName, repo })),
     [repos]

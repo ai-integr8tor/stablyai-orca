@@ -2622,7 +2622,8 @@
                   "c00421d320": "已复制派生上下文。启动智能体并粘贴它以开始派生。",
                   "f62b40e2c7": "没有可复制的终端上下文",
                   "373a3103e7": "已复制上下文",
-                  "3fc568a49d": "无法复制上下文。"
+                  "3fc568a49d": "无法复制上下文。",
+                  "customForkUnavailable": "自定义智能体尚不支持派生"
                 }
               }
             },
@@ -5002,7 +5003,9 @@
           "3f1bdf3cb4": "环境文本过长，无法安全解析。",
           "codexSessionSource": "要导入的 Codex 主目录",
           "codexSessionSourceInfo": "关于导入 Codex 历史记录",
-          "codexSessionSourceTooltip": "Orca 在隔离的主目录中运行 Codex。将此项指向您现有的 Codex 主目录以导入会话历史记录。留空则使用 ~/.codex。"
+          "codexSessionSourceTooltip": "Orca 在隔离的主目录中运行 Codex。将此项指向您现有的 Codex 主目录以导入会话历史记录。留空则使用 ~/.codex。",
+          "agentsReadOnlyTitle": "智能体设置在桌面端管理",
+          "agentsReadOnlyDescription": "这是一个配对客户端。要添加、编辑或删除智能体以及更改默认设置，请使用 Orca 桌面应用。"
         },
         "AppIconSelector": {
           "d5a112dc9b": "下一个图标",
@@ -9160,6 +9163,235 @@
           "availability": "可用平台：",
           "testFlight": "TestFlight",
           "androidApk": "Android APK"
+        },
+        "AgentCatalogList": {
+          "searchPlaceholder": "按名称、环境或命令搜索智能体…",
+          "searchLabel": "搜索智能体",
+          "noMatch": "没有与搜索匹配的智能体。",
+          "listLabel": "智能体"
+        },
+        "AgentCatalogManager": {
+          "title": "智能体",
+          "refreshing": "正在刷新…",
+          "refresh": "刷新",
+          "newAgent": "新建智能体",
+          "zeroCustomHelper": "复制内置智能体或创建自定义智能体，以保存备用参数和环境。"
+        },
+        "AgentCatalogRowView": {
+          "enableSwitch": "启用 {{agent}}",
+          "repairFallbackLabel": "自定义智能体",
+          "repairHint": "必须先修复此定义才能启动。",
+          "repair": "修复",
+          "deleted": "已删除",
+          "deletedUsedBy": "已删除 — 仍被 {{items}} 个项目使用",
+          "reviewReferences": "查看引用"
+        },
+        "AgentCatalogSection": {
+          "loading": "正在加载智能体…",
+          "stagedRepair": "尚不支持修复智能体。",
+          "defaultTitle": "默认智能体",
+          "nullDefaultAttention": "请选择一个默认智能体。在此之前，需人工干预的启动将无法开始，并会要求你选择一个。",
+          "migrationBlockedTitle": "智能体设置暂时为只读状态",
+          "migrationBlockedDescription": "Orca 在更新前无法备份你现有的智能体设置，因此变更已被阻止以保护你的数据。请先解决下面的问题，然后重试。"
+        },
+        "AgentCatalogStatusBadge": {
+          "enabled": "已启用",
+          "disabled": "已禁用",
+          "baseDisabled": "基础已禁用",
+          "notInstalled": "未安装",
+          "customExecutable": "自定义可执行文件",
+          "customPath": "自定义 PATH",
+          "repairRequired": "需要修复"
+        },
+        "AgentDefaultCombobox": {
+          "searchPlaceholder": "搜索智能体...",
+          "noMatch": "没有与搜索匹配的智能体。",
+          "auto": "自动",
+          "blank": "空白终端",
+          "autoHint": "自动模式不会选择自定义智能体。",
+          "staleWarning": "此默认设置不可用。在你选择其他智能体之前，需人工干预的启动将使用标准的基础智能体命令。",
+          "unsetPlaceholder": "选择默认智能体",
+          "listLabel": "默认智能体选项",
+          "repairFallbackLabel": "Custom agent"
+        },
+        "BuiltInLaunchSettingsDialog": {
+          "reset": "重置",
+          "fieldLabelCommand": "命令",
+          "argsPlaceholder": "无默认参数",
+          "title": "编辑启动设置",
+          "description": "为 {{harness}} 智能体设置启动命令、参数和环境变量。清空字段可恢复其默认值。"
+        },
+        "BuiltInDisableDialog": {
+          "title": "要禁用 {{base}} 吗？",
+          "consequences": "在你重新启用 {{base}} 之前，其上的所有新启动（包括其自定义智能体）都会被阻止，其快照恢复也会被阻止。",
+          "derivatives": "基于它构建的 {{count}} 个已启用的自定义智能体",
+          "references": "被 {{count}} 个已保存项目使用（包括其自定义智能体）",
+          "referencesAtLeast": "至少被 {{count}} 个已保存项目使用（包括其自定义智能体）",
+          "sessions": "{{count}} 个可恢复的会话",
+          "sessionsAtLeast": "至少 {{count}} 个可恢复的会话",
+          "conflict": "此窗口打开期间设置发生了更改。上方的计数已刷新——请再次确认以禁用。",
+          "error": "无法禁用此智能体。请重新打开设置并重试。",
+          "confirm": "禁用智能体"
+        },
+        "CustomAgentEditorDialog": {
+          "fieldLabelArguments": "参数",
+          "cancel": "取消",
+          "saving": "正在保存…",
+          "save": "保存",
+          "argsPlaceholder": "--model gpt-5\n--flag value",
+          "argsTokenCount": "{{count}} 个参数",
+          "baseChoosePlaceholder": "选择基础智能体",
+          "baseSearchPlaceholder": "搜索基础智能体...",
+          "baseNoMatch": "没有与搜索匹配的基础智能体。",
+          "duplicateNote": "此操作会将源智能体的配置复制到新智能体。副本已关闭配对启动的环境共享。",
+          "syncEnvLabel": "允许配对设备的启动使用这些环境变量值",
+          "syncEnvDescription": "Orca 不会将这些值作为设置发送到配对设备。已启动的进程可以访问这些值，并可能在其终端中打印出来。",
+          "pairedVisibilityWarning": "智能体名称、可执行文件和参数对配对设备可见；请勿在其中放入机密信息。",
+          "titleNew": "新建自定义智能体",
+          "titleEdit": "编辑自定义智能体",
+          "titleDuplicate": "复制智能体",
+          "descriptionDuplicate": "以新名称创建副本。",
+          "descriptionCreateEdit": "为 {{harness}} 智能体保存备用参数和环境。",
+          "fieldLabelEnv": "环境变量",
+          "envSizeMeter": "{{max}} 字节中的 {{bytes}} 字节",
+          "envPrecedenceHint": "此处设置的变量将覆盖基础智能体的默认环境。",
+          "envManagedAccountHint": "此处的显式提供程序身份验证或主目录值（包括 CODEX_HOME）会覆盖为此智能体启动所选择的托管账户。Orca 仍会为基础智能体设置所需的配套程序和钩子状态。",
+          "envAdd": "添加变量",
+          "envAtCap": "最多可添加 64 个变量，总计 16 KiB。",
+          "envKeyPlaceholder": "名称",
+          "envKeyAriaLabel": "变量名称",
+          "envValuePlaceholder": "值",
+          "envValueAriaLabel": "变量值",
+          "envHide": "隐藏值",
+          "envReveal": "显示值",
+          "envRemove": "移除变量",
+          "errorSummaryHeading": "保存前请修正以下问题：",
+          "fieldLabelName": "名称",
+          "fieldLabelBase": "基础智能体",
+          "baseImmutable": "创建后无法更改基础智能体。如需使用其他基础智能体，请创建另一个智能体。",
+          "baseReadOnlyLabel": "基础智能体（只读）",
+          "fieldLabelExecutable": "可执行文件",
+          "executableHelp": "单个可执行文件的可选路径。命令列表和管道应放在快捷命令中。",
+          "executablePlaceholder": "/usr/local/bin/my-agent",
+          "labelEmpty": "请输入此智能体的名称。",
+          "labelBounds": "请使用 80 个字符或更少。",
+          "commandEmpty": "请输入有效的可执行文件路径，或将此项留空。",
+          "commandBounds": "请使用 4096 个字符或更少。",
+          "commandControlChar": "请从可执行文件路径中移除控制字符。",
+          "commandQuote": "请使可执行文件路径中的引号成对。",
+          "commandShellOperator": "这看起来像是一条 shell 命令。请将命令列表或管道放在快捷命令中。",
+          "argsBounds": "请使用 8192 个字符或更少。",
+          "argsControlChar": "请移除不受支持的控制字符。",
+          "argsQuote": "请使参数中的引号成对。",
+          "argsQuotedLineBreak": "带引号的参数不能跨越多行。",
+          "envBounds": "请对照名称和值的限制检查此变量。",
+          "envReserved": "以 ORCA_ 开头的名称已被保留。",
+          "envPrototype": "不允许使用此变量名称。",
+          "envCaseCollision": "另一个变量已使用此名称。",
+          "envControlChar": "值不能包含换行符或空字符。",
+          "envTotalBounds": "环境变量超过了 16 KiB 的限制。",
+          "invalidValue": "此值无效。",
+          "labelReservedBuiltIn": "该名称已被内置的 {{harness}} 智能体保留。",
+          "labelInUse": "该名称已被使用。请选择其他名称。",
+          "revisionConflict": "在你编辑期间，这些设置发生了更改。请检查你的更改后重试。",
+          "payloadTooLarge": "此配置过大，无法保存。请移除部分参数或环境变量。",
+          "reloadAndRetry": "请重新加载设置并重试。",
+          "editorTooLarge": "此智能体的配置过多，无法在此处编辑。请在桌面主机上精简配置。",
+          "titleRepairReplace": "替换损坏的智能体",
+          "descriptionRepairEdit": "请修正以下无效值，使此 {{harness}} 智能体可以再次启动。",
+          "descriptionRepairReplace": "保存一个新智能体以替换损坏的智能体。已保存的引用不会重新绑定到新智能体。"
+        },
+        "CustomAgentDeleteDialog": {
+          "defaultBaseLabel": "将默认设置为 {{base}}",
+          "defaultBaseDescription": "使用 {{base}} 自身的命令、参数和环境。",
+          "defaultAutoLabel": "将默认设置为自动",
+          "defaultAutoDescription": "Orca 会在启动时选择一个已安装的智能体。",
+          "defaultKeepLabel": "保留回退到标准 {{base}}",
+          "defaultKeepDescription": "启动不带任何自定义设置的普通 {{base}} 命令。",
+          "defaultClearLabel": "清除默认设置",
+          "defaultClearDescription": "设置将要求你选择一个。",
+          "defaultChoiceLabel": "默认智能体应变为什么？",
+          "recommendedBadge": "推荐",
+          "error": "无法删除此智能体。请重新打开设置并重试。",
+          "title": "要删除 {{label}} 吗？",
+          "permanent": "此操作无法撤销。自定义启动设置将永久丢失。",
+          "consequenceRunning": "已打开的终端将继续运行。",
+          "consequenceAttended": "新的交互式启动将使用标准 {{base}} 并显示提示。",
+          "consequenceUnattended": "在重新分配之前，自动化和后台运行将失败。",
+          "consequencePreserved": "恢复、工作树、历史记录和提供程序会话都将保留。",
+          "usedByAtLeast": "至少被 {{count}} 个已保存项目使用",
+          "usedBy": "被 {{count}} 个已保存项目使用",
+          "reviewReferences": "查看引用",
+          "defaultHeading": "此智能体是当前的默认智能体",
+          "availabilityNote": "可用性会在启动时检查，因此重新绑定的对象不保证已安装。",
+          "confirm": "删除智能体"
+        },
+        "CustomAgentReferenceDialog": {
+          "title": "对 {{label}} 的引用",
+          "deletedIntro": "此智能体已被删除，但这些已保存的项目仍通过名称引用它。在所有引用被释放之前，该名称将保持保留状态。无法撤销删除——其参数和环境已经丢失。",
+          "liveIntro": "这些已保存的项目引用了此智能体。删除之前请检查它的使用位置。",
+          "ownerDefault": "默认智能体",
+          "ownerQuickCommand": "快捷命令",
+          "ownerCommitMessage": "提交信息",
+          "ownerSourceControl": "源代码控制操作",
+          "ownerAutomation": "自动化",
+          "ownerSession": "终端会话",
+          "ownerBackground": "后台运行",
+          "ownerOrchestration": "编排运行",
+          "ownerWorkspace": "工作区",
+          "rebindableHeading": "可释放该名称",
+          "removableHeading": "可移除的记录",
+          "retainedHeading": "尚不能释放",
+          "rebindableHint": "打开每个项目并选择其他智能体即可释放该名称。",
+          "removableHint": "删除它们所属的记录后，这些内容将被清除。",
+          "retainedHint": "这些内容会一直占用该名称，直到完成或过期为止。在此之前，该名称将保持保留状态。",
+          "countUnavailable": "计数不可用",
+          "loading": "正在加载引用…",
+          "unavailable": "无法加载引用。请重新打开设置以重试。",
+          "empty": "没有已保存的项目引用此智能体。",
+          "close": "关闭"
+        },
+        "CustomAgentDisableDialog": {
+          "title": "要禁用 {{label}} 吗？",
+          "usedBy": "被 {{count}} 个已保存项目使用。",
+          "usedByAtLeast": "至少被 {{count}} 个已保存项目使用。",
+          "consequenceAttended": "新的交互式启动将使用标准基础智能体并显示提示。",
+          "consequenceUnattended": "在重新分配之前，自动化、后台和编排都将失败。",
+          "consequenceResumes": "会话恢复仍可正常使用。",
+          "consequenceReversible": "你可以随时重新启用。",
+          "conflict": "此窗口打开期间设置发生了更改。上方的计数已刷新——请再次确认以禁用。",
+          "error": "无法禁用此智能体。请重新打开设置并重试。",
+          "confirm": "禁用智能体"
+        },
+        "CustomAgentRowActions": {
+          "trigger": "{{agent}} 的操作",
+          "editBuiltIn": "编辑启动设置",
+          "edit": "编辑",
+          "duplicate": "复制",
+          "delete": "删除"
+        },
+        "CustomAgentRepairDialog": {
+          "fallbackLabel": "此自定义智能体",
+          "discardError": "无法丢弃此行。请重新打开设置并重试。",
+          "title": "修复 {{label}}",
+          "description": "此定义已损坏，无法就地编辑。请用新智能体替换它，或将其丢弃。",
+          "referencesNote": "已保存的引用会继续指向旧智能体——它们不会重新绑定到替换对象。这两种操作都是永久性的。",
+          "replaceAsNew": "作为新智能体替换",
+          "discard": "丢弃损坏的行"
+        },
+        "CustomAgentDuplicateRepairDialog": {
+          "mutationError": "无法解决这些智能体问题。请重新打开设置并重试。",
+          "title": "解决重复的智能体",
+          "description": "这些智能体共用同一个已保存的身份标识。请选择一个保留以供现有引用使用，并替换或丢弃其余的。此操作将一次性应用。",
+          "referencesNote": "被替换的智能体会获得新的身份标识；被丢弃的智能体将被移除。已保存的引用只对你保留的智能体继续有效。",
+          "confirm": "解决智能体",
+          "fallbackLabel": "自定义智能体",
+          "keep": "保留以供现有引用使用",
+          "replace": "作为新项替换",
+          "discard": "丢弃",
+          "tooLargeNote": "此行过大，无法在此处保留或替换。请将其丢弃，或在桌面主机上精简。",
+          "draftUnavailableError": "其中一个智能体过大，无法在此处保留或替换。请将其丢弃，或在桌面主机上精简。",
+          "incompleteError": "请为每个智能体选择一个操作，最多保留一个。"
         }
       },
       "right": {
@@ -9651,7 +9883,8 @@
             "c075d00de1": "无法解析工作区连接。",
             "808cfe0a3b": "仅保存到此存储库",
             "994cddd1f7": "不保存",
-            "38b899cc02": "所有仓库"
+            "38b899cc02": "所有仓库",
+            "saveBeforeStartFailed": "Could not save the agent settings, so the agent was not started."
           },
           "SourceControlAgentActionDialogForm": {
             "1bc0bdbb5e": "启动：",
@@ -10084,7 +10317,8 @@
             "worktreeUnavailable": "工作树不再可用。",
             "openSupportedWorkspace": "在恢复会话之前，请先打开一个工作区。",
             "localSessionSshWorkspaceUnsupported": "此会话的历史记录存储在本机上，因此无法在 SSH 工作区中恢复。请改为打开一个本地工作区。",
-            "sessionHostMismatchUnsupported": "此会话属于其他主机。请打开同一主机上的工作区以恢复它。"
+            "sessionHostMismatchUnsupported": "此会话属于其他主机。请打开同一主机上的工作区以恢复它。",
+            "resumeSessionUnavailable": "该会话已无法恢复。"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "正在扫描会话",
@@ -10173,7 +10407,9 @@
             "recoverableEmptyOpenLogHint": "打开日志以恢复它们。",
             "emptyConversationDetail": "此会话没有已保存的对话，无法恢复。",
             "queuedMessages": "{{value0}} 条排队消息",
-            "subagentTranscripts": "{{value0}} 个子智能体记录"
+            "subagentTranscripts": "{{value0}} 个子智能体记录",
+            "resumeArguments": "恢复参数",
+            "loadingResumeArguments": "正在加载恢复参数…"
           },
           "AiVaultSessionRow": {
             "resumeAgentSession": "恢复 {{value0}} 会话",
@@ -12701,7 +12937,10 @@
           "579c768bde": "没有智能体符合您的搜索。",
           "48c6a5a9b4": "搜索智能体...",
           "9c6b59fe58": "设置为默认值",
-          "1b0d6965fa": "当前默认值"
+          "1b0d6965fa": "当前默认值",
+          "listLabel": "智能体",
+          "unavailableAgent": "不可用的智能体",
+          "staleWarning": "此智能体不可用。请选择其他智能体，否则启动将使用空白终端。"
         },
         "AgentSettingsDialog": {
           "50cdb57c03": "管理 AI 智能体、设置默认值并自定义命令。",
@@ -13149,6 +13388,29 @@
           "undo": "撤销",
           "widthOption": "{{value0}} px"
         }
+      },
+      "AgentLaunchNotices": {
+        "disabledFallback": "{{value0}} 已禁用。已启动标准 {{value1}}，未使用自定义可执行文件、自定义参数或自定义代理环境。",
+        "missingFallback": "{{value0}} 已删除。已启动标准 {{value1}}，未使用自定义可执行文件、自定义参数或自定义代理环境。",
+        "envWithheld": "此次启动未使用 {{value0}} 的全部环境值。请在桌面主机上管理配对启动环境。",
+        "snapshotChanged": "已使用此会话启动时捕获的设置恢复。",
+        "vaultOriginalConfigUnavailable": "原始启动设置不可用。已使用当前 {{value0}} 设置恢复。",
+        "dismiss": "关闭"
+      },
+      "AgentLaunchRecoveryCard": {
+        "title": "此工作区的代理未能启动。",
+        "retry": "重试",
+        "retryCurrentSettings": "使用当前设置重试",
+        "launchCurrentSettings": "使用当前设置启动",
+        "chooseAgent": "选择代理",
+        "editAgentSettings": "编辑代理设置",
+        "repairOnHost": "在桌面主机上修复",
+        "reconnectSecurely": "安全重新连接",
+        "reconnect": "重新连接",
+        "recoverCapacity": "恢复启动容量…",
+        "openTerminal": "打开终端",
+        "forgetLaunch": "忘记启动…",
+        "manageAgents": "管理代理"
       }
     },
     "i18n": {
@@ -13306,6 +13568,81 @@
       "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
       "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
       "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
+    }
+  },
+  "agentLaunch": {
+    "failure": {
+      "unknownAgent": "该智能体已不存在。请选择其他智能体后重试。",
+      "noAgentSelected": "启动前请选择一个智能体。",
+      "needsRepair": "该智能体的设置尚未完成。请在设置中完成配置后重试。",
+      "customDisabled": "该智能体已关闭。请在设置中启用后再启动。",
+      "configurationChangedPostCreate": "创建此工作区期间智能体设置已更改。重试以使用当前设置启动，或选择其他智能体。",
+      "configurationChangedPreSpawn": "启动前智能体设置已更改。使用当前设置重试，或选择其他智能体。",
+      "baseDisabled": "基础智能体已关闭。请在设置中启用后再启动。",
+      "baseUnavailable": "此主机上无法使用基础智能体。",
+      "missingVariable": "无法解析此次启动的工作区路径。",
+      "missingTargetHome": "无法解析目标主机上的主目录。",
+      "invalidCommandOverride": "该智能体的命令覆盖无效。请在设置中修正。",
+      "invalidArgs": "该智能体的启动参数无效。请在设置中修正。",
+      "invalidEnv": "该智能体的启动环境无效。请在设置中修正。",
+      "secureEnvUnavailable": "无法安全地将该智能体的环境发送到远程主机。",
+      "commandTooLong": "启动命令过长，无法运行。请缩短智能体参数或提示词。",
+      "invalidSnapshot": "该智能体保存的启动信息已失效。",
+      "trustPreflightFailed": "无法确认该智能体的工作区信任。请重试。",
+      "spawnFailed": "无法启动该智能体。请重试。",
+      "stateUnknown": "启动状态未知。请在重试前检查终端。",
+      "capacityExceeded": "此主机上待处理的智能体启动过多。请重新连接或忘记搁置的启动，然后重试。"
+    },
+    "unattendedFailure": {
+      "title": {
+        "automation": "自动化的智能体未能启动。",
+        "orchestration": "任务的智能体未能启动。",
+        "background": "后台智能体未能启动。",
+        "generic": "智能体启动未能完成。"
+      },
+      "forgotten": "你已忘记此次启动，因此它不会再次运行。",
+      "rowBadge": {
+        "didNotStart": "未启动",
+        "forgotten": "已忘记"
+      }
+    },
+    "forgetConfirm": {
+      "title": "要忘记此次启动吗？",
+      "warning": "Orca 无法连接到终端主机。忘记操作不会停止远程进程，它可能仍在运行。",
+      "confirmLabel": "忘记启动",
+      "failed": "无法忘记此次启动。请重试。",
+      "alsoForgetSibling": "同时忘记 {{host}} 上另外 1 个搁置的启动。",
+      "alsoForgetSiblings": "同时忘记 {{host}} 上另外 {{count}} 个搁置的启动。"
+    },
+    "requestError": {
+      "idempotencyConflict": "此次启动已在进行中。",
+      "staleFailure": "此次启动已处理。请刷新后重试。",
+      "untrustedReference": "无法验证此次启动的来源。"
+    },
+    "capacity": {
+      "title": "恢复启动容量",
+      "description": "这些代理启动在此主机上仍处于待处理状态。打开工作区以重新连接或解决它，然后重试启动。",
+      "loadFailed": "无法加载待处理的启动。请关闭后重新打开以重试。",
+      "loading": "正在加载待处理的启动…",
+      "empty": "启动容量当前空闲。此主机上没有待处理的启动。",
+      "action": {
+        "open": "打开",
+        "goToWorkspace": "前往工作区",
+        "goToRun": "前往运行"
+      },
+      "source": {
+        "interactive": "工作区",
+        "cli": "CLI",
+        "automation": "自动化",
+        "background": "后台",
+        "orchestration": "编排",
+        "resume": "恢复"
+      },
+      "liveness": {
+        "live": "运行中",
+        "absent": "未运行",
+        "unknown": "无法访问"
+      }
     }
   }
 }

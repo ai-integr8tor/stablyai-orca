@@ -66,6 +66,11 @@ export type PtySpawnOptions = {
   startupCommandDelivery?: StartupCommandDelivery
   /** Minimal allowlisted launch ownership preserved by daemon reattach. */
   launchAgent?: TuiAgent
+  /** Host admission launch token. Carried inside the spawn request so daemon,
+   *  relay, and remote-runtime providers persist it with the process record at
+   *  creation — a terminal that outlives main self-identifies by token during
+   *  reconciliation. Local in-process PTYs ignore it (they die with main). */
+  launchToken?: string
   /** Orca worktree identity. When present, the local provider scopes shell
    *  history to this worktree so ArrowUp only surfaces local commands. */
   worktreeId?: string
@@ -159,6 +164,10 @@ export type PtyProcessInfo = {
   worktreeId?: string
   /** Trusted ORCA_TERMINAL_HANDLE exported into this PTY, when known. */
   terminalHandle?: string
+  /** Host admission launch token the provider persisted at spawn (see
+   *  PtySpawnOptions.launchToken), surfaced on re-list so crash reconciliation
+   *  can rejoin a main-surviving terminal to its pending launch by token. */
+  launchToken?: string
 }
 
 export type IPtyProvider = {

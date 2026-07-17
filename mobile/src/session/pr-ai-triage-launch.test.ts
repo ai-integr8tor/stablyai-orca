@@ -23,8 +23,11 @@ describe('createTerminalAndSendPrompt', () => {
     const client = clientReturning(createdTerminal, sendAccepted)
     await createTerminalAndSendPrompt(client, 'wt-1', 'do the thing')
 
+    // oracle-19: the mobile launch defers to the host's newest-revision default
+    // pick rather than pinning a client-cached agent id.
     expect(client.sendRequest).toHaveBeenNthCalledWith(1, 'session.tabs.createTerminal', {
-      worktree: 'id:wt-1'
+      worktree: 'id:wt-1',
+      agentLaunch: { selection: { kind: 'default' } }
     })
     expect(client.sendRequest).toHaveBeenNthCalledWith(2, 'terminal.send', {
       terminal: 'term-1',
@@ -43,6 +46,19 @@ describe('createTerminalAndSendPrompt', () => {
     const client = clientReturning(success({ tab: { type: 'terminal' } }))
     await expect(createTerminalAndSendPrompt(client, 'wt-1', 'p')).rejects.toThrow(
       'Created terminal response was invalid'
+    )
+    expect(client.sendRequest).toHaveBeenCalledTimes(1)
+  })
+
+  // Regression for L4-m11: a pre-spawn agentLaunch failure (tombstoned/disabled
+  // agent, capacity, ...) is an RPC success with no `tab` key. This must surface
+  // the typed failure code, not the generic "invalid response" message.
+  it('throws with the typed failure code on a pre-spawn agentLaunch failure', async () => {
+    const client = clientReturning(
+      success({ agentLaunch: { status: 'failed', failure: { code: 'custom_agent_disabled' } } })
+    )
+    await expect(createTerminalAndSendPrompt(client, 'wt-1', 'p')).rejects.toThrow(
+      "Couldn't start the agent (custom_agent_disabled)."
     )
     expect(client.sendRequest).toHaveBeenCalledTimes(1)
   })

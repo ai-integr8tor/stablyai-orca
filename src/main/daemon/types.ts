@@ -109,6 +109,8 @@ export type CreateOrAttachRequest = {
     command?: string
     startupCommandDelivery?: StartupCommandDelivery
     launchAgent?: TuiAgent
+    /** Host admission launch token persisted with the daemon session record. */
+    launchToken?: string
     /** Explicit Windows shell override selected by the user (e.g. 'wsl.exe').
      *  The daemon forwards this to its subprocess spawner so each tab honors
      *  the shell picked in the "+" menu or the persisted default-shell setting,
@@ -367,9 +369,7 @@ export type CreateOrAttachResult = {
   historySeeded?: boolean
   launchAgent?: TuiAgent
 }
-export type GetSnapshotResult = {
-  snapshot: TerminalSnapshot | null
-}
+export type GetSnapshotResult = { snapshot: TerminalSnapshot | null }
 
 export type ListSessionsResult = {
   sessions: SessionInfo[]
@@ -387,6 +387,10 @@ export type SessionInfo = {
   shellState: ShellReadyState
   isAlive: boolean
   terminalHandle?: string
+  /** Host admission launch token the daemon persisted at spawn, echoed back so
+   *  crash reconciliation can rejoin a daemon-surviving terminal to its pending
+   *  launch by token. Absent for tokenless sessions and older daemons. */
+  launchToken?: string
   pid: number | null
   cwd: string | null
   cols: number
