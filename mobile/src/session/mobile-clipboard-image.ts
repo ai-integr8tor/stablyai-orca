@@ -2,6 +2,11 @@ import type { RpcClient } from '../transport/rpc-client'
 import type { RpcFailure, RpcSuccess } from '../transport/types'
 
 export const MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS = 24 * 1024 * 1024
+// Binary-byte equivalent of the base64 budget (~18MB). Lets the picker reject an
+// oversized file up front, before reading gigabytes into RN memory (base64 is ~4/3).
+export const MOBILE_ATTACHMENT_MAX_SOURCE_BYTES = Math.floor(
+  (MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS / 4) * 3
+)
 export const MOBILE_CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS = 512 * 1024
 export const MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS = 256 * 1024
 // Why: PNG bytes don't scale exactly with pixel area, so undershoot the target on
@@ -9,13 +14,17 @@ export const MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS = 256 * 1
 const MOBILE_CLIPBOARD_IMAGE_DOWNSCALE_SAFETY = 0.85
 const MOBILE_CLIPBOARD_IMAGE_MAX_DOWNSCALE_ATTEMPTS = 3
 
+// Single source of truth: pickers throw it and the attach/paste hooks compare
+// against it to choose the size-specific toast.
+export const MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR = 'Clipboard image is too large'
+
 const DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+;base64,/i
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
 export function normalizeMobileClipboardImageBase64(data: string): string {
   const contentBase64 = data.replace(DATA_URL_PREFIX_RE, '')
   if (contentBase64.length > MOBILE_CLIPBOARD_IMAGE_MAX_BASE64_CHARS) {
-    throw new Error('Clipboard image is too large')
+    throw new Error(MOBILE_CLIPBOARD_IMAGE_TOO_LARGE_ERROR)
   }
   if (contentBase64.length % 4 === 1 || !BASE64_PATTERN.test(contentBase64)) {
     throw new Error('Clipboard image content must be base64')
@@ -99,16 +108,20 @@ function assertSuccess<T>(response: RpcSuccess | RpcFailure): T {
   return response.result as T
 }
 
-export async function saveMobileClipboardImageAsTempFile(
+export async function saveMobileAttachmentAsTempFile(
   client: Pick<RpcClient, 'sendRequest'>,
   imageData: string,
-  args?: { connectionId?: string | null }
+  args?: { connectionId?: string | null; fileName?: string | null }
 ): Promise<string> {
   const contentBase64 = normalizeMobileClipboardImageBase64(imageData)
   const connectionId = args?.connectionId ?? null
+  // Why: omit fileName entirely when absent so existing image-paste requests
+  // stay byte-identical for old hosts.
+  const fileNameParam = args?.fileName ? { fileName: args.fileName } : {}
   const startResponse = await client.sendRequest('clipboard.startImageUpload', {
     expectedBase64Length: contentBase64.length,
-    connectionId
+    connectionId,
+    ...fileNameParam
   })
 
   if (!startResponse.ok) {
@@ -117,7 +130,11 @@ export async function saveMobileClipboardImageAsTempFile(
       contentBase64.length <= MOBILE_CLIPBOARD_IMAGE_SINGLE_FRAME_FALLBACK_BASE64_CHARS
     ) {
       return assertSuccess<string>(
-        await client.sendRequest('clipboard.saveImageAsTempFile', { contentBase64, connectionId })
+        await client.sendRequest('clipboard.saveImageAsTempFile', {
+          contentBase64,
+          connectionId,
+          ...fileNameParam
+        })
       )
     }
     throw new Error(startResponse.error.message)

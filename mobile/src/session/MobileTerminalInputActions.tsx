@@ -11,6 +11,8 @@ type DictationState = {
 type MobileTerminalInputActionsProps = {
   readonly canSend: boolean
   readonly isAttaching: boolean
+  // Host advertises clipboard.file-upload.v1: long-press picks any file type.
+  readonly canAttachAnyFile: boolean
   readonly dictation: DictationState
   readonly dictationMode: 'toggle' | 'hold'
   readonly buttonStyle: StyleProp<ViewStyle>
@@ -29,6 +31,7 @@ type MobileTerminalInputActionsProps = {
 export function MobileTerminalInputActions({
   canSend,
   isAttaching,
+  canAttachAnyFile,
   dictation,
   dictationMode,
   buttonStyle,
@@ -52,8 +55,14 @@ export function MobileTerminalInputActions({
         onPress={onAttachImage}
         onLongPress={onAttachFile}
         delayLongPress={350}
-        accessibilityLabel={isAttaching ? 'Sending image' : 'Attach a photo'}
-        accessibilityHint="Long press to attach a file instead"
+        accessibilityLabel={
+          isAttaching ? (canAttachAnyFile ? 'Sending file' : 'Sending image') : 'Attach a photo'
+        }
+        accessibilityHint={
+          canAttachAnyFile
+            ? 'Long press to attach a file instead'
+            : 'Long press to attach an image file instead'
+        }
       >
         {isAttaching ? (
           <ActivityIndicator size="small" color={colors.textSecondary} />

@@ -5,7 +5,7 @@ import {
   MOBILE_CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS,
   normalizeMobileClipboardImageBase64,
   prepareMobileClipboardImageBase64,
-  saveMobileClipboardImageAsTempFile
+  saveMobileAttachmentAsTempFile
 } from './mobile-clipboard-image'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcFailure, RpcResponse, RpcSuccess } from '../transport/types'
@@ -56,7 +56,7 @@ describe('mobile clipboard image paste helpers', () => {
     ])
 
     await expect(
-      saveMobileClipboardImageAsTempFile(client, `data:image/png;base64,${base64}`, {
+      saveMobileAttachmentAsTempFile(client, `data:image/png;base64,${base64}`, {
         connectionId: 'ssh-1'
       })
     ).resolves.toBe('/tmp/orca-paste-image.png')
@@ -92,7 +92,7 @@ describe('mobile clipboard image paste helpers', () => {
       ok('save', '/tmp/orca-paste-image.png')
     ])
 
-    await expect(saveMobileClipboardImageAsTempFile(client, 'aGVsbG8=')).resolves.toBe(
+    await expect(saveMobileAttachmentAsTempFile(client, 'aGVsbG8=')).resolves.toBe(
       '/tmp/orca-paste-image.png'
     )
 
@@ -108,6 +108,42 @@ describe('mobile clipboard image paste helpers', () => {
     ])
   })
 
+  it('sends the original fileName with chunked uploads', async () => {
+    const client = clientWithResponses([
+      ok('start', { uploadId: 'upload-1' }),
+      ok('append', { receivedBase64Length: 8 }),
+      ok('commit', '/tmp/orca-file-notes.txt')
+    ])
+
+    await expect(
+      saveMobileAttachmentAsTempFile(client, 'aGVsbG8=', {
+        connectionId: null,
+        fileName: 'notes.txt'
+      })
+    ).resolves.toBe('/tmp/orca-file-notes.txt')
+
+    expect(client.calls[0]).toEqual({
+      method: 'clipboard.startImageUpload',
+      params: { expectedBase64Length: 8, connectionId: null, fileName: 'notes.txt' }
+    })
+  })
+
+  it('sends the original fileName on the legacy single-frame fallback', async () => {
+    const client = clientWithResponses([
+      fail('start', 'method_not_found', 'missing'),
+      ok('save', '/tmp/orca-file-notes.txt')
+    ])
+
+    await expect(
+      saveMobileAttachmentAsTempFile(client, 'aGVsbG8=', { fileName: 'notes.txt' })
+    ).resolves.toBe('/tmp/orca-file-notes.txt')
+
+    expect(client.calls[1]).toEqual({
+      method: 'clipboard.saveImageAsTempFile',
+      params: { contentBase64: 'aGVsbG8=', connectionId: null, fileName: 'notes.txt' }
+    })
+  })
+
   it('aborts chunked upload state when append fails', async () => {
     const client = clientWithResponses([
       ok('start', { uploadId: 'upload-1' }),
@@ -115,9 +151,7 @@ describe('mobile clipboard image paste helpers', () => {
       ok('abort', { aborted: true })
     ])
 
-    await expect(saveMobileClipboardImageAsTempFile(client, 'aGVsbG8=')).rejects.toThrow(
-      'bad chunk'
-    )
+    await expect(saveMobileAttachmentAsTempFile(client, 'aGVsbG8=')).rejects.toThrow('bad chunk')
     expect(client.calls.at(-1)).toEqual({
       method: 'clipboard.abortImageUpload',
       params: { uploadId: 'upload-1' }

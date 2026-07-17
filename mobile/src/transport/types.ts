@@ -37,6 +37,11 @@ export type RpcFailure = {
 
 export type RpcResponse = RpcSuccess | RpcFailure
 
+// Shape of the `status.get` result the mobile client reads capabilities from.
+export type RuntimeStatusResult = {
+  capabilities?: string[]
+}
+
 export type ConnectionLogLevel = 'info' | 'success' | 'warn' | 'error'
 
 export type ConnectionLogEntry = {

@@ -75,7 +75,6 @@ import { useMobilePrBranchContext } from '../../../../src/session/use-mobile-pr-
 import { SessionDockColumn } from '../../../../src/session/SessionDockColumn'
 import { MobileSessionHeaderIconButton } from '../../../../src/session/MobileSessionHeaderIconButton'
 import { MobileSessionHeaderMoreActionsSheet } from '../../../../src/session/MobileSessionHeaderMoreActionsSheet'
-import { MOBILE_AI_VAULT_CAPABILITY } from '../../../../src/agent-history/agent-history-capability'
 import type { ConnectionState, RpcFailure, RpcSuccess } from '../../../../src/transport/types'
 import { headlessActivationNeedsHostRenderer } from '../../../../src/worktree/worktree-activation-result'
 import { useMobileDictation } from '../../../../src/hooks/use-mobile-dictation'
@@ -110,7 +109,7 @@ import { dismissTerminalKeyboard } from '../../../../src/terminal/terminal-keybo
 import type { TerminalLiveInputSender } from '../../../../src/terminal/terminal-live-input-sender'
 import { isTerminalSendRpcAccepted } from '../../../../src/terminal/terminal-send-rpc-response'
 import { sendMobileTerminalQueryReply } from '../../../../src/terminal/mobile-terminal-query-reply'
-import { TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY } from '../../../../../src/shared/protocol-version'
+import { useHostRuntimeCapabilities } from '../../../../src/session/use-host-runtime-capabilities'
 import { useTerminalLiveInputCommit } from '../../../../src/terminal/use-terminal-live-input-commit'
 import {
   getTerminalCommandKeyboardType,
@@ -170,8 +169,8 @@ import {
   type MobileNewTabAgentOption,
   type MobileNewTabAgentSettings
 } from '../../../../src/session/mobile-new-tab-agent-options'
-import { useMobileImageAttachment } from '../../../../src/session/use-mobile-image-attachment'
 import { useMobileAttachmentInputLeaseGate } from '../../../../src/session/use-mobile-attachment-input-lease-gate'
+import { useMobileTerminalAttachment } from '../../../../src/session/use-mobile-terminal-attachment'
 import { useMobileTerminalPaste } from '../../../../src/session/use-mobile-terminal-paste'
 import { useTerminalLiveInputModePreference } from '../../../../src/session/use-terminal-live-input-mode-preference'
 import { MobileTerminalLiveInputStatus } from '../../../../src/session/MobileTerminalLiveInputStatus'
@@ -248,7 +247,6 @@ import type {
   MobileSessionTabType,
   RenderableDiffLine,
   RuntimeRepoSummary,
-  RuntimeStatusResult,
   SessionTabsResult,
   Terminal,
   TerminalCreateResult,
@@ -1089,13 +1087,12 @@ export default function SessionScreen() {
     activeSessionTab?.type !== 'file' &&
     activeSessionTab?.type !== 'browser'
   const liveInputEnabled = activeHandle ? liveInputTerminalHandles.has(activeHandle) : false
-  const [browserScreencastSupported, setBrowserScreencastSupported] = useState<boolean | null>(null)
-  // Why: hosts without aiVault.v1 reject aiVault.listSessions, so the header
-  // entry stays hidden there (mirrors the gated host-list action) instead of
-  // opening a dead-end "update this host" panel.
-  const [agentSessionHistorySupported, setAgentSessionHistorySupported] = useState<boolean | null>(
-    null
-  )
+  const {
+    browserScreencastSupported,
+    agentSessionHistorySupported,
+    fileAttachmentsSupported,
+    hostQueryReplyInputSupportedRef
+  } = useHostRuntimeCapabilities(client, connState)
   // Why: stable callbacks (handleFileTap) read the live value via this ref, since
   // the capability probe resolves after the callbacks are created.
   const browserScreencastSupportedRef = useRef(browserScreencastSupported)
@@ -2441,46 +2438,6 @@ export default function SessionScreen() {
     terminalGestureInputQueuesRef.current.clear()
     terminalGestureInputInFlightRef.current.clear()
   }, [connState])
-
-  const hostQueryReplyInputSupportedRef = useRef(false)
-
-  useEffect(() => {
-    if (!client || connState !== 'connected') {
-      setBrowserScreencastSupported(null)
-      setAgentSessionHistorySupported(null)
-      hostQueryReplyInputSupportedRef.current = false
-      return
-    }
-    let stale = false
-    void client
-      .sendRequest('status.get')
-      .then((response) => {
-        if (stale || !response.ok) {
-          return
-        }
-        const status = (response as RpcSuccess).result as RuntimeStatusResult
-        setBrowserScreencastSupported(
-          status.capabilities?.includes('browser.screencast.v1') === true
-        )
-        setAgentSessionHistorySupported(
-          status.capabilities?.includes(MOBILE_AI_VAULT_CAPABILITY) === true
-        )
-        // Why: hosts without this capability strip inputKind from terminal.send,
-        // so a forwarded xterm reply would become floor-stealing shell input.
-        hostQueryReplyInputSupportedRef.current =
-          status.capabilities?.includes(TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY) === true
-      })
-      .catch(() => {
-        if (!stale) {
-          setBrowserScreencastSupported(false)
-          setAgentSessionHistorySupported(false)
-          hostQueryReplyInputSupportedRef.current = false
-        }
-      })
-    return () => {
-      stale = true
-    }
-  }, [client, connState])
 
   // Why: deviceToken is read from host record so feature code can pass
   // `client.id` on subscribe/send for driver-state-machine identity.
@@ -3829,11 +3786,12 @@ export default function SessionScreen() {
     showToast
   })
 
-  const { attachImage, isAttaching } = useMobileImageAttachment({
+  const { attachToTerminal, isAttaching } = useMobileTerminalAttachment({
     client,
     activeHandle,
     canSend,
-    connState,
+    connStateRef,
+    canAttachAnyFile: fileAttachmentsSupported,
     deviceTokenRef,
     beforeTerminalSend: flushPendingLiveInputBeforeAttachmentSend,
     getActiveWorktreeConnectionId,
@@ -4889,7 +4847,7 @@ export default function SessionScreen() {
                 ))}
                 <MobileNativeChatOverlay
                   controller={nativeChatController}
-                  onAttachImage={() => void attachImage('library')}
+                  onAttachImage={() => void attachToTerminal('library')}
                   isAttaching={isAttaching}
                   onMicPress={handleDictationToggle}
                   micActive={dictation.isRecording}
@@ -5138,13 +5096,14 @@ export default function SessionScreen() {
                     <MobileTerminalInputActions
                       canSend={canSend}
                       isAttaching={isAttaching}
+                      canAttachAnyFile={fileAttachmentsSupported}
                       dictation={dictation}
                       dictationMode={dictationMode}
                       buttonStyle={styles.dictationButton}
                       activeButtonStyle={styles.dictationButtonActive}
                       disabledButtonStyle={styles.sendButtonDisabled}
-                      onAttachImage={() => void attachImage('library')}
-                      onAttachFile={() => void attachImage('files')}
+                      onAttachImage={() => void attachToTerminal('library')}
+                      onAttachFile={() => void attachToTerminal('files')}
                       onDictationToggle={handleDictationToggle}
                       onDictationPressIn={handleDictationPressIn}
                       onDictationPressOut={handleDictationPressOut}
@@ -5212,13 +5171,14 @@ export default function SessionScreen() {
                     <MobileTerminalInputActions
                       canSend={canSend}
                       isAttaching={isAttaching}
+                      canAttachAnyFile={fileAttachmentsSupported}
                       dictation={dictation}
                       dictationMode={dictationMode}
                       buttonStyle={styles.dictationButton}
                       activeButtonStyle={styles.dictationButtonActive}
                       disabledButtonStyle={styles.sendButtonDisabled}
-                      onAttachImage={() => void attachImage('library')}
-                      onAttachFile={() => void attachImage('files')}
+                      onAttachImage={() => void attachToTerminal('library')}
+                      onAttachFile={() => void attachToTerminal('files')}
                       onDictationToggle={handleDictationToggle}
                       onDictationPressIn={handleDictationPressIn}
                       onDictationPressOut={handleDictationPressOut}

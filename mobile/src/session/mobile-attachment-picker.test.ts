@@ -1,0 +1,213 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: vi.fn(),
+  launchImageLibraryAsync: vi.fn()
+}))
+vi.mock('expo-document-picker', () => ({
+  getDocumentAsync: vi.fn()
+}))
+// Controls what the stat fallback sees when the picker omits asset.size.
+let statSize: number | null = null
+let statExists = true
+vi.mock('expo-file-system', () => ({
+  File: class {
+    get exists(): boolean {
+      return statExists
+    }
+    get size(): number | null {
+      return statSize
+    }
+  }
+}))
+
+import { ImageLibraryPermissionError, pickMobileAttachment } from './mobile-attachment-picker'
+
+const granted = { granted: true } as Awaited<
+  ReturnType<typeof import('expo-image-picker').requestMediaLibraryPermissionsAsync>
+>
+const denied = { granted: false } as typeof granted
+
+describe('pickMobileAttachment', () => {
+  beforeEach(() => {
+    statSize = null
+    statExists = true
+  })
+
+  it('returns base64 from the photo library', async () => {
+    const result = await pickMobileAttachment('library', {
+      requestLibraryPermission: vi.fn().mockResolvedValue(granted),
+      launchLibrary: vi.fn().mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///x.jpg', base64: 'AAAA' }]
+      })
+    })
+
+    expect(result).toEqual({ base64: 'AAAA' })
+  })
+
+  it('throws when photo library permission is denied', async () => {
+    await expect(
+      pickMobileAttachment('library', {
+        requestLibraryPermission: vi.fn().mockResolvedValue(denied),
+        launchLibrary: vi.fn()
+      })
+    ).rejects.toBeInstanceOf(ImageLibraryPermissionError)
+  })
+
+  it('returns null when the library picker is cancelled', async () => {
+    const result = await pickMobileAttachment('library', {
+      requestLibraryPermission: vi.fn().mockResolvedValue(granted),
+      launchLibrary: vi.fn().mockResolvedValue({ canceled: true, assets: null })
+    })
+
+    expect(result).toBeNull()
+  })
+
+  it('reads a picked file URI into base64 and keeps its name for the files source', async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(bytes.buffer, { headers: { 'content-type': 'image/png' } }))
+
+    const result = await pickMobileAttachment('files', {
+      launchFiles: vi.fn().mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///doc.png', name: 'doc.png' }]
+      })
+    })
+
+    expect(result).toEqual({ base64: Buffer.from(bytes).toString('base64'), fileName: 'doc.png' })
+    fetchSpy.mockRestore()
+  })
+
+  it('omits fileName when the document picker supplies no name', async () => {
+    const bytes = new Uint8Array([1, 2])
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(bytes.buffer, { headers: { 'content-type': 'image/png' } }))
+
+    const result = await pickMobileAttachment('files', {
+      launchFiles: vi.fn().mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///doc.png' }]
+      })
+    })
+
+    expect(result).toEqual({ base64: Buffer.from(bytes).toString('base64') })
+    fetchSpy.mockRestore()
+  })
+
+  it('fails fast on an oversized document pick without reading it into memory', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const launchFiles = vi.fn().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///big.zip', name: 'big.zip', size: 999 * 1024 * 1024 }]
+    })
+
+    await expect(
+      pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
+    ).rejects.toThrow('too large')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('stats the file when the picker omits size, still failing fast when oversized', async () => {
+    statSize = 999 * 1024 * 1024
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const launchFiles = vi.fn().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///big.zip', name: 'big.zip' }]
+    })
+
+    await expect(
+      pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
+    ).rejects.toThrow('too large')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('treats an unreadable stat as unknown size, not zero', async () => {
+    statExists = false
+    statSize = 0
+    const bytes = new Uint8Array([7])
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(bytes.buffer))
+
+    const result = await pickMobileAttachment(
+      'files',
+      {
+        launchFiles: vi.fn().mockResolvedValue({
+          canceled: false,
+          assets: [{ uri: 'file:///gone.pdf', name: 'gone.pdf' }]
+        })
+      },
+      { allowAnyFile: true }
+    )
+
+    expect(result).toEqual({ base64: Buffer.from(bytes).toString('base64'), fileName: 'gone.pdf' })
+    fetchSpy.mockRestore()
+  })
+
+  it('fires onWillReadFile after the size guard and before the base64 read', async () => {
+    const events: string[] = []
+    const bytes = new Uint8Array([9])
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      events.push('read')
+      return new Response(bytes.buffer)
+    })
+
+    await pickMobileAttachment(
+      'files',
+      {
+        launchFiles: vi.fn().mockResolvedValue({
+          canceled: false,
+          assets: [{ uri: 'file:///doc.pdf', name: 'doc.pdf', size: 10 }]
+        })
+      },
+      { allowAnyFile: true, onWillReadFile: () => events.push('will-read') }
+    )
+
+    expect(events).toEqual(['will-read', 'read'])
+    fetchSpy.mockRestore()
+  })
+
+  it('keeps the image-only filter by default so old hosts never see non-images', async () => {
+    const launchFiles = vi.fn().mockResolvedValue({ canceled: true, assets: null })
+
+    await pickMobileAttachment('files', { launchFiles })
+
+    expect(launchFiles).toHaveBeenCalledWith(expect.objectContaining({ type: 'image/*' }))
+  })
+
+  it('opens the unfiltered picker when any-file attachments are allowed', async () => {
+    const launchFiles = vi.fn().mockResolvedValue({ canceled: true, assets: null })
+
+    await pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
+
+    expect(launchFiles).toHaveBeenCalledWith(expect.objectContaining({ type: '*/*' }))
+  })
+
+  it('never returns a fileName for photo-library picks', async () => {
+    const result = await pickMobileAttachment(
+      'library',
+      {
+        requestLibraryPermission: vi.fn().mockResolvedValue(granted),
+        launchLibrary: vi.fn().mockResolvedValue({
+          canceled: false,
+          assets: [{ uri: 'file:///x.jpg', base64: 'AAAA', fileName: 'x.jpg' }]
+        })
+      },
+      { allowAnyFile: true }
+    )
+
+    expect(result).toEqual({ base64: 'AAAA' })
+  })
+
+  it('returns null when the files picker is cancelled', async () => {
+    const result = await pickMobileAttachment('files', {
+      launchFiles: vi.fn().mockResolvedValue({ canceled: true, assets: null })
+    })
+
+    expect(result).toBeNull()
+  })
+})
