@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { win32 } from 'node:path'
 
 const PROGRAMS_PATH_BRIDGE_NAME = 'orca-programs-path.exe'
+const PROGRAMS_PATH_BRIDGE_TIMEOUT_MS = 1_000
 
 let cachedProgramsPath: string | undefined
 
@@ -13,6 +14,7 @@ export function getWindowsProgramsPath(): string {
   const bridgePath = win32.join(process.resourcesPath, 'bin', PROGRAMS_PATH_BRIDGE_NAME)
   const programsPath = execFileSync(bridgePath, {
     encoding: 'utf8',
+    timeout: PROGRAMS_PATH_BRIDGE_TIMEOUT_MS,
     windowsHide: true
   }).trim()
   if (!win32.isAbsolute(programsPath)) {

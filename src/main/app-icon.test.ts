@@ -73,7 +73,12 @@ vi.mock('../../resources/app-icons/orca-blue.ico?asset&asarUnpack', () => ({
   default: 'blue-windows-icon-unpacked'
 }))
 
-import { applyAppIcon, getAppIconPath, persistMacDockIcon } from './app-icon'
+import {
+  applyAppIcon,
+  getAppIconPath,
+  persistMacDockIcon,
+  persistWindowsAppShortcutIcon
+} from './app-icon'
 
 function waitForQueuedPersistence(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve))
@@ -170,12 +175,30 @@ describe('app icon selection', () => {
     }
     expect(windowSetIconMock).toHaveBeenCalledWith(image)
     expect(windowSetAppDetailsMock).not.toHaveBeenCalled()
-    if (process.platform === 'win32') {
+    expect(updateWindowsAppShortcutIconMock).not.toHaveBeenCalled()
+  })
+
+  it('persists Windows shortcut icons only when explicitly requested', () => {
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try {
+      persistWindowsAppShortcutIcon('watercolor')
+
       expect(updateWindowsAppShortcutIconMock).toHaveBeenCalledWith(
         'watercolor-windows-icon-unpacked'
       )
-    } else {
+    } finally {
+      platformSpy.mockRestore()
+    }
+  })
+
+  it('does not persist Windows shortcut icons on other platforms', () => {
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    try {
+      persistWindowsAppShortcutIcon('watercolor')
+
       expect(updateWindowsAppShortcutIconMock).not.toHaveBeenCalled()
+    } finally {
+      platformSpy.mockRestore()
     }
   })
 

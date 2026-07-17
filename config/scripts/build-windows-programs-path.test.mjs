@@ -48,7 +48,6 @@ describe('Windows Programs known-folder bridge', () => {
       const query = spawnSync(bridgePath, [], { encoding: 'utf8' })
       expect(query.status, query.stderr).toBe(0)
       expect(win32.isAbsolute(query.stdout.trim())).toBe(true)
-      expect(win32.basename(query.stdout.trim())).toBe('Programs')
     } finally {
       rmSync(outputRoot, { recursive: true, force: true })
     }

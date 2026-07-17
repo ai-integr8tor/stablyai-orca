@@ -301,10 +301,17 @@ export function persistMacDockIcon(value: unknown, options: PersistMacDockIconOp
   })
 }
 
-export function applyAppIcon(value: unknown): void {
+export function persistWindowsAppShortcutIcon(value: unknown): void {
+  if (process.platform !== 'win32') {
+    return
+  }
+  updateWindowsAppShortcutIcon(getAppIconPath(value))
+}
+
+export function applyAppIcon(value: unknown): boolean {
   const image = createAppIconImage(value)
   if (image.isEmpty()) {
-    return
+    return false
   }
   if (process.platform === 'darwin') {
     app.dock?.setIcon(image)
@@ -315,8 +322,5 @@ export function applyAppIcon(value: unknown): void {
     }
   }
   persistMacDockIcon(value)
-  // Why: shortcut mutation is Windows-only; the callee's guard protects direct callers.
-  if (process.platform === 'win32') {
-    updateWindowsAppShortcutIcon(getAppIconPath(value))
-  }
+  return true
 }
