@@ -10,11 +10,13 @@ import {
   ChevronDown,
   ChevronRight,
   Globe,
+  GripHorizontal,
   LoaderCircle,
   MemoryStick,
   RotateCw,
   Terminal,
   Trash2,
+  Undo2,
   X
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -78,6 +80,7 @@ import {
   type ResourceSessionBindingInputs
 } from './resource-session-bindings'
 import { createClosedResourceSessionCountSelector } from './resource-session-count-selector'
+import { clampResourceManagerPosition } from './resource-manager-drag-bounds'
 import { translate } from '@/i18n/i18n'
 
 const POLL_MS = 2_000
@@ -85,9 +88,26 @@ const selectClosedResourceSessionCount = createClosedResourceSessionCountSelecto
 
 type SortOption = 'memory' | 'cpu' | 'name'
 
+type FloatingPosition = {
+  x: number
+  y: number
+}
+
+type FloatingDragState = {
+  pointerId: number
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+  activated: boolean
+}
+
 const METRIC_COLUMNS_CLS = 'flex items-center shrink-0 tabular-nums'
 const CPU_COLUMN_CLS = 'w-12 text-right'
 const MEM_COLUMN_CLS = 'w-16 text-right'
+const FLOATING_DRAG_THRESHOLD_PX = 4
+const FLOATING_PANEL_VIEWPORT_MARGIN_PX = 8
+const FLOATING_PANEL_RECOVERY_HEIGHT_PX = 32
 // Why: every row (session, worktree, repo, app) AND the column header
 // reserve this same trailing gutter so the CPU/Memory columns line up
 // regardless of whether a row carries a kill-X. The X button sits inside
@@ -768,6 +788,8 @@ export function ResourceUsageStatusSegment({
   const workspaceSpaceScanning = useAppStore((s) => s.workspaceSpaceScanning)
 
   const [open, setOpen] = useState(false)
+  const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null)
+  const [floatingDragging, setFloatingDragging] = useState(false)
   const [sortOption, setSortOption] = useState<SortOption>('memory')
   const [collapsedRepos, setCollapsedRepos] = useState<Set<string>>(new Set())
   const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(new Set())
@@ -813,9 +835,69 @@ export function ResourceUsageStatusSegment({
   // Why: after a kill confirms and the session unmounts, focus would otherwise
   // fall to <body>. We park a ref on the popover body so we can restore focus
   // somewhere stable for keyboard users.
+  const floatingDragRef = useRef<FloatingDragState | null>(null)
+  const floatingDragFrameRef = useRef<number | null>(null)
+  const pendingFloatingPositionRef = useRef<FloatingPosition | null>(null)
+  const floatingPositionRef = useRef<FloatingPosition | null>(floatingPosition)
+  const floatingPanelRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyRef = useRef<HTMLDivElement | null>(null)
   const popoverBodyFocusFrameRef = useRef<number | null>(null)
   const mountedRef = useMountedRef()
+
+  const clampFloatingOffset = useCallback(
+    (position: FloatingPosition, current: FloatingPosition): FloatingPosition => {
+      const panel = floatingPanelRef.current
+      if (!panel) {
+        return current
+      }
+      return clampResourceManagerPosition({
+        current,
+        proposed: position,
+        rect: panel.getBoundingClientRect(),
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        margin: FLOATING_PANEL_VIEWPORT_MARGIN_PX,
+        recoveryHeight: FLOATING_PANEL_RECOVERY_HEIGHT_PX
+      })
+    },
+    []
+  )
+
+  const stopDragEvent = useCallback((event: React.PointerEvent<HTMLElement>): void => {
+    event.stopPropagation()
+    event.preventDefault()
+  }, [])
+
+  const applyFloatingPosition = useCallback(
+    (proposed: FloatingPosition): FloatingPosition => {
+      const current = floatingPositionRef.current ?? { x: 0, y: 0 }
+      const next = clampFloatingOffset(proposed, current)
+      floatingPositionRef.current = next
+      floatingPanelRef.current?.style.setProperty('--resource-manager-x', `${next.x}px`)
+      floatingPanelRef.current?.style.setProperty('--resource-manager-y', `${next.y}px`)
+      return next
+    },
+    [clampFloatingOffset]
+  )
+
+  useEffect(() => {
+    floatingPositionRef.current = floatingPosition
+    const panel = floatingPanelRef.current
+    if (!panel) {
+      return
+    }
+    panel.style.setProperty('--resource-manager-x', `${floatingPosition?.x ?? 0}px`)
+    panel.style.setProperty('--resource-manager-y', `${floatingPosition?.y ?? 0}px`)
+  }, [floatingPosition])
+
+  useEffect(
+    () => () => {
+      if (floatingDragFrameRef.current !== null) {
+        cancelAnimationFrame(floatingDragFrameRef.current)
+      }
+    },
+    []
+  )
 
   const cancelPopoverBodyFocusFrame = useCallback((): void => {
     if (popoverBodyFocusFrameRef.current === null) {
@@ -835,6 +917,108 @@ export function ResourceUsageStatusSegment({
     },
     [cancelPopoverBodyFocusFrame]
   )
+
+  const handleFloatingDragStart = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
+      if (event.button !== 0) {
+        return
+      }
+      const origin = floatingPositionRef.current ?? { x: 0, y: 0 }
+      floatingDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: origin.x,
+        originY: origin.y,
+        activated: false
+      }
+      setFloatingDragging(true)
+      event.currentTarget.setPointerCapture(event.pointerId)
+      stopDragEvent(event)
+    },
+    [stopDragEvent]
+  )
+
+  const handleFloatingDragMove = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
+      const drag = floatingDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return
+      }
+      const deltaX = event.clientX - drag.startX
+      const deltaY = event.clientY - drag.startY
+      if (!drag.activated && Math.hypot(deltaX, deltaY) < FLOATING_DRAG_THRESHOLD_PX) {
+        stopDragEvent(event)
+        return
+      }
+      drag.activated = true
+      pendingFloatingPositionRef.current = {
+        x: drag.originX + deltaX,
+        y: drag.originY + deltaY
+      }
+      if (floatingDragFrameRef.current === null) {
+        floatingDragFrameRef.current = requestAnimationFrame(() => {
+          floatingDragFrameRef.current = null
+          const pending = pendingFloatingPositionRef.current
+          pendingFloatingPositionRef.current = null
+          if (pending) {
+            applyFloatingPosition(pending)
+          }
+        })
+      }
+      stopDragEvent(event)
+    },
+    [applyFloatingPosition, stopDragEvent]
+  )
+
+  const handleFloatingDragEnd = useCallback(
+    (event: React.PointerEvent<HTMLElement>): void => {
+      const drag = floatingDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return
+      }
+      if (floatingDragFrameRef.current !== null) {
+        cancelAnimationFrame(floatingDragFrameRef.current)
+        floatingDragFrameRef.current = null
+      }
+      const pending = pendingFloatingPositionRef.current
+      pendingFloatingPositionRef.current = null
+      const finalPosition = pending ? applyFloatingPosition(pending) : floatingPositionRef.current
+      floatingDragRef.current = null
+      setFloatingDragging(false)
+      if (drag.activated && finalPosition) {
+        setFloatingPosition(finalPosition)
+      }
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      stopDragEvent(event)
+    },
+    [applyFloatingPosition, stopDragEvent]
+  )
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const keepPanelReachable = (): void => {
+      setFloatingPosition((current) => {
+        if (!current) {
+          return current
+        }
+        const clamped = clampFloatingOffset(current, current)
+        return clamped.x === current.x && clamped.y === current.y ? current : clamped
+      })
+    }
+    // Why: Radix can choose a new anchor placement when the popover reopens;
+    // revalidate the saved offset against that live surface before reuse.
+    const frameId = requestAnimationFrame(keepPanelReachable)
+    window.addEventListener('resize', keepPanelReachable)
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', keepPanelReachable)
+    }
+  }, [clampFloatingOffset, open])
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -1260,11 +1444,16 @@ export function ResourceUsageStatusSegment({
       </Tooltip>
 
       <PopoverContent
+        ref={floatingPanelRef}
         side="top"
         align="end"
         sideOffset={8}
         {...STATUS_BAR_CONTEXT_MENU_EXEMPT_PROPS}
         className="w-[26rem] max-w-[calc(100vw-2rem)] p-0"
+        style={{
+          transform:
+            'translate(var(--resource-manager-x, 0px), var(--resource-manager-y, 0px))'
+        }}
         onOpenAutoFocus={(event) => event.preventDefault()}
         // Why: clicking a terminal row activates a tab, which causes xterm
         // to programmatically focus the terminal DOM node. Radix would
@@ -1273,343 +1462,410 @@ export function ResourceUsageStatusSegment({
         // outside-click (onPointerDownOutside default) and Escape.
         onFocusOutside={(event) => event.preventDefault()}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
-          <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
-            <MemoryStick className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate">
-              {translate('auto.components.status.bar.StatusBar.d1e1a7a6bf', 'Resource Manager')}
-            </span>
-          </div>
+        <div>
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+            <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
+              <span
+                role="presentation"
+                title={translate(
+                  'auto.components.status.bar.ResourceUsageStatusSegment.0f41c4e8d1',
+                  'Move Resource Manager'
+                )}
+                onPointerDown={handleFloatingDragStart}
+                onPointerMove={handleFloatingDragMove}
+                onPointerUp={handleFloatingDragEnd}
+                onPointerCancel={handleFloatingDragEnd}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                }}
+                className={cn(
+                  'inline-flex size-5 shrink-0 touch-none select-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+                  floatingDragging ? 'cursor-grabbing' : 'cursor-grab'
+                )}
+              >
+                <GripHorizontal className="size-3" />
+              </span>
+              <MemoryStick className="size-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {translate('auto.components.status.bar.StatusBar.d1e1a7a6bf', 'Resource Manager')}
+              </span>
+            </div>
 
-          <div className="flex items-center gap-0.5">
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => daemonActions.setPending('restart')}
-                  disabled={daemonActions.isBusy}
-                  aria-label={translate(
+            <div className="flex items-center gap-0.5">
+              {floatingPosition && (
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setFloatingPosition(null)}
+                      aria-label={translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.b2f6b4c0b4',
+                        'Reset Resource Manager position'
+                      )}
+                      className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <Undo2 className="size-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6}>
+                    {translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.b2f6b4c0b4',
+                      'Reset Resource Manager position'
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => daemonActions.setPending('restart')}
+                    disabled={daemonActions.isBusy}
+                    aria-label={translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.c9382662bb',
+                      'Restart daemon'
+                    )}
+                    className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                  >
+                    <RotateCw className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6}>
+                  {translate(
                     'auto.components.status.bar.ResourceUsageStatusSegment.c9382662bb',
                     'Restart daemon'
                   )}
-                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
-                >
-                  <RotateCw className="size-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6}>
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.c9382662bb',
-                  'Restart daemon'
-                )}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => daemonActions.setPending('killAll')}
-                  disabled={daemonActions.isBusy}
-                  aria-label={translate(
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => daemonActions.setPending('killAll')}
+                    disabled={daemonActions.isBusy}
+                    aria-label={translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.bd19fd7a59',
+                      'Kill all sessions'
+                    )}
+                    className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6}>
+                  {translate(
                     'auto.components.status.bar.ResourceUsageStatusSegment.bd19fd7a59',
                     'Kill all sessions'
                   )}
-                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                >
-                  <Trash2 className="size-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6}>
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.bd19fd7a59',
-                  'Kill all sessions'
-                )}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-
-        {daemonUnreachable && (
-          <div className="flex items-start gap-2 border-b border-border bg-yellow-500/10 px-3 py-2 text-[11px] text-foreground">
-            <AlertTriangle className="mt-0.5 size-3 shrink-0 text-yellow-500" />
-            <div className="flex-1">
-              <div className="font-medium">
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.f8e0d794b4',
-                  'Daemon is not responding'
-                )}
-              </div>
-              <div className="text-muted-foreground">
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.f85af9cda6',
-                  'Resource snapshots and terminal sessions are unavailable.'
-                )}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => daemonActions.setPending('restart')}
-              disabled={daemonActions.isBusy}
-            >
-              <RotateCw className="mr-1 size-3" />
-              {translate(
-                'auto.components.status.bar.ResourceUsageStatusSegment.93b0de3c21',
-                'Restart'
-              )}
-            </Button>
-          </div>
-        )}
-
-        {!daemonUnreachable && sessionsOnlyError && (
-          <div
-            className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground"
-            role="status"
-          >
-            <AlertTriangle className="size-3 shrink-0 text-yellow-500" />
-            <span>
-              {translate(
-                'auto.components.status.bar.ResourceUsageStatusSegment.e7cf14ec78',
-                'Terminal sessions unavailable. The list may be stale.'
-              )}
-            </span>
-          </div>
-        )}
-
-        {resourceSnapshot && (
-          <div className="px-3 py-2 border-b border-border flex items-baseline justify-between gap-3 text-xs tabular-nums">
-            <div className="flex items-baseline gap-3 min-w-0">
-              <Tooltip delayDuration={200}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                  >
-                    {formatCpu(totalCpu)}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                  {translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.1fedf94eae',
-                    'Combined CPU load. Values above 100% mean more than one core is working at once.'
-                  )}
                 </TooltipContent>
               </Tooltip>
-              <span className="text-muted-foreground/50">·</span>
               <Tooltip delayDuration={200}>
                 <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                  >
-                    {formatMemory(totalMemory)}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                  {translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.9e2525c89f',
-                    "Resident memory held by Orca plus the processes under each worktree's terminals."
-                  )}
-                </TooltipContent>
-              </Tooltip>
-              <span className="text-muted-foreground/50">·</span>
-              <Tooltip delayDuration={200}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                  >
-                    {formatPercent(hostShare)}{' '}
-                    {translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.e7ccce7e87',
-                      'of system RAM'
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    aria-label={translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.17a6a2c4f3',
+                      'Close Resource Manager'
                     )}
-                  </span>
+                    className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
                 </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                <TooltipContent side="top" sideOffset={6}>
                   {translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.6449a95c78',
-                    "How much of this machine's physical RAM the Orca-tracked processes are sitting on."
+                    'auto.components.status.bar.ResourceUsageStatusSegment.17a6a2c4f3',
+                    'Close Resource Manager'
                   )}
                 </TooltipContent>
               </Tooltip>
             </div>
-            {orphanCount > 0 && (
-              <span className="shrink-0 text-yellow-500" aria-live="polite">
-                {orphanCount === 1
-                  ? translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.30ff2c3c31',
-                      '{{value0}} orphan',
-                      { value0: orphanCount }
-                    )
-                  : translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.b8f4a2c1d0e3',
-                      '{{value0}} orphans',
-                      { value0: orphanCount }
-                    )}
-              </span>
-            )}
           </div>
-        )}
 
-        {/* Why: pin body to a constant 420px so the popover surface doesn't
-            jump as worktrees expand/collapse or as sessions come and go. The
-            inner tree owns its own scroll. The footer renders below this
-            shell when orphan-bulk-kill is available. */}
-        <div
-          ref={setPopoverBodyNode}
-          tabIndex={-1}
-          className="flex h-[420px] flex-col outline-none"
-        >
-          {(unifiedRepos.length > 0 || resourceSnapshot) && (
-            <div className="flex items-center justify-between px-3 py-1 bg-muted/30 border-b border-border/50 text-[10px] uppercase tracking-wide shrink-0">
-              <button
-                type="button"
-                onClick={() => setSortOption('name')}
-                className={cn(
-                  'hover:text-foreground transition-colors',
-                  sortOption === 'name'
-                    ? 'font-semibold text-foreground'
-                    : 'text-muted-foreground/80'
-                )}
-                aria-pressed={sortOption === 'name'}
-              >
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.2aa2de6cb9',
-                  'Name'
-                )}
-              </button>
-              <div className="flex items-center gap-2 shrink-0">
-                <div className={cn(METRIC_COLUMNS_CLS, 'text-[10px]')}>
-                  <button
-                    type="button"
-                    onClick={() => setSortOption('cpu')}
-                    className={cn(
-                      CPU_COLUMN_CLS,
-                      'hover:text-foreground transition-colors',
-                      sortOption === 'cpu'
-                        ? 'font-semibold text-foreground'
-                        : 'text-muted-foreground/80'
-                    )}
-                    aria-pressed={sortOption === 'cpu'}
-                  >
-                    {translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.298f4be7f2',
-                      'CPU'
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSortOption('memory')}
-                    className={cn(
-                      MEM_COLUMN_CLS,
-                      'hover:text-foreground transition-colors',
-                      sortOption === 'memory'
-                        ? 'font-semibold text-foreground'
-                        : 'text-muted-foreground/80'
-                    )}
-                    aria-pressed={sortOption === 'memory'}
-                  >
-                    {translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.1b24a32d3a',
-                      'Memory'
-                    )}
-                  </button>
+          {daemonUnreachable && (
+            <div className="flex items-start gap-2 border-b border-border bg-yellow-500/10 px-3 py-2 text-[11px] text-foreground">
+              <AlertTriangle className="mt-0.5 size-3 shrink-0 text-yellow-500" />
+              <div className="flex-1">
+                <div className="font-medium">
+                  {translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.f8e0d794b4',
+                    'Daemon is not responding'
+                  )}
                 </div>
-                {/* Why: empty trailing gutter so the CPU/Memory header
-                    cells line up with the row cells; rows reserve the same
-                    width for the kill-X button. */}
-                <span className={ROW_TRAILING_GUTTER_CLS} aria-hidden />
+                <div className="text-muted-foreground">
+                  {translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.f85af9cda6',
+                    'Resource snapshots and terminal sessions are unavailable.'
+                  )}
+                </div>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => daemonActions.setPending('restart')}
+                disabled={daemonActions.isBusy}
+              >
+                <RotateCw className="mr-1 size-3" />
+                {translate(
+                  'auto.components.status.bar.ResourceUsageStatusSegment.93b0de3c21',
+                  'Restart'
+                )}
+              </Button>
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto scrollbar-sleek">
-            {unifiedRepos.length > 0 && (
-              <ResourceTree
-                repos={unifiedRepos}
-                sortOption={sortOption}
-                collapsedRepos={collapsedRepos}
-                toggleRepo={toggleRepo}
-                collapsedWorktrees={collapsedWorktrees}
-                activeWorktreeId={activeWorktreeId}
-                toggleWorktree={toggleWorktree}
-                navigateToWorktree={navigateToWorktree}
-                navigateToTab={navigateToTab}
-                onDelete={deleteWorktree}
-                onKillSession={handleKillSession}
-              />
-            )}
-
-            {unifiedRepos.length === 0 && resourceSnapshot && (
-              <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+          {!daemonUnreachable && sessionsOnlyError && (
+            <div
+              className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground"
+              role="status"
+            >
+              <AlertTriangle className="size-3 shrink-0 text-yellow-500" />
+              <span>
                 {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.27a74f91f0',
-                  'Nothing running right now'
+                  'auto.components.status.bar.ResourceUsageStatusSegment.e7cf14ec78',
+                  'Terminal sessions unavailable. The list may be stale.'
                 )}
+              </span>
+            </div>
+          )}
+
+          {resourceSnapshot && (
+            <div className="px-3 py-2 border-b border-border flex items-baseline justify-between gap-3 text-xs tabular-nums">
+              <div className="flex items-baseline gap-3 min-w-0">
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={0}
+                      className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                    >
+                      {formatCpu(totalCpu)}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                    {translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.1fedf94eae',
+                      'Combined CPU load. Values above 100% mean more than one core is working at once.'
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+                <span className="text-muted-foreground/50">·</span>
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={0}
+                      className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                    >
+                      {formatMemory(totalMemory)}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                    {translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.9e2525c89f',
+                      "Resident memory held by Orca plus the processes under each worktree's terminals."
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+                <span className="text-muted-foreground/50">·</span>
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={0}
+                      className="text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                    >
+                      {formatPercent(hostShare)}{' '}
+                      {translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.e7ccce7e87',
+                        'of system RAM'
+                      )}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                    {translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.6449a95c78',
+                      "How much of this machine's physical RAM the Orca-tracked processes are sitting on."
+                    )}
+                  </TooltipContent>
+                </Tooltip>
               </div>
-            )}
-
-            {resourceSnapshot && (
-              <AppSection
-                app={resourceSnapshot.app}
-                isCollapsed={appCollapsed}
-                onToggle={() => setAppCollapsed((v) => !v)}
-              />
-            )}
-
-            {!resourceSnapshot && !daemonUnreachable && (
-              <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                {translate(
-                  'auto.components.status.bar.ResourceUsageStatusSegment.888dad8c55',
-                  'Loading…'
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="border-t border-border/50 px-3 py-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleOpenWorkspaceCleanup}
-            className="relative inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
-          >
-            <span className="min-w-0 truncate px-4 text-center">
-              {translate(
-                'auto.components.status.bar.ResourceUsageStatusSegment.92924a14e3',
-                'Review inactive workspaces ({{value0}})',
-                { value0: oldWorkspaceCount }
+              {orphanCount > 0 && (
+                <span className="shrink-0 text-yellow-500" aria-live="polite">
+                  {orphanCount === 1
+                    ? translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.30ff2c3c31',
+                        '{{value0}} orphan',
+                        { value0: orphanCount }
+                      )
+                    : translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.b8f4a2c1d0e3',
+                        '{{value0}} orphans',
+                        { value0: orphanCount }
+                      )}
+                </span>
               )}
-            </span>
-            <ChevronRight
-              className="absolute right-2.5 size-3.5 text-muted-foreground"
-              aria-hidden
-            />
-          </button>
-          {orphanCount > 0 ? (
+            </div>
+          )}
+
+          {/* Why: pin body to a constant 420px so the popover surface doesn't
+            jump as worktrees expand/collapse or as sessions come and go. The
+            inner tree owns its own scroll. The footer renders below this
+            shell when orphan-bulk-kill is available. */}
+          <div
+            ref={setPopoverBodyNode}
+            tabIndex={-1}
+            className="flex h-[420px] flex-col outline-none"
+          >
+            {(unifiedRepos.length > 0 || resourceSnapshot) && (
+              <div className="flex items-center justify-between px-3 py-1 bg-muted/30 border-b border-border/50 text-[10px] uppercase tracking-wide shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSortOption('name')}
+                  className={cn(
+                    'hover:text-foreground transition-colors',
+                    sortOption === 'name'
+                      ? 'font-semibold text-foreground'
+                      : 'text-muted-foreground/80'
+                  )}
+                  aria-pressed={sortOption === 'name'}
+                >
+                  {translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.2aa2de6cb9',
+                    'Name'
+                  )}
+                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className={cn(METRIC_COLUMNS_CLS, 'text-[10px]')}>
+                    <button
+                      type="button"
+                      onClick={() => setSortOption('cpu')}
+                      className={cn(
+                        CPU_COLUMN_CLS,
+                        'hover:text-foreground transition-colors',
+                        sortOption === 'cpu'
+                          ? 'font-semibold text-foreground'
+                          : 'text-muted-foreground/80'
+                      )}
+                      aria-pressed={sortOption === 'cpu'}
+                    >
+                      {translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.298f4be7f2',
+                        'CPU'
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortOption('memory')}
+                      className={cn(
+                        MEM_COLUMN_CLS,
+                        'hover:text-foreground transition-colors',
+                        sortOption === 'memory'
+                          ? 'font-semibold text-foreground'
+                          : 'text-muted-foreground/80'
+                      )}
+                      aria-pressed={sortOption === 'memory'}
+                    >
+                      {translate(
+                        'auto.components.status.bar.ResourceUsageStatusSegment.1b24a32d3a',
+                        'Memory'
+                      )}
+                    </button>
+                  </div>
+                  {/* Why: empty trailing gutter so the CPU/Memory header
+                    cells line up with the row cells; rows reserve the same
+                    width for the kill-X button. */}
+                  <span className={ROW_TRAILING_GUTTER_CLS} aria-hidden />
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto scrollbar-sleek">
+              {unifiedRepos.length > 0 && (
+                <ResourceTree
+                  repos={unifiedRepos}
+                  sortOption={sortOption}
+                  collapsedRepos={collapsedRepos}
+                  toggleRepo={toggleRepo}
+                  collapsedWorktrees={collapsedWorktrees}
+                  activeWorktreeId={activeWorktreeId}
+                  toggleWorktree={toggleWorktree}
+                  navigateToWorktree={navigateToWorktree}
+                  navigateToTab={navigateToTab}
+                  onDelete={deleteWorktree}
+                  onKillSession={handleKillSession}
+                />
+              )}
+
+              {unifiedRepos.length === 0 && resourceSnapshot && (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  {translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.27a74f91f0',
+                    'Nothing running right now'
+                  )}
+                </div>
+              )}
+
+              {resourceSnapshot && (
+                <AppSection
+                  app={resourceSnapshot.app}
+                  isCollapsed={appCollapsed}
+                  onToggle={() => setAppCollapsed((v) => !v)}
+                />
+              )}
+
+              {!resourceSnapshot && !daemonUnreachable && (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  {translate(
+                    'auto.components.status.bar.ResourceUsageStatusSegment.888dad8c55',
+                    'Loading…'
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-border/50 px-3 py-2 shrink-0">
             <button
               type="button"
-              onClick={() => void handleKillOrphans()}
-              className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
+              onClick={handleOpenWorkspaceCleanup}
+              className="relative inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
             >
-              {orphanCount === 1
-                ? translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.c7e3b1a0d9f2',
-                    'Kill {{value0}} orphan terminal',
-                    { value0: orphanCount }
-                  )
-                : translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.d8f4c2b1e0a3',
-                    'Kill {{value0}} orphan terminals',
-                    { value0: orphanCount }
-                  )}
+              <span className="min-w-0 truncate px-4 text-center">
+                {translate(
+                  'auto.components.status.bar.ResourceUsageStatusSegment.92924a14e3',
+                  'Review inactive workspaces ({{value0}})',
+                  { value0: oldWorkspaceCount }
+                )}
+              </span>
+              <ChevronRight
+                className="absolute right-2.5 size-3.5 text-muted-foreground"
+                aria-hidden
+              />
             </button>
-          ) : null}
-        </div>
+            {orphanCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => void handleKillOrphans()}
+                className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/60"
+              >
+                {orphanCount === 1
+                  ? translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.c7e3b1a0d9f2',
+                      'Kill {{value0}} orphan terminal',
+                      { value0: orphanCount }
+                    )
+                  : translate(
+                      'auto.components.status.bar.ResourceUsageStatusSegment.d8f4c2b1e0a3',
+                      'Kill {{value0}} orphan terminals',
+                      { value0: orphanCount }
+                    )}
+              </button>
+            ) : null}
+          </div>
 
-        <WorkspaceSpaceCompactPanel onOpenFullPage={openSpaceResults} />
+          <WorkspaceSpaceCompactPanel onOpenFullPage={openSpaceResults} />
+        </div>
       </PopoverContent>
       {/* Why: Radix Dialog must not be a descendant of PopoverContent — when
           the popover unmounts (e.g. clicking outside, focus moving to the
