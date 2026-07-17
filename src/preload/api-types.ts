@@ -254,6 +254,7 @@ import type {
   GetProjectViewTableResult,
   GitHubProjectCommentMutationResult,
   GitHubProjectMutationResult,
+  ListAccessibleProjectsArgs,
   ListAccessibleProjectsResult,
   ListAssignableUsersBySlugArgs,
   ListAssignableUsersBySlugResult,
@@ -1474,11 +1475,11 @@ export type PreloadApi = {
     repoSlug: (args: {
       repoPath: string
       repoId?: string
-    }) => Promise<{ owner: string; repo: string } | null>
+    }) => Promise<{ owner: string; repo: string; host?: string } | null>
     repoUpstream: (args: {
       repoPath: string
       repoId?: string
-    }) => Promise<{ owner: string; repo: string } | null>
+    }) => Promise<{ owner: string; repo: string; host?: string } | null>
     prForBranch: (args: {
       repoPath: string
       repoId?: string
@@ -1517,6 +1518,7 @@ export type PreloadApi = {
       repoId?: string
       owner: string
       repo: string
+      host?: string
       number: number
       type: 'issue' | 'pr'
     }) => Promise<Omit<GitHubWorkItem, 'repoId'> | null>
@@ -1535,6 +1537,7 @@ export type PreloadApi = {
     prFileContents: (
       args: GitHubRepoSelectorArgs & {
         prNumber: number
+        prRepo?: GitHubOwnerRepo | null
         path: string
         oldPath?: string
         status: GitHubPRFile['status']
@@ -1588,6 +1591,7 @@ export type PreloadApi = {
         prNumber: number
         headSha?: string
         failedOnly?: boolean
+        prRepo?: GitHubOwnerRepo | null
       }
     ) => Promise<{ ok: true; count: number } | { ok: false; error: string }>
     prComments: (args: {
@@ -1604,10 +1608,12 @@ export type PreloadApi = {
       sourceContext?: TaskSourceContext | null
       threadId: string
       resolve: boolean
+      prRepo?: GitHubOwnerRepo | null
     }) => Promise<boolean>
     setPRFileViewed: (
       args: GitHubRepoSelectorArgs & {
         prNumber: number
+        prRepo?: GitHubOwnerRepo | null
         pullRequestId: string
         path: string
         viewed: boolean
@@ -1639,18 +1645,21 @@ export type PreloadApi = {
       args: GitHubRepoSelectorArgs & {
         prNumber: number
         updates: { state: 'open' | 'closed' }
+        prRepo?: GitHubOwnerRepo | null
       }
     ) => Promise<{ ok: true } | { ok: false; error: string }>
     requestPRReviewers: (
       args: GitHubRepoSelectorArgs & {
         prNumber: number
         reviewers: string[]
+        prRepo?: GitHubOwnerRepo | null
       }
     ) => Promise<{ ok: true } | { ok: false; error: string }>
     removePRReviewers: (
       args: GitHubRepoSelectorArgs & {
         prNumber: number
         reviewers: string[]
+        prRepo?: GitHubOwnerRepo | null
       }
     ) => Promise<{ ok: true } | { ok: false; error: string }>
     updateIssue: (
@@ -1727,9 +1736,11 @@ export type PreloadApi = {
      * shell and silently shadows the keyring credential — in that case
      * `gh auth refresh` is a no-op and the UI must say so.
      */
-    diagnoseAuth: () => Promise<GhAuthDiagnostic>
+    diagnoseAuth: (args?: { host?: string }) => Promise<GhAuthDiagnostic>
     // ── ProjectV2 (GitHub Projects) ─────────────────────────────────
-    listAccessibleProjects: () => Promise<ListAccessibleProjectsResult>
+    listAccessibleProjects: (
+      args?: ListAccessibleProjectsArgs
+    ) => Promise<ListAccessibleProjectsResult>
     resolveProjectRef: (args: ResolveProjectRefArgs) => Promise<ResolveProjectRefResult>
     listProjectViews: (args: ListProjectViewsArgs) => Promise<ListProjectViewsResult>
     getProjectViewTable: (args: GetProjectViewTableArgs) => Promise<GetProjectViewTableResult>

@@ -7,12 +7,15 @@ type RateLimitGuardResult =
 const {
   ghExecFileAsyncMock,
   getOwnerRepoMock,
-  getIssueOwnerRepoMock,
+  getOwnerRepoForRemoteMock,
+  getEnterpriseGitHubRepoSlugMock,
+  getEnterpriseGitHubRepoSlugForRemoteMock,
   getWorkItemMock,
+  getWorkItemByOwnerRepoMock,
   getPRChecksMock,
   getPRCommentsMock,
-  rateLimitGuardMock,
-  noteRateLimitSpendMock,
+  repositoryRateLimitGuardMock,
+  noteRepositoryRateLimitSpendMock,
   ghRepoExecOptionsMock,
   githubRepoContextMock,
   acquireMock,
@@ -20,12 +23,21 @@ const {
 } = vi.hoisted(() => ({
   ghExecFileAsyncMock: vi.fn(),
   getOwnerRepoMock: vi.fn(),
-  getIssueOwnerRepoMock: vi.fn(),
+  getOwnerRepoForRemoteMock: vi.fn(),
+  getEnterpriseGitHubRepoSlugMock: vi.fn(),
+  getEnterpriseGitHubRepoSlugForRemoteMock: vi.fn(),
   getWorkItemMock: vi.fn(),
+  getWorkItemByOwnerRepoMock: vi.fn(),
   getPRChecksMock: vi.fn(),
   getPRCommentsMock: vi.fn(),
-  rateLimitGuardMock: vi.fn<() => RateLimitGuardResult>(() => ({ blocked: false })),
-  noteRateLimitSpendMock: vi.fn(),
+  repositoryRateLimitGuardMock: vi.fn<
+    (
+      repository: { host?: string } | null | undefined,
+      bucket: 'core' | 'graphql' | 'search',
+      options?: { cwd?: string; wslDistro?: string }
+    ) => RateLimitGuardResult
+  >(() => ({ blocked: false })),
+  noteRepositoryRateLimitSpendMock: vi.fn(),
   ghRepoExecOptionsMock: vi.fn((context) =>
     context.connectionId
       ? {}
@@ -43,7 +55,7 @@ const {
 vi.mock('./gh-utils', () => ({
   ghExecFileAsync: ghExecFileAsyncMock,
   getOwnerRepo: getOwnerRepoMock,
-  getIssueOwnerRepo: getIssueOwnerRepoMock,
+  getOwnerRepoForRemote: getOwnerRepoForRemoteMock,
   ghRepoExecOptions: ghRepoExecOptionsMock,
   githubRepoContext: githubRepoContextMock,
   acquire: acquireMock,
@@ -52,28 +64,48 @@ vi.mock('./gh-utils', () => ({
 
 vi.mock('./client', () => ({
   getWorkItem: getWorkItemMock,
+  getWorkItemByOwnerRepo: getWorkItemByOwnerRepoMock,
   getPRChecks: getPRChecksMock,
   getPRComments: getPRCommentsMock
 }))
 
+vi.mock('./github-enterprise-repository', () => ({
+  getEnterpriseGitHubRepoSlug: getEnterpriseGitHubRepoSlugMock,
+  getEnterpriseGitHubRepoSlugForRemote: getEnterpriseGitHubRepoSlugForRemoteMock,
+  isGitHubHostAuthenticated: vi.fn().mockResolvedValue(true)
+}))
+
 vi.mock('./rate-limit', () => ({
-  rateLimitGuard: rateLimitGuardMock,
-  noteRateLimitSpend: noteRateLimitSpendMock
+  repositoryRateLimitGuard: repositoryRateLimitGuardMock,
+  noteRepositoryRateLimitSpend: noteRepositoryRateLimitSpendMock
 }))
 
 import { getWorkItemDetails } from './work-item-details'
+
+import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'
+
+// The origin-repository cache is module-level state; reset it so slugs
+// resolved by one test cannot leak into the next.
+beforeEach(() => {
+  _resetOriginGitHubApiRepositoryCache()
+})
 
 describe('getWorkItemDetails', () => {
   beforeEach(() => {
     ghExecFileAsyncMock.mockReset()
     getOwnerRepoMock.mockReset()
-    getIssueOwnerRepoMock.mockReset()
+    getOwnerRepoForRemoteMock.mockReset()
+    getEnterpriseGitHubRepoSlugMock.mockReset()
+    getEnterpriseGitHubRepoSlugMock.mockResolvedValue(null)
+    getEnterpriseGitHubRepoSlugForRemoteMock.mockReset()
+    getEnterpriseGitHubRepoSlugForRemoteMock.mockResolvedValue(null)
     getWorkItemMock.mockReset()
+    getWorkItemByOwnerRepoMock.mockReset()
     getPRChecksMock.mockReset()
     getPRCommentsMock.mockReset()
-    rateLimitGuardMock.mockReset()
-    rateLimitGuardMock.mockReturnValue({ blocked: false })
-    noteRateLimitSpendMock.mockReset()
+    repositoryRateLimitGuardMock.mockReset()
+    repositoryRateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRepositoryRateLimitSpendMock.mockReset()
     ghRepoExecOptionsMock.mockClear()
     githubRepoContextMock.mockClear()
     acquireMock.mockReset()
@@ -93,7 +125,7 @@ describe('getWorkItemDetails', () => {
       updatedAt: '2026-04-01T00:00:00Z',
       author: 'issue-author'
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     const timelineEvents = [
       {
         id: 101,
@@ -214,6 +246,79 @@ describe('getWorkItemDetails', () => {
       }
     ])
     expect(details?.participants?.[0]?.login).toBe('issue-author')
+    // Why: issue identities resolve hosted, pinned to github.com for dotcom.
+    expect(repositoryRateLimitGuardMock).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      'graphql',
+      { cwd: '/repo-root', host: 'github.com' }
+    )
+    expect(noteRepositoryRateLimitSpendMock).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      'graphql',
+      1,
+      { cwd: '/repo-root', host: 'github.com' }
+    )
+    expect(repositoryRateLimitGuardMock).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      'core',
+      { cwd: '/repo-root', host: 'github.com' }
+    )
+    expect(noteRepositoryRateLimitSpendMock).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      'core',
+      1,
+      { cwd: '/repo-root', host: 'github.com' }
+    )
+  })
+
+  it('scopes collapsed issue GraphQL accounting to an implicit WSL UNC runtime', async () => {
+    const repository = { owner: 'acme', repo: 'widgets' }
+    const repoPath = String.raw`\\wsl.localhost\Ubuntu\home\me\widgets`
+    getWorkItemMock.mockResolvedValueOnce({
+      id: 'issue:923',
+      type: 'issue',
+      number: 923,
+      title: 'Use upstream issues',
+      state: 'open',
+      url: 'https://github.com/acme/widgets/issues/923',
+      labels: [],
+      updatedAt: '2026-04-01T00:00:00Z',
+      author: 'issue-author'
+    })
+    getOwnerRepoForRemoteMock.mockResolvedValue(repository)
+    ghExecFileAsyncMock
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              issue: {
+                body: 'WSL issue body',
+                assignees: { nodes: [] },
+                participants: { nodes: [] },
+                comments: { nodes: [] }
+              }
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({ stdout: '' })
+
+    const details = await getWorkItemDetails(repoPath, 923, 'issue')
+
+    expect(details?.body).toBe('WSL issue body')
+    // Why: issue identities resolve hosted, pinned to github.com for dotcom.
+    expect(repositoryRateLimitGuardMock).toHaveBeenCalledWith(
+      { ...repository, host: 'github.com' },
+      'graphql',
+      { cwd: repoPath, host: 'github.com' }
+    )
+    expect(noteRepositoryRateLimitSpendMock).toHaveBeenCalledWith(
+      { ...repository, host: 'github.com' },
+      'graphql',
+      1,
+      { cwd: repoPath, host: 'github.com' }
+    )
+    expect(ghExecFileAsyncMock.mock.calls.every((call) => call[1]?.cwd === repoPath)).toBe(true)
   })
 
   it('enriches a non-participating assignee avatar from the GraphQL assignees connection', async () => {
@@ -232,7 +337,7 @@ describe('getWorkItemDetails', () => {
       author: 'issue-author',
       assignees: [{ login: 'ghe-assignee', name: 'GHE Assignee', avatarUrl: '' }]
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     ghExecFileAsyncMock
       .mockResolvedValueOnce({
         stdout: JSON.stringify({
@@ -278,7 +383,7 @@ describe('getWorkItemDetails', () => {
       updatedAt: '2026-04-01T00:00:00Z',
       author: 'issue-author'
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     const makeTimelineEvent = (page: number, index: number, event: string): string =>
       JSON.stringify({
         id: `${page}:${index}`,
@@ -354,7 +459,7 @@ describe('getWorkItemDetails', () => {
       updatedAt: '2026-04-01T00:00:00Z',
       author: 'issue-author'
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     // Collapsed GraphQL throws → fallback path picks up.
     ghExecFileAsyncMock
       .mockRejectedValueOnce(new Error('GraphQL error'))
@@ -375,12 +480,12 @@ describe('getWorkItemDetails', () => {
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
       ['api', '--cache', '60s', 'repos/acme/widgets/issues/923'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
       ['api', '--cache', '60s', 'repos/acme/widgets/issues/923/comments?per_page=100'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       4,
@@ -392,18 +497,22 @@ describe('getWorkItemDetails', () => {
         '--jq',
         '.[] | @json'
       ],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(details?.body).toBe('Issue body')
   })
 
   it('skips optional GraphQL issue detail calls when the cached GraphQL budget is low', async () => {
-    rateLimitGuardMock.mockReturnValue({
-      blocked: true,
-      remaining: 3,
-      limit: 5000,
-      resetAt: 1_800_000_000
-    })
+    repositoryRateLimitGuardMock.mockImplementation((_repository, bucket) =>
+      bucket === 'graphql'
+        ? {
+            blocked: true,
+            remaining: 3,
+            limit: 5000,
+            resetAt: 1_800_000_000
+          }
+        : { blocked: false }
+    )
     getWorkItemMock.mockResolvedValueOnce({
       id: 'issue:923',
       type: 'issue',
@@ -415,7 +524,7 @@ describe('getWorkItemDetails', () => {
       updatedAt: '2026-04-01T00:00:00Z',
       author: 'issue-author'
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     ghExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: JSON.stringify({ body: 'Issue body', assignees: [] }) })
       .mockResolvedValueOnce({ stdout: '[]' })
@@ -425,7 +534,15 @@ describe('getWorkItemDetails', () => {
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(3)
     expect(ghExecFileAsyncMock.mock.calls.some((call) => call[0][1] === 'graphql')).toBe(false)
-    expect(noteRateLimitSpendMock).not.toHaveBeenCalled()
+    expect(
+      noteRepositoryRateLimitSpendMock.mock.calls.some(([, bucket]) => bucket === 'graphql')
+    ).toBe(false)
+    expect(noteRepositoryRateLimitSpendMock).toHaveBeenCalledWith(
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      'core',
+      2,
+      { cwd: '/repo-root', host: 'github.com' }
+    )
     expect(details?.body).toBe('Issue body')
     expect(details?.participants).toEqual([])
   })
@@ -442,7 +559,7 @@ describe('getWorkItemDetails', () => {
       updatedAt: '2026-04-01T00:00:00Z',
       author: 'issue-author'
     })
-    getIssueOwnerRepoMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
+    getOwnerRepoForRemoteMock.mockResolvedValue({ owner: 'acme', repo: 'widgets' })
     ghExecFileAsyncMock
       .mockResolvedValueOnce({
         stdout: JSON.stringify({
@@ -463,9 +580,85 @@ describe('getWorkItemDetails', () => {
     const details = await getWorkItemDetails('/home/tester/widgets', 923, 'issue', 'ssh-test-1')
 
     expect(getWorkItemMock).toHaveBeenCalledWith('/home/tester/widgets', 923, 'issue', 'ssh-test-1')
-    expect(getIssueOwnerRepoMock).toHaveBeenCalledWith('/home/tester/widgets', 'ssh-test-1')
-    expect(ghExecFileAsyncMock.mock.calls[0][1]).toEqual({})
+    expect(getOwnerRepoForRemoteMock).toHaveBeenCalledWith(
+      '/home/tester/widgets',
+      'upstream',
+      'ssh-test-1',
+      {}
+    )
+    expect(ghExecFileAsyncMock.mock.calls[0][1]).toEqual({ host: 'github.com' })
     expect(details?.body).toBe('Remote issue body')
+  })
+
+  it('uses the GitHub Enterprise host for SSH-backed issue work item details', async () => {
+    const enterpriseRepository = {
+      owner: 'team',
+      repo: 'orca',
+      host: 'github.acme-corp.com'
+    }
+    getWorkItemMock.mockResolvedValueOnce({
+      id: 'issue:7',
+      type: 'issue',
+      number: 7,
+      title: 'Enterprise issue',
+      state: 'open',
+      url: 'https://github.acme-corp.com/team/orca/issues/7',
+      labels: [],
+      updatedAt: '2026-07-16T00:00:00Z',
+      author: 'issue-author'
+    })
+    getOwnerRepoMock.mockResolvedValue(null)
+    getEnterpriseGitHubRepoSlugMock.mockResolvedValue(enterpriseRepository)
+    ghExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      const query = args.find((arg) => arg.startsWith('query=')) ?? ''
+      if (query.includes('comments(first: 100)')) {
+        return {
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                issue: {
+                  body: 'Enterprise issue body',
+                  assignees: { nodes: [] },
+                  participants: { nodes: [] },
+                  comments: { nodes: [] }
+                }
+              }
+            }
+          })
+        }
+      }
+      const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
+      if (endpoint === 'repos/team/orca/issues/7/timeline?per_page=100&page=1') {
+        return { stdout: '' }
+      }
+      throw new Error(`unexpected gh call: ${args.join(' ')}`)
+    })
+
+    const details = await getWorkItemDetails('/remote/repo', 7, 'issue', 'ssh-1')
+
+    expect(details?.body).toBe('Enterprise issue body')
+    expect(getWorkItemMock).toHaveBeenCalledWith('/remote/repo', 7, 'issue', 'ssh-1')
+    expect(getWorkItemByOwnerRepoMock).not.toHaveBeenCalled()
+    expect(getEnterpriseGitHubRepoSlugMock).toHaveBeenCalledTimes(1)
+    expect(repositoryRateLimitGuardMock).toHaveBeenCalledWith(enterpriseRepository, 'graphql', {
+      host: 'github.acme-corp.com'
+    })
+    expect(noteRepositoryRateLimitSpendMock).toHaveBeenCalled()
+    expect(
+      ghExecFileAsyncMock.mock.calls.every(
+        ([, options]) => options?.host === 'github.acme-corp.com'
+      )
+    ).toBe(true)
+  })
+
+  it('does not query the default host when an SSH issue repository is unresolved', async () => {
+    getWorkItemMock.mockResolvedValue(null)
+
+    await expect(getWorkItemDetails('/remote/repo', 7, 'issue', 'ssh-1')).resolves.toBeNull()
+
+    expect(getWorkItemMock).toHaveBeenCalledWith('/remote/repo', 7, 'issue', 'ssh-1')
+    expect(getWorkItemByOwnerRepoMock).not.toHaveBeenCalled()
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
   it('routes local WSL PR detail fan-out through the selected distro', async () => {
@@ -531,7 +724,7 @@ describe('getWorkItemDetails', () => {
     expect(getPRCommentsMock).toHaveBeenCalledWith(
       '/repo-root',
       42,
-      undefined,
+      { prRepo: { owner: 'acme', repo: 'widgets', host: 'github.com' } },
       null,
       localGitOptions
     )
@@ -539,7 +732,7 @@ describe('getWorkItemDetails', () => {
       '/repo-root',
       42,
       'head-sha',
-      null,
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
       undefined,
       null,
       localGitOptions
@@ -547,6 +740,140 @@ describe('getWorkItemDetails', () => {
     expect(ghExecFileAsyncMock.mock.calls.every((call) => call[1]?.wslDistro === 'Ubuntu')).toBe(
       true
     )
+  })
+
+  it('uses the GitHub Enterprise host for SSH-backed PR work item details', async () => {
+    getWorkItemMock.mockResolvedValueOnce({
+      id: 'pr:7',
+      type: 'pr',
+      number: 7,
+      title: 'Enterprise PR files',
+      state: 'open',
+      url: 'https://github.acme-corp.com/team/orca/pull/7',
+      labels: [],
+      updatedAt: '2026-07-16T00:00:00Z',
+      author: 'pr-author',
+      prRepo: { owner: 'team', repo: 'orca', host: 'github.acme-corp.com' }
+    })
+    getPRCommentsMock.mockResolvedValue([])
+    getPRChecksMock.mockResolvedValue([])
+    ghExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      const endpoint = args.find((arg) => arg.startsWith('repos/')) ?? ''
+      if (endpoint === 'repos/team/orca/pulls/7') {
+        return {
+          stdout: JSON.stringify({
+            body: 'Enterprise PR body',
+            head: { sha: 'head-sha' },
+            base: { sha: 'base-sha' }
+          })
+        }
+      }
+      if (endpoint === 'repos/team/orca/pulls/7/files?per_page=100') {
+        return {
+          stdout: JSON.stringify([
+            {
+              filename: 'src/enterprise.ts',
+              status: 'modified',
+              additions: 2,
+              deletions: 1,
+              changes: 3,
+              patch: '@@ -1 +1 @@'
+            }
+          ])
+        }
+      }
+      const query = args.find((arg) => arg.startsWith('query=')) ?? ''
+      if (query.includes('viewerViewedState')) {
+        return {
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  id: 'PR_enterprise',
+                  files: {
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                    nodes: [{ path: 'src/enterprise.ts', viewerViewedState: 'VIEWED' }]
+                  }
+                }
+              }
+            }
+          })
+        }
+      }
+      if (query.includes('participants(first: 100)')) {
+        return {
+          stdout: JSON.stringify({
+            data: { repository: { pullRequest: { participants: { nodes: [] } } } }
+          })
+        }
+      }
+      throw new Error(`unexpected gh call: ${args.join(' ')}`)
+    })
+
+    const details = await getWorkItemDetails('/remote/repo', 7, 'pr', 'ssh-1')
+
+    expect(details?.body).toBe('Enterprise PR body')
+    expect(details?.headSha).toBe('head-sha')
+    expect(details?.baseSha).toBe('base-sha')
+    expect(details?.filesUnavailable).toBe(false)
+    expect(details?.files).toEqual([
+      {
+        path: 'src/enterprise.ts',
+        oldPath: undefined,
+        status: 'modified',
+        additions: 2,
+        deletions: 1,
+        isBinary: false,
+        reviewCommentLineNumbers: [],
+        viewerViewedState: 'VIEWED'
+      }
+    ])
+    expect(getWorkItemMock).toHaveBeenCalledWith('/remote/repo', 7, 'pr', 'ssh-1')
+    expect(getWorkItemByOwnerRepoMock).not.toHaveBeenCalled()
+    expect(getPRCommentsMock).toHaveBeenCalledWith(
+      '/remote/repo',
+      7,
+      { prRepo: { owner: 'team', repo: 'orca', host: 'github.acme-corp.com' } },
+      'ssh-1'
+    )
+    expect(getPRChecksMock).toHaveBeenCalledWith(
+      '/remote/repo',
+      7,
+      'head-sha',
+      { owner: 'team', repo: 'orca', host: 'github.acme-corp.com' },
+      undefined,
+      'ssh-1'
+    )
+    const apiCalls = ghExecFileAsyncMock.mock.calls
+      .map(([args]) => args as string[])
+      .filter((args) => args[0] === 'api')
+    expect(apiCalls.length).toBeGreaterThan(0)
+    expect(apiCalls.every((args) => !args.includes('--hostname'))).toBe(true)
+    expect(
+      ghExecFileAsyncMock.mock.calls.every(
+        ([, options]) => options?.host === 'github.acme-corp.com'
+      )
+    ).toBe(true)
+  })
+
+  it('does not fall back to the default host after an Enterprise PR lookup fails', async () => {
+    getWorkItemMock.mockResolvedValue(null)
+
+    await expect(getWorkItemDetails('/remote/repo', 7, 'pr', 'ssh-1')).resolves.toBeNull()
+
+    expect(getWorkItemMock).toHaveBeenCalledTimes(1)
+    expect(getWorkItemByOwnerRepoMock).not.toHaveBeenCalled()
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
+  })
+
+  it('does not query the default host when an SSH PR repository is unresolved', async () => {
+    getWorkItemMock.mockResolvedValue(null)
+
+    await expect(getWorkItemDetails('/remote/repo', 7, 'pr', 'ssh-1')).resolves.toBeNull()
+
+    expect(getWorkItemMock).toHaveBeenCalledWith('/remote/repo', 7, 'pr', 'ssh-1')
+    expect(getWorkItemByOwnerRepoMock).not.toHaveBeenCalled()
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
   // Why: a rate-limited/auth-failed file fetch must not render as an empty PR;

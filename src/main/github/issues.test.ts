@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as GithubApiRepositoryModule from './github-api-repository'
+import type * as GithubEnterpriseRepositoryModule from './github-enterprise-repository'
 import type * as GhUtils from './gh-utils'
 
 const {
@@ -27,6 +29,31 @@ vi.mock('./gh-utils', async () => {
   }
 })
 
+vi.mock('./github-enterprise-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof GithubEnterpriseRepositoryModule>()),
+  isGitHubHostAuthenticated: vi.fn().mockResolvedValue(true)
+}))
+
+vi.mock('./github-api-repository', async (importOriginal) => {
+  const actual = await importOriginal<typeof GithubApiRepositoryModule>()
+  return {
+    ...actual,
+    // Why: these suites drive source resolution through the legacy gh-utils
+    // mocks; bridge the hosted seams onto the same mocks.
+    getIssueGitHubApiRepository: (
+      repoPath: string,
+      connectionId?: string | null,
+      localGitOptions?: unknown
+    ) => getIssueOwnerRepoMock(repoPath, connectionId, localGitOptions),
+    resolveIssueGitHubApiRepositorySource: (
+      repoPath: string,
+      preference: unknown,
+      connectionId?: string | null,
+      localGitOptions?: unknown
+    ) => resolveIssueSourceMock(repoPath, preference, connectionId, localGitOptions)
+  }
+})
+
 import {
   addIssueComment,
   createIssue,
@@ -36,6 +63,14 @@ import {
   listLabels,
   updateIssue
 } from './issues'
+
+import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'
+
+// The origin-repository cache is module-level state; reset it so slugs
+// resolved by one test cannot leak into the next.
+beforeEach(() => {
+  _resetOriginGitHubApiRepositoryCache()
+})
 
 describe('issue source operations', () => {
   beforeEach(() => {
@@ -135,6 +170,38 @@ describe('issue source operations', () => {
     )
     expect(ghExecFileAsyncMock.mock.calls.every((call) => call[1]?.wslDistro === 'Ubuntu')).toBe(
       true
+    )
+  })
+
+  it('routes PR conversation comments to the supplied Enterprise host', async () => {
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        id: 9,
+        user: { login: 'octo', avatar_url: '', type: 'User' },
+        body: 'Enterprise comment',
+        created_at: '2026-07-16T00:00:00.000Z',
+        html_url: 'https://github.acme-corp.com/team/orca/pull/7#issuecomment-9'
+      })
+    })
+
+    await expect(
+      addIssueComment('/remote/repo', 7, 'Enterprise comment', 'ssh-1', {
+        owner: 'team',
+        repo: 'orca',
+        host: 'github.acme-corp.com'
+      })
+    ).resolves.toMatchObject({ ok: true })
+
+    expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
+      [
+        'api',
+        '-X',
+        'POST',
+        'repos/team/orca/issues/7/comments',
+        '--raw-field',
+        'body=Enterprise comment'
+      ],
+      expect.objectContaining({ host: 'github.acme-corp.com' })
     )
   })
 

@@ -1,5 +1,6 @@
 /* oxlint-disable max-lines -- Why: GitHub client fixtures cover local and SSH repo identity paths in one suite so mocked CLI behavior stays consistent. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as GithubApiRepositoryModule from './github-api-repository'
 
 type RateLimitGuardResult =
   | { blocked: false }
@@ -75,6 +76,9 @@ vi.mock('./gh-utils', () => ({
     if (lower.includes('rate limit')) {
       return { type: 'rate_limited', message: stderr }
     }
+    if (lower.includes('resource not accessible')) {
+      return { type: 'permission_denied', message: stderr }
+    }
     return { type: 'unknown', message: stderr }
   },
   parseGitHubOwnerRepo: (remoteUrl: string) => {
@@ -101,8 +105,53 @@ vi.mock('./local-git-config-signature', () => ({
 vi.mock('./rate-limit', () => ({
   getRateLimit: getRateLimitMock,
   rateLimitGuard: rateLimitGuardMock,
-  noteRateLimitSpend: noteRateLimitSpendMock
+  noteRateLimitSpend: noteRateLimitSpendMock,
+  // Why: the repository-scoped guards share the same bucket-keyed budget as the
+  // legacy ones, so delegate to the existing mocks to keep per-bucket blocking
+  // and spend assertions working unchanged.
+  repositoryRateLimitGuard: (_repository: unknown, bucket: string) => rateLimitGuardMock(bucket),
+  noteRepositoryRateLimitSpend: (_repository: unknown, bucket: string) =>
+    noteRateLimitSpendMock(bucket),
+  spendsSharedGitHubComQuota: () => true
 }))
+
+vi.mock('./github-api-repository', async (importOriginal) => {
+  const actual = await importOriginal<typeof GithubApiRepositoryModule>()
+  return {
+    ...actual,
+    // Why: these suites inject repo identities through the legacy gh-utils
+    // mocks; bridge the hosted seams onto the same mocks so per-test setups
+    // keep driving resolution without real enterprise probes.
+    resolveGitHubApiRepositoryCandidates: (
+      repoPath: string,
+      connectionId?: string | null,
+      localGitOptions?: unknown
+    ) => resolvePRRepositoryCandidatesMock(repoPath, connectionId, localGitOptions),
+    getGitHubApiRepositoryForRemote: (
+      repoPath: string,
+      remoteName: string,
+      connectionId?: string | null
+    ) => getOwnerRepoForRemoteMock(repoPath, remoteName, connectionId),
+    getOriginGitHubApiRepository: async (repoPath: string, connectionId?: string | null) => {
+      const slug = await getOwnerRepoMock(repoPath, connectionId)
+      // Mirror production: dotcom origin slugs come back pinned to github.com.
+      return slug ? { host: 'github.com', ...slug } : slug
+    },
+    getIssueGitHubApiRepository: async (repoPath: string, connectionId?: string | null) => {
+      const slug = await getIssueOwnerRepoMock(repoPath, connectionId)
+      // Mirror production: issue slugs come back host-qualified to github.com.
+      return slug ? { host: 'github.com', ...slug } : slug
+    },
+    resolveIssueGitHubApiRepositorySource: async (
+      repoPath: string,
+      _preference: unknown,
+      connectionId?: string | null
+    ) => {
+      const slug = await getIssueOwnerRepoMock(repoPath, connectionId)
+      return { source: slug ? { host: 'github.com', ...slug } : slug, fellBack: false }
+    }
+  }
+})
 
 import {
   checkOrcaStarred,
@@ -111,6 +160,7 @@ import {
   getPRForBranchOutcome,
   getRepoUpstream,
   getWorkItem,
+  getWorkItemByOwnerRepo,
   getPullRequestPushTarget,
   mergePR,
   resolveReviewThread,
@@ -125,6 +175,14 @@ import {
 } from './client'
 import { __resetPRConflictSummaryCachesForTests } from './conflict-summary'
 import { resetMergedPRCommitMembershipCacheForTest } from './merged-pr-commit-membership'
+
+import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'
+
+// The origin-repository cache is module-level state; reset it so slugs
+// resolved by one test cannot leak into the next.
+beforeEach(() => {
+  _resetOriginGitHubApiRepositoryCache()
+})
 
 describe('checkOrcaStarred', () => {
   beforeEach(() => {
@@ -3503,8 +3561,10 @@ describe('getPRForBranch', () => {
     await expect(getRepoUpstream('/repo-root')).resolves.toBeNull()
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
-      ['repo', 'view', 'StablyAI/Orca', '--json', 'isFork,parent'],
-      { cwd: '/repo-root', timeout: 10_000 }
+      // Why: positional slugs are explicit about github.com too, so GH_HOST
+      // cannot redirect them.
+      ['repo', 'view', 'github.com/StablyAI/Orca', '--json', 'isFork,parent'],
+      { cwd: '/repo-root', host: 'github.com', timeout: 10_000 }
     )
   })
 
@@ -3529,7 +3589,75 @@ describe('getPRForBranch', () => {
 
     await expect(getRepoUpstream('/repo-root')).resolves.toEqual({
       owner: 'stablyai',
-      repo: 'orca'
+      repo: 'orca',
+      // Why: fork parents live on the same server as the fork's origin.
+      host: 'github.com'
+    })
+  })
+
+  it('routes GHES push-target probes through the Enterprise host', async () => {
+    const ghes = { owner: 'team', repo: 'orca', host: 'github.acme-corp.com' }
+    resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
+      candidates: [ghes],
+      headRepo: ghes
+    })
+    getOwnerRepoForRemoteMock.mockResolvedValueOnce(ghes)
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        head: {
+          ref: 'feature',
+          repo: {
+            full_name: 'team/orca',
+            name: 'orca',
+            clone_url: 'https://github.acme-corp.com/team/orca.git',
+            ssh_url: 'git@github.acme-corp.com:team/orca.git',
+            owner: { login: 'team' }
+          }
+        }
+      })
+    })
+
+    await expect(getPullRequestPushTarget('/repo-root', 7)).resolves.toEqual({
+      pushTarget: { remoteName: 'origin', branchName: 'feature' }
+    })
+    // Why: the candidate probe must pin options.host so the runner targets the
+    // Enterprise server instead of gh's default host.
+    expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
+      ['api', 'repos/team/orca/pulls/7'],
+      expect.objectContaining({ host: 'github.acme-corp.com' })
+    )
+  })
+
+  it('does not confuse same-slug PR repositories across GitHub hosts', async () => {
+    const enterprise = { owner: 'team', repo: 'orca', host: 'github.acme-corp.com' }
+    const dotCom = { owner: 'team', repo: 'orca', host: 'github.com' }
+    resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
+      candidates: [enterprise, dotCom],
+      headRepo: dotCom
+    })
+    getOwnerRepoForRemoteMock.mockResolvedValueOnce(dotCom)
+    getRemoteUrlForRepoMock.mockResolvedValueOnce('git@github.com:team/orca.git')
+    ghExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        head: {
+          ref: 'feature',
+          repo: {
+            full_name: 'team/orca',
+            name: 'orca',
+            clone_url: 'https://github.acme-corp.com/team/orca.git',
+            ssh_url: 'git@github.acme-corp.com:team/orca.git',
+            owner: { login: 'team' }
+          }
+        }
+      })
+    })
+
+    await expect(getPullRequestPushTarget('/repo-root', 7)).resolves.toEqual({
+      pushTarget: {
+        remoteName: 'pr-team-orca',
+        branchName: 'feature',
+        remoteUrl: 'git@github.acme-corp.com:team/orca.git'
+      }
     })
   })
 
@@ -3572,6 +3700,45 @@ describe('getPRForBranch', () => {
       2,
       ['api', 'repos/stablyai/orca/pulls/1849'],
       { cwd: '/repo-root' }
+    )
+  })
+
+  it('probes the next PR work-item candidate after a permission denial', async () => {
+    const upstream = { owner: 'upstream', repo: 'orca', host: 'github.com' }
+    const origin = { owner: 'fork', repo: 'orca', host: 'github.com' }
+    resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
+      candidates: [upstream, origin],
+      headRepo: origin
+    })
+    ghExecFileAsyncMock
+      .mockRejectedValueOnce(new Error('GraphQL: Resource not accessible by integration'))
+      .mockRejectedValueOnce(new Error('GraphQL: Resource not accessible by integration'))
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          number: 42,
+          title: 'Origin PR',
+          state: 'OPEN',
+          url: 'https://github.com/fork/orca/pull/42',
+          labels: [],
+          updatedAt: '2026-07-16T00:00:00Z',
+          author: { login: 'octo' },
+          isDraft: false
+        })
+      })
+      .mockRejectedValueOnce(new Error('metadata unavailable'))
+
+    await expect(getWorkItem('/repo-root', 42, 'pr')).resolves.toMatchObject({
+      number: 42,
+      title: 'Origin PR',
+      prRepo: origin
+    })
+
+    expect(ghExecFileAsyncMock.mock.calls[0][0]).toEqual(
+      expect.arrayContaining(['pr', 'view', '--repo', 'upstream/orca'])
+    )
+    expect(ghExecFileAsyncMock.mock.calls[1][0]).toEqual(['api', 'repos/upstream/orca/pulls/42'])
+    expect(ghExecFileAsyncMock.mock.calls[2][0]).toEqual(
+      expect.arrayContaining(['pr', 'view', '--repo', 'fork/orca'])
     )
   })
 
@@ -3629,7 +3796,7 @@ describe('updatePRState', () => {
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
       ['pr', 'reopen', '3977', '--repo', 'stablyai/orca'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(acquireMock).toHaveBeenCalledTimes(1)
     expect(releaseMock).toHaveBeenCalledTimes(1)
@@ -3645,7 +3812,7 @@ describe('updatePRState', () => {
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
       ['pr', 'close', '3977', '--repo', 'stablyai/orca'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
   })
 
@@ -3661,7 +3828,7 @@ describe('updatePRState', () => {
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledWith(
       ['pr', 'reopen', '3977', '--repo', 'stablyai/orca'],
-      {}
+      { host: 'github.com' }
     )
   })
 })
@@ -3739,18 +3906,23 @@ describe('GitHub GraphQL rate-limit guard', () => {
       })
       .mockResolvedValueOnce({ stdout: '[]' })
 
-    await getPRComments('/repo-root', 7, { prRepo: { owner: 'stablyai', repo: 'orca' } }, undefined)
+    await getPRComments(
+      '/repo-root',
+      7,
+      { prRepo: { owner: 'stablyai', repo: 'orca', host: 'github.com' } },
+      undefined
+    )
 
     expect(getOwnerRepoMock).not.toHaveBeenCalled()
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       1,
       ['api', '--cache', '60s', 'repos/stablyai/orca/issues/7/comments?per_page=100'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
       ['api', '--cache', '60s', 'repos/stablyai/orca/pulls/7/reviews?per_page=100'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
   })
 
@@ -3774,10 +3946,18 @@ describe('GitHub GraphQL rate-limit guard', () => {
       .mockResolvedValue({ stdout: '', stderr: '' })
 
     await expect(
-      mergePR('/repo-root', 7, 'squash', undefined, { owner: 'stablyai', repo: 'orca' })
+      mergePR('/repo-root', 7, 'squash', undefined, {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toEqual({ ok: true })
     await expect(
-      updatePRTitle('/repo-root', 7, 'New title', undefined, { owner: 'stablyai', repo: 'orca' })
+      updatePRTitle('/repo-root', 7, 'New title', undefined, {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toBe(true)
 
     expect(getOwnerRepoMock).not.toHaveBeenCalled()
@@ -3792,20 +3972,21 @@ describe('GitHub GraphQL rate-limit guard', () => {
         '--json',
         'number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid'
       ],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
       ['pr', 'merge', '7', '--squash', '--repo', 'stablyai/orca'],
       expect.objectContaining({
         cwd: '/repo-root',
-        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' })
+        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' }),
+        host: 'github.com'
       })
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
       ['pr', 'edit', '7', '--title', 'New title', '--repo', 'stablyai/orca'],
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
   })
 
@@ -3819,20 +4000,22 @@ describe('GitHub GraphQL rate-limit guard', () => {
     await expect(
       setPRAutoMerge('/remote/repo-root', 7, true, 'squash', 'ssh-1', {
         owner: 'stablyai',
-        repo: 'orca'
+        repo: 'orca',
+        host: 'github.com'
       })
     ).resolves.toEqual({ ok: true })
     await expect(
       setPRAutoMerge('/remote/repo-root', 7, false, 'squash', 'ssh-1', {
         owner: 'stablyai',
-        repo: 'orca'
+        repo: 'orca',
+        host: 'github.com'
       })
     ).resolves.toEqual({ ok: true })
 
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       1,
       ['pr', 'view', '7', '--json', 'id,headRefOid,baseRefName', '--repo', 'stablyai/orca'],
-      {}
+      { host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
@@ -3847,14 +4030,16 @@ describe('GitHub GraphQL rate-limit guard', () => {
         'expectedHeadOid=head-oid'
       ]),
       expect.objectContaining({
-        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' })
+        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' }),
+        host: 'github.com'
       })
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
       ['pr', 'merge', '7', '--disable-auto', '--repo', 'stablyai/orca'],
       expect.objectContaining({
-        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' })
+        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' }),
+        host: 'github.com'
       })
     )
     expect(ghExecFileAsyncMock.mock.calls[0]?.[1]).not.toHaveProperty('cwd')
@@ -3870,7 +4055,8 @@ describe('GitHub GraphQL rate-limit guard', () => {
     await expect(
       setPRAutoMerge('/repo-root', 7, true, 'squash', undefined, {
         owner: 'stablyai',
-        repo: 'orca'
+        repo: 'orca',
+        host: 'github.com'
       })
     ).resolves.toEqual({ ok: true })
 
@@ -3897,7 +4083,8 @@ describe('GitHub GraphQL rate-limit guard', () => {
     await expect(
       setPRAutoMerge('/repo-root', 7, true, 'squash', undefined, {
         owner: 'stablyai',
-        repo: 'orca'
+        repo: 'orca',
+        host: 'github.com'
       })
     ).resolves.toEqual({
       ok: false,
@@ -3918,21 +4105,23 @@ describe('GitHub GraphQL rate-limit guard', () => {
     await expect(
       setPRAutoMerge('/repo-root', 7, true, 'squash', undefined, {
         owner: 'stablyai',
-        repo: 'orca'
+        repo: 'orca',
+        host: 'github.com'
       })
     ).resolves.toEqual({ ok: true })
 
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       2,
       expect.arrayContaining(['api', 'graphql', '-f', 'branch=main']),
-      { cwd: '/repo-root' }
+      { cwd: '/repo-root', host: 'github.com' }
     )
     expect(ghExecFileAsyncMock).toHaveBeenNthCalledWith(
       3,
       ['pr', 'merge', '7', '--auto', '--squash', '--repo', 'stablyai/orca'],
       expect.objectContaining({
         cwd: '/repo-root',
-        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' })
+        env: expect.objectContaining({ GH_PROMPT_DISABLED: '1' }),
+        host: 'github.com'
       })
     )
     expect(
@@ -3963,7 +4152,11 @@ describe('GitHub GraphQL rate-limit guard', () => {
     })
 
     await expect(
-      mergePR('/repo-root', 7, 'squash', undefined, { owner: 'stablyai', repo: 'orca' })
+      mergePR('/repo-root', 7, 'squash', undefined, {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toEqual({
       ok: false,
       error: 'This pull request requires review approval before it can be merged.'
@@ -3998,7 +4191,11 @@ describe('GitHub GraphQL rate-limit guard', () => {
       .mockResolvedValueOnce({ stdout: JSON.stringify(prView) })
 
     await expect(
-      mergePR('/repo-root', 7, 'squash', undefined, { owner: 'stablyai', repo: 'orca' })
+      mergePR('/repo-root', 7, 'squash', undefined, {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toEqual({
       ok: false,
       error:
@@ -4087,6 +4284,82 @@ describe('GitHub GraphQL rate-limit guard', () => {
     expect(_getMergeQueueCacheSizeForTests()).toBe(256)
   })
 
+  it('isolates merge metadata for the same slug on different GitHub hosts', async () => {
+    resolvePRRepositoryCandidatesMock.mockResolvedValue({
+      candidates: [
+        { owner: 'acme', repo: 'widgets', host: 'github.com' },
+        { owner: 'acme', repo: 'widgets', host: 'github.acme-corp.com' }
+      ],
+      headRepo: { owner: 'acme', repo: 'widgets', host: 'github.com' }
+    })
+    const prView = {
+      number: 7,
+      title: 'PR',
+      state: 'OPEN',
+      url: 'https://github.com/acme/widgets/pull/7',
+      statusCheckRollup: [],
+      updatedAt: '2026-07-16T00:00:00Z',
+      isDraft: false,
+      mergeable: 'MERGEABLE',
+      baseRefName: 'main',
+      headRefOid: 'head-oid'
+    }
+    ghExecFileAsyncMock.mockImplementation(async (args, options) => {
+      if (args.includes('graphql')) {
+        const enterprise = options?.host === 'github.acme-corp.com'
+        return {
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                mergeQueue: null,
+                autoMergeAllowed: !enterprise
+              }
+            }
+          })
+        }
+      }
+      return { stdout: JSON.stringify(prView) }
+    })
+
+    const githubDotCom = await getWorkItemByOwnerRepo(
+      '/repo-root',
+      { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      7,
+      'pr'
+    )
+    const enterprise = await getWorkItemByOwnerRepo(
+      '/repo-root',
+      { owner: 'acme', repo: 'widgets', host: 'github.acme-corp.com' },
+      7,
+      'pr'
+    )
+
+    expect(githubDotCom?.autoMergeAllowed).toBe(true)
+    expect(enterprise?.autoMergeAllowed).toBe(false)
+    const graphqlCalls = ghExecFileAsyncMock.mock.calls.filter(([args]) => args.includes('graphql'))
+    expect(graphqlCalls).toHaveLength(2)
+    expect(graphqlCalls[1]?.[1]).toEqual(expect.objectContaining({ host: 'github.acme-corp.com' }))
+  })
+
+  it('rejects explicit work-item lookups outside configured repository candidates', async () => {
+    resolvePRRepositoryCandidatesMock.mockResolvedValueOnce({
+      candidates: [{ owner: 'acme', repo: 'widgets', host: 'github.com' }],
+      headRepo: { owner: 'acme', repo: 'widgets', host: 'github.com' }
+    })
+
+    await expect(
+      getWorkItemByOwnerRepo(
+        '/repo-root',
+        { owner: 'victim', repo: 'secrets', host: 'evil.example.test' },
+        7,
+        'pr'
+      )
+    ).resolves.toBeNull()
+
+    expect(acquireMock).not.toHaveBeenCalled()
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
+  })
+
   it('returns conflicting file details instead of running gh merge when PR is dirty', async () => {
     ghExecFileAsyncMock.mockResolvedValueOnce({
       stdout: JSON.stringify({
@@ -4111,7 +4384,11 @@ describe('GitHub GraphQL rate-limit guard', () => {
       .mockResolvedValueOnce({ stdout: 'result-tree-oid\u0000src/conflict.ts\u0000' })
 
     await expect(
-      mergePR('/repo-root', 7, 'squash', undefined, { owner: 'stablyai', repo: 'orca' })
+      mergePR('/repo-root', 7, 'squash', undefined, {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toEqual({
       ok: false,
       error:
@@ -4144,7 +4421,11 @@ describe('GitHub GraphQL rate-limit guard', () => {
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
 
     await expect(
-      mergePR('/remote/repo-root', 7, 'squash', 'ssh-1', { owner: 'stablyai', repo: 'orca' })
+      mergePR('/remote/repo-root', 7, 'squash', 'ssh-1', {
+        owner: 'stablyai',
+        repo: 'orca',
+        host: 'github.com'
+      })
     ).resolves.toEqual({ ok: true })
 
     expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(2)
