@@ -10,6 +10,7 @@ import {
   isTerminalQuickCommandComplete,
   normalizeTerminalQuickCommands,
   supportsTerminalAgentQuickCommand,
+  terminalQuickCommandListsMatch,
   terminalQuickCommandMatchesRepo
 } from './terminal-quick-commands'
 
@@ -121,6 +122,21 @@ describe('terminal quick commands', () => {
         scope: { type: 'global' }
       }
     ])
+  })
+
+  it('strips project provenance from persisted personal commands', () => {
+    const [command] = normalizeTerminalQuickCommands([
+      {
+        id: 'orca-yaml:build',
+        label: 'My build',
+        command: 'make personal',
+        appendEnter: true,
+        origin: 'orca-yaml'
+      }
+    ])
+
+    expect(command).not.toHaveProperty('origin')
+    expect(isProjectTerminalQuickCommand(command)).toBe(false)
   })
 
   it('normalizes agent prompt commands without storing generated shell text', () => {
@@ -318,6 +334,7 @@ describe('project quick commands', () => {
     expect(commands).toEqual([
       {
         id: 'orca-yaml:dev-server',
+        origin: 'orca-yaml',
         label: 'Dev server',
         action: 'terminal-command',
         command: 'pnpm dev',
@@ -326,6 +343,7 @@ describe('project quick commands', () => {
       },
       {
         id: 'orca-yaml:dev-server-2',
+        origin: 'orca-yaml',
         label: 'Dev server',
         action: 'terminal-command',
         command: 'pnpm dev --host',
@@ -334,6 +352,7 @@ describe('project quick commands', () => {
       },
       {
         id: 'orca-yaml:investigate',
+        origin: 'orca-yaml',
         label: 'Investigate',
         action: 'agent-prompt',
         agent: 'claude',
@@ -363,6 +382,7 @@ describe('project quick commands', () => {
     ).toEqual([
       {
         id: 'orca-yaml:insert-only',
+        origin: 'orca-yaml',
         label: 'Insert only',
         action: 'terminal-command',
         // Why: the trailing cursor space is the point of insert-only commands;
@@ -391,10 +411,11 @@ describe('project quick commands', () => {
     ).toEqual([])
   })
 
-  it('identifies project commands by their reserved id prefix', () => {
+  it('identifies project commands by non-persisted provenance, not their id', () => {
     expect(
       isProjectTerminalQuickCommand({
         id: 'orca-yaml:build',
+        origin: 'orca-yaml',
         label: 'Build',
         command: 'make',
         appendEnter: true
@@ -402,12 +423,23 @@ describe('project quick commands', () => {
     ).toBe(true)
     expect(
       isProjectTerminalQuickCommand({
-        id: 'quick-command-1',
-        label: 'Build',
-        command: 'make',
+        id: 'orca-yaml:build',
+        label: 'Personal build',
+        command: 'make personal',
         appendEnter: true
       })
     ).toBe(false)
+  })
+
+  it('treats provenance changes as cache changes', () => {
+    const [project] = getProjectTerminalQuickCommands(
+      [{ action: 'terminal-command', label: 'Build', command: 'make' }],
+      'repo-1'
+    )
+
+    expect(terminalQuickCommandListsMatch([project], [{ ...project, origin: undefined }])).toBe(
+      false
+    )
   })
 })
 
