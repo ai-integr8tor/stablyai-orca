@@ -3268,6 +3268,7 @@ export class OrcaRuntimeService {
       throw new Error('Runtime graph publisher does not match the authoritative window')
     }
 
+    const restoresReloadedRendererGraph = this.graphStatus === 'reloading'
     this.tabs = new Map(graph.tabs.map((tab) => [tab.tabId, tab]))
     this.syncMobileSessionTabs(graph.mobileSessionTabs)
     const nextLeaves = new Map<string, RuntimeLeafRecord>()
@@ -3392,6 +3393,11 @@ export class OrcaRuntimeService {
     this.graphStatus = 'ready'
     this.setTerminalSideEffectConsumerAvailable(windowId !== HEADLESS_RUNTIME_WINDOW_ID)
     this.refreshWritableFlags()
+    if (restoresReloadedRendererGraph) {
+      // Why: remote clients can discard project snapshots while this runtime is
+      // unavailable; the first rebuilt graph must tell them to fetch again.
+      this.emitClientEvent({ type: 'reposChanged' })
+    }
     for (const leaf of this.leaves.values()) {
       this.adoptPreAllocatedHandle(leaf)
     }
