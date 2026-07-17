@@ -3011,6 +3011,18 @@ export function useIpcEvents(): void {
       schedulePendingAgentStatusFlush()
     }
 
+    function cancelPendingAgentStatusesForPane(paneKey: string): void {
+      for (let index = pendingAgentStatusEvents.length - 1; index >= 0; index -= 1) {
+        if (pendingAgentStatusEvents[index]?.data.paneKey === paneKey) {
+          pendingAgentStatusEvents.splice(index, 1)
+        }
+      }
+      if (pendingAgentStatusEvents.length === 0 && pendingAgentStatusRetryTimer !== null) {
+        globalThis.clearTimeout(pendingAgentStatusRetryTimer)
+        pendingAgentStatusRetryTimer = null
+      }
+    }
+
     function flushPendingAgentStatuses(): void {
       // Why: a re-entrant call (store subscriber firing during a setAgentStatus
       // inside the loop below) must not reprocess the still-queued events — the
@@ -3026,7 +3038,10 @@ export function useIpcEvents(): void {
       try {
         const now = Date.now()
         const remaining: PendingAgentStatusEvent[] = []
-        for (const event of pendingAgentStatusEvents) {
+        // Why: drain the owned batch so events enqueued during a synchronous
+        // store notification remain queued for the next flush.
+        const eventsToFlush = pendingAgentStatusEvents.splice(0)
+        for (const event of eventsToFlush) {
           if (now - event.firstSeenAt > PENDING_AGENT_STATUS_TTL_MS) {
             continue
           }
@@ -3035,8 +3050,10 @@ export function useIpcEvents(): void {
             remaining.push(event)
           }
         }
-        pendingAgentStatusEvents.length = 0
-        pendingAgentStatusEvents.push(...remaining)
+        pendingAgentStatusEvents.unshift(...remaining)
+        while (pendingAgentStatusEvents.length > MAX_PENDING_AGENT_STATUS_EVENTS) {
+          pendingAgentStatusEvents.shift()
+        }
         if (pendingAgentStatusEvents.length === 0 && pendingAgentStatusRetryTimer !== null) {
           globalThis.clearTimeout(pendingAgentStatusRetryTimer)
           pendingAgentStatusRetryTimer = null
@@ -3316,6 +3333,9 @@ export function useIpcEvents(): void {
       if (typeof data?.paneKey !== 'string') {
         return
       }
+      // Why: PTY teardown is authoritative for this pane. A layout-delayed hook
+      // event must not replay afterward and resurrect an idle/working agent row.
+      cancelPendingAgentStatusesForPane(data.paneKey)
       const store = useAppStore.getState()
       if (store.agentStatusByPaneKey[data.paneKey]?.state === 'done') {
         return
