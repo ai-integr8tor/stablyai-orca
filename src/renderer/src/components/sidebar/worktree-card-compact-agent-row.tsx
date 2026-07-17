@@ -7,7 +7,8 @@ import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
 import { cn } from '@/lib/utils'
 import { getAgentDotState } from './worktree-card-agent-summary'
 import { translate } from '@/i18n/i18n'
-import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
+import { getAgentRowDisplayLabel } from '@/lib/agent-row-primary-text'
+import { useAppStore } from '@/store'
 import CacheTimer, { usePromptCacheCountdownForPane } from './CacheTimer'
 
 function formatShortTimeAgo(ts: number, now: number): string {
@@ -44,9 +45,22 @@ function lastEnteredDoneAt(agent: DashboardAgentRowData): number | null {
   return null
 }
 
-function getCompactAgentPrimary(agent: DashboardAgentRowData): string {
-  const prompt = getAgentRowPrimaryText(agent.entry)
-  return prompt || agentStateLabel(getAgentDotState(agent))
+function getCompactAgentPrimary(
+  agent: DashboardAgentRowData,
+  generatedTitlesEnabled: boolean
+): string {
+  // Why: prefer the middle-panel tab name (customTitle / quickCommandLabel /
+  // generatedTitle) so a rename in the tab strip (or `orca terminal rename`)
+  // shows on the left too. Falling back to prompt/state is what produced
+  // "Done - Claude" while the tab already had a human name.
+  return getAgentRowDisplayLabel({
+    entry: agent.entry,
+    // Why: subagent rows borrow the parent's tab, so adopting its title would
+    // relabel every child with the parent's name — keep their own description.
+    tab: agent.rowSource === 'subagent' ? null : agent.tab,
+    generatedTitlesEnabled,
+    fallbackStateLabel: agentStateLabel(getAgentDotState(agent))
+  })
 }
 
 function getCompactAgentSecondary(agent: DashboardAgentRowData): string {
@@ -125,7 +139,10 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
   // "?" glyph. Nesting under the parent already conveys identity.
   const hideIcon = hideIdentityIcon || agent.rowSource === 'subagent'
   const dotState = getAgentDotState(agent)
-  const primary = getCompactAgentPrimary(agent)
+  // Why: match the tab strip's auto-title gate so generatedTitle only labels the
+  // row when the user has that setting on.
+  const generatedTitlesEnabled = useAppStore((s) => s.settings?.tabAutoGenerateTitle === true)
+  const primary = getCompactAgentPrimary(agent, generatedTitlesEnabled)
   const isLineageChild = agent.lineage?.depth === 1
   const secondary = getCompactAgentSecondary(agent)
   const shortTime = getCompactAgentTime(agent, now)

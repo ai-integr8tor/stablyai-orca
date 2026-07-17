@@ -11,6 +11,7 @@ function agent(overrides: Partial<RuntimeWorktreeAgentRow> = {}): RuntimeWorktre
     state: 'working',
     agentType: 'codex',
     prompt: 'fix mobile lag',
+    tabTitle: null,
     lastAssistantMessage: null,
     toolName: null,
     toolInput: null,
@@ -156,6 +157,13 @@ describe('areWorktreeListsEqual', () => {
   it('detects agent status changes', () => {
     const first = [worktree({ agents: [agent({ state: 'working' })] })]
     const second = [worktree({ agents: [agent({ state: 'waiting' })] })]
+
+    expect(areWorktreeListsEqual(first, second)).toBe(false)
+  })
+
+  it('detects a tab rename (tabTitle) so the row relabels', () => {
+    const first = [worktree({ agents: [agent({ tabTitle: null })] })]
+    const second = [worktree({ agents: [agent({ tabTitle: 'PROBE-LEFT-NAME' })] })]
 
     expect(areWorktreeListsEqual(first, second)).toBe(false)
   })

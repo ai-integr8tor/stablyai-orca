@@ -23438,6 +23438,195 @@ describe('OrcaRuntimeService', () => {
     expect(summary).toMatchObject({ hasHostSidebarActivity: true, status: 'working' })
   })
 
+  it('carries the owning tab explicit name onto the agent row for mobile', async () => {
+    // Why: mobile agent rows prefer a `terminal rename` like the desktop
+    // sidebar; the renderer-resolved explicitTitle rides the synced tab.
+    const leafId = '44444444-4444-4444-8444-444444444444'
+    const paneKey = `tab-1:${leafId}`
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey,
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-1',
+          state: 'working',
+          prompt: 'ship it',
+          agentType: 'claude',
+          lastAssistantMessage: 'on it',
+          connectionId: null,
+          receivedAt: 1000,
+          stateStartedAt: 900
+        }
+      ]
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'PROBE-LEFT-NAME',
+          explicitTitle: 'PROBE-LEFT-NAME',
+          activeLeafId: leafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId,
+          paneRuntimeId: 1,
+          ptyId: 'pty-1'
+        }
+      ]
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((w) => w.worktreeId === TEST_WORKTREE_ID)
+    expect(summary?.agents).toEqual([
+      expect.objectContaining({ paneKey, tabTitle: 'PROBE-LEFT-NAME' })
+    ])
+  })
+
+  it('leaves the agent row tabTitle null when the tab has no explicit name', async () => {
+    const leafId = '55555555-5555-4555-8555-555555555555'
+    const paneKey = `tab-1:${leafId}`
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey,
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-1',
+          state: 'working',
+          prompt: 'ship it',
+          agentType: 'claude',
+          lastAssistantMessage: 'on it',
+          connectionId: null,
+          receivedAt: 1000,
+          stateStartedAt: 900
+        }
+      ]
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Claude',
+          activeLeafId: leafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        { tabId: 'tab-1', worktreeId: TEST_WORKTREE_ID, leafId, paneRuntimeId: 1, ptyId: 'pty-1' }
+      ]
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((w) => w.worktreeId === TEST_WORKTREE_ID)
+    expect(summary?.agents).toEqual([expect.objectContaining({ paneKey, tabTitle: null })])
+  })
+
+  it('omits tabTitle on subagent rows even when the owning tab is renamed', async () => {
+    // Why: agentDisplayLabel prefers tabTitle; child rows should keep their own
+    // prompt/message identity instead of the parent tab's rename.
+    const workerLeafId = '66666666-6666-4666-8666-666666666666'
+    const coordinatorLeafId = '77777777-7777-4777-8777-777777777777'
+    const workerPaneKey = `tab-worker:${workerLeafId}`
+    const coordinatorPaneKey = `tab-coordinator:${coordinatorLeafId}`
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: workerPaneKey,
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-worker',
+          state: 'working',
+          prompt: 'review the diff',
+          agentType: 'claude',
+          lastAssistantMessage: 'looking',
+          connectionId: null,
+          receivedAt: 1000,
+          stateStartedAt: 900
+        }
+      ]
+    })
+    const workerHandle = runtime.preAllocateHandleForPty('pty-worker')
+    const coordinatorHandle = runtime.preAllocateHandleForPty('pty-coordinator')
+    runtime.setOrchestrationDb({
+      getActiveDispatchForTerminal: vi.fn((handle: string) =>
+        handle === workerHandle
+          ? {
+              id: 'ctx-1',
+              task_id: 'task-1',
+              assignee_handle: workerHandle,
+              status: 'dispatched'
+            }
+          : undefined
+      ),
+      getLatestDispatchForTerminal: vi.fn(() => undefined),
+      getTask: vi.fn(() => ({
+        id: 'task-1',
+        task_title: 'Review work',
+        display_name: 'Review the worker diff',
+        spec: 'Review the worker diff',
+        created_by_terminal_handle: coordinatorHandle
+      })),
+      getActiveCoordinatorRun: vi.fn(() => ({
+        id: 'run-1',
+        coordinator_handle: coordinatorHandle
+      }))
+    } as never)
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-worker',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'WORKER-RENAME',
+          explicitTitle: 'WORKER-RENAME',
+          activeLeafId: workerLeafId,
+          layout: null
+        },
+        {
+          tabId: 'tab-coordinator',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'COORD-RENAME',
+          explicitTitle: 'COORD-RENAME',
+          activeLeafId: coordinatorLeafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-worker',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: workerLeafId,
+          paneRuntimeId: 1,
+          ptyId: 'pty-worker'
+        },
+        {
+          tabId: 'tab-coordinator',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: coordinatorLeafId,
+          paneRuntimeId: 2,
+          ptyId: 'pty-coordinator'
+        }
+      ]
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((w) => w.worktreeId === TEST_WORKTREE_ID)
+    expect(summary?.agents).toEqual([
+      expect.objectContaining({
+        paneKey: workerPaneKey,
+        parentPaneKey: coordinatorPaneKey,
+        tabTitle: null
+      })
+    ])
+  })
+
   it('uses mirrored tab ownership after a workspace rename instead of stale hook attribution', async () => {
     const renamedPath = '/tmp/worktree-renamed'
     const renamedWorktreeId = `${TEST_REPO_ID}::${renamedPath}`

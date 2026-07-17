@@ -579,6 +579,10 @@ async function syncRuntimeGraph(): Promise<void> {
       tabId,
       worktreeId: registeredTab.worktreeId,
       title: resolveRuntimeTerminalTitle(tab, generatedTitlesEnabled),
+      // Why: named tiers only (title: '' skips the live shell title) so mobile
+      // agent rows prefer a rename without adopting a generic OSC/shell title.
+      explicitTitle:
+        resolveTerminalTabTitle({ ...tab, title: '' }, generatedTitlesEnabled, '') || null,
       activeLeafId: activePaneId === null ? null : (manager?.getLeafId(activePaneId) ?? null),
       layout: serializePaneTree(root)
     })
@@ -647,6 +651,10 @@ async function syncRuntimeGraph(): Promise<void> {
         tabId: tab.id,
         worktreeId,
         title,
+        // Why: same named-tier explicitTitle as mounted tabs so background/
+        // unmounted agent rows still prefer a rename over prompt/state labels.
+        explicitTitle:
+          resolveTerminalTabTitle({ ...tab, title: '' }, generatedTitlesEnabled, '') || null,
         activeLeafId: layout?.activeLeafId ?? liveLeaves[0][0],
         layout: resolveTerminalLayoutRoot({
           authoritativeRoot: layout?.root,

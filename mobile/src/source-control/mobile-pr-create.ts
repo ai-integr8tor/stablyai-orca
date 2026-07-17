@@ -69,8 +69,9 @@ export function getMobilePrCreateBlockMessage(prefill: MobilePrPrefill): string 
     case 'base_not_on_remote':
       return `Push the base branch before creating a ${copy.reviewLabel}.`
     case 'needs_push':
-    case null:
-    case undefined:
+    default:
+      // needs_push / null / undefined and any future reason share the generic
+      // copy; a default clause keeps the function total for tsc's return check.
       return `This branch is not ready for a ${copy.reviewLabel} yet.`
     default:
       // Why: desktop can add blocked reasons before a long-lived mobile branch

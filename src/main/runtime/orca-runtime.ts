@@ -12213,12 +12213,23 @@ export class OrcaRuntimeService {
       }
       const taskTitle = orchestrationByPaneKey?.[src.paneKey]?.taskTitle ?? null
       const displayName = orchestrationByPaneKey?.[src.paneKey]?.displayName ?? null
+      const parentPaneKey = orchestrationByPaneKey?.[src.paneKey]?.parentPaneKey ?? null
+      // Why: carry the owning tab's explicit name (resolved renderer-side) so
+      // mobile agent rows prefer a `terminal rename` like the desktop sidebar.
+      // Subagent/child rows keep prompt/message labels — not the parent tab rename.
+      const tabTitle =
+        parentPaneKey != null
+          ? null
+          : tabId
+            ? (this.tabs.get(tabId)?.explicitTitle ?? null)
+            : null
       const row: RuntimeWorktreeAgentRow = {
         paneKey: src.paneKey,
-        parentPaneKey: orchestrationByPaneKey?.[src.paneKey]?.parentPaneKey ?? null,
+        parentPaneKey,
         state: src.state,
         agentType: src.agentType,
         prompt: src.prompt,
+        tabTitle,
         taskTitle,
         displayName,
         lastAssistantMessage: src.lastAssistantMessage,
