@@ -65,7 +65,7 @@ type PtyCallbacks = {
   onReplayData?: (
     data: string,
     meta?: { clearBeforeReplay?: boolean; pendingEscapeTailAnsi?: string }
-  ) => void
+  ) => void | Promise<void>
   onStatus?: (shell: string) => void
   onError?: (message: string, errors?: string[]) => void
   onExit?: (code: number) => void

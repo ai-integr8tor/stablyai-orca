@@ -5051,9 +5051,9 @@ export function connectPanePty(
       }
       return appliedCurrentPayload
     }
-    const scheduleReplayDataDrain = (): void => {
+    const scheduleReplayDataDrain = (): Promise<void> => {
       if (replayDrainQueued) {
-        return
+        return replayWriteQueue
       }
       const scheduledPtyId = pendingReplayData?.ptyId ?? null
       replayDrainQueued = true
@@ -5093,12 +5093,13 @@ export function connectPanePty(
           }
           finishReattachLiveDataDeferral(replayCompleted, scheduledStreamGeneration)
         })
+      return replayWriteQueue
     }
     const replayDataCallback = (
       data: string,
       meta: { clearBeforeReplay?: boolean; pendingEscapeTailAnsi?: string } = {},
       streamGeneration = transportStreamGeneration
-    ): void => {
+    ): Promise<void> => {
       pendingReplayData = {
         data,
         clearBeforeReplay: meta.clearBeforeReplay !== false,
@@ -5107,7 +5108,7 @@ export function connectPanePty(
         streamGeneration,
         ...(meta.pendingEscapeTailAnsi ? { pendingEscapeTailAnsi: meta.pendingEscapeTailAnsi } : {})
       }
-      scheduleReplayDataDrain()
+      return scheduleReplayDataDrain()
     }
 
     const captureTransportOutputCallbacks = (onError: (message: string) => void) => {
@@ -5135,9 +5136,9 @@ export function connectPanePty(
           onReplayData: (
             data: string,
             meta?: { clearBeforeReplay?: boolean; pendingEscapeTailAnsi?: string }
-          ): void => {
+          ): void | Promise<void> => {
             if (isCurrent()) {
-              replayDataCallback(data, meta, generation)
+              return replayDataCallback(data, meta, generation)
             }
           },
           onError: (message: string): void => {

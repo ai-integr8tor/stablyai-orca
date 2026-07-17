@@ -88,4 +88,58 @@ describe('shared control keepalive timeout refresh semantics', () => {
     await expect(promise).rejects.toThrow()
     expect(pendingRequests.size).toBe(0)
   })
+
+  it('does not send after readiness resolves beyond the absolute deadline', async () => {
+    const pendingRequests = new Map<string, SharedControlPendingRequest<unknown>>()
+    let releaseReady!: () => void
+    const ready = new Promise<void>((resolve) => {
+      releaseReady = resolve
+    })
+    const send = vi.fn()
+    const promise = requestSharedControl({
+      pendingRequests,
+      method: 'git.status',
+      params: undefined,
+      timeoutMs: 1000,
+      ensureReady: () => ready,
+      send
+    })
+    promise.catch(() => undefined)
+
+    await vi.advanceTimersByTimeAsync(1001)
+    await expect(promise).rejects.toThrow('Timed out')
+    releaseReady()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(send).not.toHaveBeenCalled()
+    expect(pendingRequests.size).toBe(0)
+  })
+
+  it('rejects and removes immediately when send throws without timing out the socket', async () => {
+    const pendingRequests = new Map<string, SharedControlPendingRequest<unknown>>()
+    const sendError = new Error('send failed')
+    let rejection: unknown
+    const promise = requestSharedControl({
+      pendingRequests,
+      method: 'git.status',
+      params: undefined,
+      timeoutMs: 1000,
+      ensureReady: () => Promise.resolve(),
+      send: () => {
+        throw sendError
+      }
+    })
+    promise.catch((error: unknown) => {
+      rejection = error
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+    const rejectionBeforeDeadline = rejection
+    const pendingBeforeDeadline = pendingRequests.size
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(rejectionBeforeDeadline).toEqual(expect.objectContaining({ message: 'send failed' }))
+    expect(pendingBeforeDeadline).toBe(0)
+    expect(rejection).toEqual(expect.objectContaining({ message: 'send failed' }))
+  })
 })
