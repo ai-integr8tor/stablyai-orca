@@ -14,7 +14,7 @@ import { registerWorktreeHandlers } from '../ipc/worktrees'
 import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
 import { getLocalPtyProvider, registerPtyHandlers } from '../ipc/pty'
 import { registerDaemonManagementHandlers } from '../ipc/pty-management'
-import { registerSshHandlers } from '../ipc/ssh'
+import { eagerReconnectSshTargetsFromShutdown, registerSshHandlers } from '../ipc/ssh'
 import { registerRemoteWorkspaceHandlers } from '../ipc/remote-workspace'
 import { browserManager } from '../browser/browser-manager'
 import { hasSystemMediaAccess, requestSystemMediaAccess } from '../browser/browser-media-access'
@@ -135,6 +135,12 @@ export function attachMainWindowServices(
       })
   }
   registerSshHandlers(store, () => mainWindow, runtime)
+  // Why: overlap SSH reconnect with renderer hydration. The eager pass
+  // itself waits for the renderer's credential-listener-ready signal and
+  // skips entirely without it, so a prompt can never fire into a void.
+  mainWindow.webContents.once('did-finish-load', () => {
+    eagerReconnectSshTargetsFromShutdown()
+  })
   registerRemoteWorkspaceHandlers(store, () => mainWindow)
   registerFileDropRelay(mainWindow)
   // Why: setupAutoUpdater's first getAutoUpdater() call synchronously

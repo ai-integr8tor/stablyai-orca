@@ -77,6 +77,7 @@ import { toSshExecutionHostId, type ExecutionHostId } from '../../shared/executi
 import { isTerminalLeafId, makePaneKey } from '../../shared/stable-pane-id'
 import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
 import { shellEscape } from './ssh-connection-utils'
+import { timeStartupStep } from '../startup/startup-diagnostics'
 
 export type RelaySessionState = 'idle' | 'deploying' | 'ready' | 'reconnecting' | 'disposed'
 
@@ -333,7 +334,11 @@ export class SshRelaySession {
 
     try {
       const { transport, remoteHome, remoteRelayDir, nodePath, sockPath, hostPlatform } =
-        await deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId)
+        await timeStartupStep(
+          'ssh-establish-deploy',
+          () => deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId),
+          { target: this.targetId }
+        )
       this.hostPlatform = hostPlatform ?? null
       this.remoteCliBridgeEnv =
         remoteHome && remoteRelayDir && nodePath && sockPath && hostPlatform
@@ -368,9 +373,17 @@ export class SshRelaySession {
       // registerRelayRoots would silently swallow all mux errors, leaving
       // the session in 'ready' state with a dead mux. A round-trip request
       // here fails fast so doConnect() can report the real error.
-      await mux.request('session.resolveHome', { path: '~' })
+      await timeStartupStep(
+        'ssh-establish-health-check',
+        () => mux.request('session.resolveHome', { path: '~' }),
+        { target: this.targetId }
+      )
 
-      const registered = await this.registerProviders(mux, ownsAttempt)
+      const registered = await timeStartupStep(
+        'ssh-establish-register-providers',
+        () => this.registerProviders(mux, ownsAttempt),
+        { target: this.targetId }
+      )
       if (!registered) {
         if (!mux.isDisposed()) {
           mux.dispose()
@@ -394,7 +407,11 @@ export class SshRelaySession {
 
       // Why: explicit disconnect keeps PTY ownership so a later manual connect
       // must reattach those remote PTYs through the fresh relay connection.
-      await this.reattachKnownPtys(ownsAttempt)
+      await timeStartupStep(
+        'ssh-establish-reattach-ptys',
+        () => this.reattachKnownPtys(ownsAttempt),
+        { target: this.targetId }
+      )
 
       if (!ownsAttempt()) {
         throw new Error('Session disposed during establish')
@@ -762,9 +779,21 @@ export class SshRelaySession {
     let sftp: Awaited<ReturnType<SshConnection['sftp']>> | null = null
     try {
       const connection = this.requireReadyConnection()
-      const remoteGrokHome = await resolveRemoteGrokHome(connection, remoteHome)
+      // Why: the probe and the SFTP fan-out dominate cold SSH connects on
+      // high-latency links, so keep them separately visible in diagnostics.
+      const remoteGrokHome = await timeStartupStep(
+        'ssh-hooks-grok-home-probe',
+        () => resolveRemoteGrokHome(connection, remoteHome),
+        { target: this.targetId }
+      )
       sftp = await connection.sftp()
-      await installRemoteManagedAgentHooks(sftp, remoteHome, { grokHomeDir: remoteGrokHome })
+      const openedSftp = sftp
+      await timeStartupStep(
+        'ssh-hooks-sftp-install',
+        () =>
+          installRemoteManagedAgentHooks(openedSftp, remoteHome, { grokHomeDir: remoteGrokHome }),
+        { target: this.targetId }
+      )
     } catch (error) {
       console.warn(
         `[ssh-relay-session] remote managed hook install failed for ${this.targetId}: ${

@@ -213,7 +213,12 @@ vi.mock('../ssh/ssh-port-scanner', () => ({
   }
 }))
 
-import { getSshConnectionManager, registerSshHandlers, resetSshHandlerStateForTests } from './ssh'
+import {
+  eagerReconnectSshTargetsFromShutdown,
+  getSshConnectionManager,
+  registerSshHandlers,
+  resetSshHandlerStateForTests
+} from './ssh'
 import { SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, type SshTarget } from '../../shared/ssh-types'
 import {
   clearProviderPtyState,
@@ -227,6 +232,7 @@ describe('SSH IPC handlers', () => {
   const mockStore = {
     getRepos: () => [],
     getSshRemotePtyLeases: vi.fn().mockReturnValue([]),
+    getWorkspaceSession: vi.fn().mockReturnValue({}),
     markSshRemotePtyLease: vi.fn(),
     markSshRemotePtyLeases: vi.fn(),
     removeSshRemotePtyLeases: vi.fn()
@@ -301,6 +307,7 @@ describe('SSH IPC handlers', () => {
     mockSshStore.lastRepoReadoptions = []
     mockWindow.webContents.send.mockReset()
     mockStore.getSshRemotePtyLeases.mockReset().mockReturnValue([])
+    mockStore.getWorkspaceSession.mockReset().mockReturnValue({})
     mockStore.markSshRemotePtyLease.mockReset()
     mockStore.markSshRemotePtyLeases.mockReset()
     mockStore.removeSshRemotePtyLeases.mockReset()
@@ -496,6 +503,170 @@ describe('SSH IPC handlers', () => {
     await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
 
     expect(mockConnectionManager.connect).toHaveBeenCalledWith(target)
+  })
+
+  it('eager startup reconnect connects shutdown targets, skipping passphrase and missing ones', async () => {
+    const eager: SshTarget = {
+      id: 'ssh-eager',
+      label: 'Eager',
+      host: 'eager.example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    const passphrase: SshTarget = {
+      id: 'ssh-pass',
+      label: 'Pass',
+      host: 'pass.example.com',
+      port: 22,
+      username: 'deploy',
+      lastRequiredPassphrase: true
+    }
+    mockStore.getWorkspaceSession.mockReturnValue({
+      activeConnectionIdsAtShutdown: ['ssh-eager', 'ssh-pass', 'ssh-gone']
+    })
+    mockSshStore.getTarget.mockImplementation((id: string) =>
+      id === 'ssh-eager' ? eager : id === 'ssh-pass' ? passphrase : undefined
+    )
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-eager',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+
+    await handlers.get('ssh:credentialListenerReady')!(null, {})
+    eagerReconnectSshTargetsFromShutdown()
+
+    await vi.waitFor(() => {
+      expect(mockConnectionManager.connect).toHaveBeenCalledWith(eager)
+    })
+    expect(mockConnectionManager.connect).toHaveBeenCalledTimes(1)
+  })
+
+  it('eager startup reconnect stays off until the renderer credential listener is ready', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockStore.getWorkspaceSession.mockReturnValue({
+      activeConnectionIdsAtShutdown: ['ssh-1']
+    })
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+
+    eagerReconnectSshTargetsFromShutdown({ listenerReadyTimeoutMs: 5_000 })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    expect(mockConnectionManager.connect).not.toHaveBeenCalled()
+
+    await handlers.get('ssh:credentialListenerReady')!(null, {})
+    await vi.waitFor(() => {
+      expect(mockConnectionManager.connect).toHaveBeenCalledWith(target)
+    })
+  })
+
+  it('eager startup reconnect is skipped entirely when the ready signal never arrives', async () => {
+    mockStore.getWorkspaceSession.mockReturnValue({
+      activeConnectionIdsAtShutdown: ['ssh-1']
+    })
+    mockSshStore.getTarget.mockReturnValue({
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    } as SshTarget)
+    mockConnectionManager.connect.mockResolvedValue({})
+
+    eagerReconnectSshTargetsFromShutdown({ listenerReadyTimeoutMs: 30 })
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(mockConnectionManager.connect).not.toHaveBeenCalled()
+
+    // A late signal must not resurrect the abandoned eager pass.
+    await handlers.get('ssh:credentialListenerReady')!(null, {})
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(mockConnectionManager.connect).not.toHaveBeenCalled()
+  })
+
+  it('eager startup reconnect runs only once per app launch', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockStore.getWorkspaceSession.mockReturnValue({
+      activeConnectionIdsAtShutdown: ['ssh-1']
+    })
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+
+    await handlers.get('ssh:credentialListenerReady')!(null, {})
+    eagerReconnectSshTargetsFromShutdown()
+    await vi.waitFor(() => {
+      expect(mockConnectionManager.connect).toHaveBeenCalledTimes(1)
+    })
+
+    // Second pass after the first completed: without the once-guard this
+    // would start a fresh doConnect (mock sessions never look 'ready').
+    eagerReconnectSshTargetsFromShutdown()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockConnectionManager.connect).toHaveBeenCalledTimes(1)
+  })
+
+  it('renderer ssh:connect joins the in-flight eager reconnect instead of reconnecting', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockStore.getWorkspaceSession.mockReturnValue({
+      activeConnectionIdsAtShutdown: ['ssh-1']
+    })
+    mockSshStore.getTarget.mockReturnValue(target)
+    let resolveConnect: ((value: unknown) => void) | undefined
+    mockConnectionManager.connect.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveConnect = resolve
+        })
+    )
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+
+    await handlers.get('ssh:credentialListenerReady')!(null, {})
+    eagerReconnectSshTargetsFromShutdown()
+    await vi.waitFor(() => {
+      expect(resolveConnect).toBeDefined()
+    })
+
+    const rendererConnect = handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+    resolveConnect!({})
+    await rendererConnect
+
+    expect(mockConnectionManager.connect).toHaveBeenCalledTimes(1)
   })
 
   it('ssh:connect exposes the detected remote platform in public state', async () => {

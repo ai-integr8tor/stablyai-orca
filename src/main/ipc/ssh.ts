@@ -38,6 +38,7 @@ import {
   getSshPtyProvider
 } from './pty'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
+import { logStartupMilestone } from '../startup/startup-diagnostics'
 
 let sshStore: SshConnectionStore | null = null
 let connectionManager: SshConnectionManager | null = null
@@ -58,6 +59,7 @@ const SSH_IPC_CHANNELS = [
   'ssh:removeTarget',
   'ssh:importConfig',
   'ssh:connect',
+  'ssh:credentialListenerReady',
   'ssh:disconnect',
   'ssh:terminateSessions',
   'ssh:resetRelay',
@@ -85,6 +87,95 @@ export async function connectRegisteredSshTarget(targetId: string): Promise<SshC
     throw new Error('ssh_handlers_not_registered')
   }
   return registeredConnectSshTarget(targetId)
+}
+
+// Why: one eager pass per app launch. macOS re-activation re-runs
+// registerSshHandlers against the same process-lifetime connections.
+let eagerStartupReconnectAttempted = false
+
+// Why: a credential prompt sent before the renderer registers its
+// ssh:credential-request listener is silently lost, leaving the connect in a
+// dead 120s wait. The renderer signals once the listener provably exists;
+// IPC ordering then guarantees any later prompt is delivered.
+let credentialListenerReadySignaled = false
+type CredentialListenerReadyWaiter = {
+  resolve: () => void
+  timer: ReturnType<typeof setTimeout>
+}
+let credentialListenerReadyWaiters: CredentialListenerReadyWaiter[] = []
+
+function signalSshCredentialListenerReady(): void {
+  if (credentialListenerReadySignaled) {
+    return
+  }
+  credentialListenerReadySignaled = true
+  const waiters = credentialListenerReadyWaiters
+  credentialListenerReadyWaiters = []
+  for (const waiter of waiters) {
+    clearTimeout(waiter.timer)
+    waiter.resolve()
+  }
+}
+
+function whenSshCredentialListenerReady(timeoutMs: number): Promise<boolean> {
+  if (credentialListenerReadySignaled) {
+    return Promise.resolve(true)
+  }
+  return new Promise((resolve) => {
+    const waiter: CredentialListenerReadyWaiter = {
+      resolve: () => resolve(true),
+      // Why: drop the waiter as the timer fires so a later signal cannot
+      // resolve an already-settled promise or retain a dead callback.
+      timer: setTimeout(() => {
+        credentialListenerReadyWaiters = credentialListenerReadyWaiters.filter(
+          (entry) => entry !== waiter
+        )
+        resolve(false)
+      }, timeoutMs)
+    }
+    credentialListenerReadyWaiters.push(waiter)
+  })
+}
+
+const EAGER_RECONNECT_LISTENER_READY_TIMEOUT_MS = 10_000
+
+/** Start reconnecting the targets that were connected at shutdown so SSH
+ *  establish overlaps renderer hydration. The renderer's own reconnect joins
+ *  these attempts via connectInFlight, so state transitions are unchanged. */
+export function eagerReconnectSshTargetsFromShutdown(options?: {
+  listenerReadyTimeoutMs?: number
+}): void {
+  if (eagerStartupReconnectAttempted) {
+    return
+  }
+  eagerStartupReconnectAttempted = true
+  if (!sshStore || !persistedStore || !registeredConnectSshTarget) {
+    return
+  }
+  const targetStore = sshStore
+  const sessionStore = persistedStore
+  const connect = registeredConnectSshTarget
+  const timeoutMs = options?.listenerReadyTimeoutMs ?? EAGER_RECONNECT_LISTENER_READY_TIMEOUT_MS
+  void whenSshCredentialListenerReady(timeoutMs).then((listenerReady) => {
+    // Why: no signal means no eager pass. The renderer's own startup
+    // reconnect then proceeds exactly as it did before this feature.
+    if (!listenerReady) {
+      return
+    }
+    const connectionIds = sessionStore.getWorkspaceSession().activeConnectionIdsAtShutdown ?? []
+    for (const targetId of connectionIds) {
+      const target = targetStore.getTarget(targetId)
+      // Why: same rule as renderer startup. Targets that prompted last time
+      // defer to tab focus so credential dialogs never stack at launch.
+      if (!target || target.lastRequiredPassphrase) {
+        continue
+      }
+      logStartupMilestone('ssh-eager-reconnect-start', { target: targetId })
+      void connect(targetId).catch(() => {
+        // Best-effort: the renderer's startup reconnect owns error surfacing.
+      })
+    }
+  })
 }
 
 export function getRegisteredSshState(targetId: string): SshConnectionState | undefined {
@@ -824,6 +915,10 @@ export function registerSshHandlers(
     return connectTarget(args.targetId)
   })
 
+  ipcMain.handle('ssh:credentialListenerReady', () => {
+    signalSshCredentialListenerReady()
+  })
+
   async function doConnect(targetId: string): Promise<SshConnectionState> {
     const target = sshStore!.getTarget(targetId)
     if (!target) {
@@ -1308,6 +1403,12 @@ export async function resetSshHandlerStateForTests(): Promise<void> {
   registeredGetSshState = null
   currentGetMainWindow = () => null
   currentRuntime = undefined
+  eagerStartupReconnectAttempted = false
+  credentialListenerReadySignaled = false
+  for (const waiter of credentialListenerReadyWaiters) {
+    clearTimeout(waiter.timer)
+  }
+  credentialListenerReadyWaiters = []
 }
 
 export function getSshConnectionStore(): SshConnectionStore | null {

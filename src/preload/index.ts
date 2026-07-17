@@ -4269,6 +4269,9 @@ const api = {
       return () => ipcRenderer.removeListener('ssh:credential-resolved', listener)
     },
 
+    notifyCredentialListenerReady: (): Promise<void> =>
+      ipcRenderer.invoke('ssh:credentialListenerReady'),
+
     submitCredential: (args: { requestId: string; value: string | null }): Promise<void> =>
       ipcRenderer.invoke('ssh:submitCredential', args)
   },

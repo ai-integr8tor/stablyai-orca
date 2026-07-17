@@ -17,7 +17,8 @@ const {
   hydrateLocalPtyRegistryAtBootMock,
   setupAutoUpdaterMock,
   browserManagerUnregisterAllMock,
-  runWorktreeChangeInvalidatorsMock
+  runWorktreeChangeInvalidatorsMock,
+  eagerReconnectSshTargetsFromShutdownMock
 } = vi.hoisted(() => ({
   onMock: vi.fn(),
   removeAllListenersMock: vi.fn(),
@@ -34,7 +35,8 @@ const {
   hydrateLocalPtyRegistryAtBootMock: vi.fn(),
   setupAutoUpdaterMock: vi.fn(),
   browserManagerUnregisterAllMock: vi.fn(),
-  runWorktreeChangeInvalidatorsMock: vi.fn()
+  runWorktreeChangeInvalidatorsMock: vi.fn(),
+  eagerReconnectSshTargetsFromShutdownMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -74,6 +76,11 @@ vi.mock('../ipc/pty', () => ({
   registerPtyHandlers: registerPtyHandlersMock
 }))
 
+vi.mock('../ipc/ssh', () => ({
+  registerSshHandlers: vi.fn(),
+  eagerReconnectSshTargetsFromShutdown: eagerReconnectSshTargetsFromShutdownMock
+}))
+
 vi.mock('../memory/hydrate-local-pty-registry', () => ({
   hydrateLocalPtyRegistryAtBoot: hydrateLocalPtyRegistryAtBootMock
 }))
@@ -105,6 +112,7 @@ type MainWindowStub = {
     id?: number
     isDestroyed?: MockFn
     on: MockFn
+    once: MockFn
     send?: MockFn
     reload?: MockFn
     session: {
@@ -131,6 +139,7 @@ function createMainWindow(extraWebContents: { on?: MockFn; send?: MockFn } = {})
       id: 1,
       isDestroyed: vi.fn(() => false),
       on: vi.fn(),
+      once: vi.fn(),
       reload: vi.fn(),
       session: {
         setPermissionRequestHandler: setPermissionRequestHandlerMock,
@@ -142,7 +151,11 @@ function createMainWindow(extraWebContents: { on?: MockFn; send?: MockFn } = {})
 }
 
 function createStore(): Store & { flush: MockFn } {
-  return { flush: vi.fn() } as Store & { flush: MockFn }
+  // Why: eager SSH reconnect reads the persisted shutdown session at
+  // did-finish-load; an empty session keeps it a no-op in these tests.
+  return { flush: vi.fn(), getWorkspaceSession: vi.fn(() => ({})) } as unknown as Store & {
+    flush: MockFn
+  }
 }
 
 function createRuntime(): RuntimeStub {
@@ -195,6 +208,7 @@ describe('attachMainWindowServices', () => {
     hydrateLocalPtyRegistryAtBootMock.mockReset()
     setupAutoUpdaterMock.mockReset()
     browserManagerUnregisterAllMock.mockReset()
+    eagerReconnectSshTargetsFromShutdownMock.mockReset()
     systemPreferencesAskForMediaAccessMock.mockResolvedValue(true)
     systemPreferencesGetMediaAccessStatusMock.mockReturnValue('granted')
   })
@@ -223,6 +237,23 @@ describe('attachMainWindowServices', () => {
       ignoreCache: false
     })
     expect(mainWindow.webContents.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires eager SSH reconnect exactly once at did-finish-load, not before', () => {
+    const mainWindow = createMainWindow()
+
+    attachMainWindowServices(mainWindow as never, createStore(), createRuntime() as never)
+
+    // Registration alone must not reconnect; the load event drives it.
+    expect(eagerReconnectSshTargetsFromShutdownMock).not.toHaveBeenCalled()
+    const loadHandler = mainWindow.webContents.once.mock.calls.find(
+      ([event]) => event === 'did-finish-load'
+    )?.[1] as (() => void) | undefined
+    expect(loadHandler).toBeTypeOf('function')
+
+    loadHandler!()
+
+    expect(eagerReconnectSshTargetsFromShutdownMock).toHaveBeenCalledTimes(1)
   })
 
   it('retries local PTY registry hydration after local startup services are ready', async () => {

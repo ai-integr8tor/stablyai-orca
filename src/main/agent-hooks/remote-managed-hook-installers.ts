@@ -76,32 +76,37 @@ export async function installRemoteManagedAgentHooks(
   remoteHome: string,
   options?: RemoteManagedHookInstallOptions
 ): Promise<AgentHookInstallStatus[]> {
-  const results: AgentHookInstallStatus[] = []
-  for (const [agent, install] of REMOTE_MANAGED_HOOK_INSTALLERS) {
-    try {
-      const result = await install(sftp, remoteHome, options)
-      results.push(result)
-      if (result.state === 'error') {
-        console.warn(
-          `[agent-hooks] Remote ${agent} managed hook install failed for ${result.configPath}: ${
-            result.detail ?? 'unknown error'
-          }`
-        )
+  // Why: concurrent is safe because installers touch disjoint per-agent paths
+  // and shared script-dir writes are atomic (tmp+rename). Serially, their
+  // SFTP round trips dominated SSH connect (~90s measured at 150ms RTT).
+  return Promise.all(
+    REMOTE_MANAGED_HOOK_INSTALLERS.map(
+      async ([agent, install]): Promise<AgentHookInstallStatus> => {
+        try {
+          const result = await install(sftp, remoteHome, options)
+          if (result.state === 'error') {
+            console.warn(
+              `[agent-hooks] Remote ${agent} managed hook install failed for ${result.configPath}: ${
+                result.detail ?? 'unknown error'
+              }`
+            )
+          }
+          return result
+        } catch (error) {
+          // Why: remote hook installation must not block SSH workspace startup.
+          // A broken agent config or transient SFTP failure should degrade status
+          // reporting only, while terminals/filesystem/git still come online.
+          const detail = error instanceof Error ? error.message : String(error)
+          console.warn(`[agent-hooks] Remote ${agent} managed hook install threw: ${detail}`)
+          return {
+            agent,
+            state: 'error',
+            configPath: remoteHome,
+            managedHooksPresent: false,
+            detail
+          }
+        }
       }
-    } catch (error) {
-      // Why: remote hook installation must not block SSH workspace startup.
-      // A broken agent config or transient SFTP failure should degrade status
-      // reporting only, while terminals/filesystem/git still come online.
-      const detail = error instanceof Error ? error.message : String(error)
-      console.warn(`[agent-hooks] Remote ${agent} managed hook install threw: ${detail}`)
-      results.push({
-        agent,
-        state: 'error',
-        configPath: remoteHome,
-        managedHooksPresent: false,
-        detail
-      })
-    }
-  }
-  return results
+    )
+  )
 }
