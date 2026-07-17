@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCreateTab = vi.fn()
+const mockQueueTabInitialCwd = vi.fn()
 const mockQueueTabStartupCommand = vi.fn()
 const mockSetActiveTabType = vi.fn()
 const mockSetTabBarOrder = vi.fn()
@@ -63,6 +64,7 @@ const store = {
   tabBarOrderByWorktree: {} as Record<string, string[]>,
   terminalLayoutsByTabId: {} as Record<string, { activeLeafId: string | null }>,
   createTab: mockCreateTab,
+  queueTabInitialCwd: mockQueueTabInitialCwd,
   closeTab: vi.fn(),
   queueTabStartupCommand: mockQueueTabStartupCommand,
   setActiveTabType: mockSetActiveTabType,
@@ -163,6 +165,18 @@ describe('launchAgentInNewTab', () => {
     expect(mockCreateTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
       launchAgent: 'codex'
     })
+  })
+
+  it('queues the original cwd before the new Agent session starts', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      initialCwd: '/repo/worktree/packages/app'
+    })
+
+    expect(mockQueueTabInitialCwd).toHaveBeenCalledWith('tab-1', '/repo/worktree/packages/app')
   })
 
   it('opens supported submit-after-ready launches in chat and seeds a launch prompt echo', async () => {
@@ -286,7 +300,8 @@ describe('launchAgentInNewTab', () => {
     const result = launchAgentInNewTab({
       agent: 'claude',
       worktreeId: 'wt-1',
-      groupId: 'group-1'
+      groupId: 'group-1',
+      initialCwd: '/repo/worktree/packages/app'
     })
 
     expect(result).toEqual(
@@ -300,6 +315,7 @@ describe('launchAgentInNewTab', () => {
       environmentId: 'web-runtime',
       targetGroupId: 'group-1',
       activate: true,
+      cwd: '/repo/worktree/packages/app',
       agent: 'claude',
       viewMode: 'terminal'
     })
