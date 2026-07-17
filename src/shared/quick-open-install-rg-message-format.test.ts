@@ -45,6 +45,20 @@ describe('install-rg message format round trip', () => {
     )
   })
 
+  it('parses a reason that itself contains parentheses', () => {
+    const message = formatInstallRgMessage({
+      reason: "EACCES: permission denied, scandir '/foo (bar)'",
+      location: 'remote',
+      command: 'sudo apt install ripgrep'
+    })
+
+    expect(parseInstallRgMessage(message)).toEqual({
+      reason: "EACCES: permission denied, scandir '/foo (bar)'",
+      isRemote: true,
+      tail: 'sudo apt install ripgrep'
+    })
+  })
+
   it('returns null for an unrelated message', () => {
     expect(parseInstallRgMessage('some other error')).toBeNull()
   })

@@ -36,9 +36,13 @@ export type ParsedInstallRgMessage = {
 
 // Why: built from the same phrase constants the formatter uses, so the two
 // cannot drift. Alternation order is irrelevant (the phrases share no prefix)
-// and the tokens contain no regex metacharacters.
+// and the tokens contain no regex metacharacters. The reason group is greedy
+// `(.+)` rather than `[^)]+` because the relay formats arbitrary errors here
+// (e.g. `EACCES: ... scandir '/foo (bar)'`); a `)` in the reason must not drop
+// the whole message to raw-text fallback. Backtracking lands on the final `)`
+// before the fixed ". Install ripgrep <phrase> ..." literal.
 const INSTALL_RG_MESSAGE_RE = new RegExp(
-  `^${SCAN_TOO_LARGE_PREFIX} \\(([^)]+)\\)\\. Install ripgrep ` +
+  `^${SCAN_TOO_LARGE_PREFIX} \\((.+)\\)\\. Install ripgrep ` +
     `(${Object.values(INSTALL_LOCATION_PHRASE).join('|')}) ${LISTING_GUIDANCE} (.+)$`
 )
 
