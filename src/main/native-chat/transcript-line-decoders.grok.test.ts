@@ -77,6 +77,24 @@ describe('decodeGrokTranscriptLine', () => {
     })
   })
 
+  it('resolves multi-dot mobile upload names to their last image extension', () => {
+    const imagePath = '/tmp/orca-file-1784234906335-f54c579b-photo.jpg.backup.png'
+    const line = JSON.stringify({
+      type: 'user',
+      content: [
+        { type: 'text', text: `<user_query>\n${imagePath}Describe this image\n</user_query>` }
+      ]
+    })
+
+    expect(decodeGrokTranscriptLine(line, 'fb-multidot')).toMatchObject({
+      role: 'user',
+      blocks: [
+        { type: 'image-ref', path: imagePath },
+        { type: 'text', text: 'Describe this image' }
+      ]
+    })
+  })
+
   it('leaves non-image mobile uploads (orca-file-… .pdf) as plain text', () => {
     const text =
       '/tmp/orca-file-1784234906335-f54c579b-819c-4c33-8bd1-2d34ebf871ab-report.pdf summarize this'

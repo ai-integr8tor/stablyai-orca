@@ -216,11 +216,18 @@ function normalizeGrokUserQueryBlock(block: NativeChatBlock): NativeChatBlock[] 
 
 // Mobile Files-picker uploads use `orca-file-<ts>-<uuid>-<name>.<ext>`; only
 // image extensions (from the shared list) are recovered as image attachments.
-const GROK_PASTED_IMAGE_NAME = `(?:orca-paste-[^\\\\/\\r\\n]+?\\.png|orca-file-[^\\\\/\\r\\n]+?\\.(?:${IMAGE_FILE_EXTENSIONS.map((ext) => ext.slice(1)).join('|')}))`
+// The name segment is restricted to the host sanitizer's allowlist charset and
+// matched greedily, so a multi-dot name (`photo.jpg.backup.png`) resolves to
+// its LAST image extension instead of truncating at the first. A non-image
+// name whose interior contains an image extension (`photo.jpg.tmp`) is still
+// ambiguous — Grok concatenates path and prompt with no delimiter — and will
+// mis-split; that is inherent to the format, not recoverable here.
+// (Regex is assembled from the static shared extension list, not user input.)
+const GROK_PASTED_IMAGE_NAME = `(?:orca-paste-[^\\\\/\\r\\n]+?\\.png|orca-file-[\\p{L}\\p{N}\\p{M}._-]+\\.(?:${IMAGE_FILE_EXTENSIONS.map((ext) => ext.slice(1)).join('|')}))`
 
 const GROK_PASTED_IMAGE_RE = new RegExp(
   `^((?:[a-z]:[\\\\/]|\\/|[\\\\/]{2}[^\\\\/\\r\\n]+[\\\\/][^\\\\/\\r\\n]+[\\\\/])(?:.*?[\\\\/])?${GROK_PASTED_IMAGE_NAME})([\\s\\S]*)$`,
-  'i'
+  'iu'
 )
 
 function splitGrokPastedImageQuery(text: string): { path: string; query: string } | null {

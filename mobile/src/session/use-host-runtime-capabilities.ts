@@ -51,6 +51,14 @@ export function useHostRuntimeCapabilities(
       hostQueryReplyInputSupportedRef.current = false
       return
     }
+    // Why: a client swap while still 'connected' (host replacement/reconnect)
+    // must not leave the previous host's capabilities active during the new
+    // probe — a stale fileAttachmentsSupported=true would let an any-file pick
+    // hit an old host that saves it under the legacy `….png` contract.
+    setBrowserScreencastSupported(null)
+    setAgentSessionHistorySupported(null)
+    setFileAttachmentsSupported(false)
+    hostQueryReplyInputSupportedRef.current = false
     let stale = false
     const retryTimers: ReturnType<typeof setTimeout>[] = []
 

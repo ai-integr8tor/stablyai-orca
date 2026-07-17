@@ -9,8 +9,12 @@ vi.mock('expo-document-picker', () => ({
 }))
 // Controls what the stat fallback sees when the picker omits asset.size.
 let statSize: number | null = null
+let statExists = true
 vi.mock('expo-file-system', () => ({
   File: class {
+    get exists(): boolean {
+      return statExists
+    }
     get size(): number | null {
       return statSize
     }
@@ -27,6 +31,7 @@ const denied = { granted: false } as typeof granted
 describe('pickMobileAttachment', () => {
   beforeEach(() => {
     statSize = null
+    statExists = true
   })
 
   it('returns base64 from the photo library', async () => {
@@ -119,6 +124,27 @@ describe('pickMobileAttachment', () => {
       pickMobileAttachment('files', { launchFiles }, { allowAnyFile: true })
     ).rejects.toThrow('too large')
     expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('treats an unreadable stat as unknown size, not zero', async () => {
+    statExists = false
+    statSize = 0
+    const bytes = new Uint8Array([7])
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(bytes.buffer))
+
+    const result = await pickMobileAttachment(
+      'files',
+      {
+        launchFiles: vi.fn().mockResolvedValue({
+          canceled: false,
+          assets: [{ uri: 'file:///gone.pdf', name: 'gone.pdf' }]
+        })
+      },
+      { allowAnyFile: true }
+    )
+
+    expect(result).toEqual({ base64: Buffer.from(bytes).toString('base64'), fileName: 'gone.pdf' })
     fetchSpy.mockRestore()
   })
 

@@ -15,7 +15,7 @@ Everything else in the pipeline is already content-agnostic: the chunked upload
 RPCs (`clipboard.startImageUpload` → `appendImageUploadChunk` →
 `commitImageUpload`), the SSH-aware temp-file write, and the bracketed-paste
 path injection all move opaque base64 to a host file and paste its path. The
-image-only behavior lives in exactly three places:
+image-only behavior lives in exactly two places:
 
 1. `mobile/src/session/mobile-image-source-picker.ts` — `image/*` picker filter;
    discards the picked file's name.
@@ -89,7 +89,7 @@ clipboard *paste* path only — picker attachments already fail fast with a
     (`<>:"|?*`), control characters, leading dots, and trailing dots/spaces
     (Windows rejects or silently drops them, and hosts may be Windows locally
     or over SSH).
-  - Cap the sanitized basename at 80 characters (preserving the extension where
+  - Cap the sanitized basename at 80 bytes (preserving the extension where
     possible).
   - If nothing survives sanitization, fall back to the generated name with no
     original-name suffix.
@@ -131,7 +131,7 @@ clipboard *paste* path only — picker attachments already fail fast with a
   `@testing-library` in mobile) — it stays covered by typecheck and manual
   verification.
 - Host (vitest): `fileName` sanitization table — path traversal (`../../x`),
-  separators, control chars, leading dots, empty-after-sanitize, >80 chars,
+  separators, control chars, leading dots, empty-after-sanitize, >80 bytes,
   unicode names; commit naming with and without `fileName`; unchanged behavior
   when `fileName` is absent.
 - Both suites run in CI as today (`pnpm test`, mobile vitest config).

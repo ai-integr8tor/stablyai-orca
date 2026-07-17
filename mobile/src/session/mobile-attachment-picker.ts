@@ -71,9 +71,15 @@ async function pickFromLibrary(
 function statFileSize(uri: string): number | null {
   // Why: some document providers omit size from the picker result; a filesystem
   // stat is the last cheap chance to reject an oversized pick before the read
-  // materializes it (and its 4/3-size base64) in JS memory.
+  // materializes it (and its 4/3-size base64) in JS memory. A missing or
+  // unreadable file must report null (unknown), never 0, so a bogus stat can't
+  // slip past the max-size guard.
   try {
-    return new FsFile(uri).size ?? null
+    const file = new FsFile(uri)
+    if (!file.exists) {
+      return null
+    }
+    return file.size ?? null
   } catch {
     return null
   }
