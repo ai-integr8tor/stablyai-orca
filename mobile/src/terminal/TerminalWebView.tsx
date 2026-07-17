@@ -3,6 +3,7 @@ import { Platform, View } from 'react-native'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { TerminalOscLinkRange } from './terminal-osc-link-ranges'
 import type { TerminalWebViewHandle, TerminalWebViewProps } from './terminal-webview-contract'
+import { parseTerminalKeyboardAvoidanceMetrics } from './terminal-webview-contract'
 import {
   TerminalWebViewEngineErrorOverlay,
   useTerminalWebViewEngineErrorState
@@ -193,13 +194,7 @@ export const TerminalWebView = forwardRef<TerminalWebViewHandle, Props>(function
           onOpenUrl?.(url)
         }
       } else if (msg.type === 'keyboard-avoidance-metrics') {
-        const cursorY = typeof msg.cursorY === 'number' ? msg.cursorY : 0
-        const rows = typeof msg.rows === 'number' ? msg.rows : 0
-        onKeyboardAvoidanceMetrics?.({
-          cursorY,
-          rows,
-          altScreen: !!msg.altScreen
-        })
+        onKeyboardAvoidanceMetrics?.(parseTerminalKeyboardAvoidanceMetrics(msg))
       } else if (msg.type === 'haptic') {
         const kind = msg.kind
         if (
