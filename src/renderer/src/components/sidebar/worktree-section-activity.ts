@@ -110,6 +110,7 @@ function getSectionWorktreeStatus(
     terminalLayoutRootsByTabId: state.terminalLayoutRootsByTabId,
     hasPermission: agentSummary.hasPermission,
     hasLiveWorking: agentSummary.hasLiveWorking,
+    hasLiveCompacting: agentSummary.hasLiveCompacting,
     hasLiveDone: agentSummary.hasLiveDone,
     hasRetainedDone: agentSummary.hasRetainedDone
   })

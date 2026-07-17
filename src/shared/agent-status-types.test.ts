@@ -403,6 +403,27 @@ Fix dispatch fallback preview for normalized status prompts`
     }
   })
 
+  it('preserves compacting=true when state is working', () => {
+    const result = parseAgentStatusPayload('{"state":"working","compacting":true}')
+    expect(result!.compacting).toBe(true)
+  })
+
+  it('clears compacting on non-working states (stale-signal suppression)', () => {
+    for (const state of ['done', 'blocked', 'waiting'] as const) {
+      const result = parseAgentStatusPayload(`{"state":"${state}","compacting":true}`)
+      expect(result!.compacting).toBeUndefined()
+    }
+  })
+
+  it('requires strict boolean true for compacting (rejects truthy non-boolean)', () => {
+    expect(
+      parseAgentStatusPayload('{"state":"working","compacting":"true"}')!.compacting
+    ).toBeUndefined()
+    expect(
+      parseAgentStatusPayload('{"state":"working","compacting":1}')!.compacting
+    ).toBeUndefined()
+  })
+
   it('requires strict boolean true for interrupted (rejects truthy non-boolean)', () => {
     // Why: the parser uses `=== true` to guard against agents that surface a
     // string or numeric truthy sentinel; only an explicit boolean counts.
