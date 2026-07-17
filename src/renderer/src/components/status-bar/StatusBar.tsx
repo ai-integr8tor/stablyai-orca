@@ -57,7 +57,7 @@ import {
 } from './tooltip'
 import { ClaudeIcon, GeminiIcon, MiniMaxIcon, OpenAIIcon, OpenCodeGoIcon } from './icons'
 import { AgentIcon } from '@/lib/agent-catalog'
-import { formatRateLimitWindowChipLabel } from '@/lib/window-label-formatter'
+import { formatRateLimitWindowChipLabel, formatWindowLabel } from '@/lib/window-label-formatter'
 import { markLiveCodexSessionsForRestart } from '@/lib/codex-session-restart'
 import { UpdateStatusSegment } from './UpdateStatusSegment'
 import { isStatusBarItemAvailable } from './status-bar-agent-gating'
@@ -984,14 +984,14 @@ export function InlineUsageBars({
       ? {
           key: 'session',
           used: clampUsedPercent(limits.session.usedPercent),
-          label: translate('auto.components.status.bar.StatusBar.d79c3362c4', '5h')
+          label: formatWindowLabel(limits.session.windowMinutes)
         }
       : null,
     limits.weekly
       ? {
           key: 'weekly',
           used: clampUsedPercent(limits.weekly.usedPercent),
-          label: translate('auto.components.status.bar.StatusBar.5c938d39ac', 'wk')
+          label: formatWindowLabel(limits.weekly.windowMinutes)
         }
       : null,
     limits.fableWeekly
@@ -1234,11 +1234,13 @@ export function ProviderSegment({
       : null
   ].filter((w): w is { key: string; window: RateLimitWindow; label: string } => w !== null)
 
+  const primaryVisibleWindow = visibleWindows[0]?.window
+
   return (
     <span className="inline-flex items-center gap-1.5">
       <ProviderIcon provider={provider} />
-      {p.session && !compact && (
-        <MiniBar usedPct={clampUsedPercent(p.session.usedPercent)} display={display} />
+      {primaryVisibleWindow && !compact && (
+        <MiniBar usedPct={clampUsedPercent(primaryVisibleWindow.usedPercent)} display={display} />
       )}
       {visibleWindows.map((window, index) => (
         <React.Fragment key={window.key}>
