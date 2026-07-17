@@ -62,7 +62,8 @@ function registryFor(deviceId: string, token: string): DeviceRegistry {
             lastSeenAt: 0
           }
         : null,
-    updateLastSeen: vi.fn()
+    updateLastSeen: vi.fn(),
+    updateName: vi.fn()
   } as unknown as DeviceRegistry
 }
 
@@ -99,8 +100,9 @@ describe('MobileSocketWiring', () => {
     const transport = new FakeTransport()
     const onText = vi.fn()
     const onClose = vi.fn()
+    const registry = registryFor('device-1', 'valid-token')
     const wiring = new MobileSocketWiring({
-      deviceRegistry: registryFor('device-1', 'valid-token'),
+      deviceRegistry: registry,
       e2eeKeypair: {
         publicKey: desktop.publicKey,
         secretKey: desktop.secretKey,
@@ -122,11 +124,19 @@ describe('MobileSocketWiring', () => {
     const sharedKey = deriveSharedKey(phone.secretKey, desktop.publicKey)
     transport.receive(
       ws,
-      encrypt(JSON.stringify({ type: 'e2ee_auth', deviceToken: 'valid-token' }), sharedKey)
+      encrypt(
+        JSON.stringify({
+          type: 'e2ee_auth',
+          deviceToken: 'valid-token',
+          deviceName: 'iPhone 15 Pro Max'
+        }),
+        sharedKey
+      )
     )
     transport.receive(ws, encrypt('{"id":"rpc-1","method":"status.get"}', sharedKey))
 
     expect(transport.setClientId).toHaveBeenCalledWith(ws, 'valid-token')
+    expect(registry.updateName).toHaveBeenCalledWith('device-1', 'iPhone 15 Pro Max')
     expect(onText).toHaveBeenCalledOnce()
     expect(onText.mock.calls[0]?.[0]).toMatchObject({
       device: { deviceId: 'device-1', deviceToken: 'valid-token', scope: 'mobile' },

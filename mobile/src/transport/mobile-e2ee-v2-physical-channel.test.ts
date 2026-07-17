@@ -26,7 +26,7 @@ import {
 const desktop = nacl.box.keyPair.fromSecretKey(new Uint8Array(32).fill(1))
 const client = nacl.box.keyPair.fromSecretKey(new Uint8Array(32).fill(2))
 
-function setup(decodeBinary: (raw: unknown) => Promise<Uint8Array | null>) {
+function setup(decodeBinary: (raw: unknown) => Promise<Uint8Array | null>, deviceName?: string) {
   const session = MobileE2EEV2ClientSession.create({
     desktopPublicKeyB64: Buffer.from(desktop.publicKey).toString('base64'),
     transport: 'relay',
@@ -48,6 +48,7 @@ function setup(decodeBinary: (raw: unknown) => Promise<Uint8Array | null>) {
     session,
     socket,
     deviceToken: 'valid-token',
+    deviceName,
     decodeBinary,
     onAuthenticated,
     onText: (plaintext) => events.push(`text:${plaintext}`),
@@ -120,6 +121,28 @@ describe('mobile E2EE v2 physical channel', () => {
     expect(typeof ctx.sent[1]).toBe('string')
     expect(ctx.onAuthenticated).toHaveBeenCalledOnce()
     expect(ctx.onError).not.toHaveBeenCalled()
+  })
+
+  it('reports the device name in relay authentication', async () => {
+    const ctx = setup(async () => null, 'iPhone 15 Pro Max')
+    await ctx.channel.handleMessage(JSON.stringify(ctx.ready))
+
+    const authFrame = Buffer.from(ctx.sent[1] as string, 'base64')
+    const plaintext = openMobileE2EEV2Frame({
+      frame: authFrame,
+      key: ctx.schedule.mobileToDesktopKey,
+      sessionId: ctx.schedule.sessionId,
+      direction: 'mobile-to-desktop',
+      payloadKind: 'text',
+      expectedCounter: 0n
+    })
+    expect(JSON.parse(new TextDecoder().decode(plaintext!))).toEqual({
+      type: 'e2ee_auth',
+      v: 2,
+      transcriptHashB64: ctx.session.transcriptHashB64,
+      deviceToken: 'valid-token',
+      deviceName: 'iPhone 15 Pro Max'
+    })
   })
 
   it('classifies the encrypted desktop device-token rejection as global auth failure', async () => {

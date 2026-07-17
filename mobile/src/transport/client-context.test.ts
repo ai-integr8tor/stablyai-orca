@@ -19,7 +19,6 @@ vi.mock('./host-store', () => ({
 vi.mock('./connection-revival-triggers', () => ({
   subscribeConnectionRevivalTriggers: () => () => {}
 }))
-
 import { RpcClientProvider, useCloseHost, useHostClient } from './client-context'
 
 type FakeClient = RpcClient & {
@@ -134,7 +133,8 @@ describe('useHostClient', () => {
     loadHostsMock.mockResolvedValue([HOST])
 
     const harness = await renderHarness(HOST.id)
-    expect(harness.hook.client).not.toBeNull()
+    expect(connectMock).toHaveBeenCalledWith(HOST, expect.any(Function))
+    expect(harness.hook.client).toBe(fake)
     expect(harness.hook.state).toBe('connected')
 
     // Regression (STA-1511): closeHost deletes the entry; before the fix the

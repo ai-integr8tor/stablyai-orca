@@ -25,7 +25,8 @@ type EndpointOwner = EndpointLifecycle & {
 export function startMobileEndpointLifecycle(
   logical: StableLogicalRpcClient,
   initialHost: HostProfile,
-  onLog: ConnectionLogSink
+  onLog: ConnectionLogSink,
+  deviceName?: string
 ): EndpointLifecycle {
   let stopped = false
   let foreground = true
@@ -35,7 +36,7 @@ export function startMobileEndpointLifecycle(
     if (stopped) {
       return
     }
-    const supervisor = createSupervisor(logical, host, onLog)
+    const supervisor = createSupervisor(logical, host, onLog, deviceName)
     owner.stop()
     owner = supervisor
     supervisor.setForeground(foreground)
@@ -43,7 +44,7 @@ export function startMobileEndpointLifecycle(
   }
 
   if (initialHost.relay) {
-    owner = createSupervisor(logical, initialHost, onLog)
+    owner = createSupervisor(logical, initialHost, onLog, deviceName)
     void owner.start()
   } else {
     owner = new MobileRelayDirectUpgradeController(logical, initialHost, {
@@ -73,10 +74,12 @@ export function startMobileEndpointLifecycle(
 function createSupervisor(
   logical: StableLogicalRpcClient,
   host: HostProfile,
-  onLog: ConnectionLogSink
+  onLog: ConnectionLogSink,
+  deviceName?: string
 ): MobileEndpointSupervisor {
   return new MobileEndpointSupervisor(logical, host, {
-    openDirect: (endpoint) => connect(endpoint, host.deviceToken, host.publicKeyB64, { onLog }),
+    openDirect: (endpoint) =>
+      connect(endpoint, host.deviceToken, host.publicKeyB64, { deviceName, onLog }),
     openRelay: (relay, credential, confirmReqId) =>
       connectMobileRelayRpcSession({
         relay,
@@ -84,7 +87,8 @@ function createSupervisor(
         resumeCredentialVersion: credential.version,
         resumeConfirmReqId: confirmReqId,
         deviceToken: host.deviceToken,
-        desktopPublicKeyB64: host.publicKeyB64
+        desktopPublicKeyB64: host.publicKeyB64,
+        deviceName
       }),
     resolveRelay: resolveMobileRelayEndpoint,
     readBundle: readMobileRelayCredentialBundle,

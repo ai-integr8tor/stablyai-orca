@@ -29,6 +29,7 @@ export function connectMobileRelayRpcSession(args: {
   resumeConfirmReqId: string
   deviceToken: string
   desktopPublicKeyB64: string
+  deviceName?: string
   requestTimeoutMs?: number
   createSocket?: (url: string) => WebSocket
 }): MobileRelayRpcSession {
@@ -53,6 +54,7 @@ export function connectMobileRelayRpcSession(args: {
     credential: args.resumeToken,
     expectedCredentialKind: 'resume',
     deviceToken: args.deviceToken,
+    deviceName: args.deviceName,
     desktopPublicKeyB64: args.desktopPublicKeyB64,
     createSocket: args.createSocket,
     onHello: (hello) => {

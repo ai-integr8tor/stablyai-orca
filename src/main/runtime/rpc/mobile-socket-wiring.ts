@@ -148,6 +148,11 @@ export class MobileSocketWiring {
           this.authenticatedSockets.set(ws, socket)
           transport.setClientId(ws, device.deviceToken)
           this.deviceRegistry.updateLastSeen(device.deviceId)
+          // Why: authentication is the first proof that the reported phone
+          // name belongs to this paired device, for both direct and relay paths.
+          if (_channel.reportedDeviceName) {
+            this.deviceRegistry.updateName(device.deviceId, _channel.reportedDeviceName)
+          }
           this.onReady?.(socket)
         },
         onError: (code, reason) => {

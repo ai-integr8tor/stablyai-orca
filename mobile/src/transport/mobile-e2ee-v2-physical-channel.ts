@@ -31,6 +31,7 @@ export class MobileE2EEV2PhysicalChannel {
       session: MobileE2EEV2ClientSession
       socket: MobileE2EEV2Socket
       deviceToken: string
+      deviceName?: string
       decodeBinary: (raw: unknown) => Promise<Uint8Array | null>
       onAuthenticated: () => void
       onText: (plaintext: string) => void
@@ -139,7 +140,8 @@ export class MobileE2EEV2PhysicalChannel {
         type: 'e2ee_auth',
         v: 2,
         transcriptHashB64: this.args.session.transcriptHashB64,
-        deviceToken: this.args.deviceToken
+        deviceToken: this.args.deviceToken,
+        ...(this.args.deviceName ? { deviceName: this.args.deviceName } : {})
       })
     })
   }

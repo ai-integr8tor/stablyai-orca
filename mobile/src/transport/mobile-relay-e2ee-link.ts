@@ -17,6 +17,7 @@ type MobileRelayE2eeLinkOptions = {
   credential: string
   expectedCredentialKind: 'invite' | 'resume'
   deviceToken: string
+  deviceName?: string
   desktopPublicKeyB64: string
   onAuthenticated: () => void
   onText: (plaintext: string) => void
@@ -48,6 +49,7 @@ export class MobileRelayE2eeLink {
       session,
       socket: this.socket,
       deviceToken: options.deviceToken,
+      deviceName: options.deviceName,
       decodeBinary: websocketPayloadToUint8,
       onAuthenticated: options.onAuthenticated,
       onText: options.onText,

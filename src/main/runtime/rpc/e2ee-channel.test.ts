@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import type { WebSocket } from 'ws'
 import { E2EEChannel, type E2EEChannelOptions } from './e2ee-channel'
 import { generateKeyPair, deriveSharedKey, encrypt, decrypt, encryptBytes } from './e2ee-crypto'
+import { sanitizeReportedMobileDeviceName } from './reported-mobile-device-name'
 
 function publicKeyToBase64(key: Uint8Array): string {
   return Buffer.from(key).toString('base64')
@@ -52,6 +53,15 @@ function doHandshake(ctx: ReturnType<typeof setup>) {
   return sharedKey
 }
 
+describe('sanitizeReportedMobileDeviceName', () => {
+  it('caps by Unicode code point without splitting an emoji', () => {
+    const sanitized = sanitizeReportedMobileDeviceName(`${'x'.repeat(63)}😀z`)
+
+    expect(sanitized).toBe(`${'x'.repeat(63)}😀`)
+    expect(Array.from(sanitized ?? '')).toHaveLength(64)
+  })
+})
+
 describe('E2EEChannel', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -72,7 +82,8 @@ describe('E2EEChannel', () => {
         scope: 'mobile'
       })
       expect(ctx.onError).not.toHaveBeenCalled()
-      expect(ctx.channel.deviceToken).toBe('valid-token')
+      expect(ctx.channel.authenticatedDevice?.deviceToken).toBe('valid-token')
+      expect(ctx.channel.reportedDeviceName).toBeNull()
 
       const readyMsg = JSON.parse(ctx.ws.sent[0]!)
       expect(readyMsg).toEqual({ type: 'e2ee_ready' })
@@ -81,6 +92,30 @@ describe('E2EEChannel', () => {
         deriveSharedKey(ctx.clientKeys.secretKey, ctx.serverKeys.publicKey)
       )
       expect(JSON.parse(authMsg!)).toEqual({ type: 'e2ee_authenticated' })
+    })
+
+    it('captures optional deviceName from e2ee_auth', () => {
+      const ctx = setup()
+      ctx.channel.handleRawMessage(
+        JSON.stringify({
+          type: 'e2ee_hello',
+          publicKeyB64: publicKeyToBase64(ctx.clientKeys.publicKey)
+        })
+      )
+      const shared = deriveSharedKey(ctx.clientKeys.secretKey, ctx.serverKeys.publicKey)
+      ctx.channel.handleRawMessage(
+        encrypt(
+          JSON.stringify({
+            type: 'e2ee_auth',
+            deviceToken: 'valid-token',
+            deviceName: '  iPhone 15 Pro Max  '
+          }),
+          shared
+        )
+      )
+
+      expect(ctx.onReady).toHaveBeenCalled()
+      expect(ctx.channel.reportedDeviceName).toBe('iPhone 15 Pro Max')
     })
 
     it('does not authenticate from plaintext hello alone', () => {

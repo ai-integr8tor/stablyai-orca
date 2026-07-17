@@ -17,6 +17,7 @@ import {
 } from './mobile-e2ee-v2-desktop-outbound'
 import { handleDesktopMobileE2EEV2Inbound } from './mobile-e2ee-v2-desktop-inbound'
 import { isValidMobileE2EEAuthVersion, type MobileE2EEAuth } from './mobile-e2ee-auth-validation'
+import { sanitizeReportedMobileDeviceName } from './reported-mobile-device-name'
 
 type ChannelState = 'awaiting_hello' | 'awaiting_auth' | 'ready'
 
@@ -70,7 +71,7 @@ export class E2EEChannel {
   // clears; only a wedged link (hard cap) closes the socket for a clean resync.
   private textReplyQueue: WsOutboundBackpressureQueue<string> | null = null
 
-  deviceToken: string | null = null
+  reportedDeviceName: string | null = null
   authenticatedDevice: E2EEAuthenticatedDevice | null = null
 
   constructor(ws: WebSocket, options: E2EEChannelOptions) {
@@ -259,7 +260,7 @@ export class E2EEChannel {
       return
     }
 
-    this.deviceToken = auth.deviceToken
+    this.reportedDeviceName = sanitizeReportedMobileDeviceName(auth.deviceName)
     this.authenticatedDevice = authenticatedDevice
     this.state = 'ready'
 
