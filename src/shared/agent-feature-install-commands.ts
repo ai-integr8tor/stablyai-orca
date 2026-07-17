@@ -8,11 +8,17 @@ export const ORCA_LINEAR_SKILL_NAME = 'orca-linear'
 export const LINEAR_TICKETS_SKILL_NAME = 'linear-tickets'
 export const LINEAR_AGENT_SKILL_NAMES = [ORCA_LINEAR_SKILL_NAME, LINEAR_TICKETS_SKILL_NAME] as const
 
-export function buildAgentFeatureSkillInstallCommand(skillNames: readonly string[]): string {
+export function buildAgentFeatureSkillInstallCommand(
+  skillNames: readonly string[],
+  options: { global?: boolean } = {}
+): string {
   if (skillNames.length === 0) {
     throw new Error('At least one skill name is required.')
   }
-  return `npx skills add ${ORCA_SKILLS_REPOSITORY_URL} --skill ${skillNames.join(' ')} --global`
+  const global = options.global ?? true
+  return `npx skills add ${ORCA_SKILLS_REPOSITORY_URL} --skill ${skillNames.join(' ')}${
+    global ? ' --global' : ''
+  }`
 }
 
 export function buildAgentFeatureSkillUpdateCommand(skillName: string): string {

@@ -9,7 +9,9 @@ export const SKILL_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS],
     notes: [
       'Reads bundled guide metadata locally without contacting the Orca runtime.',
-      'With --json, prints a topics array of canonical names and one-line descriptions.'
+      'Without --json, prints just the skill names, one per line.',
+      'With --json, prints a topics array of canonical names and one-line descriptions.',
+      'Use `orca skills get <name>` for the full guide, or `orca skills install` to install skills.'
     ]
   },
   {
@@ -25,5 +27,27 @@ export const SKILL_COMMAND_SPECS: CommandSpec[] = [
       'Use --json for a deterministic object containing canonical topic metadata and content.'
     ],
     examples: ['orca skills get orca-cli', 'orca skills get orchestration --full']
+  },
+  {
+    path: ['skills', 'install'],
+    summary: 'Install bundled Orca skills via the community skills CLI',
+    usage: 'orca skills install [--skill <name>]... [--all] [--local] [--dry-run] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'skill', 'all', 'local', 'dry-run'],
+    notes: [
+      'Reads the bundled skill registry locally without contacting the Orca runtime.',
+      'Resolves to the same `npx skills add <repo> --skill <names...>` command used by ' +
+        'Orca Settings, then runs it via npx and forwards its output and exit code.',
+      'Installs globally (all projects, adds --global) by default. Use --local to install ' +
+        'into the current project instead.',
+      'Use --dry-run to print the resolved command without running it.',
+      'Omit --skill and --all to list installable skill names.',
+      'Intended for headless hosts (SSH, containers, CI) with no desktop Settings UI to copy the install command from.'
+    ],
+    examples: [
+      'orca skills install',
+      'orca skills install --skill orca-cli --skill orchestration',
+      'orca skills install --skill orca-cli --local',
+      'orca skills install --all --dry-run'
+    ]
   }
 ]

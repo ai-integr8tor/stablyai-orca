@@ -21,6 +21,7 @@ Agent Discovery:
 Skills:
   skills list               List version-matched skill guides bundled with this Orca CLI
   skills get                Print a version-matched skill guide as Markdown
+  skills install            Install bundled Orca skills globally via the community skills CLI
 
 Environments:
   environment add           Save a remote Orca runtime from a pairing code
@@ -501,6 +502,7 @@ export function formatFlagHelp(flag: string): string {
     json: '--json                 Emit machine-readable JSON',
     key: '--key <key>            Key argument for this command',
     limit: '--limit <n>            Maximum number of rows to return',
+    local: '--local                Install into the current project instead of globally',
     mode: '--mode <mode>          Mode such as edit, diff, or both',
     'mouse-button': '--mouse-button <btn>   Mouse button: left, right, or middle',
     name: '--name <name>          Name for the new worktree or automation',
