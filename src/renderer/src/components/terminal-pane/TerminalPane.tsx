@@ -158,6 +158,10 @@ import { selectTerminalTabAgentTypesByLeaf } from './terminal-tab-agent-type-ind
 
 const NATIVE_CHAT_ROOT_SELECTOR = '[data-native-chat-root="true"]'
 
+// Why: stable fallback so the store selector doesn't produce a fresh array
+// (and re-render) on every call while a repo has no project commands cached.
+const EMPTY_PROJECT_QUICK_COMMANDS: TerminalQuickCommand[] = []
+
 function isInsideNativeChatRoot(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(NATIVE_CHAT_ROOT_SELECTOR) !== null
 }
@@ -193,6 +197,7 @@ import {
 } from './terminal-unified-tab-lookup'
 import { resolveNativeChatLeafTitleAgent } from './native-chat-leaf-title-agent'
 import { useRepoById } from '@/store/selectors'
+import { selectProjectQuickCommandsForOpenMenu } from '@/store/slices/project-quick-commands'
 import {
   isXtermHelperTextarea,
   releaseTerminalFocusForOutsidePointerDown,
@@ -2695,6 +2700,26 @@ export default function TerminalPane({
     forceBracketedMultilineTextPaste,
     rightClickToPaste
   })
+  const cachedProjectQuickCommands = useAppStore((s) =>
+    selectProjectQuickCommandsForOpenMenu(s, quickCommandRepoId, contextMenu.open)
+  )
+  const projectQuickCommands = (() => {
+    if (!cachedProjectQuickCommands || cachedProjectQuickCommands.length === 0) {
+      return EMPTY_PROJECT_QUICK_COMMANDS
+    }
+    // Why: personal settings win reserved-id collisions, matching the tab-bar
+    // menu and preventing duplicate rows in the terminal context menu.
+    const personalIds = new Set([...repoQuickCommands, ...globalQuickCommands].map((c) => c.id))
+    return cachedProjectQuickCommands.filter((command) => !personalIds.has(command.id))
+  })()
+  const loadProjectQuickCommands = useAppStore((s) => s.loadProjectQuickCommands)
+  // Why: refresh on open picks up orca.yaml edits without making closed panes
+  // subscribe to this cache or eagerly inspect hooks.
+  useEffect(() => {
+    if (contextMenu.open && quickCommandRepoId !== null) {
+      void loadProjectQuickCommands(quickCommandRepoId, { refresh: true })
+    }
+  }, [contextMenu.open, quickCommandRepoId, loadProjectQuickCommands])
   const getContextMenuLeafId = useCallback((): string | null => {
     const paneId = contextMenu.menuPaneId
     const manager = managerRef.current
@@ -3175,6 +3200,7 @@ export default function TerminalPane({
         onToggleNativeChat={handleContextMenuToggleNativeChat}
         onCopyAgentSessionContext={() => void contextMenu.onCopyAgentSessionContext()}
         repoQuickCommands={repoQuickCommands}
+        projectQuickCommands={projectQuickCommands}
         globalQuickCommands={globalQuickCommands}
         quickCommandRepoLabel={quickCommandRepoLabel}
         onQuickCommand={contextMenu.onQuickCommand}

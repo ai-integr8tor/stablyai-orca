@@ -70,6 +70,7 @@ const RECOGNIZED_ORCA_YAML_KEYS = new Set([
   'scripts',
   'issueCommand',
   'defaultTabs',
+  'quickCommands',
   'environmentRecipes'
 ])
 
