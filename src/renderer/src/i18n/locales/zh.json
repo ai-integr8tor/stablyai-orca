@@ -30,7 +30,8 @@
         "resourceUsageToggleDescription": "显示资源管理器。点击可查看 CPU、内存、会话、守护进程控制和工作区磁盘扫描。",
         "portsToggleDescription": "显示实时工作区端口。单击可查看工作区范围的端口和外部监听器。",
         "antigravityToggleDescription": "显示当前工作区的 Antigravity 订阅使用量。",
-        "grokToggleDescription": "通过 Grok CLI 登录后显示 Grok 订阅额度使用量。"
+        "grokToggleDescription": "通过 Grok CLI 登录后显示 Grok 订阅额度使用量。",
+        "zaiToggleDescription": "显示当前工作区的 Z.ai GLM 用量。"
       },
       "menuBarIcon": {
         "title": "显示菜单栏图标",
@@ -3065,7 +3066,9 @@
             "antigravityUsage": "Antigravity 使用量",
             "antigravityUsageDetails": "打开 Antigravity 使用详情",
             "grokUsageAria": "打开 Grok 使用详情",
-            "grokUsageMenu": "Grok 使用量"
+            "grokUsageMenu": "Grok 使用量",
+            "zaiUsageDetails": "打开 Z.ai GLM 用量详情",
+            "zaiUsage": "Z.ai GLM 用量"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "连接账户",
@@ -4879,6 +4882,21 @@
           "8d61637a77": "MiniMax Cookie 已保存。",
           "b43e761fe5": "MiniMax Cookie 更新失败。",
           "5d63bbfbec": "MiniMax",
+          "zaiTitle": "Z.ai GLM",
+          "zaiDescription": "使用 API 密钥配置 Z.ai GLM 用量跟踪。",
+          "zaiRequired": "需要 Z.ai API 密钥。",
+          "zaiNotSaved": "Z.ai API 密钥未保存。",
+          "zaiSaved": "Z.ai API 密钥已保存。",
+          "zaiUpdateFailed": "Z.ai API 密钥更新失败。",
+          "openConsole": "打开控制台",
+          "storedLocally": "已本地保存",
+          "apiKeyNotSet": "未设置 API 密钥",
+          "zaiStoredCopy": "密钥保存在本地，仅发送到 api.z.ai 用于刷新用量。",
+          "zaiApiKeyLabel": "Z.ai API 密钥",
+          "zaiApiKeyDescription": "粘贴 Z.ai API 密钥以在本地获取速率限制。",
+          "zaiApiKeyPlaceholder": "输入 API 密钥",
+          "zaiForget": "忘记密钥",
+          "zaiConsoleCopy": "在 Z.ai 官方控制台创建或管理 API 密钥。",
           "15e831350e": "从 platform.minimax.io 配置 MiniMax 使用量跟踪。",
           "21d6eb141e": "MiniMax 会话 Cookie",
           "33bba5ad83": "粘贴 MiniMax 会话 Cookie 以在本地获取速率限制。",
@@ -7067,7 +7085,9 @@
             "d2c6a0e8f1": "grok",
             "c1b5f9d7e0": "xai",
             "b0a4e8c6d9": "OAuth",
-            "a9f3d7b5c8": "登录"
+            "a9f3d7b5c8": "登录",
+            "zaiTitle": "Z.ai GLM 用量",
+            "zaiDescription": "保存 Z.ai API 密钥，以便在本地获取速率限制。"
           }
         },
         "advanced": {
@@ -7240,6 +7260,13 @@
             "25e51b62ee": "速率限制",
             "d9e7cef86f": "Cookie",
             "d16378a88f": "minimax",
+            "zai": "z.ai",
+            "glm": "glm",
+            "apiKey": "api key",
+            "statusBar": "状态栏",
+            "rateLimit": "速率限制",
+            "zaiTitle": "Z.ai GLM 用量",
+            "zaiDescription": "在状态栏显示 Z.ai GLM 用量。",
             "e46178eb1b": "在状态栏中显示 MiniMax 订阅使用情况。",
             "0f08f6b483": "MiniMax 使用量",
             "edbf0f63a0": "成本",
