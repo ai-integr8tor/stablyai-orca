@@ -24,7 +24,7 @@ import {
 } from '../shared/file-listing-cancellation'
 import { isQuickOpenReaddirBudgetError } from '../shared/quick-open-readdir-walk'
 import { buildExcludePathPrefixes } from '../shared/quick-open-filter'
-import { buildInstallRgMessage } from './fs-handler-install-rg'
+import { buildInstallRgMessage } from '../shared/quick-open-install-rg-message'
 import { readRelayFileContent, readRelayFileStreamMetadata } from './fs-handler-file-read'
 import {
   readVerifiedTerminalArtifact,
@@ -411,7 +411,7 @@ export class FsHandler {
         return await listFilesWithGit(rootPath, excludePathPrefixes, { signal, maxResults })
       } catch (err) {
         if (isQuickOpenReaddirBudgetError(err)) {
-          throw new Error(await buildInstallRgMessage(err))
+          throw new Error(await buildInstallRgMessage(err, 'remote'))
         }
         throw err
       }
@@ -429,7 +429,7 @@ export class FsHandler {
       if (isFileListingCancellation(err)) {
         throw err
       }
-      throw new Error(await buildInstallRgMessage(err))
+      throw new Error(await buildInstallRgMessage(err, 'remote'))
     }
   }
 
