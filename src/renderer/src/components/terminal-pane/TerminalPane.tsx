@@ -6,6 +6,7 @@ import type { CSSProperties } from 'react'
 import type { IDisposable } from '@xterm/xterm'
 import { useAppStore } from '../../store'
 import { isUnifiedTabPinned } from '@/store/pinned-tab-close-guard'
+import type { TerminalTabCloseReason } from '@/store/slices/terminal-tab-retirement'
 import { useLinkRoutingPreferenceDialog } from '@/components/link-routing-preference-dialog'
 import { DaemonActionDialog, useDaemonActions } from '@/components/shared/useDaemonActions'
 import {
@@ -218,7 +219,7 @@ type TerminalPaneProps = {
   // Why: ephemeral one-off command terminals don't need the regular pane header's
   // prominent split affordance, though standard split shortcuts remain available.
   showSplitButton?: boolean
-  onPtyExit: (ptyId: string) => void
+  onPtyExit: (ptyId: string, reason?: TerminalTabCloseReason) => void
   onCloseTab: () => void
 }
 
@@ -1358,7 +1359,11 @@ export default function TerminalPane({
         // longer exists. The closeTab path handles bulk cleanup, but closing
         // a single split pane doesn't go through closeTab.
         const ptyId = paneTransportsRef.current.get(paneId)?.getPtyId() ?? null
-        closeWebRuntimeTerminal(ptyId)
+        closeWebRuntimeTerminal(ptyId, {
+          source: 'user-pane-close',
+          worktreeId,
+          clientTabId: tabId
+        })
         clearSessionRestoredBannerForPane(paneId)
         const leafId = manager.getLeafId(paneId)
         if (leafId) {
@@ -1369,7 +1374,7 @@ export default function TerminalPane({
         manager.closePane(paneId)
       }
     },
-    [clearSessionRestoredBannerForPane, onCloseTab, syncPanePtyLayoutBinding, tabId]
+    [clearSessionRestoredBannerForPane, onCloseTab, syncPanePtyLayoutBinding, tabId, worktreeId]
   )
 
   // Cmd+W handler — shows a confirmation dialog when the pane's shell has

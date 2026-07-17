@@ -370,12 +370,14 @@ describe('createRemoteRuntimePtyTransport', () => {
   it('retires the mirror when the host no longer publishes the surface after a transport close', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onPtyExit = vi.fn()
+    const onPtyDetach = vi.fn()
     const onError = vi.fn()
     const transport = createRemoteRuntimePtyTransport('env-1', {
       worktreeId: 'wt-1',
       tabId: 'web-terminal-tab-1',
       leafId: 'pane:1',
-      onPtyExit
+      onPtyExit,
+      onPtyDetach
     })
 
     transport.attach({
@@ -407,7 +409,8 @@ describe('createRemoteRuntimePtyTransport', () => {
 
     // Why: no red xterm error — retire quietly and let the next session-tabs
     // snapshot drive respawn/removal.
-    await vi.waitFor(() => expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-1'))
+    await vi.waitFor(() => expect(onPtyDetach).toHaveBeenCalledWith('remote:env-1@@terminal-1'))
+    expect(onPtyExit).not.toHaveBeenCalled()
     expect(transport.getPtyId()).toBeNull()
     expect(onError).not.toHaveBeenCalled()
   })
@@ -463,11 +466,13 @@ describe('createRemoteRuntimePtyTransport', () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onError = vi.fn()
     const onPtyExit = vi.fn()
+    const onPtyDetach = vi.fn()
     const transport = createRemoteRuntimePtyTransport('env-1', {
       worktreeId: 'wt-1',
       tabId: 'web-terminal-tab-1',
       leafId: 'pane:1',
-      onPtyExit
+      onPtyExit,
+      onPtyDetach
     })
 
     transport.attach({
@@ -485,18 +490,21 @@ describe('createRemoteRuntimePtyTransport', () => {
     })
 
     expect(onError).not.toHaveBeenCalled()
-    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-stale')
+    expect(onPtyExit).not.toHaveBeenCalled()
+    expect(onPtyDetach).toHaveBeenCalledWith('remote:env-1@@terminal-stale')
     expect(transport.getPtyId()).toBeNull()
   })
 
   it('ignores stale stream end after reattaching a newer remote terminal', async () => {
     const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
     const onPtyExit = vi.fn()
+    const onPtyDetach = vi.fn()
     const transport = createRemoteRuntimePtyTransport('env-1', {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       leafId: 'pane:1',
-      onPtyExit
+      onPtyExit,
+      onPtyDetach
     })
 
     transport.attach({
@@ -520,6 +528,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     })
 
     expect(onPtyExit).not.toHaveBeenCalled()
+    expect(onPtyDetach).not.toHaveBeenCalled()
     expect(transport.getPtyId()).toBe('remote:env-1@@terminal-new')
     expect(transport.isConnected()).toBe(true)
 
@@ -533,7 +542,8 @@ describe('createRemoteRuntimePtyTransport', () => {
       result: { type: 'end', streamId: newStreamId }
     })
 
-    expect(onPtyExit).toHaveBeenCalledWith('remote:env-1@@terminal-new')
+    expect(onPtyExit).not.toHaveBeenCalled()
+    expect(onPtyDetach).toHaveBeenCalledWith('remote:env-1@@terminal-new')
     expect(transport.getPtyId()).toBeNull()
     expect(transport.isConnected()).toBe(false)
   })
@@ -717,7 +727,18 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(runtimeCall).toHaveBeenCalledWith({
       selector: 'env-1',
       method: 'terminal.close',
-      params: { terminal: 'terminal-late' },
+      params: {
+        terminal: 'terminal-late',
+        closeIntent: {
+          source: 'client-created-rollback',
+          userInitiated: false,
+          requestId: expect.any(String),
+          occurredAt: expect.any(Number),
+          worktreeId: 'wt-1',
+          clientTabId: 'tab-1',
+          ptyOrHandle: 'terminal-late'
+        }
+      },
       timeoutMs: 15_000
     })
   })

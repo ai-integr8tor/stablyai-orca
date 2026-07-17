@@ -9,6 +9,11 @@ import {
   RUNTIME_PROTOCOL_VERSION
 } from '../../../../shared/protocol-version'
 import { clearRuntimeCompatibilityCacheForTests } from '../../runtime/runtime-rpc-client'
+import {
+  consumeWebSessionTerminalCloseRoute,
+  recordWebSessionTerminalCloseRoute,
+  resetWebSessionTerminalCloseRoutesForTests
+} from '../../runtime/web-session-terminal-close-route'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 vi.mock('@/lib/agent-status', async (importOriginal) => {
@@ -37,6 +42,7 @@ const env2Lineage: WorktreeLineage = {
 beforeEach(() => {
   delete (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__
   clearRuntimeCompatibilityCacheForTests()
+  resetWebSessionTerminalCloseRoutesForTests()
   vi.clearAllMocks()
   runtimeEnvironmentGetStatus.mockResolvedValue({
     id: 'status-rpc-1',
@@ -140,6 +146,24 @@ beforeEach(() => {
 })
 
 describe('createSettingsSlice runtime switching', () => {
+  it('invalidates retained terminal close routes before a runtime switch resolves', async () => {
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as AppState['settings']
+    })
+    recordWebSessionTerminalCloseRoute({
+      requestTabId: 'local-tab-1',
+      terminalTabId: 'terminal-tab-1',
+      worktreeId: 'repo-env-1::/env-1/repo',
+      environmentId: 'env-1',
+      hostTabId: 'host-tab-1'
+    })
+
+    await expect(store.getState().switchRuntimeEnvironment(null)).resolves.toBe(true)
+
+    expect(consumeWebSessionTerminalCloseRoute('local-tab-1')).toBeNull()
+  })
+
   it('repairs drifted task provider settings before sending updates', async () => {
     settingsSet.mockResolvedValueOnce({
       visibleTaskProviders: ['github', 'linear'],

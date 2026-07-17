@@ -3128,7 +3128,9 @@ describe('useIpcEvents browser tab close routing', () => {
 
     closeTerminalListenerRef.current?.({ tabId: 'terminal-1' })
 
-    expect(closeTerminalTabMock).toHaveBeenCalledWith('terminal-1')
+    expect(closeTerminalTabMock).toHaveBeenCalledWith('terminal-1', {
+      remoteCloseSource: 'cli'
+    })
   })
 
   it('acknowledges whole-tab close only after the fresh session is durably persisted', async () => {

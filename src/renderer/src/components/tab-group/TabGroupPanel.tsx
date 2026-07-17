@@ -101,7 +101,7 @@ export default function TabGroupPanel({
         // Why: agent quick-launch can briefly desync unified/runtime tab ids
         // before the host snapshot lands; still route close through the shared
         // terminal close helper instead of no-op'ing.
-        closeTerminalTab(terminalId)
+        closeTerminalTab(terminalId, { remoteCloseSource: 'user-tab-close' })
       }}
       onCloseOthers={(visibleId) => {
         // Why: TabBar emits this with the entityId for terminals/browsers and

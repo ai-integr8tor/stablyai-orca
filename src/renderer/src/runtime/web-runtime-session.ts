@@ -13,6 +13,7 @@ import type { TerminalPaneSplitSource } from '../../../shared/feature-education-
 import type { StartupCommandDelivery } from '../../../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { TerminalPaneLayoutNode, TuiAgent } from '../../../shared/types'
+import type { RuntimeUserCloseSource } from '../../../shared/runtime-close-intent'
 import type { AppState } from '../store/types'
 import { getRuntimeEnvironmentIdForWorktree } from '../lib/worktree-runtime-owner'
 import { useAppStore } from '../store'
@@ -21,8 +22,10 @@ import { parseRemoteRuntimePtyId } from './runtime-terminal-stream'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { recordWebSessionFocusIntent } from './web-session-focus-intent'
 import { recordWebSessionCloseIntent } from './web-session-close-intent'
+import { clearWebSessionTerminalCloseRouteForExplicitClose } from './web-session-terminal-close-route'
 import { recordWebSessionReorderIntent } from './web-session-reorder-intent'
 import { isWebTerminalSurfaceTabId, toHostSessionTabId } from './web-terminal-surface-id'
+import { createRuntimeCloseIntent } from './runtime-close-intent'
 
 export {
   HOST_TERMINAL_SURFACE_SEPARATOR,
@@ -331,6 +334,7 @@ export async function closeWebRuntimeSessionTab(args: {
   worktreeId: string
   tabId: string
   environmentId?: string | null
+  source: RuntimeUserCloseSource
 }): Promise<boolean> {
   return callWebRuntimeSessionTabMethod('session.tabs.close', args)
 }
@@ -442,6 +446,7 @@ async function callWebRuntimeSessionTabMethod(
     worktreeId: string
     tabId: string
     environmentId?: string | null
+    source?: RuntimeUserCloseSource
   }
 ): Promise<boolean> {
   const environmentId =
@@ -452,7 +457,27 @@ async function callWebRuntimeSessionTabMethod(
     return false
   }
 
+  // Why: only callers that identify an explicit destructive action may cross
+  // the runtime boundary; lifecycle/reconcile closes remain mirror-local.
+  if (method === 'session.tabs.close' && !args.source) {
+    return false
+  }
+  const closeIntent =
+    method === 'session.tabs.close' && args.source
+      ? createRuntimeCloseIntent({
+          source: args.source,
+          userInitiated: true,
+          worktreeId: args.worktreeId,
+          clientTabId: args.tabId
+        })
+      : null
+
   if (method === 'session.tabs.close') {
+    clearWebSessionTerminalCloseRouteForExplicitClose({
+      localOrHostTabId: args.tabId,
+      worktreeId: args.worktreeId,
+      environmentId
+    })
     // Why: the caller prunes the local mirror synchronously, but the precise
     // host id resolution below sits behind an async import. A host snapshot
     // published in that gap would re-materialize the just-closed tab before any
@@ -482,7 +507,8 @@ async function callWebRuntimeSessionTabMethod(
       method,
       params: {
         worktree: toRuntimeWorktreeSelector(args.worktreeId),
-        tabId: hostTabId
+        tabId: hostTabId,
+        ...(closeIntent ? { closeIntent: { ...closeIntent, hostTabId } } : {})
       },
       timeoutMs: 15_000
     })
@@ -622,7 +648,14 @@ function getPendingWebRuntimeSplitMirrorTelemetryKey(
   return `${direction}:${sourcePtyId}`
 }
 
-export function closeWebRuntimeTerminal(ptyId: string | null | undefined): boolean {
+export function closeWebRuntimeTerminal(
+  ptyId: string | null | undefined,
+  options: {
+    source: RuntimeUserCloseSource
+    worktreeId: string
+    clientTabId: string
+  }
+): boolean {
   if (!ptyId) {
     return false
   }
@@ -640,7 +673,14 @@ export function closeWebRuntimeTerminal(ptyId: string | null | undefined): boole
       selector: environmentId,
       method: 'terminal.close',
       params: {
-        terminal: remote.handle
+        terminal: remote.handle,
+        closeIntent: createRuntimeCloseIntent({
+          source: options.source,
+          userInitiated: true,
+          worktreeId: options.worktreeId,
+          clientTabId: options.clientTabId,
+          ptyOrHandle: remote.handle
+        })
       },
       timeoutMs: 15_000
     })
