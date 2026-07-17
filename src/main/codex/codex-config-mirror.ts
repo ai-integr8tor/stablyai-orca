@@ -54,11 +54,13 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe({
   const runtimeConfigPath = join(runtimeHomePath, 'config.toml')
   const systemConfigExists = existsSync(systemConfigPath)
   const runtimeConfigExists = existsSync(runtimeConfigPath)
-  if (!systemConfigExists && !runtimeConfigExists) {
+  // Why: a missing source is not an authoritative empty config. Merging it
+  // would erase every ordinary setting from an existing managed runtime.
+  if (!systemConfigExists) {
     return
   }
 
-  const rawSystemConfig = systemConfigExists ? readFileSync(systemConfigPath, 'utf-8') : ''
+  const rawSystemConfig = readFileSync(systemConfigPath, 'utf-8')
   const sourceConfigDir = resolveCodexConfigMirrorSourceDirectory(systemHomePath)
   if (!runtimeConfigExists) {
     writeFileAtomically(
