@@ -25,8 +25,7 @@ vi.mock('node-pty', () => ({
   spawn: ptySpawnMock
 }))
 
-// Default to signed-in so the spawn paths under test still run; the auth gate
-// itself is covered by codex-auth-presence.test.ts and the no-auth case below.
+// Default to signed-in so spawn-path tests run; auth gating is covered elsewhere.
 vi.mock('./codex-auth-presence', () => ({
   probeCodexAuthPresence: vi.fn(() => 'present')
 }))
@@ -37,6 +36,29 @@ import { getActiveHiddenRateLimitPtyCount } from './hidden-pty-cleanup'
 
 function makeDisposable() {
   return { dispose: vi.fn() }
+}
+
+const rpcResetCreditPayload = {
+  availableCount: 1,
+  credits: [
+    {
+      status: 'available',
+      expiresAt: '1719326400',
+      grantedAt: '1718721600000'
+    }
+  ]
+}
+
+const expectedRpcResetCredits = {
+  availableCount: 1,
+  nextExpiresAt: 1719326400 * 1000,
+  credits: [
+    {
+      status: 'available',
+      expiresAt: 1719326400 * 1000,
+      grantedAt: 1718721600000
+    }
+  ]
 }
 
 function makeRpcChild() {
@@ -70,6 +92,11 @@ function makePtyTerm() {
     emitData: (data: string) => dataHandler?.(data),
     emitExit: () => exitHandler?.()
   }
+}
+
+async function flushRpcResponses() {
+  await vi.advanceTimersByTimeAsync(1)
+  await vi.advanceTimersByTimeAsync(1)
 }
 
 describe('fetchCodexRateLimits', () => {
@@ -360,8 +387,7 @@ describe('fetchCodexRateLimits', () => {
     })
 
     const resultPromise = fetchCodexRateLimits()
-    await vi.advanceTimersByTimeAsync(1)
-    await vi.advanceTimersByTimeAsync(1)
+    await flushRpcResponses()
     const result = await resultPromise
 
     expect(result.session?.windowMinutes).toBe(300)
@@ -435,8 +461,7 @@ describe('fetchCodexRateLimits', () => {
     })
 
     const resultPromise = fetchCodexRateLimits({ codexHomePath: '/managed/codex-home' })
-    await vi.advanceTimersByTimeAsync(1)
-    await vi.advanceTimersByTimeAsync(1)
+    await flushRpcResponses()
     const result = await resultPromise
 
     expect(result.rateLimitResetCredits).toEqual({
@@ -499,16 +524,7 @@ describe('fetchCodexRateLimits', () => {
                 id: msg.id,
                 result: {
                   rateLimits: { primary: { usedPercent: 5 } },
-                  rateLimitResetCredits: {
-                    availableCount: 1,
-                    credits: [
-                      {
-                        status: 'available',
-                        expiresAt: '1719326400',
-                        grantedAt: '1718721600000'
-                      }
-                    ]
-                  }
+                  rateLimitResetCredits: rpcResetCreditPayload
                 }
               })}\n`
             )
@@ -518,21 +534,10 @@ describe('fetchCodexRateLimits', () => {
     })
 
     const resultPromise = fetchCodexRateLimits()
-    await vi.advanceTimersByTimeAsync(1)
-    await vi.advanceTimersByTimeAsync(1)
+    await flushRpcResponses()
     const result = await resultPromise
 
-    expect(result.rateLimitResetCredits).toEqual({
-      availableCount: 1,
-      nextExpiresAt: 1719326400 * 1000,
-      credits: [
-        {
-          status: 'available',
-          expiresAt: 1719326400 * 1000,
-          grantedAt: 1718721600000
-        }
-      ]
-    })
+    expect(result.rateLimitResetCredits).toEqual(expectedRpcResetCredits)
     expect(readFileMock).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -575,8 +580,7 @@ describe('fetchCodexRateLimits', () => {
       const resultPromise = fetchCodexRateLimits({
         codexHomePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\.local\\share\\orca\\account\\home'
       })
-      await vi.advanceTimersByTimeAsync(1)
-      await vi.advanceTimersByTimeAsync(1)
+      await flushRpcResponses()
       await resultPromise
 
       const [spawnFile, spawnArgs, spawnOptions] = childSpawnMock.mock.calls[0]
@@ -650,8 +654,7 @@ describe('fetchCodexRateLimits', () => {
 
     try {
       const resultPromise = fetchCodexRateLimits({ codexHomePath: 'C:\\Users\\alice\\.codex' })
-      await vi.advanceTimersByTimeAsync(1)
-      await vi.advanceTimersByTimeAsync(1)
+      await flushRpcResponses()
       await resultPromise
 
       const [spawnFile, spawnArgs, spawnOptions] = childSpawnMock.mock.calls[0]
