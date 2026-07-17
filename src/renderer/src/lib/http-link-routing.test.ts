@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
+import type { TopLevelView } from '../../../shared/types'
 import type { WorkspacePortScanResult } from '../../../shared/workspace-ports'
 import {
   openHttpLink,
@@ -11,6 +12,7 @@ const openUrlMock = vi.fn()
 const registerLocalhostLabelMock = vi.fn()
 const setActiveWorktreeMock = vi.fn()
 const createBrowserTabMock = vi.fn()
+const dispatchEventMock = vi.fn()
 
 const storeState = {
   settings: undefined as
@@ -32,6 +34,7 @@ const storeState = {
   allWorktrees: vi.fn(
     () => [] as { id: string; projectId?: string; repoId?: string; displayName?: string }[]
   ),
+  activeView: undefined as TopLevelView | undefined,
   workspacePortScan: null as { result: WorkspacePortScanResult } | null,
   workspacePortScansByKey: {} as Record<string, WorkspacePortScanResult>
 }
@@ -39,6 +42,7 @@ const storeState = {
 beforeEach(() => {
   vi.clearAllMocks()
   storeState.settings = undefined
+  storeState.activeView = undefined
   storeState.workspacePortScansByKey = {}
   registerHttpLinkStoreAccessor(() => storeState)
   vi.stubGlobal('window', {
@@ -49,7 +53,8 @@ beforeEach(() => {
       localhostWorktreeLabels: {
         register: registerLocalhostLabelMock
       }
-    }
+    },
+    dispatchEvent: dispatchEventMock
   })
 })
 
@@ -91,6 +96,23 @@ describe('openHttpLink', () => {
       { activate: true }
     )
     expect(openUrlMock).not.toHaveBeenCalled()
+  })
+
+  it('routes activity-view local links into the floating workspace and requests the panel open', () => {
+    storeState.settings = { openLinksInApp: true }
+    storeState.activeView = 'activity'
+
+    openHttpLink('https://example.com/', { worktreeId: 'wt-1' })
+
+    expect(setActiveWorktreeMock).not.toHaveBeenCalled()
+    expect(createBrowserTabMock).toHaveBeenCalledWith(
+      FLOATING_TERMINAL_WORKTREE_ID,
+      'https://example.com/',
+      { activate: true }
+    )
+    expect(dispatchEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'orca-open-floating-terminal' })
+    )
   })
 
   it('routes to the system browser when openLinksInApp is off', () => {
@@ -291,6 +313,65 @@ describe('openHttpLink', () => {
       })
     )
     expect(openUrlMock).toHaveBeenCalledWith('http://analytics.orca.localhost:60016/episodes')
+  })
+
+  it('routes activity-view labeled localhost links into the floating workspace', async () => {
+    storeState.settings = { openLinksInApp: true, localhostWorktreeLabelsEnabled: true }
+    storeState.activeView = 'activity'
+    storeState.repos = [
+      {
+        id: 'repo-1',
+        displayName: 'snapstudio',
+        repoIcon: null,
+        badgeColor: '#f97316'
+      }
+    ]
+    storeState.worktreesByRepo = {
+      'repo-1': [
+        {
+          id: 'wt-analytics',
+          repoId: 'repo-1',
+          projectId: 'repo-1',
+          displayName: 'analytics'
+        }
+      ]
+    }
+    storeState.workspacePortScan = {
+      result: {
+        platform: 'darwin',
+        scannedAt: 1,
+        ports: [
+          {
+            id: 'tcp:5180',
+            kind: 'workspace',
+            port: 5180,
+            protocol: 'http',
+            bindHost: '127.0.0.1',
+            connectHost: 'localhost',
+            owner: {
+              repoId: 'repo-1',
+              worktreeId: 'wt-analytics',
+              displayName: 'analytics',
+              path: '/repo/analytics',
+              confidence: 'cwd'
+            }
+          }
+        ]
+      }
+    }
+    registerLocalhostLabelMock.mockResolvedValue({
+      url: 'http://analytics.orca.localhost:60016/episodes'
+    })
+
+    openHttpLink('http://localhost:5180/episodes', { worktreeId: 'wt-analytics' })
+    await Promise.resolve()
+
+    expect(createBrowserTabMock).toHaveBeenCalledWith(
+      FLOATING_TERMINAL_WORKTREE_ID,
+      'http://analytics.orca.localhost:60016/episodes',
+      { activate: true }
+    )
+    expect(setActiveWorktreeMock).not.toHaveBeenCalled()
   })
 
   it('resolves display URLs for labeled localhost links without opening them', async () => {

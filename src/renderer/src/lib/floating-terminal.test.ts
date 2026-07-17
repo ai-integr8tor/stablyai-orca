@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   consumeFloatingTerminalOpenMaximizedIntent,
-  requestFloatingTerminalOpenMaximized
+  requestFloatingTerminalOpenMaximized,
+  shouldForceCloseFloatingTerminal,
+  shouldMountFloatingTerminalPanel,
+  shouldOpenFloatingTerminalOnRequest
 } from './floating-terminal'
 
 describe('floating terminal open-maximized intent', () => {
@@ -41,5 +44,39 @@ describe('floating terminal open-maximized intent', () => {
     vi.advanceTimersByTime(50)
 
     expect(consumeFloatingTerminalOpenMaximizedIntent()).toBe(true)
+  })
+
+  it('opens on request when the preference is enabled', () => {
+    expect(shouldOpenFloatingTerminalOnRequest({ enabled: true, visibleTabCount: 0 })).toBe(true)
+  })
+
+  it('opens on request when floating tabs already exist', () => {
+    expect(shouldOpenFloatingTerminalOnRequest({ enabled: false, visibleTabCount: 1 })).toBe(true)
+  })
+
+  it('does not force-close while floating tabs remain', () => {
+    expect(shouldForceCloseFloatingTerminal({ enabled: false, visibleTabCount: 1 })).toBe(false)
+  })
+
+  it('force-closes only when disabled and empty', () => {
+    expect(shouldForceCloseFloatingTerminal({ enabled: false, visibleTabCount: 0 })).toBe(true)
+  })
+
+  it('does not mount while enabled, closed, and empty', () => {
+    expect(
+      shouldMountFloatingTerminalPanel({ enabled: true, open: false, visibleTabCount: 0 })
+    ).toBe(false)
+  })
+
+  it('mounts while enabled and open', () => {
+    expect(
+      shouldMountFloatingTerminalPanel({ enabled: true, open: true, visibleTabCount: 0 })
+    ).toBe(true)
+  })
+
+  it('keeps visible floating tabs mounted while disabled and closed', () => {
+    expect(
+      shouldMountFloatingTerminalPanel({ enabled: false, open: false, visibleTabCount: 1 })
+    ).toBe(true)
   })
 })
