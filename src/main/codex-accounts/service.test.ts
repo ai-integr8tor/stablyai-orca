@@ -42,6 +42,10 @@ function decodeEncodedWslBashCommand(command: string): string {
   return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : command
 }
 
+function withFileAuthStore(config: string): string {
+  return `cli_auth_credentials_store = "file"\n${config}`
+}
+
 function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings {
   const appFontFamily = overrides.appFontFamily ?? 'Geist'
   const agentStatusHooksEnabled = overrides.agentStatusHooksEnabled ?? true
@@ -274,9 +278,52 @@ describe('CodexAccountService config sync', () => {
     const { CodexAccountService } = await import('./service')
     new CodexAccountService(store as never, rateLimits as never, runtimeHome as never)
 
-    expect(readFileSync(join(managedHomePath, 'config.toml'), 'utf-8')).toBe(canonicalConfig)
+    expect(readFileSync(join(managedHomePath, 'config.toml'), 'utf-8')).toBe(
+      withFileAuthStore(canonicalConfig)
+    )
     expect(readFileSync(join(managedHomePath, 'auth.json'), 'utf-8')).toBe(
       '{"account":"managed"}\n'
+    )
+  })
+
+  it('overrides a canonical keyring preference in managed homes', async () => {
+    const canonicalConfigPath = join(testState.fakeHomeDir, '.codex', 'config.toml')
+    writeFileSync(
+      canonicalConfigPath,
+      'approval_policy = "never"\ncli_auth_credentials_store = "keyring"\n',
+      'utf-8'
+    )
+    const managedHomePath = createManagedHome(
+      testState.userDataDir,
+      'account-1',
+      'approval_policy = "on-request"\n',
+      '{"account":"managed"}\n'
+    )
+    const settings = createSettings({
+      codexManagedAccounts: [
+        {
+          id: 'account-1',
+          email: 'user@example.com',
+          managedHomePath,
+          providerAccountId: null,
+          workspaceLabel: null,
+          workspaceAccountId: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastAuthenticatedAt: 1
+        }
+      ]
+    })
+
+    const { CodexAccountService } = await import('./service')
+    new CodexAccountService(
+      createStore(settings) as never,
+      createRateLimits() as never,
+      createRuntimeHome() as never
+    )
+
+    expect(readFileSync(join(managedHomePath, 'config.toml'), 'utf-8')).toBe(
+      'approval_policy = "never"\ncli_auth_credentials_store = "file"\n'
     )
   })
 
@@ -330,7 +377,7 @@ describe('CodexAccountService config sync', () => {
     const managedHomePath = createManagedHome(
       testState.userDataDir,
       'account-1',
-      canonicalConfig,
+      withFileAuthStore(canonicalConfig),
       '{"account":"managed"}\n'
     )
     const managedConfigPath = join(managedHomePath, 'config.toml')
@@ -455,7 +502,9 @@ describe('CodexAccountService config sync', () => {
 
     await service.selectAccount('account-1')
 
-    expect(readFileSync(join(managedHomePath, 'config.toml'), 'utf-8')).toBe(canonicalConfig)
+    expect(readFileSync(join(managedHomePath, 'config.toml'), 'utf-8')).toBe(
+      withFileAuthStore(canonicalConfig)
+    )
     expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalledTimes(1)
     expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalledTimes(1)
   })
@@ -518,7 +567,9 @@ describe('CodexAccountService config sync', () => {
 
         const loginHome = options.env.CODEX_HOME
         expect(loginHome).toBeTruthy()
-        expect(readFileSync(join(loginHome!, 'config.toml'), 'utf-8')).toBe(canonicalConfig)
+        expect(readFileSync(join(loginHome!, 'config.toml'), 'utf-8')).toBe(
+          withFileAuthStore(canonicalConfig)
+        )
 
         const payload = Buffer.from(JSON.stringify({ email: 'user@example.com' })).toString(
           'base64url'
@@ -577,7 +628,9 @@ describe('CodexAccountService config sync', () => {
         const loginHome = options.env.CODEX_HOME
         expect(loginHome).toBeTruthy()
         expect(readFileSync(join(loginHome!, '.orca-managed-home'), 'utf-8')).toBe('account-1\n')
-        expect(readFileSync(join(loginHome!, 'config.toml'), 'utf-8')).toBe(canonicalConfig)
+        expect(readFileSync(join(loginHome!, 'config.toml'), 'utf-8')).toBe(
+          withFileAuthStore(canonicalConfig)
+        )
 
         const child = new EventEmitter() as EventEmitter & {
           stdout: PassThrough
@@ -784,8 +837,10 @@ describe('CodexAccountService config sync', () => {
       // Why: codex login runs inside WSL, so the rewritten path must be the
       // Linux-side ~/.codex, not a Windows UNC path.
       expect(readFileSync(join(wslManagedHomePath, 'config.toml'), 'utf-8')).toBe(
-        'sandbox_mode = "danger-full-access"\n' +
-          "model_instructions_file = '/home/alice/.codex/instructions.md'\n"
+        withFileAuthStore(
+          'sandbox_mode = "danger-full-access"\n' +
+            "model_instructions_file = '/home/alice/.codex/instructions.md'\n"
+        )
       )
       const child = new EventEmitter() as EventEmitter & {
         stdout: PassThrough

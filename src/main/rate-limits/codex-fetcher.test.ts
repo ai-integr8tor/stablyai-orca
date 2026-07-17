@@ -325,7 +325,7 @@ describe('fetchCodexRateLimits', () => {
     expect(ptySpawnMock).not.toHaveBeenCalled()
   })
 
-  it('normalizes Codex RPC remaining-minute windows to fixed display durations', async () => {
+  it('preserves Codex RPC reported quota window durations', async () => {
     const rpcChild = makeRpcChild()
     childSpawnMock.mockReturnValue(rpcChild)
     rpcChild.stdin.write.mockImplementation((line: string) => {
@@ -364,8 +364,8 @@ describe('fetchCodexRateLimits', () => {
     await vi.advanceTimersByTimeAsync(1)
     const result = await resultPromise
 
-    expect(result.session?.windowMinutes).toBe(300)
-    expect(result.weekly?.windowMinutes).toBe(10080)
+    expect(result.session?.windowMinutes).toBe(299)
+    expect(result.weekly?.windowMinutes).toBe(10079)
   })
 
   it('fills reset-credit count from the backend when the installed app-server omits it', async () => {

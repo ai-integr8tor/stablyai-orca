@@ -15,6 +15,7 @@ import type {
 } from '../../shared/types'
 import type { CodexRuntimeHomeService } from './runtime-home-service'
 import { writeFileAtomically } from './fs-utils'
+import { forceFileAuthCredentialsStore } from '../codex/codex-config-auth-store'
 import { rewriteRelativePathConfigValues } from '../codex/codex-config-path-reference-rewrite'
 import { resolveCodexCommand } from '../codex-cli/command'
 import type { Store } from '../persistence'
@@ -517,16 +518,17 @@ export class CodexAccountService {
   }
 
   private writeManagedConfig(managedHomePath: string, contents: string): void {
+    const managedContents = forceFileAuthCredentialsStore(contents)
     const configPath = join(managedHomePath, 'config.toml')
     try {
-      if (existsSync(configPath) && readFileSync(configPath, 'utf-8') === contents) {
+      if (existsSync(configPath) && readFileSync(configPath, 'utf-8') === managedContents) {
         return
       }
     } catch {
       // Why: read errors should not make a stale config look current; the
       // atomic write path owns Windows ACL repair and persistent error surfacing.
     }
-    writeFileAtomically(configPath, contents)
+    writeFileAtomically(configPath, managedContents)
   }
 
   private getManagedAccountsRoot(): string {
