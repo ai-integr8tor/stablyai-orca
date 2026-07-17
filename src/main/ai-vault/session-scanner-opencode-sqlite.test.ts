@@ -177,12 +177,15 @@ function insertPart(
     timeCreated: number
     type?: 'text' | 'tool' | 'reasoning'
     text?: string
+    data?: string
   }
 ): void {
-  const data = JSON.stringify({
-    type: args.type ?? 'text',
-    text: args.text ?? 'hello world'
-  })
+  const data =
+    args.data ??
+    JSON.stringify({
+      type: args.type ?? 'text',
+      text: args.text ?? 'hello world'
+    })
   db.prepare(
     `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
      VALUES (?, ?, ?, ?, ?, ?)`
@@ -218,6 +221,73 @@ describe('listOpenCodeSqliteSessions', () => {
     expect(candidates[0].file.mtimeMs).toBe(1_777_634_003_000)
     expect(candidates[0].file.path).toBe(buildOpenCodeSqliteCandidatePath(path, 'ses_new'))
     expect(candidates[1].file.path).toBe(buildOpenCodeSqliteCandidatePath(path, 'ses_old'))
+  })
+
+  it('discovers sessions when message content is malformed and part/event rows are noisy', async () => {
+    const { db, path } = createTempDb()
+    applyOpenCodeSchema(db)
+    db.exec(`CREATE TABLE event (id TEXT PRIMARY KEY, data TEXT NOT NULL)`)
+    insertSession(db, {
+      id: 'ses_noise',
+      timeCreated: 1_777_633_999_000,
+      timeUpdated: 1_777_634_000_000
+    })
+    insertSession(db, {
+      id: 'ses_clean',
+      timeCreated: 1_777_634_000_000,
+      timeUpdated: 1_777_634_001_000
+    })
+    db.prepare(
+      `INSERT INTO message (id, session_id, time_created, time_updated, data)
+       VALUES ('msg_malformed', 'ses_noise', 1777634000500, 1777634000500, ?)`
+    ).run('malformed message JSON')
+    db.prepare(`INSERT INTO event (id, data) VALUES ('event_1', ?)`).run('malformed event content')
+    db.close()
+
+    const { db: partDb, path: partPath } = createTempDb()
+    applyOpenCodeSchema(partDb)
+    insertSession(partDb, {
+      id: 'ses_part_noise',
+      timeCreated: 1_777_634_002_000,
+      timeUpdated: 1_777_634_002_000
+    })
+    insertMessage(partDb, {
+      id: 'msg_part_noise',
+      sessionId: 'ses_part_noise',
+      role: 'assistant',
+      timeCreated: 1_777_634_002_000
+    })
+    insertPart(partDb, {
+      id: 'part_malformed',
+      messageId: 'msg_part_noise',
+      sessionId: 'ses_part_noise',
+      timeCreated: 1_777_634_002_000,
+      data: 'malformed part JSON'
+    })
+    partDb.close()
+
+    const issues: AiVaultScanIssue[] = []
+    const candidates = await listOpenCodeSqliteSessions({
+      dbPaths: [path, partPath],
+      limit: 10,
+      issues
+    })
+
+    expect(issues).toEqual([])
+    expect(candidates.map((candidate) => candidate.file.path)).toEqual([
+      buildOpenCodeSqliteCandidatePath(partPath, 'ses_part_noise'),
+      buildOpenCodeSqliteCandidatePath(path, 'ses_clean'),
+      buildOpenCodeSqliteCandidatePath(path, 'ses_noise')
+    ])
+    const cleanSession = await parseOpenCodeSqliteSession({
+      dbPath: path,
+      sessionId: 'ses_clean',
+      platform: 'darwin'
+    })
+    expect(cleanSession?.sessionId).toBe('ses_clean')
+    await expect(
+      parseOpenCodeSqliteSession({ dbPath: path, sessionId: 'ses_noise', platform: 'darwin' })
+    ).rejects.toThrow('malformed JSON')
   })
 
   it('dedups matching session ids across databases and keeps the newest row', async () => {
