@@ -37,6 +37,51 @@ describe('detectRepoIcon', () => {
     })
   })
 
+  it('detects Tauri bundle icons under src-tauri/icons', async () => {
+    const repoPath = await makeTempRepoDir()
+    await mkdir(join(repoPath, 'src-tauri', 'icons'), { recursive: true })
+    await writeFile(
+      join(repoPath, 'src-tauri', 'icons', 'icon.png'),
+      Buffer.from(PNG_1X1_BASE64, 'base64')
+    )
+
+    await expect(detectRepoIcon({ repoPath, kind: 'folder' })).resolves.toEqual({
+      type: 'image',
+      src: `data:image/png;base64,${PNG_1X1_BASE64}`,
+      source: 'file',
+      label: 'src-tauri/icons/icon.png'
+    })
+  })
+
+  it('detects public WebP icons used by CLI tools', async () => {
+    const repoPath = await makeTempRepoDir()
+    const webpBase64 = 'UklGRhoAAABXRUJQVlA4IA4AAAAwAQCdASoBAAEAAQIlSkwAAA=='
+    await mkdir(join(repoPath, 'public'), { recursive: true })
+    await writeFile(join(repoPath, 'public', 'icon.webp'), Buffer.from(webpBase64, 'base64'))
+
+    await expect(detectRepoIcon({ repoPath, kind: 'folder' })).resolves.toEqual({
+      type: 'image',
+      src: `data:image/webp;base64,${webpBase64}`,
+      source: 'file',
+      label: 'public/icon.webp'
+    })
+  })
+
+  it('detects SVG icons under conventional asset paths', async () => {
+    const repoPath = await makeTempRepoDir()
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
+    const svgBase64 = Buffer.from(svg, 'utf8').toString('base64')
+    await mkdir(join(repoPath, 'assets'), { recursive: true })
+    await writeFile(join(repoPath, 'assets', 'icon.svg'), svg, 'utf8')
+
+    await expect(detectRepoIcon({ repoPath, kind: 'folder' })).resolves.toEqual({
+      type: 'image',
+      src: `data:image/svg+xml;base64,${svgBase64}`,
+      source: 'file',
+      label: 'assets/icon.svg'
+    })
+  })
+
   it('uses a package homepage favicon when no local icon file exists', async () => {
     const repoPath = await makeTempRepoDir()
     await writeFile(

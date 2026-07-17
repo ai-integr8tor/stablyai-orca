@@ -42,7 +42,9 @@ export function githubAvatarIcon(slug: { owner: string; repo: string }): RepoIco
 
 function isSupportedImageSrc(src: string, source: RepoIconImageSource): boolean {
   if (source === 'upload' || source === 'file') {
-    return /^data:image\/png;base64,[A-Za-z0-9+/=\s]+$/i.test(src)
+    // Why: auto-detect and uploads may use PNG, WebP, or SVG (issue #7902).
+    // SVG is only allowed as a data URL for <img>, never inlined as HTML.
+    return /^data:image\/(?:png|webp|svg\+xml);base64,[A-Za-z0-9+/=\s]+$/i.test(src)
   }
 
   let url: URL
