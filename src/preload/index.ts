@@ -103,8 +103,12 @@ import type { GhAuthDiagnostic } from '../shared/github-auth-types'
 import type { TaskSourceContext } from '../shared/task-source-context'
 import type {
   AddIssueCommentBySlugArgs,
+  AddSubIssueBySlugArgs,
+  AddSubIssueBySlugResult,
   ClearProjectItemFieldArgs,
   DeleteIssueCommentBySlugArgs,
+  GetIssueHierarchyArgs,
+  GetIssueHierarchyResult,
   GetProjectViewTableArgs,
   GetProjectViewTableResult,
   GitHubProjectCommentMutationResult,
@@ -120,6 +124,10 @@ import type {
   ListProjectViewsResult,
   ProjectWorkItemDetailsBySlugArgs,
   ProjectWorkItemDetailsBySlugResult,
+  RemoveSubIssueBySlugArgs,
+  RemoveSubIssueBySlugResult,
+  ReprioritizeSubIssueBySlugArgs,
+  ReprioritizeSubIssueBySlugResult,
   ResolveProjectRefArgs,
   ResolveProjectRefResult,
   UpdateIssueBySlugArgs,
@@ -1584,7 +1592,19 @@ const api = {
       ipcRenderer.invoke('gh:listIssueTypesBySlug', args),
     updateIssueTypeBySlug: (
       args: UpdateIssueTypeBySlugArgs
-    ): Promise<GitHubProjectMutationResult> => ipcRenderer.invoke('gh:updateIssueTypeBySlug', args)
+    ): Promise<GitHubProjectMutationResult> => ipcRenderer.invoke('gh:updateIssueTypeBySlug', args),
+    // Why: Phase 2 — issue-level hierarchy (work-item drawer Sub-issues
+    // section), distinct from the Phase 1b table-column methods above.
+    getIssueHierarchy: (args: GetIssueHierarchyArgs): Promise<GetIssueHierarchyResult> =>
+      ipcRenderer.invoke('gh:getIssueHierarchy', args),
+    addSubIssue: (args: AddSubIssueBySlugArgs): Promise<AddSubIssueBySlugResult> =>
+      ipcRenderer.invoke('gh:addSubIssue', args),
+    removeSubIssue: (args: RemoveSubIssueBySlugArgs): Promise<RemoveSubIssueBySlugResult> =>
+      ipcRenderer.invoke('gh:removeSubIssue', args),
+    reprioritizeSubIssue: (
+      args: ReprioritizeSubIssueBySlugArgs
+    ): Promise<ReprioritizeSubIssueBySlugResult> =>
+      ipcRenderer.invoke('gh:reprioritizeSubIssue', args)
   },
 
   hostedReview: {
