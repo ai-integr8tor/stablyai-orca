@@ -15,12 +15,14 @@ type BundledSkillGuide = {
   aliases: readonly string[]
 }
 
+/** Returns guides sorted by canonical name for deterministic output. */
 function canonicalGuides(guides: readonly BundledSkillGuide[]): BundledSkillGuide[] {
   return [...guides].sort((left, right) =>
     left.name < right.name ? -1 : left.name > right.name ? 1 : 0
   )
 }
 
+/** Resolves the required --topic flag to its guide, following legacy aliases. */
 function requireTopic(
   flags: Map<string, string | boolean>,
   guides: BundledSkillGuide[]
@@ -48,13 +50,12 @@ function requireTopic(
   return guide
 }
 
+/** Writes to stdout, appending a trailing newline if missing. */
 function writeStdout(value: string): void {
   process.stdout.write(value.endsWith('\n') ? value : `${value}\n`)
 }
 
-// Why: `--skill` accepts the same legacy topic aliases as `skills get` so an
-// old topic name keeps working here even though the installable package name
-// never changes underneath it.
+/** Resolves --skill/--all to canonical skill names, accepting legacy topic aliases. */
 function resolveInstallSkillNames(
   flags: Map<string, string | boolean>,
   guides: BundledSkillGuide[]
@@ -88,6 +89,7 @@ function resolveInstallSkillNames(
   return [...canonicalNames].sort()
 }
 
+/** Runs `npx skills add ...` and resolves with npx's exit code (1 if killed by a signal). */
 function runSkillInstallCommand(skillNames: string[], global: boolean): Promise<number> {
   return new Promise((resolve, reject) => {
     // Why: Windows only resolves the `npx.cmd` shim through a shell; macOS/Linux

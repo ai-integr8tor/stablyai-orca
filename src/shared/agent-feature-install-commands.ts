@@ -8,6 +8,7 @@ export const ORCA_LINEAR_SKILL_NAME = 'orca-linear'
 export const LINEAR_TICKETS_SKILL_NAME = 'linear-tickets'
 export const LINEAR_AGENT_SKILL_NAMES = [ORCA_LINEAR_SKILL_NAME, LINEAR_TICKETS_SKILL_NAME] as const
 
+/** Builds the `npx skills add` command Settings/CLI show for installing skills. */
 export function buildAgentFeatureSkillInstallCommand(
   skillNames: readonly string[],
   options: { global?: boolean } = {}
@@ -21,6 +22,7 @@ export function buildAgentFeatureSkillInstallCommand(
   }`
 }
 
+/** Builds the `npx skills update` command shown for refreshing an installed skill. */
 export function buildAgentFeatureSkillUpdateCommand(skillName: string): string {
   const trimmedSkillName = skillName.trim()
   if (!trimmedSkillName) {
