@@ -83,11 +83,11 @@ export type AgentStatusOrchestrationContext = {
 export type AgentSubagentState = 'working' | 'idle'
 
 /** A live in-process subagent/teammate spawned by the pane's agent session
- *  (reported by Claude's SubagentStart/SubagentStop hooks and the
+ *  (reported by compatible agent lifecycle hooks and Claude's
  *  `background_tasks` field on Stop). Rendered as an indented child row under
  *  the owning pane's sidebar row — these children have no PTY of their own. */
 export type AgentSubagentSnapshot = {
-  /** Provider-assigned id (Claude hook `agent_id`). */
+  /** Stable provider identity, or an opaque bounded digest derived from it. */
   id: string
   agentType?: string
   description?: string
@@ -179,6 +179,18 @@ export type MigrationUnsupportedPtyEntry = {
 
 export type AgentStatusPayload = {
   state: AgentStatusState
+  /** Pane-owner state beneath a nested provider's projected visible state.
+   *  Persisted/relayed for listener reconciliation, but never exposed to UI. */
+  lifecycleOwnerState?: AgentStatusState
+  /** Provider lead state before live-child gating. Persisted/relayed so a
+   *  restarted listener can resolve the final child; stripped from UI IPC. */
+  leadState?: AgentStatusState
+  /** Cancellation state paired with `leadState`. Kept separate because a
+   *  working child temporarily hides a completed interrupted lead. */
+  leadInterrupted?: true
+  /** Child ids currently owning permission/question waits. Persisted and
+   *  relayed for lifecycle hydration, but never exposed through renderer IPC. */
+  waitingSubagentIds?: string[]
   prompt?: string
   agentType?: AgentType
   toolName?: string
@@ -200,6 +212,11 @@ export type AgentStatusPayload = {
  */
 export type ParsedAgentStatusPayload = Omit<AgentStatusPayload, 'prompt'> & { prompt: string }
 
+export type AgentStatusDisplayPayload = Omit<
+  ParsedAgentStatusPayload,
+  'lifecycleOwnerState' | 'leadState' | 'leadInterrupted' | 'waitingSubagentIds'
+>
+
 /**
  * Wire shape for agent-status IPC. Both the push channel `agentStatus:set` and the
  * pull channel `agentStatus:getSnapshot` produce this shape so renderer call sites
@@ -207,7 +224,7 @@ export type ParsedAgentStatusPayload = Omit<AgentStatusPayload, 'prompt'> & { pr
  * payload onto pane identity + timing because the renderer's slice expects them
  * destructured.
  */
-export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
+export type AgentStatusIpcPayload = AgentStatusDisplayPayload & {
   paneKey: string
   launchToken?: string
   terminalHandle?: string
@@ -267,6 +284,11 @@ export function isFreshNonDoneAgentStatus(
 // requiring `state as AgentStatusState` at the check site. The narrowing
 // cast stays on the return line, where it's actually proven safe.
 const VALID_STATES: ReadonlySet<string> = new Set<string>(AGENT_STATUS_STATES)
+function normalizeAgentStatusState(value: unknown): AgentStatusState | undefined {
+  return typeof value === 'string' && VALID_STATES.has(value)
+    ? (value as AgentStatusState)
+    : undefined
+}
 /** Maximum character length for the agentType label. Truncated on parse. */
 export const AGENT_TYPE_MAX_LENGTH = 40
 
@@ -307,11 +329,40 @@ function normalizeSubagentsField(value: unknown): AgentSubagentSnapshot[] | unde
   const normalized: AgentSubagentSnapshot[] = []
   for (const item of value) {
     const snapshot = normalizeSubagentSnapshot(item)
-    if (snapshot) {
+    // Why: renderer child ids are row keys. Keep the first normalized entry
+    // so malformed custom producers cannot create duplicate keyed rows.
+    if (snapshot && normalized.every(({ id }) => id !== snapshot.id)) {
       normalized.push(snapshot)
       if (normalized.length >= AGENT_STATUS_MAX_SUBAGENTS) {
         break
       }
+    }
+  }
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function normalizeWaitingSubagentIds(
+  value: unknown,
+  subagents: readonly AgentSubagentSnapshot[] | undefined
+): string[] | undefined {
+  if (!Array.isArray(value) || !subagents) {
+    return undefined
+  }
+  const workingIds = new Set(
+    subagents.filter(({ state }) => state === 'working').map(({ id }) => id)
+  )
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const item of value) {
+    const id = typeof item === 'string' ? item.trim() : ''
+    // Why: membership also inherits the child parser's non-empty/64-char cap.
+    if (!workingIds.has(id) || seen.has(id)) {
+      continue
+    }
+    seen.add(id)
+    normalized.push(id)
+    if (normalized.length >= AGENT_STATUS_MAX_SUBAGENTS) {
+      break
     }
   }
   return normalized.length > 0 ? normalized : undefined
@@ -356,18 +407,29 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
     return null
   }
   const obj = parsed as Record<string, unknown>
-  // Why: explicit typeof guard ensures non-string values (e.g. numbers)
-  // are rejected rather than relying on Set.has returning false for
-  // mismatched types.
-  if (typeof obj.state !== 'string') {
+  const rawState = normalizeAgentStatusState(obj.state)
+  if (!rawState) {
     return null
   }
-  const state = obj.state
-  if (!VALID_STATES.has(state)) {
-    return null
-  }
+  const lifecycleOwnerState = normalizeAgentStatusState(obj.lifecycleOwnerState)
+  const subagents = normalizeSubagentsField(obj.subagents)
+  const waitingSubagentIds = normalizeWaitingSubagentIds(obj.waitingSubagentIds, subagents)
+  const hasWorkingSubagent = subagents?.some(({ state }) => state === 'working') === true
+  // Why: custom/relay producers may already send normalized child snapshots.
+  // A live child owns effective activity even without a provider-specific adapter.
+  const state = rawState === 'done' && hasWorkingSubagent ? 'working' : rawState
+  const parsedLeadState = normalizeAgentStatusState(obj.leadState)
+  const leadState = rawState === 'done' && hasWorkingSubagent ? 'done' : parsedLeadState
+  const leadInterrupted =
+    leadState === 'done' &&
+    (obj.leadInterrupted === true || (hasWorkingSubagent && obj.interrupted === true))
+      ? true
+      : undefined
   return {
     state: state as AgentStatusState,
+    lifecycleOwnerState,
+    leadState,
+    leadInterrupted,
     prompt: normalizePromptField(obj.prompt),
     // Why: route through normalizeOptionalField so agentType gets the same
     // trim / collapse-newlines / truncate / empty→undefined treatment as the
@@ -389,7 +451,8 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
     // Why: only meaningful on `done`. Coerce to undefined on other states so
     // the field doesn't leak stale truth through state transitions.
     interrupted: obj.interrupted === true && state === 'done' ? true : undefined,
-    subagents: normalizeSubagentsField(obj.subagents)
+    subagents,
+    waitingSubagentIds
   }
 }
 
@@ -402,6 +465,21 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
  */
 export function normalizeAgentStatusPayload(payload: unknown): ParsedAgentStatusPayload | null {
   return normalizeAgentStatusObject(payload)
+}
+
+/** Remove listener-only persistence metadata before renderer IPC. Relay and
+ *  server caches intentionally keep the original parsed payload. */
+export function stripAgentStatusPersistenceMetadata(
+  payload: ParsedAgentStatusPayload
+): AgentStatusDisplayPayload {
+  const {
+    lifecycleOwnerState: _lifecycleOwnerState,
+    leadState: _leadState,
+    leadInterrupted: _leadInterrupted,
+    waitingSubagentIds: _waitingSubagentIds,
+    ...displayPayload
+  } = payload
+  return displayPayload
 }
 
 /**
