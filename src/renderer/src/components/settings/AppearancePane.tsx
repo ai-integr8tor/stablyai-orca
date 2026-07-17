@@ -16,6 +16,7 @@ import {
   getAppearancePaneSearchEntries,
   getLanguageEntries,
   getLayoutEntries,
+  getMenuBarIconEntries,
   getSidebarEntries,
   getStatusBarEntries,
   getSystemTrayEntries,
@@ -82,9 +83,6 @@ export function AppearancePane({
   )
   const isSearching = normalizeSettingsSearchQuery(searchQuery).length > 0
   const isWebClient = isWebClientLocation()
-  // Why: keepServingOnClose controls the desktop host's window on every platform;
-  // a web client has no local window to keep serving. The macOS menu-bar sub-icon
-  // is darwin-only.
   const isDesktop = !isWebClient
   const isDesktopMac = getRendererAppPlatform() === 'darwin' && !isWebClient
 
@@ -136,7 +134,8 @@ export function AppearancePane({
     ...getTypographyEntries(),
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktop })
+    ...getSystemTrayEntries({ showSystemTray: !isWebClient }),
+    ...getMenuBarIconEntries({ showMenuBarIcon: isDesktopMac })
   ]
   const terminalSearchEntries = [
     { title: terminalTitle },

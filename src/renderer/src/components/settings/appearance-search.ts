@@ -7,9 +7,14 @@ import { translateSearchKeyword } from './settings-search-keywords'
 import { SHOW_UI_LANGUAGE_SETTING } from '@/i18n/supported-languages'
 import { getStatusBarToggles } from './appearance-status-bar-search'
 import { getUsagePercentageDisplayEntry } from './appearance-usage-percentage-search'
-import { getSystemTrayEntries } from './keep-serving-search'
+import { getMenuBarIconEntries, getSystemTrayEntries } from './appearance-system-presence-search'
 
-export { getStatusBarToggles, getSystemTrayEntries, getUsagePercentageDisplayEntry }
+export {
+  getMenuBarIconEntries,
+  getStatusBarToggles,
+  getSystemTrayEntries,
+  getUsagePercentageDisplayEntry
+}
 
 export const getThemeEntries = createLocalizedCatalog((): SettingsSearchEntry[] => [
   {
@@ -209,6 +214,7 @@ const getAppearanceSectionEntries = createLocalizedCatalog((): SettingsSearchEnt
 type AppearancePaneSearchOptions = {
   showWarpImport?: boolean
   showSystemTray?: boolean
+  showMenuBarIcon?: boolean
 }
 
 function buildAppearancePaneSearchEntries(
@@ -226,7 +232,8 @@ function buildAppearancePaneSearchEntries(
     ...getStatusBarEntries(),
     ...getSidebarEntries(),
     ...getAppIconEntries(),
-    ...getSystemTrayEntries(options)
+    ...getSystemTrayEntries(options),
+    ...getMenuBarIconEntries(options)
   ]
 }
 
@@ -235,6 +242,7 @@ export function getAppearancePaneSearchEntries(
 ): SettingsSearchEntry[] {
   return buildAppearancePaneSearchEntries({
     showWarpImport: options.showWarpImport ?? true,
-    showSystemTray: options.showSystemTray
+    showSystemTray: options.showSystemTray,
+    showMenuBarIcon: options.showMenuBarIcon
   })
 }

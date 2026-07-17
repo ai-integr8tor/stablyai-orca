@@ -17,6 +17,7 @@ import {
 import { DEFAULT_APP_FONT_FAMILY } from '../../../../shared/constants'
 import {
   getLanguageEntries,
+  getMenuBarIconEntries,
   getSystemTrayEntries,
   getThemeEntries,
   getTitlebarEntries,
@@ -58,6 +59,7 @@ export function AppearanceInterfaceSection({
   const zoomInKeyCombos = useShortcutKeyComboDetails('zoom.in')
   const zoomOutKeyCombos = useShortcutKeyComboDetails('zoom.out')
   const languageEntry = getLanguageEntries()[0]
+  const menuBarIconEntry = getMenuBarIconEntries({ showMenuBarIcon: true })[0]
   const systemTrayEntry = getSystemTrayEntries({ showSystemTray: true })[0]
   const themeEntry = getThemeEntries()[0]
   const themeLabel = translate('auto.components.settings.AppearancePane.932ff1fbff', 'Theme')
@@ -67,7 +69,8 @@ export function AppearanceInterfaceSection({
   const advancedEntries = [
     ...(SHOW_UI_LANGUAGE_SETTING ? getLanguageEntries() : []),
     ...getTitlebarEntries(),
-    ...getSystemTrayEntries({ showSystemTray: isDesktop })
+    ...getSystemTrayEntries({ showSystemTray: isDesktop }),
+    ...getMenuBarIconEntries({ showMenuBarIcon: isDesktopMac })
   ]
   const showAdvanced = !isSearching || matchesSettingsSearch(searchQuery, advancedEntries)
 
@@ -239,36 +242,23 @@ export function AppearanceInterfaceSection({
               </SearchableSetting>
             ) : null}
 
-            {/* Why: macOS-only sub-setting of keepServingOnClose; the Dock always
-                restores the window, so the menu-bar icon is opt-in. Windows always
-                shows its tray; Linux has none. */}
-            {isDesktopMac && settings.keepServingOnClose === true ? (
+            {isDesktopMac ? (
               <SearchableSetting
-                title={translate(
-                  'auto.components.settings.AppearancePane.showTrayIconWhileClosed.title',
-                  'Show Menu Bar Icon While Closed'
-                )}
-                keywords={['menu bar', 'tray', 'icon', 'macos']}
+                title={translate('settings.appearance.menuBarIcon.title', 'Show Menu Bar Icon')}
+                description={menuBarIconEntry?.description}
+                keywords={menuBarIconEntry?.keywords ?? ['menu bar', 'status item', 'activity']}
               >
                 <SettingsSwitchRow
-                  label={translate(
-                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.title',
-                    'Show Menu Bar Icon While Closed'
+                  label={translate('settings.appearance.menuBarIcon.title', 'Show Menu Bar Icon')}
+                  // Why: this opt-out removes only the status item; macOS Dock
+                  // activation and the close-keeps-running lifecycle stay intact.
+                  description={translate(
+                    'settings.appearance.menuBarIcon.description',
+                    'Keep an Orca shortcut and activity indicator in the macOS menu bar.'
                   )}
-                  // Why: the menu-bar icon is created at launch only (see the
-                  // deferred-tray gate), so the toggle can't add/remove it live.
-                  description={`${translate(
-                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.description',
-                    'Show a menu bar icon while the window is closed so you can reopen or quit Orca from it.'
-                  )} ${translate(
-                    'auto.components.settings.AppearancePane.showTrayIconWhileClosed.launchNote',
-                    'Takes effect the next time you launch Orca.'
-                  )}`}
-                  checked={settings.showTrayIconWhileClosed === true}
+                  checked={settings.showMenuBarIcon !== false}
                   onChange={() =>
-                    updateSettings({
-                      showTrayIconWhileClosed: !settings.showTrayIconWhileClosed
-                    })
+                    updateSettings({ showMenuBarIcon: settings.showMenuBarIcon === false })
                   }
                 />
               </SearchableSetting>

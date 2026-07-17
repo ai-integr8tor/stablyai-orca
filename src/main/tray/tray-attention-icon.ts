@@ -7,25 +7,43 @@ const DOT_RGB = { r: 0xf5, g: 0x9e, b: 0x0b }
 // A near-white halo separates the dot from the icon glyph on any tray theme.
 const RING_RGB = { r: 0xff, g: 0xff, b: 0xff }
 
-type ComposeOptions = {
-  /** macOS: draw a monochrome badge (black dot + clear halo) and mark the
-   *  result a Template image so the menu bar keeps recoloring it. */
-  template?: boolean
+/**
+ * Converts a template mask into a literal glyph for the attention state. A
+ * non-template image needs real RGB values because macOS no longer tints it.
+ */
+export function tintTrayTemplateForAttention(
+  base: NativeImage,
+  useLightGlyph: boolean,
+  scaleFactor = 1
+): NativeImage {
+  const { width, height } = base.getSize()
+  if (width <= 0 || height <= 0) {
+    return base
+  }
+
+  const bitmap = Buffer.from(base.toBitmap({ scaleFactor }))
+  for (let offset = 0; offset < bitmap.length; offset += 4) {
+    // Why: the bitmap is premultiplied, so a light glyph must write the pixel's
+    // alpha (not 0xff) or antialiased edges become invalid over-bright pixels.
+    const channel = useLightGlyph ? bitmap[offset + 3] : 0x00
+    bitmap[offset] = channel
+    bitmap[offset + 1] = channel
+    bitmap[offset + 2] = channel
+  }
+
+  return nativeImage.createFromBitmap(bitmap, {
+    width: width * scaleFactor,
+    height: height * scaleFactor
+  })
 }
 
 /**
- * Returns a copy of `base` with a small attention badge composited into the
+ * Returns a copy of `base` with a small amber attention dot composited into the
  * top-right corner. Electron's NativeImage has no compositing API, so we merge
- * the badge directly into the raw BGRA bitmap. Windows gets an amber dot with a
- * near-white halo; macOS (`template`) gets a black dot with a transparent halo
- * on a Template image so the OS recolors it for light/dark menu bars. Returns
- * `base` unchanged if it has no pixels (e.g. a failed icon load) so the tray
- * never shows a blank image.
+ * the dot directly into the raw BGRA bitmap. Returns `base` unchanged if it has
+ * no pixels (e.g. a failed icon load) so the tray never shows a blank image.
  */
-export function composeTrayAttentionIcon(
-  base: NativeImage,
-  options: ComposeOptions = {}
-): NativeImage {
+export function composeTrayAttentionIcon(base: NativeImage): NativeImage {
   const { width, height } = base.getSize()
   if (width <= 0 || height <= 0) {
     return base
@@ -52,17 +70,7 @@ export function composeTrayAttentionIcon(
         continue
       }
       const offset = (y * width + x) * 4
-      const inDot = distSq <= dotRadiusSq
-      if (options.template) {
-        // Template menu-bar badge: solid black dot, transparent halo so the dot
-        // reads as separate from the glyph once macOS recolors the whole image.
-        bitmap[offset] = 0
-        bitmap[offset + 1] = 0
-        bitmap[offset + 2] = 0
-        bitmap[offset + 3] = inDot ? 0xff : 0x00
-        continue
-      }
-      const color = inDot ? DOT_RGB : RING_RGB
+      const color = distSq <= dotRadiusSq ? DOT_RGB : RING_RGB
       bitmap[offset] = color.b
       bitmap[offset + 1] = color.g
       bitmap[offset + 2] = color.r
@@ -70,9 +78,5 @@ export function composeTrayAttentionIcon(
     }
   }
 
-  const composed = nativeImage.createFromBitmap(bitmap, { width, height })
-  if (options.template) {
-    composed.setTemplateImage(true)
-  }
-  return composed
+  return nativeImage.createFromBitmap(bitmap, { width, height })
 }

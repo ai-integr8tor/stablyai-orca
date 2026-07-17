@@ -41,6 +41,7 @@ import type {
   LocalWindowsRuntimePreference
 } from './project-execution-runtime'
 import type { UsagePercentageDisplay } from './usage-percentage-display'
+import type { PersistedNativeChatSessionOptions } from './native-chat-session-options'
 
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
@@ -428,6 +429,11 @@ export type GitWorktreeInfo = {
   isSparse?: boolean
   locked?: boolean
   lockReason?: string
+  /** True when Git reports the worktree as prunable (its directory is gone but
+   *  the registration remains). Detected via the `prunable` porcelain field
+   *  (Git ≥ 2.36) or a path-existence probe on older Git. */
+  prunable?: boolean
+  prunableReason?: string
   /** True for the repo's main working tree (the first entry from `git worktree list`).
    *  Linked worktrees created via `git worktree add` have this set to false. */
   isMainWorktree: boolean
@@ -883,6 +889,28 @@ export type BrowserLoadError = {
   validatedUrl: string
 }
 
+export type BrowserCertificateFailure = {
+  challengeId: string
+  browserPageId: string
+  errorCode: number | null
+  error: string
+  origin: string
+  displayHost: string
+  canProceed: boolean
+  observedAt: number
+}
+
+export type BrowserCertificateProceedFailureReason =
+  | 'expired'
+  | 'changed'
+  | 'ineligible'
+  | 'missing'
+  | 'navigated'
+
+export type BrowserCertificateProceedResult =
+  | { ok: true }
+  | { ok: false; reason: BrowserCertificateProceedFailureReason }
+
 // Why: BrowserPage persists the active viewport preset so CDP emulation can be
 // reapplied on reload/navigation without the user re-picking from the toolbar.
 export type BrowserViewportPresetId =
@@ -1166,6 +1194,9 @@ export type PRInfo = {
   headDivergedFromMergedPRAtOid?: string
   /** Target branch name for PR-created worktree compare-base repair. */
   baseRefName?: string
+  /** PR head branch name. Lets linked-PR consumers detect that the worktree
+   *  has switched to a different branch and the durable link is stale. */
+  headRefName?: string
   prRepo?: GitHubRepositoryIdentity
   headRepo?: GitHubRepositoryIdentity
   conflictSummary?: PRConflictSummary
@@ -1460,6 +1491,11 @@ export type GitHubWorkItem = {
   labels: string[]
   updatedAt: string
   author: string | null
+  // Why: GHE user logins don't exist on github.com, so the github.com/{login}.png
+  // fallback 404s. Carry the API-provided avatar_url so github.com + Enterprise
+  // both render; absent on the gh-pr-view path (gh omits avatar), then the UI
+  // falls back to the login URL and finally an initials placeholder. See #8784.
+  authorAvatarUrl?: string
   branchName?: string
   baseRefName?: string
   // Why: PR checks are keyed by head commit; carrying this lets task rows use
@@ -1598,6 +1634,7 @@ export type LinearIssue = {
   workspaceName?: string
   identifier: string
   title: string
+  branchName?: string
   description?: string
   url: string
   state: {
@@ -1854,6 +1891,7 @@ export type {
 } from './gitlab-types'
 
 export type {
+  JiraAuthType,
   JiraComment,
   JiraConnectArgs,
   JiraConnectionStatus,
@@ -2589,14 +2627,12 @@ export type GlobalSettings = {
    *  Windows users' stored preference still applies; new writes mirror
    *  keepServingOnClose. The Windows tray icon is always present regardless. */
   minimizeToTrayOnClose?: boolean
-  /** Why: all platforms. When on, closing the main window HIDES it (the renderer
-   *  stays alive so remote/mobile/SSH clients keep full functionality) instead
-   *  of quitting or tearing down the graph. Cmd+Q / app quit still quit. */
+  /** Why: hiding instead of destroying the window preserves the renderer-owned
+   *  runtime graph that serves remote, mobile, and SSH clients. */
   keepServingOnClose?: boolean
-  /** Why: macOS-only sub-setting. When on (with keepServingOnClose), Orca shows a
-   *  menu-bar icon while the window is hidden so it can be restored or quit.
-   *  Windows always shows its tray; Linux has no tray. */
-  showTrayIconWhileClosed?: boolean
+  /** Why: macOS keeps Orca running after its last window closes, so this
+   *  controls the additive menu-bar entry without changing Dock behavior. */
+  showMenuBarIcon?: boolean
   /** Why: Windows terminals conventionally use right-click as a paste gesture,
    *  while macOS/Linux default to their existing context menu behavior. */
   terminalRightClickToPaste: boolean
@@ -2675,6 +2711,9 @@ export type GlobalSettings = {
   /** Experimental: native chat surface for Claude/Codex terminal sessions.
    *  Off by default while the desktop UX is still being exercised. */
   experimentalNativeChat?: boolean
+  /** Last explicit native-chat model and model-scoped option selections. Live
+   * panes still require an applied/dispatched record before showing a value. */
+  nativeChatSessionOptions?: PersistedNativeChatSessionOptions
   /** Extra launcher rows for the worktree "Open in" submenu. VS Code is always shown first. */
   openInApplications?: OpenInApplication[]
   /** Deprecated: migration/backward-compat only. Use PersistedUIState.rightSidebarOpen. */
@@ -2701,6 +2740,9 @@ export type GlobalSettings = {
   /** Why: Orca Mobile remains reachable from Settings; this only controls
    *  whether the top-level sidebar shortcut is shown. */
   showMobileButton?: boolean
+  /** Why: pinned workspaces default to one sidebar location; users can opt
+   *  back into seeing them in their natural groups too. */
+  showPinnedWorktreesInGroups?: boolean
   /** Controls how Ctrl+Tab chooses the next visible tab. Optional for
    *  profiles saved before this setting existed; readers default to MRU. */
   ctrlTabOrderMode?: CtrlTabOrderMode
@@ -2870,6 +2912,9 @@ export type GlobalSettings = {
   /** Why: disabling must persist so startup does not reinstall global agent
    *  hook entries right after the user removes them from Settings or CLI. */
   agentStatusHooksEnabled: boolean
+  /** Dismissed freshness tuples grant no write authority; they only keep the
+   *  same exact official placement/revision from nudging more than once. */
+  dismissedSkillFreshnessNudges?: string[]
   /** Why: generated tab titles are semantic but subjective, so they stay opt-in
    *  and manual renames remain the stronger user intent. */
   tabAutoGenerateTitle: boolean
@@ -3252,6 +3297,10 @@ export type ProjectOrderBy = 'manual' | 'recent'
 export type WorkspaceHostScope = 'all' | 'local' | `ssh:${string}` | `runtime:${string}`
 export type VisibleWorkspaceHostIds = Exclude<WorkspaceHostScope, 'all'>[] | null
 export type WorkspaceHostOrder = Exclude<WorkspaceHostScope, 'all'>[]
+export type ManualRepoOrderEntry = {
+  hostId: WorkspaceHostOrder[number]
+  repoId: string
+}
 
 /** The active top-level section shown in the main content area. */
 export type TopLevelView =
@@ -3299,6 +3348,9 @@ export type PersistedUIState = {
   /** User-defined sidebar order for host sections. Missing/new hosts append in
    *  the discovered host order. */
   workspaceHostOrder?: WorkspaceHostOrder
+  /** Desktop-owned all-host repo order. Host-qualified identities preserve a
+   *  manual cross-host interleaving while each host owns its local permutation. */
+  manualRepoOrder?: ManualRepoOrderEntry[]
   /** Deprecated legacy positive-form setting. Ignored on hydration. */
   showSleepingWorkspaces?: boolean
   /** Deprecated legacy name used by a short-lived build. Ignored on hydration. */
@@ -3556,6 +3608,8 @@ export type CustomPet = {
 export type SpriteAnimation = {
   row: number
   frames: number
+  /** Per-frame holds in ms (length === frames). Absent means uniform sheet fps. */
+  frameDurationsMs?: number[]
 }
 
 export type PersistedTrustedOrcaHookEntry = {
@@ -3723,6 +3777,13 @@ export type GitDiffBinaryResult = {
   isImage?: boolean
   /** MIME type for binary preview rendering, e.g. "image/png" or "application/pdf" */
   mimeType?: string
+  /**
+   * True only when the modified side is a proven deletion (working-tree file gone
+   * or absent from the index) — distinct from an empty modified side caused by a
+   * read failure or size cap. Lets previewers fall back to the original bytes for
+   * a deletion without showing a stale image on a failed read.
+   */
+  modifiedDeleted?: boolean
 } & (
   | { originalIsBinary: true; modifiedIsBinary: boolean }
   | { originalIsBinary: boolean; modifiedIsBinary: true }

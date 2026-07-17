@@ -1079,7 +1079,7 @@ export function createMainWindow(
 
   mainWindow.on('close', (e) => {
     // Why: Alt+F4 and programmatic closes reach the native event; apply the same
-    // minimize-to-tray guard the renderer-drawn X uses via onRequestClose.
+    // hide-on-close guard the renderer-drawn X uses via onRequestClose.
     if (!windowCloseConfirmed && hideToTrayIfEnabled()) {
       e.preventDefault()
       return
