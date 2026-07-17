@@ -26,7 +26,8 @@ import {
 import {
   getTerminalPathExistsCacheKey,
   readTerminalPathExistsCache,
-  writeTerminalPathExistsCache
+  writeTerminalPathExistsCache,
+  type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import {
   getTerminalHtmlFileOpenHint,
@@ -50,7 +51,7 @@ export type LinkHandlerDeps = {
   getPaneLinkCwd?: (paneId: number) => string | null
   managerRef: React.RefObject<PaneManager | null>
   linkProviderDisposablesRef: React.RefObject<Map<number, IDisposable>>
-  pathExistsCache: Map<string, boolean>
+  pathExistsCache: TerminalPathExistsCache
   runtimeEnvironmentId?: string | null
   terminalHomePath?: string | null
   getRuntimeEnvironmentIdForPane?: (paneId: number) => string | null
@@ -167,7 +168,11 @@ export function createFilePathLinkProvider(
                   (fileContext.connectionId || isRemoteRuntimePath
                     ? await runtimePathExists(fileContext, resolved.absolutePath)
                     : await window.api.shell.pathExists(resolved.absolutePath))
-                writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                // Why: refreshing a cached negative's timestamp on every hover
+                // would keep frequently scanned missing paths stale forever.
+                if (cachedExists === undefined) {
+                  writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                }
                 if (!exists) {
                   return null
                 }
