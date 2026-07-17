@@ -265,6 +265,32 @@ describe('orca skills CLI', () => {
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
+  it('rejects --json for a real (non-dry-run) install', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['skills', 'install', '--skill', 'alpha', '--json'], '/tmp/repo')
+
+    expect(process.exitCode).toBe(1)
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify(
+        {
+          id: 'local',
+          ok: false,
+          error: {
+            code: 'invalid_argument',
+            message:
+              "orca skills install --json only supports --dry-run. Real installs stream npx's " +
+              "own output, which isn't JSON."
+          },
+          _meta: { runtimeId: null }
+        },
+        null,
+        2
+      )
+    )
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
   it('prints the resolved install command without running it for --dry-run', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 

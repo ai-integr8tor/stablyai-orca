@@ -40,6 +40,8 @@ export const SKILL_COMMAND_SPECS: CommandSpec[] = [
       'Installs globally (all projects, adds --global) by default. Use --local to install ' +
         'into the current project instead.',
       'Use --dry-run to print the resolved command without running it.',
+      "--json is only supported with --dry-run; a real install streams npx's own " +
+        'output live, which is not JSON.',
       'Omit --skill and --all to list installable skill names.',
       'Intended for headless hosts (SSH, containers, CI) with no desktop Settings UI to copy the install command from.'
     ],

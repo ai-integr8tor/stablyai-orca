@@ -171,6 +171,16 @@ export const SKILL_HANDLERS: Record<string, CommandHandler> = {
       return
     }
 
+    if (json) {
+      // Why: a real install inherits npx's own stdout so install progress stays
+      // visible live; that stream is not JSON, so --json can't be honored here.
+      throw new RuntimeClientError(
+        'invalid_argument',
+        'orca skills install --json only supports --dry-run. Real installs stream ' +
+          "npx's own output, which isn't JSON."
+      )
+    }
+
     // Why: stdio is inherited for the child below, so this status line must go to
     // stderr — stdout is npx's own output, not this command's JSON channel.
     process.stderr.write(`Running: ${command}\n`)
