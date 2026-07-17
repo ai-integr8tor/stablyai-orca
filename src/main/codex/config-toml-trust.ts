@@ -33,6 +33,8 @@ export type CodexEventLabel =
   | 'post_compact'
   | 'session_start'
   | 'user_prompt_submit'
+  | 'subagent_start'
+  | 'subagent_stop'
   | 'stop'
 
 export type CodexTrustEntry = {
@@ -67,6 +69,11 @@ export type CodexTrustEntry = {
 export type CodexHookTrustState = {
   trustedHash?: string
   enabled?: boolean
+}
+
+export type CodexHookTrustKeyMove = {
+  fromKey: string
+  toKey: string
 }
 
 export type CodexProjectTrustLevel = 'trusted' | 'untrusted'
@@ -129,6 +136,8 @@ function matcherPatternForEvent(
     case 'pre_compact':
     case 'post_compact':
     case 'session_start':
+    case 'subagent_start':
+    case 'subagent_stop':
       return matcher
   }
 }
@@ -288,6 +297,8 @@ function isCodexEventLabel(value: string): value is CodexEventLabel {
     value === 'post_compact' ||
     value === 'session_start' ||
     value === 'user_prompt_submit' ||
+    value === 'subagent_start' ||
+    value === 'subagent_stop' ||
     value === 'stop'
   )
 }
@@ -340,6 +351,39 @@ export function upsertHookTrustEntriesInContent(
       getTrustKeyWriteVariants(computeTrustKey(entry)),
       entry.trustedHash ?? computeTrustedHash(entry),
       entry.enabled
+    )
+  }
+  return updated
+}
+
+// Why: Codex trust is index-addressed, so prepending a hook must move the
+// existing approval block before the new hook claims the old index.
+export function moveHookTrustEntriesInContent(
+  existingContent: string,
+  moves: readonly CodexHookTrustKeyMove[]
+): string {
+  const existing =
+    existingContent.charCodeAt(0) === 0xfeff ? existingContent.slice(1) : existingContent
+  const states = readHookTrustEntriesInContent(existing)
+  const resolvedMoves = moves.flatMap(({ fromKey, toKey }) => {
+    if (normalizeHookTrustKeyForLookup(fromKey) === normalizeHookTrustKeyForLookup(toKey)) {
+      return []
+    }
+    const state = states.get(fromKey)
+    return state?.trustedHash
+      ? [{ fromKey, toKey, trustedHash: state.trustedHash, enabled: state.enabled }]
+      : []
+  })
+  let updated = existing
+  for (const fromKey of new Set(resolvedMoves.map(({ fromKey }) => fromKey))) {
+    updated = removeTrustBlock(updated, fromKey)
+  }
+  for (const { toKey, trustedHash, enabled } of resolvedMoves) {
+    updated = upsertTrustBlocks(
+      updated,
+      getTrustKeyWriteVariants(toKey),
+      trustedHash,
+      enabled ?? true
     )
   }
   return updated
@@ -833,11 +877,14 @@ function removeTrustBlock(content: string, key: string): string {
 }
 
 export function readHookTrustEntries(configPath: string): Map<string, CodexHookTrustState> {
-  const result = new HookTrustEntryMap()
   if (!existsSync(configPath)) {
-    return result
+    return new HookTrustEntryMap()
   }
-  const content = readTomlFile(configPath)
+  return readHookTrustEntriesInContent(readTomlFile(configPath))
+}
+
+function readHookTrustEntriesInContent(content: string): HookTrustEntryMap {
+  const result = new HookTrustEntryMap()
   // Why: walk line-by-line so `[hooks.state."..."]` inside a `"""..."""` or
   // `'''...'''` multi-line string isn't mistaken for a real header.
   let cursor = 0

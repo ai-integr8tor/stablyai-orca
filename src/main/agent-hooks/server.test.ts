@@ -2349,6 +2349,44 @@ describe('AgentHookServer listener replay', () => {
     }
   })
 
+  it('broadcasts a clear when Codex SessionStart replaces a same-pane status', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const env = server.buildPtyEnv()
+      const statusListener = vi.fn()
+      const clearListener = vi.fn()
+      const changeListener = vi.fn()
+      server.setListener(statusListener)
+      server.setPaneStatusClearListener(clearListener)
+      server.subscribeStatusChanges(changeListener)
+      const postCodexHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/codex`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload))
+        })
+
+      await postCodexHook({ hook_event_name: 'UserPromptSubmit', prompt: 'old session' })
+      await postCodexHook({ hook_event_name: 'SessionStart', session_id: 'new-session' })
+      await postCodexHook({ hook_event_name: 'SessionStart', session_id: 'new-session' })
+
+      expect(server.getStatusSnapshot()).toEqual([])
+      expect(statusListener).toHaveBeenCalledTimes(1)
+      expect(clearListener).toHaveBeenCalledTimes(1)
+      expect(clearListener).toHaveBeenCalledWith(PANE)
+      expect(changeListener).toHaveBeenLastCalledWith([])
+      const replayListener = vi.fn()
+      server.setListener(replayListener)
+      expect(replayListener).not.toHaveBeenCalled()
+    } finally {
+      server.stop()
+    }
+  })
+
   it('ignores local nested Claude Stop while a parent Codex hook status is active', async () => {
     const server = new AgentHookServer()
     await server.start({ env: 'production' })
@@ -4208,7 +4246,7 @@ describe('Codex hook normalization', () => {
     expect(result?.payload.toolInput).toBeUndefined()
   })
 
-  it('SessionStart clears cached tool state from a prior session', () => {
+  it('SessionStart clears cached tool state without reporting working', () => {
     // Seed a Stop snapshot with an assistant message.
     _internals.normalizeHookPayload(
       'codex',
@@ -4218,13 +4256,20 @@ describe('Codex hook normalization', () => {
       }),
       'production'
     )
-    const result = _internals.normalizeHookPayload(
+    const started = _internals.normalizeHookPayload(
       'codex',
-      buildBody({ hook_event_name: 'SessionStart' }),
+      buildBody({ hook_event_name: 'SessionStart', session_id: 'codex-session-next' }),
       'production'
     )
-    expect(result?.payload.state).toBe('working')
-    expect(result?.payload.lastAssistantMessage).toBeUndefined()
+    const prompted = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({ hook_event_name: 'UserPromptSubmit', prompt: 'Next turn' }),
+      'production'
+    )
+    expect(started).toBeNull()
+    expect(prompted?.payload.state).toBe('working')
+    expect(prompted?.payload.lastAssistantMessage).toBeUndefined()
+    expect(prompted?.providerSession).toEqual({ key: 'session_id', id: 'codex-session-next' })
   })
 
   it('SessionStart clears the cached prompt from a prior session until a new prompt arrives', () => {
@@ -4236,13 +4281,24 @@ describe('Codex hook normalization', () => {
       }),
       'production'
     )
-    const result = _internals.normalizeHookPayload(
+    const started = _internals.normalizeHookPayload(
       'codex',
-      buildBody({ hook_event_name: 'SessionStart' }),
+      buildBody({ hook_event_name: 'SessionStart', session_id: 'codex-session-fresh' }),
       'production'
     )
-    expect(result?.payload.state).toBe('working')
-    expect(result?.payload.prompt).toBe('')
+    const nextTool = _internals.normalizeHookPayload(
+      'codex',
+      buildBody({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'pwd' }
+      }),
+      'production'
+    )
+    expect(started).toBeNull()
+    expect(nextTool?.payload.state).toBe('working')
+    expect(nextTool?.payload.prompt).toBe('')
+    expect(nextTool?.providerSession).toEqual({ key: 'session_id', id: 'codex-session-fresh' })
   })
 })
 
@@ -6466,6 +6522,107 @@ describe('Last-status persistence', () => {
 })
 
 describe('AgentHookServer ingestRemote', () => {
+  it('treats a relayed Codex SessionStart control event as an idempotent clear', () => {
+    const server = new AgentHookServer()
+    const clearListener = vi.fn()
+    const changeListener = vi.fn()
+    server.setPaneStatusClearListener(clearListener)
+    server.subscribeStatusChanges(changeListener)
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        payload: { state: 'working', prompt: 'remote old session', agentType: 'codex' }
+      },
+      'conn-1'
+    )
+    const clearEnvelope = {
+      paneKey: PANE,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      hookEventName: 'SessionStart',
+      payload: { state: 'done' as const, prompt: '', agentType: 'codex' as const }
+    }
+
+    server.ingestRemote(clearEnvelope, 'conn-1')
+    server.ingestRemote(clearEnvelope, 'conn-1')
+
+    expect(server.getStatusSnapshot()).toEqual([])
+    expect(clearListener).toHaveBeenCalledTimes(1)
+    expect(clearListener).toHaveBeenCalledWith(PANE)
+    expect(changeListener).toHaveBeenLastCalledWith([])
+  })
+
+  it('does not let a relayed Codex SessionStart clear a different agent status', () => {
+    const server = new AgentHookServer()
+    const clearListener = vi.fn()
+    server.setPaneStatusClearListener(clearListener)
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        payload: { state: 'working', prompt: 'parent session', agentType: 'claude' }
+      },
+      'conn-1'
+    )
+
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        hookEventName: 'SessionStart',
+        payload: { state: 'done', prompt: '', agentType: 'codex' }
+      },
+      'conn-1'
+    )
+
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({ state: 'working', prompt: 'parent session', agentType: 'claude' })
+    ])
+    expect(clearListener).not.toHaveBeenCalled()
+  })
+
+  it('does not let a stale connection clear a newer Codex status', () => {
+    const server = new AgentHookServer()
+    const clearListener = vi.fn()
+    server.setPaneStatusClearListener(clearListener)
+    server.ingestRemote(
+      {
+        paneKey: PANE,
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        payload: { state: 'working', prompt: 'new connection status', agentType: 'codex' }
+      },
+      'conn-new'
+    )
+    const clearEnvelope = {
+      paneKey: PANE,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      hookEventName: 'SessionStart',
+      payload: { state: 'done' as const, prompt: '', agentType: 'codex' as const }
+    }
+
+    server.ingestRemote(clearEnvelope, 'conn-old')
+
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({
+        state: 'working',
+        prompt: 'new connection status',
+        agentType: 'codex',
+        connectionId: 'conn-new'
+      })
+    ])
+    expect(clearListener).not.toHaveBeenCalled()
+
+    server.ingestRemote(clearEnvelope, 'conn-new')
+    expect(server.getStatusSnapshot()).toEqual([])
+    expect(clearListener).toHaveBeenCalledTimes(1)
+  })
+
   it('stamps connectionId and forwards a valid relay envelope to the listener', () => {
     const server = new AgentHookServer()
     const payload = parseAgentStatusPayload(

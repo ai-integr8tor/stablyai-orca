@@ -312,6 +312,17 @@ function trackEmptyPaneKeyHook(body: unknown): void {
   track('agent_hook_unattributed', { reason: 'empty_pane_key' })
 }
 
+function hookBodyPaneKey(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) {
+    return null
+  }
+  const paneKey = (body as Record<string, unknown>).paneKey
+  if (typeof paneKey !== 'string') {
+    return null
+  }
+  return paneKey.trim() || null
+}
+
 function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boolean {
   if (next.payload.state !== 'working') {
     return false
@@ -874,6 +885,31 @@ export class AgentHookServer {
     return enriched
   }
 
+  private clearStatusForSessionStart(
+    paneKey: string,
+    previousStatus?: AgentHookEventPayload,
+    expectedConnectionId?: string
+  ): void {
+    const status = previousStatus ?? this.state.lastStatusByPaneKey.get(paneKey)
+    // Why: a delayed relay notification must not clear a newer remote target's
+    // status if pane identity is ever reused across logical connections.
+    if (
+      status?.payload.agentType !== 'codex' ||
+      (expectedConnectionId !== undefined && status.connectionId !== expectedConnectionId)
+    ) {
+      return
+    }
+    this.state.lastStatusByPaneKey.delete(paneKey)
+    // Why: SessionStart is an idle metadata boundary, so remove the stale row
+    // without emitting a synthetic visible status for the new session.
+    this.clearAssistantMessageRetry(paneKey)
+    this.runtimeObservedStatusPaneKeys.delete(paneKey)
+    this.promptSentDedupeByPaneKey.delete(paneKey)
+    this.scheduleStatusPersist()
+    this.notifyStatusChangeListeners()
+    this.onPaneStatusCleared?.(paneKey)
+  }
+
   private clearAssistantMessageRetry(paneKey: string): void {
     const timer = this.assistantMessageRetryTimers.get(paneKey)
     if (!timer) {
@@ -1403,6 +1439,12 @@ export class AgentHookServer {
       env: envelope.env,
       expectedEnv: this.env
     })
+    if (hookEventName === 'SessionStart' && normalizedPayload.agentType === 'codex') {
+      // New relays encode the metadata-only SessionStart as an empty done frame;
+      // pre-fix relays may encode it as working. Neither should become visible.
+      this.clearStatusForSessionStart(paneKey, undefined, trimmedConnectionId)
+      return
+    }
     const event: AgentHookEventPayload = {
       paneKey,
       launchToken: envelope.launchToken,
@@ -1486,10 +1528,14 @@ export class AgentHookServer {
 
         trackEmptyPaneKeyHook(body)
         const aliasedBody = this.normalizeHookBodyPaneKeyAlias(body)
+        const paneKey = hookBodyPaneKey(aliasedBody)
+        const previousStatus = paneKey ? this.state.lastStatusByPaneKey.get(paneKey) : undefined
         const normalized = normalizeHookPayload(this.state, source, aliasedBody, this.env)
         if (normalized && !this.shouldSuppressClosedTabStatus(normalized.paneKey)) {
           const enriched = this.applyNormalizedStatus(normalized)
           this.scheduleAssistantMessageRetry(source, aliasedBody, enriched)
+        } else if (paneKey && previousStatus && !this.state.lastStatusByPaneKey.has(paneKey)) {
+          this.clearStatusForSessionStart(paneKey, previousStatus)
         }
 
         res.writeHead(204)
@@ -1599,6 +1645,11 @@ export class AgentHookServer {
       }
     }
     for (const key of this.state.lastToolByPaneKey.keys()) {
+      if (paneCacheKeyMatchesTab(key, tabId)) {
+        paneKeysToClear.add(key.split('\0', 1)[0] ?? key)
+      }
+    }
+    for (const key of this.state.lastProviderSessionByPaneKey.keys()) {
       if (paneCacheKeyMatchesTab(key, tabId)) {
         paneKeysToClear.add(key.split('\0', 1)[0] ?? key)
       }

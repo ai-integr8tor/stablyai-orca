@@ -101,6 +101,9 @@ export type HookListenerState = {
   warnedEnvs: Set<string>
   lastPromptByPaneKey: Map<string, string>
   lastToolByPaneKey: Map<string, ToolSnapshot>
+  /** Provider session identity can arrive on a metadata-only SessionStart before
+   *  the first visible status event. Keep it pane-scoped until that event. */
+  lastProviderSessionByPaneKey: Map<string, AgentProviderSessionMetadata>
   lastStatusByPaneKey: Map<string, AgentHookEventPayload>
   antigravityCompletedTranscriptByPaneKey: Map<string, string>
   ampCompletedCacheKeys: Set<string>
@@ -136,6 +139,7 @@ export function createHookListenerState(): HookListenerState {
     warnedEnvs: new Set(),
     lastPromptByPaneKey: new Map(),
     lastToolByPaneKey: new Map(),
+    lastProviderSessionByPaneKey: new Map(),
     lastStatusByPaneKey: new Map(),
     antigravityCompletedTranscriptByPaneKey: new Map(),
     ampCompletedCacheKeys: new Set(),
@@ -147,6 +151,7 @@ export function createHookListenerState(): HookListenerState {
 export function clearPaneCacheState(state: HookListenerState, paneKey: string): void {
   deletePaneScopedCacheEntry(state.lastPromptByPaneKey, paneKey)
   deletePaneScopedCacheEntry(state.lastToolByPaneKey, paneKey)
+  deletePaneScopedCacheEntry(state.lastProviderSessionByPaneKey, paneKey)
   deletePaneScopedCacheEntry(state.lastStatusByPaneKey, paneKey)
   deletePaneScopedCacheEntry(state.antigravityCompletedTranscriptByPaneKey, paneKey)
   deletePaneScopedSetEntry(state.ampCompletedCacheKeys, paneKey)
@@ -225,6 +230,7 @@ function deletePaneScopedSetEntry(set: Set<string>, paneKey: string): void {
 export function clearAllListenerCaches(state: HookListenerState): void {
   state.lastPromptByPaneKey.clear()
   state.lastToolByPaneKey.clear()
+  state.lastProviderSessionByPaneKey.clear()
   state.lastStatusByPaneKey.clear()
   state.antigravityCompletedTranscriptByPaneKey.clear()
   state.ampCompletedCacheKeys.clear()
@@ -571,7 +577,7 @@ const TOOL_INPUT_KEYS_BY_TOOL: Record<string, readonly string[]> = {
   Execute: ['command'],
   MultiEdit: ['file_path', 'filePath', 'path'],
   NotebookEdit: ['file_path', 'filePath', 'path'],
-  Bash: ['command'],
+  Bash: ['command', 'cmd'],
   Glob: ['pattern'],
   Grep: ['pattern'],
   WebFetch: ['url'],
@@ -598,7 +604,8 @@ const TOOL_INPUT_KEYS_BY_TOOL: Record<string, readonly string[]> = {
   search_replace: ['file_path', 'path', 'filePath'],
   write_to_file: ['TargetFile', 'path', 'file_path'],
   execute_code: ['code', 'command', 'cmd'],
-  apply_patch: ['path', 'file_path'],
+  apply_patch: ['command', 'path', 'file_path'],
+  spawn_agent: ['prompt', 'agent_type', 'description', 'name'],
   view_image: ['path', 'file_path'],
   AskUser: ['question', 'prompt', 'message'],
   ask_user: ['question', 'prompt', 'message'],
@@ -1491,7 +1498,7 @@ function extractCodexToolFields(
       deriveToolInputPreview(toolName, hookPayload.tool_input) ??
       deriveToolInputPreview(toolName, hookPayload.input) ??
       deriveToolInputPreview(toolName, hookPayload.arguments)
-    return toolUpdate(
+    const update = toolUpdate(
       {
         toolName,
         toolInput,
@@ -1499,8 +1506,19 @@ function extractCodexToolFields(
       },
       { hasToolInputField: hasAnyOwnField(hookPayload, ['tool_input', 'input', 'arguments']) }
     )
+    if (eventName === 'PostToolUse') {
+      const responseText = extractToolResponseText(hookPayload.tool_response)
+      if (responseText) {
+        update.lastAssistantMessage = responseText
+      }
+    }
+    return update
   }
-  if (eventName === 'Stop') {
+  if (eventName === 'SubagentStart') {
+    const agentType = readString(hookPayload, 'agent_type')
+    return agentType ? toolUpdate({ toolName: agentType }) : {}
+  }
+  if (eventName === 'SubagentStop' || eventName === 'Stop') {
     const message = readString(hookPayload, 'last_assistant_message')
     if (message) {
       return { lastAssistantMessage: message }
@@ -2273,7 +2291,7 @@ function isNewTurnEvent(source: AgentHookSource, eventName: unknown): boolean {
     case 'kimi':
       return eventName === 'UserPromptSubmit'
     case 'codex':
-      return eventName === 'SessionStart' || eventName === 'UserPromptSubmit'
+      return eventName === 'UserPromptSubmit'
     case 'gemini':
       return eventName === 'BeforeAgent'
     case 'antigravity':
@@ -3165,6 +3183,35 @@ function hasExplicitPromptForSource(
   return eventName === 'agent.start' && promptText.length > 0
 }
 
+function resolveHookProviderSession(
+  state: HookListenerState,
+  source: AgentHookSource,
+  paneKey: string,
+  hookPayload: Record<string, unknown>
+): AgentProviderSessionMetadata | undefined {
+  const extracted = extractAgentProviderSession(source, hookPayload) ?? undefined
+  if (source !== 'codex') {
+    return extracted
+  }
+  if (extracted) {
+    state.lastProviderSessionByPaneKey.set(paneKey, extracted)
+    return extracted
+  }
+  return state.lastProviderSessionByPaneKey.get(paneKey)
+}
+
+function codexPayloadIsInterrupted(hookPayload: Record<string, unknown>): boolean {
+  if (hookPayload['is_interrupt'] === true || hookPayload['interrupted'] === true) {
+    return true
+  }
+  const stopReason = readFirstString(hookPayload, ['stop_reason', 'stopReason'])?.toLowerCase()
+  return (
+    stopReason?.includes('interrupt') === true ||
+    stopReason?.includes('abort') === true ||
+    stopReason?.includes('cancel') === true
+  )
+}
+
 function normalizeCodexEvent(
   state: HookListenerState,
   eventName: unknown,
@@ -3172,17 +3219,41 @@ function normalizeCodexEvent(
   paneKey: string,
   hookPayload: Record<string, unknown>
 ): ParsedAgentStatusPayload | null {
-  const stateName =
-    eventName === 'SessionStart' ||
+  if (eventName === 'SessionStart') {
+    // Why: Codex fires SessionStart when opening or resuming an idle TUI, before
+    // a user prompt exists; reset stale turn/session cache without emitting state.
+    clearPaneTurnCacheState(state, paneKey)
+    state.lastProviderSessionByPaneKey.delete(paneKey)
+    if (state.lastStatusByPaneKey.get(paneKey)?.payload.agentType === 'codex') {
+      state.lastStatusByPaneKey.delete(paneKey)
+    }
+    return null
+  }
+
+  let stateName: 'working' | 'waiting' | 'done' | null = null
+  if (
     eventName === 'UserPromptSubmit' ||
     eventName === 'PreToolUse' ||
-    eventName === 'PostToolUse'
-      ? 'working'
-      : eventName === 'PermissionRequest'
-        ? 'waiting'
-        : eventName === 'Stop'
-          ? 'done'
-          : null
+    eventName === 'PostToolUse' ||
+    eventName === 'SubagentStart' ||
+    eventName === 'SubagentStop'
+  ) {
+    // Why: a child stopping does not end its parent's turn; only root Stop does.
+    stateName = 'working'
+  } else if (eventName === 'PermissionRequest') {
+    stateName = 'waiting'
+  } else if (eventName === 'Stop') {
+    stateName = 'done'
+  }
+
+  if (
+    stateName === 'working' &&
+    eventName !== 'UserPromptSubmit' &&
+    eventName !== 'SubagentStart' &&
+    codexPayloadIsInterrupted(hookPayload)
+  ) {
+    stateName = 'done'
+  }
 
   if (!stateName) {
     return null
@@ -3194,6 +3265,8 @@ function normalizeCodexEvent(
     extractToolFields('codex', eventName, hookPayload),
     { resetOnNewTurn: isNewTurnEvent('codex', eventName) }
   )
+  const interrupted =
+    stateName === 'done' && codexPayloadIsInterrupted(hookPayload) ? true : undefined
 
   return parseAgentStatusPayload(
     JSON.stringify({
@@ -3205,7 +3278,8 @@ function normalizeCodexEvent(
       toolName: snapshot.toolName,
       toolInput: snapshot.toolInput,
       interactivePrompt: snapshot.interactivePrompt,
-      lastAssistantMessage: snapshot.lastAssistantMessage
+      lastAssistantMessage: snapshot.lastAssistantMessage,
+      interrupted
     })
   )
 }
@@ -3865,7 +3939,7 @@ export function normalizeHookPayload(
   // it null; the relay forwards null on the wire and Orca's `ingestRemote`
   // stamps the real value from `mux` identity on receive. See
   // docs/design/agent-status-over-ssh.md §5.
-  const providerSession = extractAgentProviderSession(source, hookPayloadRecord)
+  const providerSession = resolveHookProviderSession(state, source, paneKey, hookPayloadRecord)
   return payload
     ? {
         paneKey,
