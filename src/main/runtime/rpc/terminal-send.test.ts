@@ -579,7 +579,7 @@ describe('terminal send RPC', () => {
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
       getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
-      getTerminalAgentStatus: vi.fn().mockResolvedValue({
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockResolvedValue({
         handle: 'terminal-1',
         isRunningAgent: true,
         status: 'permission'
@@ -610,7 +610,7 @@ describe('terminal send RPC', () => {
         refusedReason: 'permission'
       }
     })
-    expect(runtime.getTerminalAgentStatus).toHaveBeenCalledWith('terminal-1')
+    expect(runtime.getTerminalAgentStatusForGuardedSend).toHaveBeenCalledWith('terminal-1')
     expect(runtime.sendTerminal).not.toHaveBeenCalled()
     expect(beginMobileInputFloor).not.toHaveBeenCalled()
   })
@@ -619,7 +619,7 @@ describe('terminal send RPC', () => {
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
       getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
-      getTerminalAgentStatus: vi.fn().mockResolvedValue({
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockResolvedValue({
         handle: 'terminal-1',
         isRunningAgent: true,
         status: 'working'
@@ -664,7 +664,7 @@ describe('terminal send RPC', () => {
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn(() => ({ ptyId: boundPtyId })),
       getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
-      getTerminalAgentStatus: vi.fn().mockImplementation(async () => {
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockImplementation(async () => {
         statusCalls += 1
         if (statusCalls === 2) {
           boundPtyId = 'pty-2'
@@ -696,7 +696,7 @@ describe('terminal send RPC', () => {
       ok: true,
       result: { send: { accepted: false, bytesWritten: 0 } }
     })
-    expect(runtime.getTerminalAgentStatus).toHaveBeenCalledTimes(2)
+    expect(runtime.getTerminalAgentStatusForGuardedSend).toHaveBeenCalledTimes(2)
     expect(write).not.toHaveBeenCalled()
   })
 
@@ -705,7 +705,7 @@ describe('terminal send RPC', () => {
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn(() => ({ ptyId: 'pty-1' })),
       getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
-      getTerminalAgentStatus: vi.fn().mockResolvedValue({
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockResolvedValue({
         handle: 'terminal-1',
         isRunningAgent: true,
         status: 'working'
@@ -731,15 +731,55 @@ describe('terminal send RPC', () => {
       ok: true,
       result: { send: { accepted: false, bytesWritten: 0 } }
     })
-    expect(runtime.getTerminalAgentStatus).toHaveBeenCalledTimes(1)
+    expect(runtime.getTerminalAgentStatusForGuardedSend).toHaveBeenCalledTimes(1)
     expect(write).not.toHaveBeenCalled()
+  })
+
+  it('refuses guarded terminal sends when no agent is recognized after the guarded probe', async () => {
+    const runtime = stubRuntime({
+      // Why: terminal.send resolves via resolveLiveLeafForHandle (stale-handle
+      // safety #7718); the stub must match that API or the guard path never runs.
+      resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
+      getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockResolvedValue({
+        handle: 'terminal-1',
+        isRunningAgent: false,
+        status: null
+      }),
+      sendTerminal: vi.fn()
+    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('terminal.send', {
+        terminal: 'terminal-1',
+        enter: true,
+        requireAgentStatus: 'sendable',
+        client: { id: 'desktop-1', type: 'desktop' }
+      })
+    )
+
+    expect(response.ok).toBe(true)
+    if (!response.ok) {
+      throw new Error(response.error.message)
+    }
+    expect(response.result).toEqual({
+      send: {
+        handle: 'terminal-1',
+        accepted: false,
+        bytesWritten: 0,
+        refusedReason: 'no-agent'
+      }
+    })
+    expect(runtime.getTerminalAgentStatusForGuardedSend).toHaveBeenCalledWith('terminal-1')
+    expect(runtime.sendTerminal).not.toHaveBeenCalled()
   })
 
   it('refuses guarded combined text and submit sends before any PTY write', async () => {
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
       getDriver: vi.fn().mockReturnValue({ kind: 'desktop' }),
-      getTerminalAgentStatus: vi.fn(),
+      getTerminalAgentStatusForGuardedSend: vi.fn(),
       sendTerminal: vi.fn()
     })
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
@@ -765,7 +805,7 @@ describe('terminal send RPC', () => {
         bytesWritten: 0
       }
     })
-    expect(runtime.getTerminalAgentStatus).not.toHaveBeenCalled()
+    expect(runtime.getTerminalAgentStatusForGuardedSend).not.toHaveBeenCalled()
     expect(runtime.sendTerminal).not.toHaveBeenCalled()
   })
 
@@ -777,7 +817,7 @@ describe('terminal send RPC', () => {
         .mockReturnValueOnce({ kind: 'desktop' })
         .mockReturnValueOnce({ kind: 'desktop' })
         .mockReturnValue({ kind: 'mobile', clientId: 'mobile-1' }),
-      getTerminalAgentStatus: vi.fn().mockResolvedValue({
+      getTerminalAgentStatusForGuardedSend: vi.fn().mockResolvedValue({
         handle: 'terminal-1',
         isRunningAgent: true,
         status: 'working'
