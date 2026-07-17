@@ -81,6 +81,11 @@ import { createClosedResourceSessionCountSelector } from './resource-session-cou
 import { translate } from '@/i18n/i18n'
 
 const POLL_MS = 2_000
+// Why: while the popover is open the Resource Manager is in explicit use, so
+// the session inventory is refreshed on this slower cadence (matching the
+// former background poll rate). This stays gated on `open`, so the closed
+// status-bar badge never runs a global daemon PTY inventory.
+const SESSION_LIST_POLL_MS = 10_000
 const selectClosedResourceSessionCount = createClosedResourceSessionCountSelector()
 
 type SortOption = 'memory' | 'cpu' | 'name'
@@ -882,26 +887,44 @@ export function ResourceUsageStatusSegment({
   }
   const spaceScanReady = nextSpaceScanSnapshot.ready
 
-  // Poll memory when popover is open. Sessions are refreshed on open and after
-  // session actions; a closed status-bar badge must not globally inventory
-  // daemon PTYs because large preserved-session sets make that visible while
-  // typing.
+  // Poll resource data only while the popover is open. A closed status-bar
+  // badge must not globally inventory daemon PTYs because large
+  // preserved-session sets make that visible while typing.
   useEffect(() => {
     if (!open) {
       return
     }
     void fetchSnapshot()
     void refreshSessions()
-    // Why: only the memory snapshot keeps an interval while the popover is
-    // open. Session inventory is explicit-on-open/action because it can be
-    // expensive with many daemon-preserved terminals.
+    // Why: memory snapshots are cheap enough for a responsive two-second
+    // cadence; the more expensive global session inventory runs less often.
     const memTimer = window.setInterval(() => {
       void fetchSnapshot()
     }, POLL_MS)
+    // Why: while the popover stays open, an externally-exited or newly-spawned
+    // session (daemon-side, another window, a crash) would otherwise keep the
+    // list and the trigger/orphan counts stale until the user acts. Re-poll the
+    // session inventory on the slower cadence — only while open, so the closed
+    // badge never reintroduces a background global daemon scan.
+    const sessionsTimer = window.setInterval(() => {
+      void refreshSessions()
+    }, SESSION_LIST_POLL_MS)
     return () => {
       window.clearInterval(memTimer)
+      window.clearInterval(sessionsTimer)
     }
   }, [open, fetchSnapshot, refreshSessions])
+
+  useEffect(() => {
+    // Why: a transient sessionsError raised while the popover was open can no
+    // longer self-heal in the background once closed (no closed-popover poll),
+    // so it would leave the always-visible "daemon unreachable" badge stuck
+    // even after the daemon recovers. Clear it on close; the next open
+    // re-evaluates reachability from a fresh refreshSessions().
+    if (!open) {
+      setSessionsError(false)
+    }
+  }, [open])
 
   const repoDisplayNameById = useMemo(() => {
     const map = new Map<string, string>()
