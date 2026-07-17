@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -335,12 +343,23 @@ describe('run-electron-vite-dev', () => {
   })
 
   it.skipIf(process.platform !== 'darwin')(
-    'rebuilds the copied Electron app when Chromium resources are missing',
+    'stages Electron outside the worktree, prunes stale copies, and rebuilds missing resources',
     async () => {
       const tempDir = mkdtempSync(join(tmpdir(), 'orca-dev-wrapper-'))
       const wrapperPath = resolve('config/scripts/run-electron-vite-dev.mjs')
       const fakeCliPath = resolve('src/main/startup/__fixtures__/fake-electron-vite-dev-cli.mjs')
+      const userDataPath = join(tempDir, 'userData')
+      const staleDistDir = join(userDataPath, 'electron-dev-apps', 'removed-worktree')
+      mkdirSync(staleDistDir, { recursive: true })
+      writeFileSync(
+        join(staleDistDir, 'orca-dev-electron-app.json'),
+        JSON.stringify({
+          sourceAppPath: join(tempDir, 'deleted-worktree', 'node_modules', 'electron', 'dist'),
+          appBundleName: 'Orca stale.app'
+        })
+      )
       const baseEnv = devWrapperTestEnv({
+        ORCA_DEV_USER_DATA_PATH: userDataPath,
         ORCA_ELECTRON_VITE_CLI: fakeCliPath,
         ORCA_SKIP_DEV_CLI_PREPARE: '1',
         ORCA_SKIP_DEV_WEB_PREPARE: '1',
@@ -385,6 +404,8 @@ describe('run-electron-vite-dev', () => {
       let distDir: string | null = null
       try {
         const firstRun = await runWrapper('first')
+        expect(firstRun.electronExecPath).toContain(join(userDataPath, 'electron-dev-apps'))
+        expect(existsSync(staleDistDir)).toBe(false)
         const appPath = dirname(dirname(dirname(firstRun.electronExecPath)))
         distDir = dirname(appPath)
         const icuDataPath = join(
@@ -420,10 +441,12 @@ describe('run-electron-vite-dev', () => {
       const envFile = join(tempDir, 'env.json')
       const wrapperPath = resolve('config/scripts/run-electron-vite-dev.mjs')
       const fakeCliPath = resolve('src/main/startup/__fixtures__/fake-electron-vite-dev-cli.mjs')
+      const userDataPath = join(tempDir, 'userData')
 
       const wrapper = spawn(process.execPath, [wrapperPath, '--remote-debugging-port=9448'], {
         cwd: resolve('.'),
         env: devWrapperTestEnv({
+          ORCA_DEV_USER_DATA_PATH: userDataPath,
           ORCA_ELECTRON_VITE_CLI: fakeCliPath,
           ORCA_SKIP_DEV_CLI_PREPARE: '1',
           ORCA_SKIP_DEV_WEB_PREPARE: '1',
