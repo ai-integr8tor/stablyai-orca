@@ -62,6 +62,7 @@ import type {
   PRCheckRunDetails,
   PRComment
 } from '../../../../shared/types'
+import { loadGitLabCheckRunDetails } from './gitlab-check-details-loader'
 import { getConnectionId } from '@/lib/connection-context'
 import {
   buildResolvePullRequestConflictsPrompt,
@@ -1668,7 +1669,9 @@ export default function ChecksPanel(): React.JSX.Element {
         const details = await fetchGitLabMRDetailsForChecks({
           repoPath: repo.path,
           repoId: repo.id,
-          settings,
+          // Why: route to the active worktree's runtime so the job list (and the
+          // trace fetch keyed off it) resolve against the same GitLab host.
+          settings: ownerSettings,
           iid: targetMRNumber
         })
         if (!isCurrentAsyncResult(requestKey)) {
@@ -1704,7 +1707,7 @@ export default function ChecksPanel(): React.JSX.Element {
       hostedReviewCacheKey,
       isCurrentAsyncResult,
       repo,
-      settings
+      ownerSettings
     ]
   )
 
@@ -1811,9 +1814,21 @@ export default function ChecksPanel(): React.JSX.Element {
   )
 
   const handleLoadCheckDetails = useCallback(
-    (check: PRCheckDetail) => {
+    async (check: PRCheckDetail): Promise<PRCheckRunDetails | null> => {
       if (!repo) {
-        return Promise.resolve(null)
+        return null
+      }
+      // GitLab pipeline jobs have no check-run/workflow ids; load their trace
+      // through `gitlab:jobTrace` instead of GitHub's check-details API.
+      if (check.gitlabJobId) {
+        return loadGitLabCheckRunDetails({
+          repoPath: repo.path,
+          repoId: repo.id,
+          // Why: route to the active worktree's runtime, not the globally-active
+          // one, matching the other runtime-routed calls in this component.
+          settings: ownerSettings,
+          check
+        })
       }
       return fetchPRCheckDetails(
         repo.path,
@@ -1827,7 +1842,7 @@ export default function ChecksPanel(): React.JSX.Element {
         { repoId: repo.id }
       )
     },
-    [fetchPRCheckDetails, pr?.prRepo, repo]
+    [fetchPRCheckDetails, ownerSettings, pr?.prRepo, repo]
   )
 
   useEffect(() => {
