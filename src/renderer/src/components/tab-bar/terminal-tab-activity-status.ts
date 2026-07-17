@@ -19,6 +19,7 @@ export type TerminalTabActivityStatus = WorktreeStatus
 type TerminalTabActivityFlags = {
   hasPermission: boolean
   hasLiveWorking: boolean
+  hasLiveCompacting: boolean
   hasLiveDone: boolean
   paneIds: Set<string>
 }
@@ -67,6 +68,7 @@ function getTerminalTabActivityFlags(
       flags = {
         hasPermission: false,
         hasLiveWorking: false,
+        hasLiveCompacting: false,
         hasLiveDone: false,
         paneIds: new Set()
       }
@@ -77,6 +79,9 @@ function getTerminalTabActivityFlags(
       flags.hasPermission = true
     } else if (entry.state === 'working') {
       flags.hasLiveWorking = true
+      if (entry.compacting === true) {
+        flags.hasLiveCompacting = true
+      }
     } else if (entry.state === 'done') {
       // Why: an interrupted `done` still reads as completed here, matching the
       // WorktreeCard dot (resolveWorktreeStatus has no interrupted state); only
@@ -138,6 +143,7 @@ export function resolveTerminalTabActivityStatus({
     terminalLayoutsByTabId: terminalLayout ? { [tab.id]: terminalLayout } : undefined,
     hasPermission: flags?.hasPermission ?? false,
     hasLiveWorking: flags?.hasLiveWorking ?? false,
+    hasLiveCompacting: flags?.hasLiveCompacting ?? false,
     hasLiveDone: flags?.hasLiveDone ?? false,
     // Why: retained/orchestration promotions are worktree-aggregate concerns;
     // a tab reflects its own live panes and title only.
@@ -147,7 +153,7 @@ export function resolveTerminalTabActivityStatus({
 
 /** True while the tab shows a live in-turn signal (spinner or needs-input). */
 export function isTerminalTabActivityLive(status: TerminalTabActivityStatus): boolean {
-  return status === 'working' || status === 'permission'
+  return status === 'working' || status === 'compacting' || status === 'permission'
 }
 
 /** Match pane-level unread completion markers to their owning terminal tab. */

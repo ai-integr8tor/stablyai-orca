@@ -1598,7 +1598,11 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           // already clamps it to `undefined` for non-done states, so writing
           // the field through directly preserves truth for done and resets
           // it when a new turn starts (working → Stop reprices it).
-          interrupted: payload.interrupted
+          interrupted: payload.interrupted,
+          // Why: compacting lives on `working` only (clamped in the normalizer)
+          // and clears on the next non-compacting event, so writing it through
+          // directly is enough — the sidebar promotes it to a "Compacting" glyph.
+          compacting: payload.compacting
         }
         generatedTitleEntry.current = entry
         if (
@@ -1643,13 +1647,19 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           !!existing &&
           existing.state === payload.state &&
           entry.stateStartedAt !== existing.stateStartedAt
+        // Why: compaction starts and ends without a wire-state change (working
+        // stays working), so treat the flag flip as sort-relevant — otherwise
+        // the epoch never bumps and the freshness-gated card keeps rendering a
+        // plain spinner instead of the "Compacting" phase.
+        const compactingChanged = (existing?.compacting ?? false) !== (entry.compacting ?? false)
         const sortRelevantChange =
           !existing ||
           existing.state !== payload.state ||
           !wasFresh ||
           attributionChanged ||
           commandCodeNewTurn ||
-          sameStateStateStartedAtChanged
+          sameStateStateStartedAtChanged ||
+          compactingChanged
         const doneRetentionFieldsChanged =
           existing?.state === 'done' &&
           entry.state === 'done' &&

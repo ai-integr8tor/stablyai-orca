@@ -228,7 +228,12 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
   // Why: interrupted is a terminal outcome the user needs to scan in the
   // leading state column; the secondary-line text below provides the
   // explanation without competing with the prompt or timestamp.
-  const dotState: AgentDotState = isInterrupted ? 'interrupted' : asDotState(agent.state)
+  const isCompacting = isWorking && agent.entry.compacting === true
+  const dotState: AgentDotState = isInterrupted
+    ? 'interrupted'
+    : isCompacting
+      ? 'compacting'
+      : asDotState(agent.state)
   const dotTooltipLabel = stateDotTooltipLabel(agent, dotState)
 
   // Why: always show the chevron to keep the row's right edge stable — a

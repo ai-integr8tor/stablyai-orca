@@ -26,6 +26,15 @@ describe('StatusIndicator', () => {
     expect(classNames).not.toContain('animate-spin')
   })
 
+  it('renders compacting as a pulsing sky collapse glyph, not the working spinner', () => {
+    const markup = renderMarkup('compacting')
+
+    expect(markup).toContain('lucide-chevrons-right-left')
+    expect(markup).toContain('text-sky-500')
+    expect(markup).toContain('animate-pulse')
+    expect(markup).not.toContain('border-yellow-500')
+  })
+
   it('renders permission as an amber attention dot', () => {
     const classNames = renderDotClassNames('permission')
 

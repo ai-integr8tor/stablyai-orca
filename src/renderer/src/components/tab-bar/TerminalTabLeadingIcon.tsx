@@ -32,6 +32,8 @@ function activityDotState(status: TerminalTabActivityStatus): AgentDotState | nu
   switch (status) {
     case 'working':
       return 'working'
+    case 'compacting':
+      return 'compacting'
     case 'permission':
       return 'permission'
     case 'done':

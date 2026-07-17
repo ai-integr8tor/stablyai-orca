@@ -1,5 +1,5 @@
 import React from 'react'
-import { CircleCheck } from 'lucide-react'
+import { CircleCheck, ChevronsRightLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Why: shared state-indicator primitive so the dashboard and the sidebar's
@@ -15,6 +15,10 @@ import { cn } from '@/lib/utils'
 
 export type AgentDotState =
   | 'working'
+  // Why: a distinct phase of 'working' — the agent is compacting its
+  // conversation, which can run for minutes. Its own glyph keeps a long
+  // compact from reading as a stalled spinner or (worse) a finished check.
+  | 'compacting'
   | 'blocked'
   | 'waiting'
   | 'interrupted'
@@ -35,6 +39,8 @@ export function agentStateLabel(state: AgentDotState): string {
   switch (state) {
     case 'working':
       return 'Working'
+    case 'compacting':
+      return 'Compacting'
     case 'blocked':
       return 'Blocked'
     case 'waiting':
@@ -81,6 +87,26 @@ export const AgentStateDot = React.memo(function AgentStateDot({
             'block rounded-full border-2 border-yellow-500 border-t-transparent [animation:spin_1s_steps(12,end)_infinite] motion-reduce:animate-none',
             inner
           )}
+        />
+      </span>
+    )
+  }
+
+  if (state === 'compacting') {
+    // Why: a collapse glyph reads as "compressing the conversation" and stays
+    // visually distinct from the yellow working spinner and the done check,
+    // while the pulse signals it is still an in-progress phase (not terminal).
+    return (
+      <span
+        className={cn('inline-flex shrink-0 items-center justify-center', box, className)}
+        aria-label={agentStateLabel(state)}
+      >
+        <ChevronsRightLeft
+          className={cn('text-sky-500 animate-pulse motion-reduce:animate-none', icon)}
+          // Why: lucide's default stroke (2) reads thin next to Orca's heavier
+          // sidebar glyphs; thicken it so the compacting state has equal weight.
+          strokeWidth={2.75}
+          aria-hidden="true"
         />
       </span>
     )

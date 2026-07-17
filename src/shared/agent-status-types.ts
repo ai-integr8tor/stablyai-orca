@@ -146,6 +146,11 @@ export type AgentStatusEntry = {
    *  cancelled it. Undefined while the agent is working or when no interrupt
    *  signal was available. */
   interrupted?: boolean
+  /** True while the agent is compacting/compressing its conversation (Claude's
+   *  PreCompact). Orthogonal garnish on a `working` state — the pane is still
+   *  busy, but the compaction phase gets its own label/glyph so a long compact
+   *  doesn't read as an ordinary tool run. Undefined on any non-working state. */
+  compacting?: boolean
   /** Orchestration dispatch context for agent panes spawned by another agent.
    *  Why: parent/child agent hierarchy is pane-level state, not worktree
    *  lineage; workers often run in the same worktree as their coordinator. */
@@ -188,6 +193,8 @@ export type AgentStatusPayload = {
   interactivePrompt?: string
   lastAssistantMessage?: string
   interrupted?: boolean
+  /** True while the reporting session is compacting. See AgentStatusEntry. */
+  compacting?: boolean
   /** Live subagents/teammates of the reporting session. See AgentStatusEntry. */
   subagents?: AgentSubagentSnapshot[]
 }
@@ -389,6 +396,9 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
     // Why: only meaningful on `done`. Coerce to undefined on other states so
     // the field doesn't leak stale truth through state transitions.
     interrupted: obj.interrupted === true && state === 'done' ? true : undefined,
+    // Why: compaction is a phase of a `working` turn; clamp to that state so a
+    // stale flag can't linger onto the next done/waiting transition.
+    compacting: obj.compacting === true && state === 'working' ? true : undefined,
     subagents: normalizeSubagentsField(obj.subagents)
   }
 }

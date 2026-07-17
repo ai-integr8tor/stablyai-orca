@@ -248,6 +248,86 @@ describe('shared agent-hook-listener', () => {
     expect(event?.payload.toolName).toBe('Bash')
   })
 
+  it('maps Claude PreCompact to a working state flagged as compacting', () => {
+    const event = normalizeHookPayload(
+      state,
+      'claude',
+      {
+        paneKey: PANE_KEY,
+        payload: { hook_event_name: 'PreCompact' }
+      },
+      'production'
+    )
+    expect(event?.payload.state).toBe('working')
+    expect(event?.payload.compacting).toBe(true)
+  })
+
+  it('restores an idle session to done (green) on PostCompact after a manual /compact', () => {
+    // Why: a manual /compact on an idle session has no Stop/SessionStart after
+    // it — PostCompact is the only terminating hook, and it must return the row
+    // to green rather than stranding the 'working' spinner PreCompact set.
+    const pre = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PreCompact', trigger: 'manual' } },
+      'production'
+    )
+    expect(pre?.payload.state).toBe('working')
+    expect(pre?.payload.compacting).toBe(true)
+
+    const post = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PostCompact' } },
+      'production'
+    )
+    expect(post?.payload.state).toBe('done')
+    expect(post?.payload.compacting).toBeUndefined()
+  })
+
+  it('restores an in-progress turn to working on PostCompact after an auto-compact', () => {
+    // Establish a live working turn, then auto-compact mid-turn.
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'UserPromptSubmit', prompt: 'go' } },
+      'production'
+    )
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PreCompact', trigger: 'auto' } },
+      'production'
+    )
+    const post = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PostCompact' } },
+      'production'
+    )
+    // Why: the pre-compaction state was 'working' (mid-turn), so restore it —
+    // not 'done' — so the spinner keeps going as the turn resumes.
+    expect(post?.payload.state).toBe('working')
+    expect(post?.payload.compacting).toBeUndefined()
+  })
+
+  it('ignores a PostCompact that arrives when not compacting', () => {
+    normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'UserPromptSubmit', prompt: 'go' } },
+      'production'
+    )
+    const post = normalizeHookPayload(
+      state,
+      'claude',
+      { paneKey: PANE_KEY, payload: { hook_event_name: 'PostCompact' } },
+      'production'
+    )
+    // Why: a stray PostCompact must not clobber the live turn state.
+    expect(post).toBeNull()
+  })
+
   it('leaves interactivePrompt undefined for a normal tool call', () => {
     const event = normalizeHookPayload(
       state,
