@@ -1053,6 +1053,7 @@ function openMainWindow(): BrowserWindow {
         desktopRelayService?.fenceAndCloseNow()
         await preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
       },
+      getLocalRuntimePublicKeyB64: () => runtimeRpc?.getE2EEPublicKey() ?? null,
       onOrcaProfileAuthMutation: () => desktopRelayService?.authMutated(),
       onBeforeOrcaProfileSignOut: () => desktopRelayService?.fenceAndCloseNow()
     }

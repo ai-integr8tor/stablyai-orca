@@ -55,6 +55,35 @@ describe('runtime environment store', () => {
     expect(listEnvironments(userDataPath)).toEqual([first])
   })
 
+  it('rejects pairing the local Orca server to itself before saving it', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const localRuntimePublicKeyB64 = Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+
+    expect(() =>
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'this server',
+        pairingCode: pairingCode('ws://192.0.2.10:6768'),
+        localRuntimePublicKeyB64
+      })
+    ).toThrow('This pairing code belongs to this Orca server.')
+    expect(listEnvironments(userDataPath)).toEqual([])
+  })
+
+  it('allows the same endpoint when it identifies a different Orca server', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const localRuntimePublicKeyB64 = Buffer.from(new Uint8Array(32).fill(2)).toString('base64')
+
+    const environment = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'other server',
+      pairingCode: pairingCode(),
+      localRuntimePublicKeyB64
+    })
+
+    expect(listEnvironments(userDataPath)).toEqual([environment])
+  })
+
   it('throttles lastUsedAt writes so it does not rewrite the store on every runtime call', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
