@@ -14,6 +14,11 @@ import {
   setWebRuntimeTabProps,
   splitWebRuntimeTerminal
 } from './web-runtime-session'
+import {
+  consumeWebSessionTerminalCloseRoute,
+  recordWebSessionTerminalCloseRoute,
+  resetWebSessionTerminalCloseRoutesForTests
+} from './web-session-terminal-close-route'
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -802,6 +807,7 @@ describe('web runtime session tab actions', () => {
   })
 
   afterEach(() => {
+    resetWebSessionTerminalCloseRoutesForTests()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
   })
@@ -883,6 +889,59 @@ describe('web runtime session tab actions', () => {
       timeoutMs: 15_000
     })
     expect(mocks.applyFreshWebSessionTabsSnapshot).toHaveBeenCalled()
+  })
+
+  it('clears a retained terminal route before a direct explicit close', async () => {
+    mocks.resolveHostSessionTabIdForWebSessionTab.mockReturnValueOnce('host-terminal-tab')
+    const runtimeCall = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'close', ok: true, result: {} })
+      .mockResolvedValueOnce({ id: 'list', ok: true, result: makeSnapshot() })
+    vi.stubGlobal('window', {
+      api: {
+        runtimeEnvironments: {
+          call: runtimeCall
+        }
+      }
+    })
+    recordWebSessionTerminalCloseRoute(
+      {
+        requestTabId: 'local-terminal-tab',
+        terminalTabId: 'local-terminal-tab',
+        worktreeId: WORKTREE_ID,
+        environmentId: ENVIRONMENT_ID,
+        hostTabId: 'host-terminal-tab'
+      },
+      1000
+    )
+
+    await expect(
+      closeWebRuntimeSessionTab({
+        worktreeId: WORKTREE_ID,
+        tabId: 'local-terminal-tab',
+        source: 'user-tab-close'
+      })
+    ).resolves.toBe(true)
+
+    expect(consumeWebSessionTerminalCloseRoute('local-terminal-tab', 1001)).toBeNull()
+    expect(runtimeCall).toHaveBeenNthCalledWith(1, {
+      selector: ENVIRONMENT_ID,
+      method: 'session.tabs.close',
+      params: {
+        worktree: `id:${WORKTREE_ID}`,
+        tabId: 'host-terminal-tab',
+        closeIntent: {
+          source: 'user-tab-close',
+          userInitiated: true,
+          requestId: expect.any(String),
+          occurredAt: expect.any(Number),
+          worktreeId: WORKTREE_ID,
+          clientTabId: 'local-terminal-tab',
+          hostTabId: 'host-terminal-tab'
+        }
+      },
+      timeoutMs: 15_000
+    })
   })
 })
 

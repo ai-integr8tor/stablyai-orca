@@ -22,6 +22,7 @@ import { parseRemoteRuntimePtyId } from './runtime-terminal-stream'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { recordWebSessionFocusIntent } from './web-session-focus-intent'
 import { recordWebSessionCloseIntent } from './web-session-close-intent'
+import { clearWebSessionTerminalCloseRouteForExplicitClose } from './web-session-terminal-close-route'
 import { recordWebSessionReorderIntent } from './web-session-reorder-intent'
 import { isWebTerminalSurfaceTabId, toHostSessionTabId } from './web-terminal-surface-id'
 import { createRuntimeCloseIntent } from './runtime-close-intent'
@@ -472,6 +473,11 @@ async function callWebRuntimeSessionTabMethod(
       : null
 
   if (method === 'session.tabs.close') {
+    clearWebSessionTerminalCloseRouteForExplicitClose({
+      localOrHostTabId: args.tabId,
+      worktreeId: args.worktreeId,
+      environmentId
+    })
     // Why: the caller prunes the local mirror synchronously, but the precise
     // host id resolution below sits behind an async import. A host snapshot
     // published in that gap would re-materialize the just-closed tab before any

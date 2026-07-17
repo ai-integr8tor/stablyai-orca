@@ -6,10 +6,13 @@ import { reconcileTabOrder } from '../tab-bar/reconcile-order'
 import {
   activateWebRuntimeSessionTab,
   closeWebRuntimeSessionTab,
-  isWebRuntimeSessionActive,
-  toHostSessionTabId
+  isWebRuntimeSessionActive
 } from '@/runtime/web-runtime-session'
-import { resolveHostSessionTabIdForWebSessionTab } from '@/runtime/web-session-tabs-sync'
+import {
+  closeRemoteTerminalTab,
+  clearRetainedRemoteTerminalCloseRoute,
+  forwardRetainedRemoteTerminalClose
+} from './remote-terminal-tab-close'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { guardPinnedTabClose, resolvePinnedTabLabel } from '@/store/pinned-tab-close-guard'
 import type {
@@ -69,6 +72,9 @@ export function closeTerminalTab(
   )
   const target = resolveTerminalCloseTarget(state, tabId, precomputedCloseState)
   if (!target) {
+    if (options?.remoteCloseSource) {
+      forwardRetainedRemoteTerminalClose(state, tabId, options.remoteCloseSource)
+    }
     options?.onClosed?.()
     return
   }
@@ -96,50 +102,21 @@ export function closeTerminalTab(
     return
   }
 
-  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, owningWorktreeId)
-  if (runtimeEnvironmentId && isWebRuntimeSessionActive(runtimeEnvironmentId)) {
-    // Why: a remote-owned worktree's tabs are host-authoritative, so the close
-    // MUST reach the host or its next snapshot re-adds the tab (the "close then
-    // snaps back" bug). When the local→host map has no entry, decode the id
-    // itself (toHostSessionTabId is a no-op for non-mirrored host ids like plain
-    // UUIDs) — mirroring what activate/move do. The old
-    // `isWebTerminalSurfaceTabId ? id : null` gate returned null for plain-UUID
-    // host tabs, so close silently fell back to a local-only prune and the host's
-    // next snapshot re-added the tab. A truly local id the host doesn't know is
-    // harmless: the host close no-ops and the local prune still stands.
-    const hostBackedTabId =
-      resolveHostSessionTabIdForWebSessionTab(state, {
-        environmentId: runtimeEnvironmentId,
-        worktreeId: owningWorktreeId,
-        tabId: terminalTabId
-      }) ?? toHostSessionTabId(terminalTabId)
-    // Why: prune local mirrors immediately so close feels responsive while the
-    // host session snapshot catches up.
-    closeLocalTerminalTabState(terminalTabId, {
-      reason: options?.reason,
-      ...(options?.captureRecentlyClosed !== undefined
-        ? { captureRecentlyClosed: options.captureRecentlyClosed }
-        : {}),
-      remoteCloseOwnedByHost: true,
-      ...(options?.localPtyTeardownOwnedExternally
-        ? { localPtyTeardownOwnedExternally: true }
-        : {}),
-      ...(options?.precomputedRetirementPlan
-        ? { precomputedRetirementPlan: options.precomputedRetirementPlan }
-        : {})
+  if (
+    closeRemoteTerminalTab({
+      state,
+      requestTabId: tabId,
+      worktreeId: owningWorktreeId,
+      terminalTabId,
+      options
     })
-    // Why: lifecycle callers frequently omit a reason. Require an affirmative
-    // user/CLI source instead of trying to blacklist every mirror-close cause.
-    if (options?.remoteCloseSource) {
-      void closeWebRuntimeSessionTab({
-        worktreeId: owningWorktreeId,
-        tabId: hostBackedTabId,
-        environmentId: runtimeEnvironmentId,
-        source: options.remoteCloseSource
-      })
-    }
+  ) {
     options?.onClosed?.()
     return
+  }
+
+  if (options?.reason !== 'pty-exit') {
+    clearRetainedRemoteTerminalCloseRoute(tabId)
   }
 
   const currentTerminalTabIds = precomputedCloseState

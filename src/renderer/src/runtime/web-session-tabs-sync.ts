@@ -58,6 +58,13 @@ import {
   reconcileWebSessionCloseIntents
 } from './web-session-close-intent'
 import {
+  clearWebSessionTerminalCloseRoutesForEnvironment,
+  clearWebSessionTerminalCloseRoutesForWorktree,
+  hasPendingWebSessionTerminalCloseRoutes,
+  reconcileWebSessionTerminalCloseRoutes,
+  resetWebSessionTerminalCloseRoutesForTests
+} from './web-session-terminal-close-route'
+import {
   clearWebSessionReorderIntentsForWorktree,
   resolveWebSessionReorderedOrder
 } from './web-session-reorder-intent'
@@ -300,6 +307,7 @@ export function resetWebSessionTabsSnapshotFreshnessForTests(): void {
   latestSessionTabsSnapshotByWorktree.clear()
   lastHostTerminalTabCountByWorktree.clear()
   hostSessionTabIdByLocalKey.clear()
+  resetWebSessionTerminalCloseRoutesForTests()
 }
 
 export function _getWebSessionTabsTrackingCountsForTest(): {
@@ -318,6 +326,7 @@ function clearWebSessionTabsTrackingForWorktree(environmentId: string, worktreeI
   lastHostTerminalTabCountByWorktree.delete(key)
   clearWebRuntimeWakeTerminalRespawnForWorktree(worktreeId)
   clearWebSessionReorderIntentsForWorktree(worktreeId)
+  clearWebSessionTerminalCloseRoutesForWorktree(environmentId, worktreeId)
   const keyPrefix = `${environmentId}:${worktreeId}:`
   for (const key of hostSessionTabIdByLocalKey.keys()) {
     if (key.startsWith(keyPrefix)) {
@@ -331,6 +340,7 @@ export function clearWebSessionTabsTrackingForEnvironment(environmentId: string)
   if (!trimmedEnvironmentId) {
     return
   }
+  clearWebSessionTerminalCloseRoutesForEnvironment(trimmedEnvironmentId)
   const keyPrefix = `${trimmedEnvironmentId}:`
   for (const key of latestSessionTabsSnapshotByWorktree.keys()) {
     if (key.startsWith(keyPrefix)) {
@@ -1674,6 +1684,18 @@ export function applyWebSessionTabsSnapshot(
   const worktreeId = rawSnapshot.worktree
   if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
     return state
+  }
+  if (hasPendingWebSessionTerminalCloseRoutes(now)) {
+    const authoritativeTerminalRoutes = rawSnapshot.tabs
+      .filter(isTerminalSurfaceTab)
+      .map((tab) => [toWebTerminalSurfaceTabId(tab.parentTabId), tab.parentTabId] as const)
+    reconcileWebSessionTerminalCloseRoutes({
+      environmentId,
+      worktreeId,
+      hostTabIdByLocalTabId: new Map(authoritativeTerminalRoutes),
+      presentHostTabIds: new Set(authoritativeTerminalRoutes.map(([, hostTabId]) => hostTabId)),
+      now
+    })
   }
   // Why: a remote close prunes the local mirror immediately, but an in-flight
   // pre-close snapshot can still list the tab and flash it back. Drop any tab
