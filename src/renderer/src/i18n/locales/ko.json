@@ -9160,6 +9160,11 @@
           "availability": "이용 가능:",
           "testFlight": "TestFlight",
           "androidApk": "Android APK"
+        },
+        "ProjectDefaultPathSetting": {
+          "title": "Project default directory",
+          "description": "Where the add-project and clone folder pickers open. Leave empty to use the last-used location.",
+          "clear": "Clear"
         }
       },
       "right": {
