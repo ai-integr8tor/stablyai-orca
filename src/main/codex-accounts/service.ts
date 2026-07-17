@@ -105,10 +105,12 @@ export class CodexAccountService {
     return this.serializeMutation(() => this.doAddAccount(target))
   }
 
-  // Why: register a Codex account from an already-authenticated CODEX_HOME
-  // instead of driving `codex login` here. Lets the `orca account add --agent
-  // codex` CLI run the login in the user's own terminal on a headless host and
-  // then import the captured auth.json into managed storage.
+  /**
+   * Registers a managed Codex account from an already-authenticated `CODEX_HOME`
+   * instead of driving `codex login` here. Lets the `orca account add --agent codex`
+   * CLI run the login in the user's own terminal on a headless host and then import
+   * the captured `auth.json` into managed storage.
+   */
   async addAccountFromHome(
     sourceHome: string,
     target?: CodexAccountAddTarget
@@ -223,14 +225,28 @@ export class CodexAccountService {
         targetSelection
       )
     })
-    this.safeSyncCanonicalConfigToManagedHomes()
-    this.runtimeHome.clearLastWrittenAuthJson(account.id)
-    this.runtimeHome.syncForCurrentSelection()
+    try {
+      this.safeSyncCanonicalConfigToManagedHomes()
+      this.runtimeHome.clearLastWrittenAuthJson(account.id)
+      // Why: pass the account's selection target so a WSL account syncs the WSL
+      // runtime home instead of the default host target.
+      this.runtimeHome.syncForCurrentSelection(targetSelection)
 
-    // Why: the new account becomes active, so the previous active account is
-    // now inactive and its last-known usage should be cached for the switcher.
-    const outgoingAccountId = getSelectedCodexAccountIdForTarget(settings, targetSelection)
-    await this.rateLimits.refreshForCodexAccountChange(outgoingAccountId, targetSelection)
+      // Why: the new account becomes active, so the previous active account is
+      // now inactive and its last-known usage should be cached for the switcher.
+      const outgoingAccountId = getSelectedCodexAccountIdForTarget(settings, targetSelection)
+      await this.rateLimits.refreshForCodexAccountChange(outgoingAccountId, targetSelection)
+    } catch (error) {
+      // Why: settings were already written; if a post-write step fails, restore the
+      // previous account/selection so the caller's managed-home cleanup cannot leave
+      // a dangling, broken managed account behind in settings.
+      this.store.updateSettings({
+        codexManagedAccounts: settings.codexManagedAccounts,
+        activeCodexManagedAccountId: settings.activeCodexManagedAccountId,
+        activeCodexManagedAccountIdsByRuntime: settings.activeCodexManagedAccountIdsByRuntime
+      })
+      throw error
+    }
     return this.getSnapshot()
   }
 
