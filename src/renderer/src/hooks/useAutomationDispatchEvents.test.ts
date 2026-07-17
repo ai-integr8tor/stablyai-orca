@@ -1,74 +1,97 @@
+/* eslint-disable react-hooks/rules-of-hooks -- Why: hook wiring tests mock useEffect and invoke the hook directly. */
 import type * as ReactModule from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ParsedAgentStatusPayload } from '../../../shared/agent-status-types'
+import type { AutomationDispatchRequest } from '../../../shared/automations-types'
 
 const mockLaunchAgentBackgroundSession = vi.fn()
-const mockLaunchWorktreeBackgroundTerminals = vi.fn()
-const mockSubmitPromptToAgentTab = vi.fn()
 const mockFindReusableAutomationSession = vi.fn()
 const mockObserveExistingAutomationSession = vi.fn()
-const mockCreateWorktree = vi.fn()
+const mockSubmitPromptToAgentTab = vi.fn()
+const mockCloseWebRuntimeTerminal = vi.fn()
 const mockMarkDispatchResult = vi.fn()
-const mockOnDispatchRequested = vi.fn()
 const mockRendererReady = vi.fn()
+const mockNeedsPassphrasePrompt = vi.fn()
+const mockPtyKill = vi.fn()
+const mockCloseTab = vi.fn()
+const mockSubscribe = vi.fn()
+const mockDispatchEvent = vi.fn()
 
-const setupLaunch = {
-  runnerScriptPath: '/tmp/setup.sh',
-  envVars: { ORCA_WORKTREE_PATH: '/repo/worktree' }
-}
+let dispatchListener: ((request: AutomationDispatchRequest) => Promise<void>) | null = null
+let activeTabId = 'user-tab'
 
-const createdWorktree = {
-  id: 'wt-created',
-  repoId: 'repo-1',
-  displayName: 'Automation worktree',
-  path: '/repo/worktree'
-}
-type TestWorktree = typeof createdWorktree
-
-const state = {
-  activeView: 'terminal' as const,
-  activeWorktreeId: 'wt-active',
-  activeTabId: 'tab-active',
-  activeTabType: 'terminal' as const,
+const storeState = {
+  activeView: 'terminal',
+  activeWorktreeId: 'wt-user',
+  activeTabId,
+  activeTabType: 'terminal',
   repos: [{ id: 'repo-1', connectionId: null }],
+  settings: {},
   agentStatusByPaneKey: {},
-  allWorktrees: vi.fn<() => TestWorktree[]>(() => []),
-  createWorktree: mockCreateWorktree,
-  subscribe: vi.fn(() => () => {}),
+  allWorktrees: vi.fn(() => [
+    { id: 'wt-1', repoId: 'repo-1', path: '/repo/worktree', displayName: 'Main' }
+  ]),
+  closeTab: mockCloseTab,
   setActiveView: vi.fn(),
   setActiveWorktree: vi.fn(),
   setActiveTab: vi.fn(),
-  setActiveTabType: vi.fn()
+  setActiveTabType: vi.fn(),
+  createWorktree: vi.fn()
 }
 
-function makeAutomation(overrides: Record<string, unknown> = {}) {
+function makeDispatchRequest(): AutomationDispatchRequest {
   return {
-    id: 'automation-1',
-    projectId: 'repo-1',
-    prompt: 'run this',
-    precheck: null,
-    agentId: 'claude',
-    workspaceMode: 'new_per_run',
-    workspaceId: null,
-    baseBranch: null,
-    setupDecision: 'run',
-    reuseSession: false,
-    ...overrides
+    automation: {
+      id: 'automation-1',
+      name: 'Nightly audit',
+      prompt: 'run the audit',
+      agentId: 'claude',
+      projectId: 'repo-1',
+      executionTargetType: 'local',
+      executionTargetId: 'local',
+      schedulerOwner: 'local_host_service',
+      workspaceMode: 'existing',
+      workspaceId: 'wt-1',
+      baseBranch: null,
+      reuseSession: false,
+      timezone: 'UTC',
+      rrule: 'FREQ=DAILY',
+      dtstart: 1,
+      enabled: true,
+      nextRunAt: 2,
+      missedRunPolicy: 'run_once_within_grace',
+      missedRunGraceMinutes: 5,
+      precheck: null,
+      createdAt: 1,
+      updatedAt: 1
+    },
+    run: {
+      id: 'run-1',
+      automationId: 'automation-1',
+      title: 'Nightly audit',
+      scheduledFor: 3,
+      status: 'dispatching',
+      trigger: 'manual',
+      workspaceId: 'wt-1',
+      workspaceDisplayName: 'Main',
+      sessionKind: 'terminal',
+      chatSessionId: null,
+      terminalSessionId: null,
+      terminalPaneKey: null,
+      terminalPtyId: null,
+      outputSnapshot: null,
+      precheckResult: null,
+      usage: null,
+      error: null,
+      startedAt: null,
+      dispatchedAt: null,
+      createdAt: 3
+    },
+    dispatchToken: 'dispatch-token-1'
   }
 }
 
-function makeRun() {
-  return {
-    id: 'run-1',
-    automationId: 'automation-1',
-    title: 'Nightly setup run',
-    scheduledFor: Date.parse('2026-06-24T03:00:00Z'),
-    trigger: 'scheduled',
-    workspaceId: null,
-    workspaceDisplayName: null
-  }
-}
-
-async function registerAndDispatch(automation = makeAutomation()): Promise<void> {
+async function useImportedAutomationDispatchEvents(): Promise<void> {
   vi.doMock('react', async () => {
     const actual = await vi.importActual<typeof ReactModule>('react')
     return {
@@ -78,237 +101,135 @@ async function registerAndDispatch(automation = makeAutomation()): Promise<void>
       }
     }
   })
-  const { useAutomationDispatchEvents: registerAutomationDispatchEvents } =
-    await import('./useAutomationDispatchEvents')
-  registerAutomationDispatchEvents()
-  const handler = mockOnDispatchRequested.mock.calls[0]?.[0]
-  if (!handler) {
-    throw new Error('dispatch handler was not registered')
-  }
-  await handler({
-    automation,
-    run: makeRun(),
-    dispatchToken: 'dispatch-token'
-  })
+  vi.doMock('@/store', () => ({
+    useAppStore: {
+      getState: () => ({ ...storeState, activeTabId }),
+      subscribe: mockSubscribe
+    }
+  }))
+  vi.doMock('@/lib/launch-agent-background-session', () => ({
+    launchAgentBackgroundSession: mockLaunchAgentBackgroundSession
+  }))
+  vi.doMock('@/lib/automation-session-reuse', () => ({
+    findReusableAutomationSession: mockFindReusableAutomationSession
+  }))
+  vi.doMock('@/lib/automation-session-observer', () => ({
+    observeExistingAutomationSession: mockObserveExistingAutomationSession
+  }))
+  vi.doMock('@/lib/agent-paste-draft', () => ({
+    submitPromptToAgentTab: mockSubmitPromptToAgentTab
+  }))
+  vi.doMock('@/runtime/web-runtime-session', () => ({
+    closeWebRuntimeTerminal: mockCloseWebRuntimeTerminal
+  }))
+  vi.doMock('@/components/automations/automation-run-output-snapshot', () => ({
+    createAutomationRunOutputSnapshotBuffer: () => ({
+      append: vi.fn(),
+      snapshot: () => 'terminal output'
+    }),
+    selectAutomationRunOutputSnapshot: () => ({
+      format: 'plain_text',
+      content: 'terminal output',
+      capturedAt: 123,
+      truncated: false
+    })
+  }))
+  vi.doMock('@/i18n/i18n', () => ({
+    translate: (_key: string, fallback: string) => fallback
+  }))
+  vi.doMock('@/lib/browser-uuid', () => ({
+    createBrowserUuid: () => 'test-uuid'
+  }))
+
+  const { useAutomationDispatchEvents } = await import('./useAutomationDispatchEvents')
+  useAutomationDispatchEvents()
 }
 
-vi.mock('@/lib/launch-agent-background-session', () => ({
-  launchAgentBackgroundSession: mockLaunchAgentBackgroundSession
-}))
+async function dispatchAutomation(): Promise<void> {
+  expect(dispatchListener).not.toBeNull()
+  await dispatchListener?.(makeDispatchRequest())
+}
 
-vi.mock('@/lib/launch-worktree-background-terminals', () => ({
-  launchWorktreeBackgroundTerminals: mockLaunchWorktreeBackgroundTerminals
-}))
-
-vi.mock('@/lib/agent-paste-draft', () => ({
-  submitPromptToAgentTab: mockSubmitPromptToAgentTab
-}))
-
-vi.mock('@/lib/automation-session-reuse', () => ({
-  findReusableAutomationSession: mockFindReusableAutomationSession
-}))
-
-vi.mock('@/lib/automation-session-observer', () => ({
-  observeExistingAutomationSession: mockObserveExistingAutomationSession
-}))
-
-vi.mock('@/components/automations/automation-run-output-snapshot', () => ({
-  createAutomationRunOutputSnapshotBuffer: () => ({
-    append: vi.fn(),
-    snapshot: () => ''
-  }),
-  selectAutomationRunOutputSnapshot: () => null
-}))
-
-vi.mock('@/i18n/i18n', () => ({
-  translate: (_key: string, fallback: string) => fallback
-}))
-
-vi.mock('@/lib/browser-uuid', () => ({
-  createBrowserUuid: () => 'create-request-id'
-}))
-
-vi.mock('@/store', () => ({
-  useAppStore: {
-    getState: () => state,
-    subscribe: vi.fn(() => () => {})
-  }
-}))
-
-describe('useAutomationDispatchEvents setup launch', () => {
+describe('useAutomationDispatchEvents', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
-    state.activeView = 'terminal'
-    state.activeWorktreeId = 'wt-active'
-    state.activeTabId = 'tab-active'
-    state.activeTabType = 'terminal'
-    state.repos = [{ id: 'repo-1', connectionId: null }]
-    state.agentStatusByPaneKey = {}
-    state.allWorktrees.mockReturnValue([])
-    mockCreateWorktree.mockResolvedValue({ worktree: createdWorktree, setup: setupLaunch })
-    mockLaunchWorktreeBackgroundTerminals.mockResolvedValue(undefined)
-    mockLaunchAgentBackgroundSession.mockResolvedValue({
-      tabId: 'agent-tab',
-      ptyId: 'agent-pty',
-      startupPlan: {}
+    dispatchListener = null
+    activeTabId = 'user-tab'
+    mockFindReusableAutomationSession.mockReturnValue(null)
+    mockObserveExistingAutomationSession.mockResolvedValue(vi.fn())
+    mockSubmitPromptToAgentTab.mockResolvedValue(true)
+    mockCloseWebRuntimeTerminal.mockReturnValue(false)
+    mockMarkDispatchResult.mockResolvedValue(undefined)
+    mockNeedsPassphrasePrompt.mockResolvedValue(false)
+    mockPtyKill.mockResolvedValue(undefined)
+    mockSubscribe.mockReturnValue(vi.fn())
+    mockLaunchAgentBackgroundSession.mockImplementation(async (args) => {
+      args.onAgentStatus?.({
+        state: 'done',
+        lastAssistantMessage: 'finished'
+      } as ParsedAgentStatusPayload)
+      return { tabId: 'auto-tab', ptyId: 'pty-auto', startupPlan: {} }
     })
-    mockOnDispatchRequested.mockReturnValue(() => {})
     vi.stubGlobal('window', {
       api: {
         automations: {
-          onDispatchRequested: mockOnDispatchRequested,
+          onDispatchRequested: vi.fn((listener) => {
+            dispatchListener = listener
+            return vi.fn()
+          }),
           rendererReady: mockRendererReady,
           markDispatchResult: mockMarkDispatchResult,
-          runPrecheck: vi.fn(),
           listRuns: vi.fn().mockResolvedValue([])
         },
         ssh: {
-          needsPassphrasePrompt: vi.fn().mockResolvedValue(false),
-          getState: vi.fn().mockResolvedValue({ status: 'connected' }),
+          needsPassphrasePrompt: mockNeedsPassphrasePrompt,
+          getState: vi.fn(),
           connect: vi.fn()
+        },
+        pty: {
+          kill: mockPtyKill
         }
       },
-      dispatchEvent: vi.fn()
+      dispatchEvent: mockDispatchEvent
     })
   })
 
-  it('starts setup terminal launch without waiting before launching the automation agent', async () => {
-    const order: string[] = []
-    let finishSetupLaunch: (() => void) | null = null
-    mockLaunchWorktreeBackgroundTerminals.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSetupLaunch = () => {
-            order.push('setup')
-            resolve()
-          }
-        })
-    )
-    mockLaunchAgentBackgroundSession.mockImplementation(async () => {
-      order.push('agent')
-      return { tabId: 'agent-tab', ptyId: 'agent-pty', startupPlan: {} }
-    })
+  it('reaps the hidden automation tab and local PTY after completion', async () => {
+    await useImportedAutomationDispatchEvents()
+    await dispatchAutomation()
 
-    await registerAndDispatch()
-
-    expect(mockCreateWorktree).toHaveBeenCalled()
-    expect(mockCreateWorktree.mock.calls[0][3]).toBe('run')
-    expect(mockLaunchWorktreeBackgroundTerminals).toHaveBeenCalledWith({
-      worktreeId: 'wt-created',
-      setup: setupLaunch,
-      defaultTabs: undefined
-    })
-    expect(state.setActiveView).not.toHaveBeenCalled()
-    expect(state.setActiveWorktree).not.toHaveBeenCalled()
-    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        worktreeId: 'wt-created',
-        prompt: 'run this'
-      })
-    )
-    expect(order).toEqual(['agent'])
-    expect(finishSetupLaunch).not.toBeNull()
-    const completeSetupLaunch = finishSetupLaunch as unknown as () => void
-    completeSetupLaunch()
-    await Promise.resolve()
-    expect(order).toEqual(['agent', 'setup'])
     expect(mockMarkDispatchResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: 'run-1',
-        status: 'dispatched',
-        workspaceId: 'wt-created',
-        terminalSessionId: 'agent-tab'
-      })
-    )
-  })
-
-  it('launches setup and default tabs without activating the created worktree', async () => {
-    const defaultTabs = {
-      tabs: [{ title: 'Dev', command: 'pnpm dev' }],
-      runCommands: true
-    }
-    mockCreateWorktree.mockResolvedValue({
-      worktree: createdWorktree,
-      setup: setupLaunch,
-      defaultTabs
-    })
-
-    await registerAndDispatch()
-
-    expect(mockLaunchWorktreeBackgroundTerminals).toHaveBeenCalledWith({
-      worktreeId: 'wt-created',
-      setup: setupLaunch,
-      defaultTabs
-    })
-    expect(state.setActiveView).not.toHaveBeenCalled()
-    expect(state.setActiveWorktree).not.toHaveBeenCalled()
-    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        worktreeId: 'wt-created',
-        prompt: 'run this'
-      })
-    )
-  })
-
-  it('defaults legacy automations without a setup choice to skipping setup', async () => {
-    await registerAndDispatch(makeAutomation({ setupDecision: undefined }))
-
-    expect(mockCreateWorktree.mock.calls[0][3]).toBe('skip')
-    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalled()
-  })
-
-  it('keeps launching the agent when background setup terminal launch fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    mockLaunchWorktreeBackgroundTerminals.mockRejectedValue(new Error('tab launch failed'))
-
-    try {
-      await registerAndDispatch()
-    } finally {
-      warnSpy.mockRestore()
-    }
-
-    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        worktreeId: 'wt-created',
-        prompt: 'run this'
-      })
+      expect.objectContaining({ status: 'dispatched', terminalSessionId: 'auto-tab' })
     )
     expect(mockMarkDispatchResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: 'run-1',
-        status: 'dispatched',
-        workspaceId: 'wt-created',
-        terminalSessionId: 'agent-tab'
-      })
+      expect.objectContaining({ status: 'completed' })
     )
+    expect(mockCloseWebRuntimeTerminal).toHaveBeenCalledWith('pty-auto')
+    expect(mockPtyKill).toHaveBeenCalledWith('pty-auto')
+    expect(mockCloseTab).toHaveBeenCalledWith('auto-tab', { recordInteraction: false })
   })
 
-  it('does not rerun setup for existing-worktree automations', async () => {
-    const existingWorktree = {
-      id: 'wt-existing',
-      repoId: 'repo-1',
-      displayName: 'Existing workspace',
-      path: '/repo/existing'
-    }
-    state.allWorktrees.mockReturnValue([existingWorktree])
+  it('uses the remote-runtime terminal close path without local pty kill', async () => {
+    mockCloseWebRuntimeTerminal.mockReturnValue(true)
 
-    await registerAndDispatch(
-      makeAutomation({
-        workspaceMode: 'existing',
-        workspaceId: 'wt-existing',
-        setupDecision: 'run'
-      })
-    )
+    await useImportedAutomationDispatchEvents()
+    await dispatchAutomation()
 
-    expect(mockCreateWorktree).not.toHaveBeenCalled()
-    expect(mockLaunchWorktreeBackgroundTerminals).not.toHaveBeenCalled()
-    expect(mockLaunchAgentBackgroundSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        worktreeId: 'wt-existing',
-        prompt: 'run this'
-      })
-    )
+    expect(mockCloseWebRuntimeTerminal).toHaveBeenCalledWith('pty-auto')
+    expect(mockPtyKill).not.toHaveBeenCalled()
+    expect(mockCloseTab).toHaveBeenCalledWith('auto-tab', { recordInteraction: false })
+  })
+
+  it('leaves an actively viewed automation tab for the user to close', async () => {
+    activeTabId = 'auto-tab'
+
+    await useImportedAutomationDispatchEvents()
+    await dispatchAutomation()
+
+    expect(mockCloseWebRuntimeTerminal).not.toHaveBeenCalled()
+    expect(mockPtyKill).not.toHaveBeenCalled()
+    expect(mockCloseTab).not.toHaveBeenCalled()
   })
 })
