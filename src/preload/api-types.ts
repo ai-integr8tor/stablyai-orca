@@ -1116,7 +1116,9 @@ export type PreloadApi = {
     }) => Promise<ProjectGroup>
     update: (args: {
       groupId: string
-      updates: Partial<Pick<ProjectGroup, 'name' | 'isCollapsed' | 'tabOrder' | 'color'>>
+      updates: Partial<
+        Pick<ProjectGroup, 'name' | 'isCollapsed' | 'tabOrder' | 'color' | 'parentGroupId'>
+      >
     }) => Promise<ProjectGroup | null>
     delete: (args: { groupId: string }) => Promise<boolean>
     moveProject: (args: {
