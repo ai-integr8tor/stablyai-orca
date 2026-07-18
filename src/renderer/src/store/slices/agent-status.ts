@@ -1715,9 +1715,20 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           existing?.agentType === identity.agentType &&
           !isAgentCompletionState(existing.state) &&
           !isAgentCompletionState(payload.state)
+        const existingSleepingRecord = s.sleepingAgentSessionsByPaneKey[paneKey]
+        // Why: after a warm restart a reattached agent's first event carries no
+        // session; rehydrating here also stops the deletion branch below from wiping it.
+        const rehydratedProviderSession =
+          existingSleepingRecord &&
+          existingSleepingRecord.agent === identity.agentType &&
+          existingSleepingRecord.state !== 'done' &&
+          payload.state !== 'done'
+            ? existingSleepingRecord.providerSession
+            : undefined
         const providerSession =
           metadata?.providerSession ??
-          (canReuseExistingIdentity ? existing.providerSession : undefined)
+          (canReuseExistingIdentity ? existing.providerSession : undefined) ??
+          rehydratedProviderSession
         const existingProviderSession = canReuseExistingIdentity
           ? existing.providerSession
           : undefined
@@ -1745,7 +1756,6 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         })
           ? registryEntry?.launchConfig
           : undefined
-        const existingSleepingRecord = s.sleepingAgentSessionsByPaneKey[paneKey]
         const retainsPiRecoveryIdentity =
           payload.state === 'done' &&
           identity.agentType === 'pi' &&
@@ -1957,11 +1967,40 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           nextLaunchConfigs = { ...s.agentLaunchConfigByPaneKey }
           delete nextLaunchConfigs[paneKey]
         }
+        let nextAutomaticAgentResumeClaimsByTabId = s.automaticAgentResumeClaimsByTabId
         if (liveRecoveryRecord) {
           if (!recoveryRecordMatches(existingSleepingRecord, liveRecoveryRecord)) {
             nextSleepingAgentSessions = {
               ...s.sleepingAgentSessionsByPaneKey,
               [paneKey]: liveRecoveryRecord
+            }
+            // Why: a hook-confirmed session change fulfills the cold-restore
+            // claim (pty-connection.ts); release it so a later sleeping
+            // session on this tab is not blocked by a stale claim.
+            const tabClaim = statusTabId
+              ? s.automaticAgentResumeClaimsByTabId[statusTabId]
+              : undefined
+            // Why: split panes share one tab-keyed claim slot, so only release it
+            // when it still belongs to the record actually being replaced here.
+            if (
+              statusTabId &&
+              existingSleepingRecord &&
+              tabClaim &&
+              tabClaim.worktreeId === existingSleepingRecord.worktreeId &&
+              tabClaim.launchAgent === existingSleepingRecord.agent &&
+              agentProviderSessionsEqual(
+                existingSleepingRecord.agent,
+                tabClaim.providerSession,
+                existingSleepingRecord.providerSession
+              ) &&
+              !agentProviderSessionsEqual(
+                existingSleepingRecord.agent,
+                existingSleepingRecord.providerSession,
+                liveRecoveryRecord.providerSession
+              )
+            ) {
+              nextAutomaticAgentResumeClaimsByTabId = { ...s.automaticAgentResumeClaimsByTabId }
+              delete nextAutomaticAgentResumeClaimsByTabId[statusTabId]
             }
           }
         } else if (existingSleepingRecord) {
@@ -1975,6 +2014,9 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           agentLaunchConfigByPaneKey: nextLaunchConfigs,
           migrationUnsupportedByPtyId: migrationUnsupported.next,
           retentionSuppressedPaneKeys: nextRetentionSuppressedPaneKeys,
+          ...(nextAutomaticAgentResumeClaimsByTabId !== s.automaticAgentResumeClaimsByTabId
+            ? { automaticAgentResumeClaimsByTabId: nextAutomaticAgentResumeClaimsByTabId }
+            : {}),
           agentStatusEpoch:
             retentionRelevantChange || migrationUnsupported.changed
               ? s.agentStatusEpoch + 1
