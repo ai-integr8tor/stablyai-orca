@@ -131,6 +131,7 @@ import { recordTerminalOutput } from '@/lib/pane-manager/pane-scroll'
 import { ensureArabicShapingJoinerForText } from '@/lib/pane-manager/terminal-arabic-shaping-joiner'
 import { clearTerminalScrollbackAndFollowOutput } from '@/lib/pane-manager/terminal-scrollback-clear'
 import {
+  enforceTerminalCurrentScrollIntent,
   getTerminalScrollIntentKind,
   markTerminalFollowOutput
 } from '@/lib/pane-manager/terminal-scroll-intent'
@@ -5201,6 +5202,14 @@ export function connectPanePty(
     let hiddenOutputRestoreGeneration = 0
     // Flood-backpressure suppression (HIDDEN_OUTPUT_RESTORE_FLOOD_SUPPRESS_MS).
     let hiddenOutputRestoreFloodSuppressedUntil = 0
+    // Why: once a restore snapshot's replay writes are queued, they WILL paint
+    // (xterm FIFO) even if the restore is abandoned mid-parse. Abandon must
+    // slice its pending write-through against this snapshot or every line the
+    // replay covers renders twice.
+    let hiddenOutputRestoreReplayingSnapshot: {
+      seq?: number
+      pendingDeliveryStartSeq?: number
+    } | null = null
     let hiddenOutputRestoreFloodRepaintTimer: ReturnType<typeof setTimeout> | null = null
     // Why: after a snapshot restore, main can still drain ACK-backlog chunks
     // whose bytes the snapshot already covers — writing them unguarded
@@ -6297,6 +6306,8 @@ export function connectPanePty(
         ? []
         : hiddenOutputRestorePendingChunks.slice()
       const hadPendingOverflow = hiddenOutputRestorePendingOverflow
+      const replayingSnapshot = hiddenOutputRestoreReplayingSnapshot
+      hiddenOutputRestoreReplayingSnapshot = null
       hiddenOutputRestoreGeneration += 1
       if (
         hiddenOutputSnapshotScrollRestore?.valid &&
@@ -6332,7 +6343,30 @@ export function connectPanePty(
       if (hadPendingOverflow) {
         return
       }
-      const pendingData = pendingChunks.map((chunk) => chunk.data).join('')
+      // Why: an abandoned-but-started replay is already queued in xterm's FIFO
+      // and will paint everything at or before its seq. Rewriting covered
+      // chunks raw duplicated TUI lines (field: same line stacked twice on
+      // reveal); slice against the replay and fall back raw only when offsets
+      // cannot be mapped — availability still wins over a dropped tail.
+      const replayedSeq = typeof replayingSnapshot?.seq === 'number' ? replayingSnapshot.seq : null
+      let pendingData = ''
+      for (const chunk of pendingChunks) {
+        const sliced =
+          replayedSeq === null ? chunk.data : getChunkDataAfterSnapshot(chunk, replayedSeq)
+        pendingData += sliced ?? chunk.data
+      }
+      if (replayingSnapshot && replayedSeq !== null) {
+        // Why: adopt the painting replay as the live reconcile baseline so
+        // main's ACK backlog at or below it dedups instead of duplicating.
+        setRestoredSnapshotBaseline(expectedPtyId, replayingSnapshot)
+        for (const chunk of pendingChunks) {
+          // Mirror the drain's continuity: written chunks advance the point
+          // so later live chunks are neither re-dropped nor misread as gaps.
+          if (typeof chunk.seq === 'number' && restoredSnapshotExpectedStartSeq !== null) {
+            restoredSnapshotExpectedStartSeq = Math.max(restoredSnapshotExpectedStartSeq, chunk.seq)
+          }
+        }
+      }
       if (pendingData) {
         writePtyOutputToXterm(pendingData, true)
       }
@@ -6377,6 +6411,7 @@ export function connectPanePty(
       resetHiddenRendererRiskState()
       hiddenOutputRestoreNeeded = false
       hiddenOutputRestorePtyId = null
+      hiddenOutputRestoreReplayingSnapshot = null
       hiddenOutputRestoreGeneration += 1
     }
 
@@ -6468,6 +6503,7 @@ export function connectPanePty(
       cols: number
       rows: number
       seq?: number
+      pendingDeliveryStartSeq?: number
       alternateScreen?: boolean
       scrollbackAnsi?: string
       pendingEscapeTailAnsi?: string
@@ -6503,6 +6539,14 @@ export function connectPanePty(
               return
             }
             scrollRestore.started = true
+            if (typeof snapshot.seq === 'number') {
+              hiddenOutputRestoreReplayingSnapshot = {
+                seq: snapshot.seq,
+                ...(typeof snapshot.pendingDeliveryStartSeq === 'number'
+                  ? { pendingDeliveryStartSeq: snapshot.pendingDeliveryStartSeq }
+                  : {})
+              }
+            }
             discardTerminalOutput(pane.terminal)
             if (
               hasSnapshotDimensions &&
@@ -6769,6 +6813,7 @@ export function connectPanePty(
           // still draining from main's ACK backlog below that point are
           // duplicates the dataCallback reconciliation must suppress.
           setRestoredSnapshotBaseline(currentPtyId, snapshot)
+          hiddenOutputRestoreReplayingSnapshot = null
           const needsFreshSnapshot = hiddenOutputRestoreFreshSnapshotNeeded
           hiddenOutputRestoreFreshSnapshotNeeded = false
           const drainOutcome = drainPendingLiveChunksAfterSnapshot(snapshot.seq)
@@ -7148,6 +7193,7 @@ export function connectPanePty(
       // Why: createOrAttach snapshots precede bytes emitted before its IPC
       // reply. Paint the authoritative replay first, then admit those live
       // chunks so the replay clear cannot erase newer output.
+      let deliveredDeferredChunks = 0
       for (const chunk of chunks) {
         if (
           chunk.ptyId !== currentPtyId ||
@@ -7157,6 +7203,30 @@ export function connectPanePty(
           continue
         }
         dataCallback(chunk.data, chunk.meta, chunk.streamGeneration)
+        deliveredDeferredChunks += 1
+      }
+      if (deliveredDeferredChunks > 0) {
+        // Why: the replay's viewport anchor is a one-shot that ran before
+        // these deferred live chunks parsed. An inline TUI keeps appending
+        // across the reveal, so re-enforce the restored intent post-parse —
+        // otherwise a following pane can strand at the snapshot's bottom and
+        // show a stale frame until a manual resize.
+        //
+        // Why bounded: an unbounded flush would synchronously parse a flood
+        // pane's whole queue at reveal. Enforcing after a partial drain is
+        // still correct — a follow anchor lands at the bottom and xterm's
+        // native follow tracks the remainder; pin restores are order-free.
+        flushTerminalOutput(pane.terminal, { maxChars: MAX_DEFERRED_REATTACH_LIVE_CHARS })
+        void waitForTerminalReplayWritesParsed(pane.terminal).then(() => {
+          if (
+            disposed ||
+            transport.getPtyId() !== currentPtyId ||
+            transportStreamGeneration !== currentGeneration
+          ) {
+            return
+          }
+          enforceTerminalCurrentScrollIntent(pane.terminal)
+        })
       }
     }
 
@@ -7467,6 +7537,14 @@ export function connectPanePty(
             if (pendingReattachFit === fit) {
               pendingReattachFit = null
             }
+          }
+          if (isCurrentReattachPayload()) {
+            // Why: transport.resize is fire-and-forget on daemon/SSH, and a
+            // silently dropped resize leaves the PTY at stale rows while xterm
+            // is correct (field: input box floating above the pane bottom).
+            // Remount has no visibility-resume reassert, so verify against the
+            // provider's APPLIED size here; it re-forwards only on drift.
+            ptySizeReassertion.request({ fit: false })
           }
         } else if (isCurrentReattachPayload() && !isRemoteRuntimePtyId(reattachPtyId)) {
           window.api.pty.signal(reattachPtyId, 'SIGWINCH')

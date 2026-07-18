@@ -5800,7 +5800,12 @@ describe('connectPanePty', () => {
     reattach.resolve()
     await flushAsyncTicks()
 
-    expect(transport.resize).toHaveBeenLastCalledWith(65, 63)
+    expect(transport.resize).toHaveBeenCalledWith(65, 63)
+    // Why the trailing guarded call: transport.resize is fire-and-forget, so
+    // the reattach fit is followed by an applied-size verification. With no
+    // getSize readback available (this harness), it re-forwards the same grid
+    // once as a guarded claim instead of leaving the PTY size unverified.
+    expect(transport.resize).toHaveBeenLastCalledWith(65, 63, { claim: true })
   })
 
   it('adopts a live eager PTY and withholds snapshots after its renderer dies', async () => {
@@ -11621,6 +11626,113 @@ describe('connectPanePty', () => {
       expect.any(Function)
     )
     expect(pane.terminal.write).toHaveBeenCalledWith(live, expect.any(Function))
+    disposable.dispose()
+  })
+
+  it('slices abandoned pending chunks against a replay that already painted', async () => {
+    // Field bug: the 750ms foreground deadline can fire while a RESOLVED
+    // snapshot's replay is still parsing (its writes are already in xterm's
+    // FIFO and WILL paint). The abandon used to rewrite parked chunks raw,
+    // duplicating every line the replay covers, and left the live reconcile
+    // baseline stale so main's ACK backlog duplicated again.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: {
+      current: ((data: string, meta?: { seq?: number; rawLength?: number }) => void) | null
+    } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+    const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+      typeof vi.fn
+    >
+    const snapshot = createDeferred<{
+      data: string
+      cols: number
+      rows: number
+      seq: number
+      pendingDeliveryStartSeq: number
+    }>()
+    getMainBufferSnapshot.mockReturnValue(snapshot.promise)
+    const hidden = 'hidden-codex-output\r\n'
+    const coveredLive = 'LIVE_DUP_LINE\r\n'
+    const afterAbandon = 'AFTER_ABANDON\r\n'
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      isVisibleRef: { current: false },
+      startup: { command: 'codex' }
+    })
+    const disposable = connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(6)
+    expect(capturedDataCallback.current).not.toBeNull()
+
+    vi.useFakeTimers()
+    capturedDataCallback.current?.(hidden, { seq: hidden.length, rawLength: hidden.length })
+    ;(deps.isVisibleRef as { current: boolean }).current = true
+    // Parked while the snapshot fetch is in flight; also arms the deadline.
+    capturedDataCallback.current?.(coveredLive, {
+      seq: hidden.length + coveredLive.length,
+      rawLength: coveredLive.length
+    })
+    await flushAsyncTicks(4)
+
+    // The snapshot resolves covering the parked chunk, but its replay writes
+    // never finish parsing (writes below hold their callbacks), so the
+    // deadline fires mid-replay.
+    const heldCallbacks: (() => void)[] = []
+    pane.terminal.write.mockImplementation(function write(
+      data: string,
+      callback?: () => void
+    ): void {
+      if (callback) {
+        heldCallbacks.push(callback)
+      }
+      void data
+    })
+    snapshot.resolve({
+      data: 'SNAP_STATE\r\n',
+      cols: 100,
+      rows: 30,
+      seq: hidden.length + coveredLive.length,
+      pendingDeliveryStartSeq: 0
+    })
+    await flushAsyncTicks(6)
+
+    vi.advanceTimersByTime(750)
+    await flushAsyncTicks(10)
+
+    // The replay covers the parked chunk — the abandon must not rewrite it.
+    const writtenAfterAbandon = pane.terminal.write.mock.calls.map(([data]) => data as string)
+    expect(writtenAfterAbandon.join('')).not.toContain('LIVE_DUP_LINE')
+
+    // The abandoned replay still paints up to its seq, so it must become the
+    // live reconcile baseline: a backlog re-delivery at or below it is a
+    // duplicate...
+    pane.terminal.write.mockClear()
+    capturedDataCallback.current?.(coveredLive, {
+      seq: hidden.length + coveredLive.length,
+      rawLength: coveredLive.length
+    })
+    await flushAsyncTicks(4)
+    expect(pane.terminal.write.mock.calls.map(([data]) => data as string).join('')).not.toContain(
+      'LIVE_DUP_LINE'
+    )
+
+    // ...while genuinely-new bytes past the baseline must still write through.
+    capturedDataCallback.current?.(afterAbandon, {
+      seq: hidden.length + coveredLive.length + afterAbandon.length,
+      rawLength: afterAbandon.length
+    })
+    await flushAsyncTicks(4)
+    expect(pane.terminal.write.mock.calls.map(([data]) => data as string).join('')).toContain(
+      'AFTER_ABANDON'
+    )
+
+    heldCallbacks.forEach((callback) => callback())
     disposable.dispose()
   })
 
