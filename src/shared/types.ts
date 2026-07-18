@@ -3533,6 +3533,9 @@ export type PersistedUIState = {
    *  feature). Absent = treated as true so existing users see the pet
    *  the first time they enable the experimental flag. */
   petVisible?: boolean
+  /** Whether the pet may move on its own while idle. Separate from
+   *  petVisible so users can keep the pet shown but pin it in place. */
+  petWanderEnabled?: boolean
   /** Active pet id: one of the bundled ids or a custom UUID from
    *  customPets. Unknown ids fall back to the default at read time so
    *  removing a custom pet the user had selected doesn't leave the
