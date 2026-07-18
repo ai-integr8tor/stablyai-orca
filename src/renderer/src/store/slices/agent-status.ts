@@ -1988,11 +1988,13 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
               tabClaim &&
               tabClaim.worktreeId === existingSleepingRecord.worktreeId &&
               tabClaim.launchAgent === existingSleepingRecord.agent &&
-              providerSessionsEqual(
+              agentProviderSessionsEqual(
+                existingSleepingRecord.agent,
                 tabClaim.providerSession,
                 existingSleepingRecord.providerSession
               ) &&
-              !providerSessionsEqual(
+              !agentProviderSessionsEqual(
+                existingSleepingRecord.agent,
                 existingSleepingRecord.providerSession,
                 liveRecoveryRecord.providerSession
               )

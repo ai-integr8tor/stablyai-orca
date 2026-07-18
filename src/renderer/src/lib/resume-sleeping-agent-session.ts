@@ -91,7 +91,7 @@ function ownTabResumeClaimMatchesProviderSession(
     claim &&
     claim.worktreeId === record.worktreeId &&
     claim.launchAgent === record.agent &&
-    providerSessionsMatch(claim.providerSession, record.providerSession)
+    agentProviderSessionsEqual(record.agent, claim.providerSession, record.providerSession)
   )
 }
 
