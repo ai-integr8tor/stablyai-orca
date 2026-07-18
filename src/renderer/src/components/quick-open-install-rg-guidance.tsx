@@ -2,18 +2,19 @@ import type React from 'react'
 import { useCallback, useRef, useState } from 'react'
 import { AlertTriangle, Check, Copy } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
+import { parseInstallRgMessage } from '../../../shared/quick-open-install-rg-message-format'
 
 export type QuickOpenInstallRgGuidanceParts = {
   reason: string
+  isRemote: boolean
   command: string | null
   guidance: string | null
 }
 
 /**
- * Parses the install-ripgrep guidance message produced by the relay's
- * buildInstallRgMessage(). Returns the parts needed to render as formatted
- * guidance (reason + install command) when matched, or null otherwise so
- * callers can fall back to plain-text display.
+ * Shapes the install-ripgrep guidance message (built by buildInstallRgMessage,
+ * parsed by parseInstallRgMessage) into the parts this component renders, or
+ * null so callers can fall back to plain-text display.
  *
  * Why: the message is plain text on the wire (thrown as an Error), but the
  * renderer is the only place with enough UI vocabulary to present ripgrep
@@ -22,20 +23,18 @@ export type QuickOpenInstallRgGuidanceParts = {
 export function parseQuickOpenInstallRgGuidance(
   message: string
 ): QuickOpenInstallRgGuidanceParts | null {
-  const match = message.match(
-    /^Quick Open scan too large \(([^)]+)\)\. Install ripgrep on the remote to enable fast, gitignore-aware listing: (.+)$/
-  )
-  if (!match) {
+  const parsed = parseInstallRgMessage(message)
+  if (!parsed) {
     return null
   }
-  const reason = match[1]
-  const tail = match[2].trim()
+  const { reason, isRemote, tail } = parsed
   // Why: on unknown distros the relay emits prose like "install ripgrep via
   // your package manager (e.g. apt/dnf/pacman)"; there is no single command
   // to copy, so surface it as plain guidance without the code block.
   const looksLikeCommand = /^(sudo\s+)?(brew|apt|dnf|pacman|apk)\s/.test(tail)
   return {
     reason,
+    isRemote,
     command: looksLikeCommand ? tail : null,
     guidance: looksLikeCommand ? null : tail
   }
@@ -43,6 +42,7 @@ export function parseQuickOpenInstallRgGuidance(
 
 export function QuickOpenInstallRgGuidance({
   reason,
+  isRemote,
   command,
   guidance
 }: QuickOpenInstallRgGuidanceParts): React.JSX.Element {
@@ -112,10 +112,15 @@ export function QuickOpenInstallRgGuidance({
         <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
           {translate('auto.components.QuickOpen.5d80dc39bb', 'ripgrep')}
         </code>{' '}
-        {translate(
-          'auto.components.QuickOpen.1cf8561ab4',
-          'on the remote to enable fast, gitignore-aware listing:'
-        )}
+        {isRemote
+          ? translate(
+              'auto.components.QuickOpen.1cf8561ab4',
+              'on the remote to enable fast, gitignore-aware listing:'
+            )
+          : translate(
+              'auto.components.QuickOpen.47c3a72d38',
+              'on this machine to enable fast, gitignore-aware listing:'
+            )}
       </p>
       {command ? (
         <div className="flex items-center gap-2 rounded border border-border bg-muted/50 px-3 py-2 font-mono text-xs text-foreground">

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { detectLinuxInstallCommandFromOsRelease } from './fs-handler-install-rg'
+import {
+  buildInstallRgMessage,
+  detectLinuxInstallCommandFromOsRelease
+} from './quick-open-install-rg-message'
 
 describe('detectLinuxInstallCommandFromOsRelease', () => {
   it('uses apt for Debian and Ubuntu families', () => {
@@ -37,5 +40,35 @@ describe('detectLinuxInstallCommandFromOsRelease', () => {
     )
     splitSpy.mockRestore()
     expect(usedWhitespaceFieldSplit).toBe(false)
+  })
+})
+
+describe('buildInstallRgMessage', () => {
+  it('names the local machine when the scan ran on this machine', async () => {
+    const message = await buildInstallRgMessage(
+      new Error('File listing exceeded 10000 files'),
+      'local'
+    )
+
+    expect(message).toContain('Quick Open scan too large (File listing exceeded 10000 files).')
+    expect(message).toContain(
+      'Install ripgrep on this machine to enable fast, gitignore-aware listing:'
+    )
+    expect(message).not.toContain('on the remote')
+  })
+
+  it('names the remote when the scan ran over SSH', async () => {
+    const message = await buildInstallRgMessage(new Error('File listing timed out'), 'remote')
+
+    expect(message).toContain(
+      'Install ripgrep on the remote to enable fast, gitignore-aware listing:'
+    )
+    expect(message).not.toContain('on this machine')
+  })
+
+  it('stringifies a non-Error cause into the reason', async () => {
+    const message = await buildInstallRgMessage('boom', 'local')
+
+    expect(message).toContain('Quick Open scan too large (boom).')
   })
 })

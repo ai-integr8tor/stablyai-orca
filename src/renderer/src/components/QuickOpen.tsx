@@ -130,6 +130,7 @@ export default function QuickOpen(): React.JSX.Element | null {
             return guidance ? (
               <QuickOpenInstallRgGuidance
                 reason={guidance.reason}
+                isRemote={guidance.isRemote}
                 command={guidance.command}
                 guidance={guidance.guidance}
               />

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises'
+import { getProcessOutputFields, iterateProcessOutputLines } from './process-output-field-scanner'
 import {
-  getProcessOutputFields,
-  iterateProcessOutputLines
-} from '../shared/process-output-field-scanner'
+  formatInstallRgMessage,
+  type QuickOpenInstallRgLocation
+} from './quick-open-install-rg-message-format'
 
 const GENERIC_LINUX_RIPGREP_INSTALL =
   'install ripgrep via your package manager (e.g. apt/dnf/pacman)'
@@ -75,11 +76,11 @@ function readOsReleaseValue(rawValue: string): string {
     : trimmed
 }
 
-export async function buildInstallRgMessage(cause: unknown): Promise<string> {
+export async function buildInstallRgMessage(
+  cause: unknown,
+  location: QuickOpenInstallRgLocation
+): Promise<string> {
   const reason = cause instanceof Error ? cause.message : String(cause)
-  const cmd = await detectInstallCommand()
-  return (
-    `Quick Open scan too large (${reason}). ` +
-    `Install ripgrep on the remote to enable fast, gitignore-aware listing: ${cmd}`
-  )
+  const command = await detectInstallCommand()
+  return formatInstallRgMessage({ reason, location, command })
 }

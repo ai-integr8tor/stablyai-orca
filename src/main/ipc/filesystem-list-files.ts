@@ -15,6 +15,8 @@ import {
   shouldIncludeQuickOpenPath
 } from '../../shared/quick-open-filter'
 import { listFilesWithGit } from './filesystem-list-files-git-fallback'
+import { isQuickOpenReaddirBudgetError } from '../../shared/quick-open-readdir-walk'
+import { buildInstallRgMessage } from '../../shared/quick-open-install-rg-message'
 
 export async function listQuickOpenFiles(
   rootPath: string,
@@ -42,13 +44,24 @@ export async function listQuickOpenFiles(
   // can run.
   const rgAvailable = await checkRgAvailable(authorizedRootPath, localGitOptions.wslDistro)
   if (!rgAvailable) {
-    return listFilesWithGit(
-      authorizedRootPath,
-      excludePathPrefixes,
-      localGitOptions,
-      signal,
-      maxResults
-    )
+    // Why: the git/readdir fallback rejects on the readdir cap/deadline instead
+    // of returning a partial list. Translate only those budget errors into
+    // actionable install-rg guidance (mirrors the relay's runListFilesScan);
+    // genuine git failures and cancellations keep their own messages.
+    try {
+      return await listFilesWithGit(
+        authorizedRootPath,
+        excludePathPrefixes,
+        localGitOptions,
+        signal,
+        maxResults
+      )
+    } catch (err) {
+      if (isQuickOpenReaddirBudgetError(err)) {
+        throw new Error(await buildInstallRgMessage(err, 'local'))
+      }
+      throw err
+    }
   }
 
   const files = new Set<string>()
