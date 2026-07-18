@@ -2,6 +2,7 @@
 import { act, createElement, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { joinPath } from '@/lib/path'
 import { clearTerminalRichInputAttachmentCacheForTests } from './terminal-rich-input-attachment-cache'
 import { useTerminalRichInputAttachments } from './use-terminal-rich-input-attachments'
 
@@ -140,14 +141,17 @@ describe('useTerminalRichInputAttachments', () => {
 
   it('removes only attachments included in a completed submission', async () => {
     const probe = await renderProbe()
-    await act(async () => probe.latest().appendImagePaths(['/tmp/first.png', '/tmp/second.png']))
+    const firstPath = joinPath('tmp', 'first.png')
+    const secondPath = joinPath('tmp', 'second.png')
+    const addedWhileSendingPath = joinPath('tmp', 'added-while-sending.png')
+    await act(async () => probe.latest().appendImagePaths([firstPath, secondPath]))
     const submittedIds = probe.latest().attachments.map((attachment) => attachment.id)
 
-    await act(async () => probe.latest().appendImagePaths(['/tmp/added-while-sending.png']))
+    await act(async () => probe.latest().appendImagePaths([addedWhileSendingPath]))
     await act(async () => probe.latest().removeAttachments(submittedIds))
 
     expect(probe.latest().attachments.map((attachment) => attachment.path)).toEqual([
-      '/tmp/added-while-sending.png'
+      addedWhileSendingPath
     ])
     probe.root.unmount()
   })
