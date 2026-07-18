@@ -4782,6 +4782,11 @@
           "cancel": "Cancelar",
           "forget": "Eliminar de Orca",
           "reconnectAndDelete": "Reconectar y eliminar"
+        },
+        "MarkdownImageLightbox": {
+          "close": "Cerrar",
+          "image": "Imagen",
+          "expand": "Ampliar imagen"
         }
       },
       "shared": {
