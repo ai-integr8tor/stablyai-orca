@@ -428,44 +428,6 @@ function getMountedWorktreeOptions(worktreeId: string, root?: ParentNode | null)
   return result
 }
 
-function markSidebarWorktreeActiveImmediately(worktreeId: string, primaryRowKey?: string): void {
-  const sidebar = document.querySelector<HTMLElement>('[data-worktree-sidebar]')
-  const nextOptions = getMountedWorktreeOptions(worktreeId, sidebar)
-  const nextOption = nextOptions[0]
-  if (!nextOption) {
-    return
-  }
-
-  sidebar
-    ?.querySelectorAll<HTMLElement>('[role="option"][aria-current="page"]')
-    .forEach((option) => option.removeAttribute('aria-current'))
-
-  for (const option of nextOptions) {
-    option.setAttribute('aria-current', 'page')
-  }
-  sidebar
-    ?.querySelectorAll<HTMLElement>('[data-worktree-card-surface][data-worktree-card-active]')
-    .forEach((surface) => {
-      if (!nextOptions.some((option) => option.contains(surface))) {
-        surface.removeAttribute('data-worktree-card-active')
-      }
-    })
-  for (const option of nextOptions) {
-    const activeSurfaceVariant =
-      primaryRowKey !== undefined
-        ? option.dataset.worktreeRowKey === primaryRowKey
-          ? 'primary'
-          : 'secondary'
-        : option === nextOption
-          ? 'primary'
-          : 'secondary'
-    const surface = option.matches('[data-worktree-card-surface]')
-      ? option
-      : option.querySelector<HTMLElement>('[data-worktree-card-surface]')
-    surface?.setAttribute('data-worktree-card-active', activeSurfaceVariant)
-  }
-}
-
 function revealMountedWorktreeElement(
   container: HTMLElement,
   worktreeId: string,
@@ -655,7 +617,6 @@ type VirtualizedWorktreeViewportProps = {
   selectedWorktreeIds: ReadonlySet<string>
   selectedWorktrees: readonly Worktree[]
   onSelectionGesture: (event: React.MouseEvent<HTMLElement>, worktreeId: string) => boolean
-  onImmediateWorktreeActivate: (worktreeId: string, rowKey: string | undefined) => void
   onContextMenuSelect: (
     event: React.MouseEvent<HTMLElement>,
     worktree: Worktree
@@ -1358,7 +1319,6 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   selectedWorktreeIds,
   selectedWorktrees,
   onSelectionGesture,
-  onImmediateWorktreeActivate,
   onContextMenuSelect,
   repoMap,
   defaultHostId,
@@ -1788,12 +1748,13 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     },
     [activeWorktreeId, pinnedDisplayPolicy, primaryActiveWorktreeRow]
   )
-  const handleImmediateWorktreeRowActivate = useCallback(
+  const handleWorktreeRowActivationIntent = useCallback(
     (worktreeId: string, rowKey: string | undefined): void => {
+      // Why: remember which duplicate row the user chose, but keep active
+      // styling store-driven so the sidebar cannot outrun the workspace surface.
       setPrimaryActiveWorktreeRow(rowKey ? { worktreeId, rowKey } : null)
-      onImmediateWorktreeActivate(worktreeId, rowKey)
     },
-    [onImmediateWorktreeActivate]
+    []
   )
   const firstHeaderIndex = useMemo(
     () => renderRows.findIndex((row) => row.type === 'header' || row.type === 'host-header'),
@@ -4913,7 +4874,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                     contentIndent={cardContentIndent}
                     flushSurface
                     activationRowKey={itemRow.rowKey}
-                    onImmediateActivate={handleImmediateWorktreeRowActivate}
+                    onImmediateActivate={handleWorktreeRowActivationIntent}
                     onSelectionGesture={onSelectionGesture}
                     onContextMenuSelect={onContextMenuSelect}
                     onCardDragStart={handleWorktreeCardDragStart}
@@ -5156,7 +5117,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                       onImmediateActivate={
                         folderWorkspaceActivationDisabled
                           ? undefined
-                          : handleImmediateWorktreeRowActivate
+                          : handleWorktreeRowActivationIntent
                       }
                       activationRowKey={folderWorktree.id}
                       onSelectionGesture={onSelectionGesture}
@@ -6076,13 +6037,6 @@ const WorktreeList = React.memo(function WorktreeList({
     [selectedWorktreeIds, selectedWorktrees]
   )
 
-  const handleImmediateWorktreeActivate = useCallback((worktreeId: string, rowKey?: string) => {
-    // Why: React-rendering the full virtualized sidebar on the pointer path is
-    // visible latency. Mutate only the selected-row affordance; store state
-    // reconciles the same attributes after activation settles.
-    markSidebarWorktreeActiveImmediately(worktreeId, rowKey)
-  }, [])
-
   // Why: full-page navigation views are not scoped to one worktree, so no
   // sidebar card should appear selected while one of them is active.
   const selectedSidebarWorktreeId =
@@ -6928,7 +6882,6 @@ const WorktreeList = React.memo(function WorktreeList({
         selectedWorktreeIds={selectedWorktreeIds}
         selectedWorktrees={selectedWorktrees}
         onSelectionGesture={updateSelectionForGesture}
-        onImmediateWorktreeActivate={handleImmediateWorktreeActivate}
         onContextMenuSelect={selectForContextMenu}
         repoMap={repoMap}
         defaultHostId={defaultHostId}
