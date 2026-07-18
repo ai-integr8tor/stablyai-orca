@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod } from '../core'
+import { OptionalFiniteNumber } from '../schemas'
 
 // Why: monotonically increasing per-process counter avoids the Date.now()
 // collision that fired when two near-simultaneous accounts.subscribe calls
@@ -24,11 +25,32 @@ const AccountsUnsubscribeParams = z.object({
     .pipe(z.string().min(1, 'Missing subscriptionId'))
 })
 
+const AddAccountParams = z.object({
+  target: z
+    .object({
+      runtime: z.enum(['host', 'wsl']).optional(),
+      wslDistro: z.union([z.string(), z.null()]).optional()
+    })
+    .optional()
+})
+
+const PollAddAccountParams = z.object({
+  loginId: z.string().min(1, 'Missing loginId'),
+  timeoutMs: OptionalFiniteNumber
+})
+
+const SubmitLoginInputParams = z.object({
+  loginId: z.string().min(1, 'Missing loginId'),
+  input: z.string().min(1, 'Missing input')
+})
+
 // Why: bridges the desktop ClaudeAccountService / CodexAccountService /
-// RateLimitService into the mobile WebSocket RPC. Read + switch + remove
-// only — interactive add/re-auth flows spawn `claude login` / `codex login`
-// PTYs that need a desktop browser, so they intentionally remain
-// desktop-only. See plan in spec doc for issue #1438.
+// RateLimitService into the mobile WebSocket RPC and the headless CLI.
+// Add/re-auth still spawn `claude login` / `codex login`, which need a real
+// OAuth browser round-trip — accounts.addCodex/addClaude kick that off and
+// return a loginId immediately, and accounts.pollAdd long-polls the result
+// (the one-shot CLI transport can't hold a streaming method open; see plan
+// in spec doc for issue #1438).
 export const ACCOUNT_METHODS: readonly RpcAnyMethod[] = [
   defineMethod({
     name: 'accounts.list',
@@ -61,6 +83,32 @@ export const ACCOUNT_METHODS: readonly RpcAnyMethod[] = [
     name: 'accounts.removeCodex',
     params: RemoveAccountParams,
     handler: async (params, { runtime }) => runtime.removeCodexAccount(params.accountId)
+  }),
+  defineMethod({
+    name: 'accounts.addCodex',
+    params: AddAccountParams,
+    handler: async (params, { runtime }) => runtime.addCodexAccount(params.target)
+  }),
+  defineMethod({
+    name: 'accounts.addClaude',
+    params: AddAccountParams,
+    handler: async (params, { runtime }) => runtime.addClaudeAccount(params.target)
+  }),
+  defineMethod({
+    name: 'accounts.pollAdd',
+    params: PollAddAccountParams,
+    handler: async (params, { runtime, signal }) =>
+      runtime.pollAddAccount(params.loginId, { timeoutMs: params.timeoutMs, signal })
+  }),
+  // Why: relays a pasted OAuth code from the CLI's terminal into the Claude
+  // login child process's stdin on the server — see ClaudeAccountAddOptions.
+  defineMethod({
+    name: 'accounts.submitLoginInput',
+    params: SubmitLoginInputParams,
+    handler: async (params, { runtime }) => {
+      runtime.submitAccountLoginInput(params.loginId, params.input)
+      return { submitted: true }
+    }
   }),
   // Why: streaming counterpart so mobile usage bars refresh in place when the
   // desktop's 5-minute rate-limit poll completes or when the user switches

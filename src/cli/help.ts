@@ -22,6 +22,12 @@ Skills:
   skills list               List version-matched skill guides bundled with this Orca CLI
   skills get                Print a version-matched skill guide as Markdown
 
+Accounts:
+  accounts list             List managed Codex and Claude accounts
+  accounts add              Add a managed account via provider login
+  accounts select           Switch the active managed account for a provider
+  accounts rm               Remove a managed account for a provider
+
 Environments:
   environment add           Save a remote Orca runtime from a pairing code
   environment list          List saved remote Orca runtimes
@@ -201,6 +207,10 @@ Common Commands:
   orca status [--json]
   orca diagnostics memory [--json]
   orca agent-context [--json]
+  orca accounts list [--json]
+  orca accounts add --provider codex|claude [--json]
+  orca accounts select --provider codex|claude --id <accountId> [--json]
+  orca accounts rm --provider codex|claude --id <accountId> [--json]
   orca environment add --name <name> --pairing-code <code> [--json]
   orca environment list [--json]
   orca environment show --environment <selector> [--json]
@@ -466,6 +476,12 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   }
   if (flag === 'key' && command === 'computer press-key') {
     return '--key <key>            Single key, e.g. Return, Escape, Tab, Left, or PageUp'
+  }
+  if (command.startsWith('accounts ') && flag === 'provider') {
+    return '--provider <provider>  Managed account provider: codex or claude'
+  }
+  if (command.startsWith('accounts ') && flag === 'id') {
+    return '--id <id>             Managed account id from `orca accounts list --json`'
   }
   return formatFlagHelp(flag)
 }

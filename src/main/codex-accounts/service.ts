@@ -19,6 +19,7 @@ import { rewriteRelativePathConfigValues } from '../codex/codex-config-path-refe
 import { resolveCodexCommand } from '../codex-cli/command'
 import type { Store } from '../persistence'
 import type { RateLimitService } from '../rate-limits/service'
+import { invokeLoginCallbackSafely } from '../accounts/safe-login-callback-invocation'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import { toWindowsWslPath } from '../wsl'
 import { buildEncodedWslBashCommand } from '../wsl-bash-command'
@@ -39,6 +40,11 @@ import {
 } from './runtime-selection'
 
 const LOGIN_TIMEOUT_MS = 120_000
+// Why: device-code auth's one-time code has a real 15-minute server-side
+// expiry; this adds grace for polling/network latency on top of that, unlike
+// LOGIN_TIMEOUT_MS which times a same-machine browser redirect that should
+// complete in under 2 minutes.
+const DEVICE_AUTH_LOGIN_TIMEOUT_MS = 16 * 60 * 1000
 const MAX_LOGIN_OUTPUT_CHARS = 4_000
 
 type CodexOAuthCredentials = {
@@ -63,6 +69,14 @@ type CanonicalCodexConfig = {
 export type CodexAccountAddTarget = {
   runtime?: 'host' | 'wsl'
   wslDistro?: string | null
+}
+
+export type CodexAccountAddOptions = {
+  // Why: headless/remote callers (CLI, mobile) have no local browser sharing
+  // the machine with the login process, so a browser-redirect OAuth callback
+  // bound to localhost can never complete; device-code auth has no callback
+  // server at all.
+  deviceAuth?: boolean
 }
 
 type ManagedHomeLocation = {
@@ -101,8 +115,12 @@ export class CodexAccountService {
     return this.getSnapshot()
   }
 
-  async addAccount(target?: CodexAccountAddTarget): Promise<CodexRateLimitAccountsState> {
-    return this.serializeMutation(() => this.doAddAccount(target))
+  async addAccount(
+    target?: CodexAccountAddTarget,
+    onOutput?: (chunk: string) => void,
+    options?: CodexAccountAddOptions
+  ): Promise<CodexRateLimitAccountsState> {
+    return this.serializeMutation(() => this.doAddAccount(target, onOutput, options))
   }
 
   async reauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
@@ -124,14 +142,18 @@ export class CodexAccountService {
     return this.serializeMutation(() => this.doSelectAccount(accountId, target))
   }
 
-  private async doAddAccount(target?: CodexAccountAddTarget): Promise<CodexRateLimitAccountsState> {
+  private async doAddAccount(
+    target?: CodexAccountAddTarget,
+    onOutput?: (chunk: string) => void,
+    options?: CodexAccountAddOptions
+  ): Promise<CodexRateLimitAccountsState> {
     const accountId = randomUUID()
     const managedHome = this.createManagedHome(accountId, target)
     const { managedHomePath } = managedHome
 
     try {
       this.safeSyncCanonicalConfigIntoManagedHome(managedHomePath)
-      await this.runCodexLogin(managedHomePath)
+      await this.runCodexLogin(managedHomePath, onOutput, options)
       const identity = this.readIdentityFromHome(managedHomePath)
       if (!identity.email) {
         throw new Error('Codex login completed, but Orca could not resolve the account email.')
@@ -800,7 +822,11 @@ export class CodexAccountService {
     }
   }
 
-  private async runCodexLogin(managedHomePath: string): Promise<void> {
+  private async runCodexLogin(
+    managedHomePath: string,
+    onOutput?: (chunk: string) => void,
+    options?: CodexAccountAddOptions
+  ): Promise<void> {
     const wslInfo = parseWslUncPath(managedHomePath)
     if (wslInfo) {
       this.assertWslCodexCliAvailable(wslInfo)
@@ -810,7 +836,7 @@ export class CodexAccountService {
       const spawnConfig = wslInfo
         ? {
             command: 'wsl.exe',
-            args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath),
+            args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath, options?.deviceAuth),
             env: process.env,
             codexCommand: 'codex'
           }
@@ -821,7 +847,10 @@ export class CodexAccountService {
             // batch scripts directly without shell:true, but shell:true with an args
             // array causes DEP0190 because args are concatenated, not escaped.
             // Fix: detect batch scripts and invoke cmd.exe /c explicitly.
-            const { spawnCmd, spawnArgs } = getSpawnArgsForWindows(codexCommand, ['login'])
+            const { spawnCmd, spawnArgs } = getSpawnArgsForWindows(
+              codexCommand,
+              options?.deviceAuth ? ['login', '--device-auth'] : ['login']
+            )
             return {
               command: spawnCmd,
               args: spawnArgs,
@@ -843,10 +872,16 @@ export class CodexAccountService {
       let settled = false
       let output = ''
       const appendOutput = (chunk: Buffer): void => {
-        output = `${output}${chunk.toString()}`
+        const text = chunk.toString()
+        output = `${output}${text}`
         if (output.length > MAX_LOGIN_OUTPUT_CHARS) {
           output = output.slice(-MAX_LOGIN_OUTPUT_CHARS)
         }
+        // Why: forwarding is additive to the truncated error-message buffer
+        // above and must not affect the timeout/kill/reject flow below. This
+        // runs synchronously inside a child.stdout 'data' handler, so a
+        // throwing callback must not escape and crash the host process.
+        invokeLoginCallbackSafely('codex-accounts onOutput', onOutput, text)
       }
 
       let timeout: ReturnType<typeof setTimeout> | null = null
@@ -871,12 +906,15 @@ export class CodexAccountService {
       }
 
       const timeoutError = new Error('Codex sign-in took too long to finish. Please try again.')
-      timeout = setTimeout(() => {
-        child.kill()
-        settle(() => {
-          rejectPromise(timeoutError)
-        })
-      }, LOGIN_TIMEOUT_MS)
+      timeout = setTimeout(
+        () => {
+          child.kill()
+          settle(() => {
+            rejectPromise(timeoutError)
+          })
+        },
+        options?.deviceAuth ? DEVICE_AUTH_LOGIN_TIMEOUT_MS : LOGIN_TIMEOUT_MS
+      )
 
       const onError = (error: Error): void => {
         settle(() => {

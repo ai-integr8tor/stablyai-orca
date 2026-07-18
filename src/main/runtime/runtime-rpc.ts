@@ -419,7 +419,7 @@ const MOBILE_RPC_METHOD_ALLOWLIST = new Set([
 // counter, abort wiring, keepalives, and runtime_busy admission check all
 // share this decision. See §3.1.
 function isLongPollRequest(request: RpcRequest): boolean {
-  if (request.method === 'terminal.wait') {
+  if (request.method === 'terminal.wait' || request.method === 'accounts.pollAdd') {
     return true
   }
   if (request.method === 'orchestration.check') {
