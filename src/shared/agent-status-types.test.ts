@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
   agentSubagentsEqual,
+  hasRuntimeBackedAttribution,
   parseAgentStatusPayload,
   normalizeAgentStatusPayload,
   AGENT_STATUS_MAX_FIELD_LENGTH,
@@ -530,5 +531,37 @@ describe('agentSubagentsEqual', () => {
     expect(agentSubagentsEqual([snapshot], undefined)).toBe(false)
     expect(agentSubagentsEqual(undefined, [snapshot])).toBe(false)
     expect(agentSubagentsEqual([snapshot], [snapshot, { ...snapshot, id: 'b' }])).toBe(false)
+  })
+})
+
+describe('hasRuntimeBackedAttribution', () => {
+  it('is false for an IPC payload with no runtime reference on its face', () => {
+    // Why: this predicate only inspects fields present on a just-received IPC
+    // payload — it is not a liveness test for a stored entry, so a bare
+    // worktreeId does not count as runtime backing on the fresh-IPC path.
+    expect(hasRuntimeBackedAttribution({})).toBe(false)
+    expect(hasRuntimeBackedAttribution({ terminalHandle: undefined })).toBe(false)
+    expect(hasRuntimeBackedAttribution({ orchestration: undefined })).toBe(false)
+  })
+
+  it('is false for an empty terminal handle', () => {
+    expect(hasRuntimeBackedAttribution({ terminalHandle: '' })).toBe(false)
+  })
+
+  it('is true when an orchestration dispatch context is present', () => {
+    expect(hasRuntimeBackedAttribution({ orchestration: { taskId: 't-1' } as never })).toBe(true)
+  })
+
+  it('is true when a non-empty runtime terminal handle is present', () => {
+    expect(hasRuntimeBackedAttribution({ terminalHandle: 'term-1' })).toBe(true)
+  })
+
+  it('treats orchestration as backing even alongside an empty terminal handle', () => {
+    expect(
+      hasRuntimeBackedAttribution({
+        terminalHandle: '',
+        orchestration: { taskId: 't-2' } as never
+      })
+    ).toBe(true)
   })
 })

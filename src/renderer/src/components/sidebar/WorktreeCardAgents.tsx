@@ -206,13 +206,29 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           scrollToBottomIfOutputSinceLastView: true
         })
       } else {
-        const liveEntry = useAppStore.getState().agentStatusByPaneKey[paneKey]
-        if (liveEntry?.worktreeId === worktreeId) {
-          // Why: orchestration worker status can be worktree-attributed before
-          // the renderer knows its tab. Keep the visible live row instead of
-          // dismissing it as stale just because it cannot be focused yet.
+        const store = useAppStore.getState()
+        const liveEntry = store.agentStatusByPaneKey[paneKey]
+        if (
+          liveEntry?.worktreeId === worktreeId &&
+          store.runtimeAgentOrchestrationByPaneKey[paneKey] !== undefined
+        ) {
+          // Why: an orchestration worker can report worktree-attributed status
+          // before the renderer has a terminal tab for it (the legitimate
+          // mid-spawn hydration case). Keep the row only while the runtime
+          // CURRENTLY lists this pane as an orchestration allocation — the live
+          // runtimeAgentOrchestrationByPaneKey mirror synced from main, not the
+          // entry's retained terminalHandle/orchestration strings, which survive
+          // an SSH relay daemon restart and would leave the row silently
+          // unclickable again (issue #9030).
           return
         }
+        // Why: a worktree-attributed row with no resolvable tab and no current
+        // runtime orchestration allocation is a stale remnant — most often a
+        // terminal agent whose SSH relay daemon restarted so its tab is gone for
+        // good. The host session is dead but the renderer-memory row lingered up
+        // to the 30-min freshness window; a click must not silently no-op
+        // forever. Dismiss with truthful feedback so the row reconciles instead
+        // of waiting for the freshness window to expire.
         dismissStaleAgentRowByKey(paneKey)
       }
     },

@@ -265,6 +265,27 @@ export function isFreshNonDoneAgentStatus(
   return Boolean(entry && entry.state !== 'done' && now - entry.updatedAt <= staleAfterMs)
 }
 
+/** Whether an agent-status IPC payload carries a runtime reference — an
+ *  orchestration dispatch context or a runtime terminal handle — at the moment
+ *  main enriched it for IPC fanout.
+ *
+ *  Why: applyAgentStatus uses this on the fresh-IPC path to accept a
+ *  worktree-attributed status whose tab is not yet present in the renderer
+ *  (orchestration workers can arrive worktree-attributed before their terminal
+ *  tab hydrates). It reads fields on a just-received IPC payload, which reflect
+ *  main's current enrichment. It is NOT a liveness test for an already-stored
+ *  entry: a renderer-side entry retains its terminalHandle/orchestration strings
+ *  across an SSH relay daemon restart, so the sidebar activation guard uses the
+ *  live runtimeAgentOrchestrationByPaneKey mirror instead of this predicate. */
+export function hasRuntimeBackedAttribution(
+  entry: Pick<AgentStatusEntry, 'terminalHandle' | 'orchestration'>
+): boolean {
+  return (
+    (typeof entry.terminalHandle === 'string' && entry.terminalHandle.length > 0) ||
+    entry.orchestration !== undefined
+  )
+}
+
 // Why: typed as ReadonlySet<string> so .has() accepts any string without
 // requiring `state as AgentStatusState` at the check site. The narrowing
 // cast stays on the return line, where it's actually proven safe.
