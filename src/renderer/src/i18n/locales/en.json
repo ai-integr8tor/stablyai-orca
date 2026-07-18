@@ -13366,6 +13366,24 @@
       },
       "launchPromptNotDelivered": "Not delivered — check the terminal"
     },
+    "terminal": {
+      "richInput": {
+        "label": "Rich terminal input",
+        "placeholder": "Write a terminal prompt…",
+        "sendFailed": "Terminal input was not sent.",
+        "sendPartial": "Part of the input was pasted. Check the terminal before retrying.",
+        "hint": "Enter to send · Shift+Enter for newline",
+        "send": "Send to terminal",
+        "loadingFiles": "Loading files…",
+        "files": "Files",
+        "noFiles": "No matching files",
+        "toggle": "Toggle rich terminal input",
+        "imagePasteFailed": "Image paste failed.",
+        "addingImage": "Adding image…",
+        "slashCommands": "Slash commands",
+        "removeAttachment": "Remove attachment"
+      }
+    },
     "tab": {
       "bar": {
         "SortableTabContextMenu": {

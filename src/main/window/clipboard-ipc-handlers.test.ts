@@ -12,6 +12,7 @@ const {
   spawnMock,
   childStdinEndMock,
   resolveAuthorizedPathMock,
+  authorizeExternalPathMock,
   fsMkdirMock,
   fsReaddirMock,
   fsRmMock,
@@ -43,6 +44,7 @@ const {
     return child
   }),
   resolveAuthorizedPathMock: vi.fn(),
+  authorizeExternalPathMock: vi.fn(),
   fsMkdirMock: vi.fn(),
   fsReaddirMock: vi.fn(),
   fsRmMock: vi.fn(),
@@ -78,6 +80,7 @@ vi.mock('../ipc/filesystem-auth', () => ({
     'Access denied: path resolves outside allowed directories. If this blocks a legitimate workflow, please file a GitHub issue.',
   isENOENT: (error: unknown): boolean =>
     error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT',
+  authorizeExternalPath: authorizeExternalPathMock,
   resolveAuthorizedPath: resolveAuthorizedPathMock
 }))
 
@@ -516,11 +519,43 @@ describe('registerClipboardHandlers', () => {
 
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:readText')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:readSelectionText')
+    expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:readImageDataUrl')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:writeText')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:writeSelectionText')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:writeImage')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:writeFile')
     expect(removeHandlerMock).toHaveBeenCalledWith('clipboard:saveImageAsTempFile')
+  })
+
+  it('returns a bounded PNG data URL for image attachment previews', () => {
+    const png = Buffer.from([0, 1, 2, 3])
+    clipboardReadImageMock.mockReturnValue({
+      getSize: () => ({ height: 1, width: 1 }),
+      isEmpty: () => false,
+      toPNG: () => png
+    })
+    registerClipboardHandlers({} as never)
+
+    expect(getRegisteredHandlers().get('clipboard:readImageDataUrl')?.(makeClipboardEvent())).toBe(
+      `data:image/png;base64,${png.toString('base64')}`
+    )
+  })
+
+  it('bounds clipboard image previews before returning them to the renderer', () => {
+    const thumbnail = Buffer.from([4, 5, 6])
+    const resize = vi.fn(() => ({ toPNG: () => thumbnail }))
+    clipboardReadImageMock.mockReturnValue({
+      getSize: () => ({ height: 1000, width: 2000 }),
+      isEmpty: () => false,
+      resize,
+      toPNG: vi.fn()
+    })
+    registerClipboardHandlers({} as never)
+
+    expect(getRegisteredHandlers().get('clipboard:readImageDataUrl')?.(makeClipboardEvent())).toBe(
+      `data:image/png;base64,${thumbnail.toString('base64')}`
+    )
+    expect(resize).toHaveBeenCalledWith({ height: 48, quality: 'good', width: 96 })
   })
 
   it('saves clipboard images to a local temp file when no connection is provided', async () => {
@@ -542,6 +577,7 @@ describe('registerClipboardHandlers', () => {
       handlers.get('clipboard:saveImageAsTempFile')?.(makeClipboardEvent(), undefined)
     ).resolves.toBe(expectedPath)
     expect(fsWriteFileMock).toHaveBeenCalledWith(expectedPath, png)
+    expect(authorizeExternalPathMock).toHaveBeenCalledWith(expectedPath)
     expect(getSshFilesystemProviderMock).not.toHaveBeenCalled()
   })
 

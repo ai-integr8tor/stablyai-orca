@@ -13361,6 +13361,24 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    },
+    "terminal": {
+      "richInput": {
+        "label": "リッチターミナル入力",
+        "placeholder": "ターミナルへのプロンプトを入力…",
+        "sendFailed": "ターミナル入力を送信できませんでした。",
+        "sendPartial": "入力の一部が貼り付けられました。再試行する前にターミナルを確認してください。",
+        "hint": "Enterで送信 · Shift+Enterで改行",
+        "send": "ターミナルに送信",
+        "loadingFiles": "ファイルを読み込み中…",
+        "files": "ファイル",
+        "noFiles": "一致するファイルはありません",
+        "toggle": "リッチターミナル入力を切り替え",
+        "imagePasteFailed": "画像の貼り付けに失敗しました。",
+        "addingImage": "画像を追加中…",
+        "slashCommands": "スラッシュコマンド",
+        "removeAttachment": "添付ファイルを削除"
+      }
     }
   },
   "browser": {

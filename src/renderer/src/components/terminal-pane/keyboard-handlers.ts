@@ -199,6 +199,7 @@ type KeyboardHandlersDeps = {
   onClearPaneScrollback: (pane: ManagedPane) => void
   onSetTitle: (paneId: number) => void
   onClearPaneTitle: (paneId: number) => void
+  onToggleRichInput: () => void
   searchOpenRef: React.RefObject<boolean>
   searchStateRef: React.RefObject<SearchState>
   macOptionAsAltRef: React.RefObject<MacOptionAsAlt>
@@ -234,6 +235,7 @@ export function useTerminalKeyboardShortcuts({
   onClearPaneScrollback,
   onSetTitle,
   onClearPaneTitle,
+  onToggleRichInput,
   searchOpenRef,
   searchStateRef,
   macOptionAsAltRef,
@@ -342,6 +344,21 @@ export function useTerminalKeyboardShortcuts({
         }
         runTerminalSearchNavigation(pane, direction, searchStateRef.current)
         pane.terminal.focus()
+        return
+      }
+
+      // The same binding closes the composer while its textarea is focused, so
+      // this check must run before editable targets return to native text input.
+      if (
+        !e.repeat &&
+        keybindingMatchesAction('terminal.richInput.toggle', e, shortcutPlatform, keybindings, {
+          context: 'terminal',
+          terminalShortcutPolicy
+        })
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        onToggleRichInput()
         return
       }
 
@@ -680,6 +697,7 @@ export function useTerminalKeyboardShortcuts({
     onClearPaneScrollback,
     onSetTitle,
     onClearPaneTitle,
+    onToggleRichInput,
     searchOpenRef,
     searchStateRef,
     macOptionAsAltRef,
