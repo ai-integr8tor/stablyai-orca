@@ -53,8 +53,14 @@ Repos:
   repo list                 List repos registered in Orca
   repo add                  Add a project to Orca by filesystem path
   repo show                 Show one registered repo
+  repo set                  Update Orca settings for a repo
+  repo rm                   Remove a repo registration from Orca
   repo set-base-ref         Set the repo's default base ref for future worktrees
   repo search-refs          Search branch/tag refs within a repo
+  repo group list           List project groups
+  repo group create         Create a project group
+  repo group set            Update a project group
+  repo group rm             Delete a project group
 
 Worktrees:
   worktree list             List Orca-managed worktrees
@@ -235,11 +241,18 @@ Common Commands:
   orca repo list [--json]
   orca repo add --path <path> [--json]
   orca repo show --repo <selector> [--json]
+  orca repo set --repo <selector> [--group <selector>|--ungroup] [--display-name <name>] [--badge-color <hex>] [--json]
+  orca repo rm --repo <selector> [--json]
   orca repo set-base-ref --repo <selector> --ref <ref> [--json]
   orca repo search-refs --repo <selector> --query <text> [--limit <n>] [--json]
+  orca repo group list [--json]
+  orca repo group create --name <name> [--parent-group <selector>] [--json]
+  orca repo group set --group <selector> [--name <name>] [--color <hex|null>] [--json]
+  orca repo group rm --group <selector> [--json]
 
 Selectors:
   --repo <selector>         Registered repo selector such as id:<id>, name:<name>, or path:<path>
+  --group <selector>        Project group selector such as id:<groupId>, name:<name>, or a bare id/unique name
   --worktree <selector>     Worktree selector such as id:<repo-id>::<path>, name:<displayName>, branch:<branch>, issue:<number>, path:<path>, or active/current
   --terminal <handle>       Runtime-issued terminal handle returned by \`orca terminal list --json\`
   --parent-worktree <selector> Parent worktree selector such as id:<repo-id>::<path>, branch:<branch>, issue:<number>, path:<path>, or active/current
@@ -487,6 +500,11 @@ export function formatFlagHelp(flag: string): string {
     title: '--title <text>         Custom title for the terminal tab (omit to reset)',
     enter: '--enter                Append Enter after sending text',
     force: '--force                Force worktree removal when supported',
+    group: '--group <selector>     Project group selector such as id:<groupId> or name:<name>',
+    'parent-group': '--parent-group <selector> Parent project group for a nested group',
+    ungroup: '--ungroup              Remove the repo from its project group',
+    color: '--color <hex|null>     Group color as hex; null clears it',
+    'badge-color': '--badge-color <hex>    Repo badge color as hex, e.g. #ff8800',
     focus: '--focus                Reveal the created terminal session in Orca',
     for: '--for exit|tui-idle    Wait condition to satisfy',
     'from-element-index': '--from-element-index <n> Source element index from get-app-state',
@@ -503,7 +521,7 @@ export function formatFlagHelp(flag: string): string {
     limit: '--limit <n>            Maximum number of rows to return',
     mode: '--mode <mode>          Mode such as edit, diff, or both',
     'mouse-button': '--mouse-button <btn>   Mouse button: left, right, or middle',
-    name: '--name <name>          Name for the new worktree or automation',
+    name: '--name <name>          Name for the new worktree, automation, or project group',
     'no-parent': '--no-parent            Force no parent lineage for unrelated work',
     'no-screenshot': '--no-screenshot       Skip screenshot capture after the operation',
     pages: '--pages <n>           Number of scroll pages',

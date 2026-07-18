@@ -10,7 +10,7 @@ import type {
   RuntimeWorktreePsResult,
   RuntimeWorktreeRecord
 } from '../shared/runtime-types'
-import type { MemorySnapshot, WorktreeMemory } from '../shared/types'
+import type { MemorySnapshot, ProjectGroup, WorktreeMemory } from '../shared/types'
 
 export function formatMemorySnapshot(snapshot: MemorySnapshot): string {
   const topWorktrees = [...snapshot.worktrees].sort((a, b) => b.memory - a.memory).slice(0, 10)
@@ -131,6 +131,32 @@ export function formatRepoShow(result: { repo: Record<string, unknown> }): strin
         `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`
     )
     .join('\n')
+}
+
+export function formatProjectGroupList(result: { groups: ProjectGroup[] }): string {
+  if (result.groups.length === 0) {
+    return 'No project groups found.'
+  }
+  return result.groups
+    .map(
+      (group) =>
+        `${group.id}  ${group.name}  color:${group.color ?? 'none'}  parent:${group.parentGroupId ?? 'none'}`
+    )
+    .join('\n')
+}
+
+export function formatProjectGroupShow(result: { group: ProjectGroup }): string {
+  const group = result.group
+  return [
+    `id: ${group.id}`,
+    `name: ${group.name}`,
+    `color: ${group.color ?? 'null'}`,
+    `parentGroupId: ${group.parentGroupId ?? 'null'}`,
+    `parentPath: ${group.parentPath ?? 'null'}`,
+    `createdFrom: ${group.createdFrom}`,
+    `tabOrder: ${group.tabOrder}`,
+    `isCollapsed: ${group.isCollapsed}`
+  ].join('\n')
 }
 
 export function formatRepoRefs(result: RuntimeRepoSearchRefs): string {
