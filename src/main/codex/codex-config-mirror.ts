@@ -21,6 +21,8 @@ import {
   parseCodexProjectHeaderPath
 } from './config-toml-trust'
 
+type CodexConfigMirrorResult = 'mirrored' | 'initialize-empty-baseline' | 'skipped-missing-source'
+
 export function syncSystemConfigIntoManagedCodexHome(
   homes: CodexSettingsPromotionHomes = {
     runtimeHomePath: getOrcaManagedCodexHomePath(),
@@ -35,10 +37,16 @@ export function syncSystemConfigIntoManagedCodexHome(
     // leave both runtime and its old baseline intact so the next launch retries.
     return
   }
+  let mirrorResult: CodexConfigMirrorResult
   try {
-    syncSystemConfigIntoManagedCodexHomeUnsafe(homes)
+    mirrorResult = syncSystemConfigIntoManagedCodexHomeUnsafe(homes)
   } catch (error) {
     console.warn('[codex-config] Failed to mirror system Codex config:', error)
+    return
+  }
+  if (mirrorResult === 'skipped-missing-source') {
+    // Why: advancing here would mark runtime changes as already promoted, so
+    // they could not retry when the temporarily missing source returns.
     return
   }
   // Why: the baseline advances only after a successful mirror; recording an
@@ -49,23 +57,25 @@ export function syncSystemConfigIntoManagedCodexHome(
 function syncSystemConfigIntoManagedCodexHomeUnsafe({
   runtimeHomePath,
   systemHomePath
-}: CodexSettingsPromotionHomes): void {
+}: CodexSettingsPromotionHomes): CodexConfigMirrorResult {
   const systemConfigPath = join(systemHomePath, 'config.toml')
   const runtimeConfigPath = join(runtimeHomePath, 'config.toml')
   const systemConfigExists = existsSync(systemConfigPath)
   const runtimeConfigExists = existsSync(runtimeConfigPath)
-  if (!systemConfigExists && !runtimeConfigExists) {
-    return
+  // Why: a missing source is not an authoritative empty config. Merging it
+  // would erase every ordinary setting from an existing managed runtime.
+  if (!systemConfigExists) {
+    return runtimeConfigExists ? 'skipped-missing-source' : 'initialize-empty-baseline'
   }
 
-  const rawSystemConfig = systemConfigExists ? readFileSync(systemConfigPath, 'utf-8') : ''
+  const rawSystemConfig = readFileSync(systemConfigPath, 'utf-8')
   const sourceConfigDir = resolveCodexConfigMirrorSourceDirectory(systemHomePath)
   if (!runtimeConfigExists) {
     writeFileAtomically(
       runtimeConfigPath,
       prepareSystemConfigForFreshRuntimeMirror(rawSystemConfig, sourceConfigDir)
     )
-    return
+    return 'mirrored'
   }
 
   const systemConfig = prepareSystemConfigForRuntimeMirror(rawSystemConfig, sourceConfigDir)
@@ -74,6 +84,7 @@ function syncSystemConfigIntoManagedCodexHomeUnsafe({
   if (mergedConfig !== runtimeConfig) {
     writeFileAtomically(runtimeConfigPath, mergedConfig)
   }
+  return 'mirrored'
 }
 
 export function resolveCodexConfigMirrorSourceDirectory(systemHomePath: string): string {
