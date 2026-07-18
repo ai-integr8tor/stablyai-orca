@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { decodePairingUrl, extractPairingCodeFromUrl, parsePairingCode } from './pairing'
+import {
+  decodePairingUrl,
+  extractPairingCodeFromUrl,
+  getInitialPairingCode,
+  parsePairingCode
+} from './pairing'
 
 const offer = {
   v: 2,
@@ -36,6 +41,41 @@ describe('pairing deep links', () => {
 
   it('prefers the query pairing code when both query and hash are present', () => {
     expect(extractPairingCodeFromUrl('orca://pair?code=query-code#hash-code')).toBe('query-code')
+  })
+
+  it('reads cold hash links from the scene-aware URL registry', async () => {
+    const getInitialURL = vi.fn(async () => null)
+
+    expect(
+      await getInitialPairingCode({
+        getLinkingURL: () => 'orca://pair#scene-code',
+        getInitialURL
+      })
+    ).toBe('scene-code')
+    expect(getInitialURL).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the legacy initial URL when the scene registry is empty', async () => {
+    expect(
+      await getInitialPairingCode({
+        getLinkingURL: () => null,
+        getInitialURL: async () => 'orca://pair?code=legacy-code'
+      })
+    ).toBe('legacy-code')
+  })
+
+  it('falls back when getLinkingURL throws', async () => {
+    const getInitialURL = vi.fn(async () => 'orca://pair?code=legacy-after-throw')
+
+    expect(
+      await getInitialPairingCode({
+        getLinkingURL: () => {
+          throw new Error('linking registry unavailable')
+        },
+        getInitialURL
+      })
+    ).toBe('legacy-after-throw')
+    expect(getInitialURL).toHaveBeenCalledTimes(1)
   })
 
   it('ignores empty and unrelated URLs', () => {

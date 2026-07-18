@@ -1,5 +1,10 @@
 import { PairingOfferSchema, type PairingOffer } from './types'
 
+interface PairingLinkSource {
+  getLinkingURL(): string | null
+  getInitialURL(): Promise<string | null>
+}
+
 // Why: this file mirrors src/shared/pairing.ts (which is covered by CI
 // vitest) but uses atob/btoa because Metro/Hermes don't ship Node's
 // Buffer. Keep the parsing semantics in sync — when one changes, update
@@ -47,6 +52,21 @@ export function extractPairingCodeFromUrl(url: string): string | null {
     return rest.slice(hashIndex + 1) || null
   }
   return null
+}
+
+// Scene launches populate Expo's native registry instead of React Native's
+// legacy launch options; Android still relies on the asynchronous fallback.
+export async function getInitialPairingCode(source: PairingLinkSource): Promise<string | null> {
+  // Why: scene-based Linking can throw on some iOS cold starts; match getInitialURL
+  // and treat any failure as "no launch URL" so pair deep-links never reject the shell.
+  let linkingUrl: string | null = null
+  try {
+    linkingUrl = source.getLinkingURL()
+  } catch {
+    linkingUrl = null
+  }
+  const url = linkingUrl ?? (await source.getInitialURL().catch(() => null))
+  return url ? extractPairingCodeFromUrl(url) : null
 }
 
 // Why: accept either an `orca://pair?...` URL or the bare base64
