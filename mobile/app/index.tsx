@@ -15,13 +15,11 @@ import {
 } from 'lucide-react-native'
 import {
   type AccountsSnapshot,
-  type UsageProviderKey,
   USAGE_PROVIDERS,
-  DEFAULT_VISIBLE_USAGE_PROVIDERS,
   hasRenderableUsage
 } from '../src/components/AccountUsage'
 import { HomeAccountUsageCard } from '../src/components/HomeAccountUsageCard'
-import { loadVisibleUsageProviders } from '../src/storage/preferences'
+import { useVisibleUsageProviders } from '../src/components/use-visible-usage-providers'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { loadHosts } from '../src/transport/host-store'
 import { removeHostAndCloseClient } from '../src/transport/host-removal-lifecycle'
@@ -311,9 +309,7 @@ export default function HomeScreen() {
   const [stats, setStats] = useState<StatsSummary | null>(null)
   const [worktreeInfo, setWorktreeInfo] = useState<Record<string, HostWorktreeInfo>>({})
   const [accountsByHost, setAccountsByHost] = useState<Record<string, AccountsSnapshot>>({})
-  const [visibleUsageProviders, setVisibleUsageProviders] = useState<Set<UsageProviderKey>>(
-    () => new Set(DEFAULT_VISIBLE_USAGE_PROVIDERS)
-  )
+  const visibleUsageProviders = useVisibleUsageProviders()
   const [taskProvidersByHost, setTaskProvidersByHost] = useState<Record<string, TaskProvider[]>>({})
   const [lastVisited, setLastVisited] = useState<{ hostId: string; worktreeId: string } | null>(
     null
@@ -409,11 +405,6 @@ export default function HomeScreen() {
         const showNotificationOptIn = await shouldPresentNotificationOptIn()
         if (!stale && showNotificationOptIn) {
           router.replace('/notification-opt-in')
-        }
-      })
-      void loadVisibleUsageProviders().then((set) => {
-        if (!stale) {
-          setVisibleUsageProviders(set)
         }
       })
       void AsyncStorage.getItem('orca:last-visited-worktree').then((raw) => {

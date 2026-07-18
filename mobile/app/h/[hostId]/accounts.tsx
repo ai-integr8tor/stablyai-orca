@@ -9,7 +9,7 @@ import {
   Alert
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronLeft, Check, RefreshCw, User, Gauge } from 'lucide-react-native'
 import { loadHosts } from '../../../src/transport/host-store'
 import { useHostClient } from '../../../src/transport/client-context'
@@ -17,14 +17,12 @@ import type { RpcSuccess } from '../../../src/transport/types'
 import { colors, spacing } from '../../../src/theme/mobile-theme'
 import { styles } from './accounts-screen-styles'
 import { ClaudeIcon, OpenAIIcon } from '../../../src/components/AgentIcons'
-import { loadVisibleUsageProviders } from '../../../src/storage/preferences'
+import { useVisibleUsageProviders } from '../../../src/components/use-visible-usage-providers'
 import {
   type AccountsSnapshot,
   type ProviderKey,
-  type UsageProviderKey,
   type UsageProviderDescriptor,
   USAGE_PROVIDERS,
-  DEFAULT_VISIBLE_USAGE_PROVIDERS,
   getActiveProviderRateLimits,
   getInactiveProviderUsage,
   getProviderUsageWindows,
@@ -48,26 +46,7 @@ export default function AccountsScreen() {
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [busyAccountId, setBusyAccountId] = useState<string | null>(null)
-  const [visibleProviders, setVisibleProviders] = useState<Set<UsageProviderKey>>(
-    () => new Set(DEFAULT_VISIBLE_USAGE_PROVIDERS)
-  )
-
-  // Why: reload on focus so a change made in Settings → Account usage is
-  // reflected when the user navigates back — the screen stays mounted and
-  // updates in place (mirrors how the terminal picks up Settings → Terminal).
-  useFocusEffect(
-    useCallback(() => {
-      let active = true
-      void loadVisibleUsageProviders().then((set) => {
-        if (active) {
-          setVisibleProviders(set)
-        }
-      })
-      return () => {
-        active = false
-      }
-    }, [])
-  )
+  const visibleProviders = useVisibleUsageProviders()
 
   // Why: the reset countdown must stay fresh while the screen sits open —
   // snapshot pushes only arrive when the desktop's rate-limit poll completes.
