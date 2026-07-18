@@ -59,10 +59,9 @@ export type TuiAgentConfig = {
    * agent spawns. */
   preflightTrust?: 'cursor' | 'copilot' | 'codex'
   /** Why: most TUIs need both bracketed-paste enablement and a quiet render
-   * window before pasted bytes reliably land in the composer. Codex can use
-   * a stronger signal from its own renderer: chat_composer.rs writes the
-   * `›` prompt only when the composer row exists, so Orca can paste as soon
-   * as that prompt appears after bracketed paste is enabled. */
+   * window before pasted bytes reliably land in the composer. Codex waits for
+   * both the `›` glyph and idle "Ask Codex" placeholder because hooks review
+   * can render a bare glyph before the composer owns input. */
   draftPasteReadySignal?: DraftPasteReadySignal
   /** Windows Shift+Enter override. Omitted agents keep the legacy Esc+CR path
    * because the renderer cannot infer every local or remote TUI's decoder. */

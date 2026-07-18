@@ -1,17 +1,14 @@
 import { useAppStore } from '@/store'
-import {
-  getSettingsForAgentTabRuntimeOwner,
-  pasteDraftToAgentPtyWhenReady
-} from '@/lib/agent-paste-draft'
-import { sendFollowupPromptWhenAgentReady } from '@/lib/agent-followup-delivery'
-import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
+import { deliverAgentStartupToTerminal } from '@/lib/agent-startup-terminal-delivery'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { LinkedWorkItemContext } from '@/lib/linked-work-item-context'
 import {
   beginAgentStartupDeliveryAttempt,
   getAgentStartupTabPtyId,
   queuePendingAgentStartupDelivery,
-  resolveAgentStartupTabId
+  releaseAgentStartupDeliveryAttempt,
+  resolveAgentStartupTabId,
+  type AgentStartupDeliveryOutcome
 } from '@/lib/agent-startup-delayed-delivery'
 import type { FolderWorkspaceLinkedTask, OrcaHooks, TaskViewPresetId } from '../../../shared/types'
 import { resolveHookCommandSourcePolicy } from '../../../shared/hook-command-source-policy'
@@ -289,49 +286,27 @@ export async function ensureAgentStartupInTerminal(args: {
   }
 
   if (beginAgentStartupDeliveryAttempt({ worktreeId, tabId, launchToken })) {
-    await deliverAgentStartupToTerminal(tabId, ptyId, startup)
-  }
-}
-
-async function deliverAgentStartupToTerminal(
-  tabId: string,
-  ptyId: string,
-  startup: AgentStartupPlan
-): Promise<void> {
-  const draftPrompt = startup.draftPrompt ?? null
-  const runtimeSettings = getSettingsForAgentTabRuntimeOwner(tabId)
-  // Why: followupPrompt is the legacy path for stdin-after-start agents
-  // (aider, goose, etc.) that need their initial prompt typed into the live
-  // session and submitted. Wait until the agent owns the PTY before writing.
-  if (startup.followupPrompt) {
-    const delivered = await sendFollowupPromptWhenAgentReady({
-      ptyId,
-      expectedProcess: startup.expectedProcess,
-      prompt: startup.followupPrompt,
-      settings: runtimeSettings
-    })
-    // Why: a dropped follow-up is otherwise silent — surface the same toast the
-    // draft path uses so the user knows to open the workspace and paste it.
-    if (!delivered) {
-      showAutomationPromptNotSentToast(startup.agent)
+    let outcome: AgentStartupDeliveryOutcome
+    try {
+      outcome = await deliverAgentStartupToTerminal(tabId, ptyId, startup)
+    } catch (error) {
+      // A rejected remote write has ambiguous delivery; do not replay it.
+      console.warn('Immediate agent startup delivery failed', error)
+      return
     }
-  }
-
-  // Why: draftPrompt uses bracketed-paste so the URL lands atomically in the
-  // agent's input buffer (no per-char echo, no auto-submit). Shared with the
-  // launch-work-item-direct flow so both behave identically.
-  if (draftPrompt) {
-    await pasteDraftToAgentPtyWhenReady({
-      tabId,
-      ptyId,
-      content: draftPrompt,
-      agent: startup.agent,
-      // Why: startup.draftPrompt is only attached after native draft launch
-      // planning is unavailable, so this paste is the first delivery attempt.
-      forcePaste: true,
-      // Why: surface a dropped draft instead of silently losing it.
-      onTimeout: () => showAutomationPromptNotSentToast(startup.agent)
-    })
+    if (outcome.kind === 'retryable') {
+      // Why: a readiness/write failure is not final delivery. Requeue once
+      // through the launch-token gate; repeated failures then wait for the
+      // next relevant startup-state change instead of spinning.
+      releaseAgentStartupDeliveryAttempt({ worktreeId, tabId, launchToken })
+      queuePendingAgentStartupDelivery({
+        worktreeId,
+        tabId,
+        launchToken,
+        startup: outcome.startup,
+        deliver: deliverAgentStartupToTerminal
+      })
+    }
   }
 }
 

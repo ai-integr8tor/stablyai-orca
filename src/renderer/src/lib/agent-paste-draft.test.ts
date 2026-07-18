@@ -3,12 +3,14 @@ import {
   AGENT_DRAFT_PASTE_CHUNK_MAX_BYTES,
   AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES,
   AGENT_DRAFT_PASTE_MAX_BYTES,
+  POST_PASTE_SUBMIT_DELAY_MS,
   chunkAgentDraftPasteContent,
   getSettingsForAgentTabRuntimeOwner,
   iterateAgentDraftPasteContentChunks,
   pasteDraftToAgentPtyWhenReady,
   pasteDraftWhenAgentReady,
   sendAgentDraftPasteContent,
+  sendAgentDraftPasteContentWithOutcome,
   sendBracketedPasteToRunningAgent,
   submitPromptToAgentPty
 } from './agent-paste-draft'
@@ -96,7 +98,7 @@ describe('pasteDraftWhenAgentReady', () => {
     vi.useRealTimers()
   })
 
-  it('pastes into Codex as soon as its composer prompt renders after bracketed paste is enabled', async () => {
+  it('pastes into Codex only after its glyph and idle placeholder render after bracketed paste', async () => {
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -109,6 +111,10 @@ describe('pasteDraftWhenAgentReady', () => {
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
 
     testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await flushMicrotasks()
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+
+    testState.ptyObserver?.('›')
     await flushMicrotasks()
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
 
@@ -351,7 +357,7 @@ describe('pasteDraftWhenAgentReady', () => {
       'pty-1',
       PASTED_ISSUE_URL
     )
-    await vi.advanceTimersByTimeAsync(49)
+    await vi.advanceTimersByTimeAsync(499)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     await expect(promise).resolves.toBe(true)
@@ -532,7 +538,7 @@ describe('pasteDraftWhenAgentReady', () => {
     )
 
     await flushMicrotasks()
-    await vi.advanceTimersByTimeAsync(49)
+    await vi.advanceTimersByTimeAsync(499)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
 
@@ -558,7 +564,7 @@ describe('pasteDraftWhenAgentReady', () => {
     })
 
     await flushMicrotasks()
-    await vi.advanceTimersByTimeAsync(50)
+    await vi.advanceTimersByTimeAsync(500)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(
@@ -599,7 +605,7 @@ describe('pasteDraftWhenAgentReady', () => {
       expect((call[2] as string).length).toBeLessThanOrEqual(AGENT_DRAFT_PASTE_CHUNK_MAX_BYTES)
     }
 
-    await vi.advanceTimersByTimeAsync(50)
+    await vi.advanceTimersByTimeAsync(500)
 
     await expect(promise).resolves.toBe(true)
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenLastCalledWith({}, 'pty-1', '\r')
@@ -616,7 +622,8 @@ describe('pasteDraftWhenAgentReady', () => {
       'pty-1',
       '\x1b[200~line one\rline two\rline three\x1b[201~'
     )
-    await vi.advanceTimersByTimeAsync(50)
+    await flushMicrotasks()
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
     await expect(promise).resolves.toBe(true)
   })
 
@@ -641,6 +648,30 @@ describe('pasteDraftWhenAgentReady', () => {
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(3, {}, 'pty-1', '[201~')
     expect(testState.sendRuntimePtyInputVerified.mock.calls.some((call) => call[2] === '\r')).toBe(
       false
+    )
+  })
+
+  it('marks a rejected chunk after the opener as delivery-uncertain', async () => {
+    testState.sendRuntimePtyInputVerified
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const content = 'x'.repeat(
+      AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES + AGENT_DRAFT_PASTE_CHUNK_MAX_BYTES + 7
+    )
+
+    await expect(sendAgentDraftPasteContentWithOutcome({}, 'pty-1', content)).resolves.toBe(
+      'delivery-uncertain'
+    )
+  })
+
+  it('marks a lost direct-write acknowledgement as delivery-uncertain', async () => {
+    testState.sendRuntimePtyInputVerified.mockRejectedValueOnce(
+      new Error('runtime acknowledgement lost')
+    )
+
+    await expect(sendAgentDraftPasteContentWithOutcome({}, 'pty-1', 'linked draft')).resolves.toBe(
+      'delivery-uncertain'
     )
   })
 

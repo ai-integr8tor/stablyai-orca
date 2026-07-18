@@ -86,6 +86,21 @@ describe('tui agent startup session options', () => {
     expect(plan?.sessionOptions).toEqual({ model: 'opus', effort: 'high' })
   })
 
+  it('retains applied options when an oversized Windows prompt falls back to stdin', () => {
+    const prompt = 'x'.repeat(25_000)
+    const plan = buildAgentStartupPlan({
+      agent: 'codex',
+      prompt,
+      cmdOverrides: {},
+      platform: 'win32',
+      sessionOptions: { model: 'gpt-5.6-sol', effort: 'medium' }
+    })
+
+    expect(plan?.launchCommand).toContain('gpt-5.6-sol')
+    expect(plan?.followupPrompt).toBe(prompt)
+    expect(plan?.sessionOptions).toEqual({ model: 'gpt-5.6-sol', effort: 'medium' })
+  })
+
   it('never injects session options into resume commands', () => {
     const plan = buildAgentResumeStartupPlan({
       agent: 'codex',
