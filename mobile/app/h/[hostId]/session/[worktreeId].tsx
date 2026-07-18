@@ -992,6 +992,7 @@ export default function SessionScreen() {
   // Why: state (not a ref) — the connection verdict needs a re-render once
   // the endpoint loads so the Tailscale hint can appear.
   const [hostEndpoint, setHostEndpoint] = useState<string | null>(null)
+  const [hostEndpoints, setHostEndpoints] = useState<string[] | null>(null)
   const clientRef = useRef<RpcClient | null>(null)
   const connStateRef = useRef<ConnectionState>(connState)
   // Why: measured once from TerminalWebView on mount, then passed with every
@@ -2499,6 +2500,7 @@ export default function SessionScreen() {
       if (host) {
         deviceTokenRef.current = host.deviceToken
         setHostEndpoint(host.endpoint)
+        setHostEndpoints(host.endpoints)
       }
     })
     return () => {
@@ -4383,7 +4385,8 @@ export default function SessionScreen() {
     state: connState,
     reconnectAttempts,
     lastConnectedAt,
-    endpoint: hostEndpoint
+    endpoint: hostEndpoint,
+    endpoints: hostEndpoints
   })
   const showConnectionRetry =
     connectionVerdict.kind === 'warning' || connectionVerdict.kind === 'unreachable'

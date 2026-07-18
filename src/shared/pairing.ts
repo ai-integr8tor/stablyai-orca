@@ -1,14 +1,46 @@
 import {
+  MAX_PAIRING_ENDPOINTS,
   PAIRING_OFFER_VERSION,
   PairingOfferSchema,
   type PairingOffer
 } from './mobile-relay-pairing-offer'
 
-export { PAIRING_OFFER_VERSION, PairingOfferSchema }
+export { MAX_PAIRING_ENDPOINTS, PAIRING_OFFER_VERSION, PairingOfferSchema }
 export type { PairingOffer }
 
+/** Preferred dial order: `endpoints` when present, else `[endpoint]`. Deduped + capped. */
+export function normalizePairingEndpoints(
+  endpoint: string,
+  endpoints?: readonly string[] | null
+): string[] {
+  const primary = endpoint.trim()
+  const raw = endpoints && endpoints.length > 0 ? [...endpoints] : [primary]
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const candidate of [primary, ...raw]) {
+    const value = candidate.trim()
+    if (!value || seen.has(value)) {
+      continue
+    }
+    seen.add(value)
+    ordered.push(value)
+    if (ordered.length >= MAX_PAIRING_ENDPOINTS) {
+      break
+    }
+  }
+  return ordered.length > 0 ? ordered : [primary]
+}
+
 export function encodePairingOffer(offer: PairingOffer): string {
-  const json = JSON.stringify(offer)
+  const endpoints = normalizePairingEndpoints(offer.endpoint, offer.endpoints)
+  // Why: omit endpoints when length is 1 so legacy single-endpoint QR size
+  // and payloads stay unchanged for the common case.
+  const { endpoints: _omitEndpoints, ...rest } = offer
+  const normalized: PairingOffer =
+    endpoints.length > 1
+      ? { ...rest, endpoint: endpoints[0]!, endpoints }
+      : { ...rest, endpoint: endpoints[0]! }
+  const json = JSON.stringify(normalized)
   const base64url = Buffer.from(json, 'utf-8')
     .toString('base64')
     .replace(/\+/g, '-')

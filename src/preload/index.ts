@@ -4327,6 +4327,7 @@ const api = {
 
     getPairingQR: (args?: {
       address?: string
+      addresses?: string[]
       connectionMode?: MobilePairingConnectionMode
       rotate?: boolean
     }): Promise<
@@ -4336,6 +4337,7 @@ const api = {
           qrDataUrl: string
           pairingUrl: string
           endpoint: string
+          endpoints: string[]
           deviceId: string
         }
     > => ipcRenderer.invoke('mobile:getPairingQR', args),

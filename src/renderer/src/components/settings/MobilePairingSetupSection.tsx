@@ -14,8 +14,8 @@ type MobilePairingSetupSectionProps = {
   connectionMode: MobilePairingConnectionMode
   relayConnectionControl: ReactNode
   networkInterfaces: MobileNetworkInterface[]
-  selectedAddress: string | undefined
-  onSelectedAddressChange: (address: string) => void
+  selectedAddresses: readonly string[]
+  onSelectedAddressesChange: (addresses: string[]) => void
   refreshingNetworkInterfaces: boolean
   onRefreshNetworkInterfaces: () => void
   loading: boolean
@@ -27,8 +27,8 @@ export function MobilePairingSetupSection({
   connectionMode,
   relayConnectionControl,
   networkInterfaces,
-  selectedAddress,
-  onSelectedAddressChange,
+  selectedAddresses,
+  onSelectedAddressesChange,
   refreshingNetworkInterfaces,
   onRefreshNetworkInterfaces,
   loading,
@@ -54,7 +54,7 @@ export function MobilePairingSetupSection({
       <div className="mt-2">{relayConnectionControl}</div>
       <Button
         onClick={onGenerateQr}
-        disabled={loading || !selectedAddress}
+        disabled={loading || selectedAddresses.length === 0}
         size="sm"
         className="mt-3 gap-1.5"
       >
@@ -91,8 +91,8 @@ export function MobilePairingSetupSection({
         <div className="flex flex-wrap items-center gap-3">
           <NetworkInterfacePicker
             networkInterfaces={networkInterfaces}
-            selectedAddress={selectedAddress}
-            onSelectedAddressChange={onSelectedAddressChange}
+            selectedAddresses={selectedAddresses}
+            onSelectedAddressesChange={onSelectedAddressesChange}
             className="min-w-[220px] justify-between font-normal"
           />
           <Tooltip>

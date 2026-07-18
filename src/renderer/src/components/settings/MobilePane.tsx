@@ -4,9 +4,15 @@ import { useAppStore } from '../../store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useMobilePairingDevicePolling } from './mobile-pairing-device-polling'
 import {
-  selectRefreshedNetworkAddress,
+  orderedAdvertiseAddressesEqual,
+  refreshOrderedAdvertiseAddresses,
   type MobileNetworkInterface
 } from './mobile-network-interface-selection'
+import {
+  deriveCustomAdvertiseAddresses,
+  loadMobileAdvertiseAddressOrder,
+  saveMobileAdvertiseAddressOrder
+} from './mobile-advertise-address-order-store'
 import { MobilePairingQrSection } from './MobilePairingQrSection'
 import { MobilePairedDevicesSection, type PairedDevice } from './MobilePairedDevicesSection'
 import { MobileAutoRestoreFitSection } from './MobileAutoRestoreFitSection'
@@ -16,6 +22,20 @@ import { WindowsFirewallNotice } from '../mobile/WindowsFirewallNotice'
 import { translate } from '@/i18n/i18n'
 import type { MobilePairingConnectionMode } from '../../../../shared/mobile-pairing-connection-mode'
 export { getMobilePaneSearchEntries } from './mobile-pane-search'
+
+function readInitialAdvertiseOrder(): {
+  addresses: string[]
+  customAddresses: Set<string>
+} {
+  const stored = loadMobileAdvertiseAddressOrder()
+  if (!stored) {
+    return { addresses: [], customAddresses: new Set() }
+  }
+  return {
+    addresses: stored.addresses,
+    customAddresses: new Set(stored.customAddresses)
+  }
+}
 
 export function MobilePane(): React.JSX.Element {
   const autoRestoreFitMs = useAppStore((s) => s.settings?.mobileAutoRestoreFitMs ?? null)
@@ -27,7 +47,12 @@ export function MobilePane(): React.JSX.Element {
   const [devices, setDevices] = useState<PairedDevice[]>([])
   const [qrEnlarged, setQrEnlarged] = useState(false)
   const [networkInterfaces, setNetworkInterfaces] = useState<MobileNetworkInterface[]>([])
-  const [selectedAddress, setSelectedAddress] = useState<string | undefined>(undefined)
+  const [selectedAddresses, setSelectedAddresses] = useState<string[]>(
+    () => readInitialAdvertiseOrder().addresses
+  )
+  const [customAddresses, setCustomAddresses] = useState<Set<string>>(
+    () => readInitialAdvertiseOrder().customAddresses
+  )
   const [refreshingNetworkInterfaces, setRefreshingNetworkInterfaces] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
   const [deviceCountAtQr, setDeviceCountAtQr] = useState<number | null>(null)
@@ -38,6 +63,7 @@ export function MobilePane(): React.JSX.Element {
   const [rotateNextQr, setRotateNextQr] = useState(false)
   const devicesRef = useRef<PairedDevice[]>([])
   const wasSignedInRef = useRef(signedIn)
+  const networkInterfacesRef = useRef<MobileNetworkInterface[]>([])
   const codeCopiedResetTimerRef = useRef<number | null>(null)
   const mountedRef = useMountedRef()
 
@@ -66,10 +92,28 @@ export function MobilePane(): React.JSX.Element {
       try {
         const result = await window.api.mobile.listNetworkInterfaces()
         if (mountedRef.current) {
+          const previousInterfaces = networkInterfacesRef.current
+          networkInterfacesRef.current = result.interfaces
           setNetworkInterfaces(result.interfaces)
-          setSelectedAddress((currentAddress) =>
-            selectRefreshedNetworkAddress(currentAddress, result.interfaces)
-          )
+          setSelectedAddresses((currentAddresses) => {
+            const nextAddresses = refreshOrderedAdvertiseAddresses(
+              currentAddresses,
+              result.interfaces,
+              previousInterfaces,
+              { customAddresses }
+            )
+            if (orderedAdvertiseAddressesEqual(nextAddresses, currentAddresses)) {
+              return currentAddresses
+            }
+            const nextCustoms = deriveCustomAdvertiseAddresses(
+              nextAddresses,
+              result.interfaces,
+              customAddresses
+            )
+            setCustomAddresses(nextCustoms)
+            saveMobileAdvertiseAddressOrder(nextAddresses, nextCustoms)
+            return nextAddresses
+          })
         }
       } catch {
         if (opts.notifyOnError && mountedRef.current) {
@@ -86,7 +130,7 @@ export function MobilePane(): React.JSX.Element {
         }
       }
     },
-    [mountedRef]
+    [customAddresses, mountedRef]
   )
 
   const generateQR = useCallback(
@@ -94,7 +138,7 @@ export function MobilePane(): React.JSX.Element {
       setLoading(true)
       try {
         const result = await window.api.mobile.getPairingQR({
-          ...(selectedAddress ? { address: selectedAddress } : {}),
+          ...(selectedAddresses.length > 0 ? { addresses: selectedAddresses } : {}),
           connectionMode,
           ...(opts.rotate || rotateNextQr ? { rotate: true } : {})
         })
@@ -141,7 +185,7 @@ export function MobilePane(): React.JSX.Element {
       loadDevices,
       mountedRef,
       rotateNextQr,
-      selectedAddress
+      selectedAddresses
     ]
   )
 
@@ -202,6 +246,17 @@ export function MobilePane(): React.JSX.Element {
     }
   }
 
+  const handleAddressesChange = (addresses: string[]): void => {
+    const nextCustoms = deriveCustomAdvertiseAddresses(
+      addresses,
+      networkInterfacesRef.current,
+      customAddresses
+    )
+    setSelectedAddresses(addresses)
+    setCustomAddresses(nextCustoms)
+    saveMobileAdvertiseAddressOrder(addresses, nextCustoms)
+  }
+
   return (
     <div className="space-y-6">
       <MobilePairingSetupSection
@@ -210,8 +265,8 @@ export function MobilePane(): React.JSX.Element {
           <MobilePairingConnectionOptions value={connectionMode} onChange={changeConnectionMode} />
         }
         networkInterfaces={networkInterfaces}
-        selectedAddress={selectedAddress}
-        onSelectedAddressChange={setSelectedAddress}
+        selectedAddresses={selectedAddresses}
+        onSelectedAddressesChange={handleAddressesChange}
         refreshingNetworkInterfaces={refreshingNetworkInterfaces}
         onRefreshNetworkInterfaces={() => void loadNetworkInterfaces({ notifyOnError: true })}
         loading={loading}
@@ -230,7 +285,7 @@ export function MobilePane(): React.JSX.Element {
         onClearCodeCopiedTimer={clearCodeCopiedResetTimer}
       />
 
-      <WindowsFirewallNotice pairingReady={qrDataUrl != null} address={selectedAddress} />
+      <WindowsFirewallNotice pairingReady={qrDataUrl != null} address={selectedAddresses[0]} />
 
       <MobilePairedDevicesSection
         devices={devices}

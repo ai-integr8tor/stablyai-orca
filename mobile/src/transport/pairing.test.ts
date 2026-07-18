@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { decodePairingUrl, extractPairingCodeFromUrl, parsePairingCode } from './pairing'
+import { normalizePairingEndpoints } from './types'
 
 const offer = {
   v: 2,
@@ -8,7 +9,7 @@ const offer = {
   publicKeyB64: 'pubkey-xyz'
 } as const
 
-function encodeOffer(input = offer): string {
+function encodeOffer(input: Record<string, unknown> = offer): string {
   return btoa(JSON.stringify(input)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
@@ -60,5 +61,15 @@ describe('pairing deep links', () => {
 
     expect(parsePairingCode(`orca://pair?code=${code}`)).toEqual(offer)
     expect(parsePairingCode(code)).toEqual(offer)
+  })
+
+  it('parses additive endpoints and normalizes legacy single-endpoint offers', () => {
+    const multi = {
+      ...offer,
+      endpoints: ['ws://100.102.47.57:6768', 'ws://192.168.1.10:6768']
+    }
+    expect(parsePairingCode(encodeOffer(multi))).toEqual(multi)
+    expect(normalizePairingEndpoints(offer.endpoint)).toEqual([offer.endpoint])
+    expect(normalizePairingEndpoints(multi.endpoint, multi.endpoints)).toEqual(multi.endpoints)
   })
 })

@@ -3241,6 +3241,7 @@ export type PreloadApi = {
     }>
     getPairingQR: (args?: {
       address?: string
+      addresses?: string[]
       connectionMode?: MobilePairingConnectionMode
       rotate?: boolean
     }) => Promise<
@@ -3250,6 +3251,7 @@ export type PreloadApi = {
           qrDataUrl: string
           pairingUrl: string
           endpoint: string
+          endpoints: string[]
           deviceId: string
         }
     >
