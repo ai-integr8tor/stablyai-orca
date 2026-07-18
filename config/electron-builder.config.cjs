@@ -11,6 +11,10 @@ const {
   prunePackagedRuntimeNodeModules,
   verifyPackagedMainRuntimeDeps
 } = require('./packaged-runtime-node-modules.cjs')
+const {
+  createWindowsArchitectureResources,
+  getWindowsInstallerArtifactName
+} = require('./windows-package-architecture.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
@@ -49,10 +53,6 @@ const macSpeechNativeResource = {
 const linuxSpeechNativeResource = {
   from: 'node_modules/sherpa-onnx-linux-${arch}',
   to: 'node_modules/sherpa-onnx-linux-${arch}'
-}
-const winSpeechNativeResource = {
-  from: 'node_modules/sherpa-onnx-win-x64',
-  to: 'node_modules/sherpa-onnx-win-x64'
 }
 
 /** @type {import('electron-builder').Configuration} */
@@ -198,7 +198,7 @@ module.exports = {
     },
     extraResources: [
       ...commonExtraResources,
-      winSpeechNativeResource,
+      ...createWindowsArchitectureResources(),
       {
         from: 'resources/win32/bin/orca.cmd',
         to: 'bin/orca.cmd'
@@ -208,10 +208,6 @@ module.exports = {
         to: 'bin/orca.exe'
       },
       {
-        from: 'node_modules/agent-browser/bin/agent-browser-win32-x64.exe',
-        to: 'agent-browser-win32-x64.exe'
-      },
-      {
         from: 'native/computer-use-windows/runtime.ps1',
         to: 'computer-use-windows/runtime.ps1'
       },
@@ -219,7 +215,7 @@ module.exports = {
     ]
   },
   nsis: {
-    artifactName: 'orca-windows-setup.${ext}',
+    artifactName: getWindowsInstallerArtifactName(),
     shortcutName: '${productName}',
     uninstallDisplayName: '${productName}',
     createDesktopShortcut: 'always',

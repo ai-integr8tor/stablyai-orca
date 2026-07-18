@@ -155,6 +155,13 @@ vi.mock('./openai-transcription-client', () => ({
   OpenAiTranscriptionSession: MockOpenAiTranscriptionSession
 }))
 
+// Why: these tests exercise local dictation worker flows, which the platform
+// gate would reject when the test host itself is Windows ARM64.
+vi.mock('./speech-platform-support', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./speech-platform-support')>()),
+  assertLocalSpeechRecognitionSupported: vi.fn()
+}))
+
 import { IDLE_WORKER_TEARDOWN_MS, START_DICTATION_TIMEOUT_MS, SttService } from './stt-service'
 
 describe('SttService', () => {
@@ -162,6 +169,12 @@ describe('SttService', () => {
     resetCloudSessions()
     resetWorkers()
     readOpenAiSpeechApiKeyMock.mockClear()
+    // Why: the sherpa native package cannot resolve on hosts it is not
+    // published for (e.g. Windows ARM64); the mocked worker never loads it.
+    vi.spyOn(
+      SttService.prototype as unknown as { getSherpaModulePath: () => string },
+      'getSherpaModulePath'
+    ).mockReturnValue('/mock/sherpa-onnx')
   })
 
   it('reuses an idle warm worker for a second dictation with the same owner', async () => {

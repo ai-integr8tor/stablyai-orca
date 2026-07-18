@@ -10,6 +10,7 @@ const electronBuilderNativeRebuild = require('./electron-builder-native-rebuild.
 const {
   createPackagedRuntimeNodeModuleResources,
   findAsarEntry,
+  normalizeElectronTargetArchitecture,
   prunePackagedNodePty,
   prunePackagedParcelWatcher,
   prunePackagedSherpaOnnx,
@@ -19,6 +20,14 @@ const {
 } = require('../packaged-runtime-node-modules.cjs')
 
 describe('electron-builder config', () => {
+  it('normalizes string and numeric Electron target architectures', () => {
+    expect(normalizeElectronTargetArchitecture('x64')).toBe('x64')
+    expect(normalizeElectronTargetArchitecture(1)).toBe('x64')
+    expect(normalizeElectronTargetArchitecture('arm64')).toBe('arm64')
+    expect(normalizeElectronTargetArchitecture(3)).toBe('arm64')
+    expect(normalizeElectronTargetArchitecture(4)).toBeNull()
+  })
+
   it('excludes repo-only source trees from app.asar', () => {
     expect(electronBuilderConfig.files).toEqual(
       expect.arrayContaining([
@@ -193,11 +202,10 @@ describe('electron-builder config', () => {
         recursive: true
       })
 
-      prunePackagedNodePty(resourcesDir, 'darwin')
+      prunePackagedNodePty(resourcesDir, 'darwin', 'arm64')
 
       await expect(readdir(prebuildsDir).then((entries) => entries.sort())).resolves.toEqual([
-        'darwin-arm64',
-        'darwin-x64'
+        'darwin-arm64'
       ])
       await expect(
         readdir(join(resourcesDir, 'node_modules', 'node-pty', 'third_party'))
@@ -269,12 +277,11 @@ describe('electron-builder config', () => {
       await mkdir(join(parcelDir, 'watcher-linux-arm64-glibc'), { recursive: true })
       await mkdir(join(parcelDir, 'watcher-win32-x64'), { recursive: true })
 
-      prunePackagedParcelWatcher(resourcesDir, 'linux')
+      prunePackagedParcelWatcher(resourcesDir, 'linux', 'arm64')
 
       await expect(readdir(parcelDir).then((entries) => entries.sort())).resolves.toEqual([
         'watcher',
-        'watcher-linux-arm64-glibc',
-        'watcher-linux-x64-glibc'
+        'watcher-linux-arm64-glibc'
       ])
     } finally {
       await rm(resourcesDir, { recursive: true, force: true })

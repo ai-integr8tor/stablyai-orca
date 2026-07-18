@@ -8,6 +8,7 @@ import { getCatalogModel } from './model-catalog'
 import type { ModelManager } from './model-manager'
 import { OpenAiTranscriptionSession } from './openai-transcription-client'
 import { readOpenAiSpeechApiKey } from './openai-api-key-store'
+import { assertLocalSpeechRecognitionSupported } from './speech-platform-support'
 
 export const START_DICTATION_TIMEOUT_MS = 60_000
 const STOP_DICTATION_TIMEOUT_MS = 60_000
@@ -121,6 +122,8 @@ export class SttService {
       sink({ type: 'ready' })
       return
     }
+
+    assertLocalSpeechRecognitionSupported()
 
     if (this.cloudSession) {
       await this.stopDictation(owner, { cancelStarting: false })

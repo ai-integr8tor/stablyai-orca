@@ -239,12 +239,23 @@ function verifyPackagedMainRuntimeDeps(resourcesDir, asar = require('@electron/a
   }
 }
 
-function normalizeNodePtyWindowsArch(electronArch) {
-  if (electronArch === 'x64' || electronArch === 1) {
-    return 'x64'
+function normalizeElectronTargetArchitecture(electronArch) {
+  switch (electronArch) {
+    case 1:
+    case 'x64':
+      return 'x64'
+    case 3:
+    case 'arm64':
+      return 'arm64'
+    default:
+      return null
   }
-  if (electronArch === 'arm64' || electronArch === 3) {
-    return 'arm64'
+}
+
+function normalizeNodePtyWindowsArch(electronArch) {
+  const targetArchitecture = normalizeElectronTargetArchitecture(electronArch)
+  if (targetArchitecture) {
+    return targetArchitecture
   }
   return process.arch === 'arm64' ? 'arm64' : 'x64'
 }
@@ -301,11 +312,15 @@ function prunePackagedNodePty(resourcesDir, electronPlatformName, electronArch) 
   }
 
   const allowedPrebuildPrefix = NODE_PTY_PREBUILD_PREFIX_BY_PLATFORM[electronPlatformName]
+  const targetArchitecture = normalizeElectronTargetArchitecture(electronArch)
   if (allowedPrebuildPrefix) {
     const prebuildsDir = join(nodePtyDir, 'prebuilds')
     if (existsSync(prebuildsDir)) {
       for (const entry of readdirSync(prebuildsDir, { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.name.startsWith(allowedPrebuildPrefix)) {
+        const isTargetPrebuild =
+          entry.name.startsWith(allowedPrebuildPrefix) &&
+          (!targetArchitecture || entry.name === `${allowedPrebuildPrefix}${targetArchitecture}`)
+        if (entry.isDirectory() && !isTargetPrebuild) {
           rmSync(join(prebuildsDir, entry.name), { recursive: true, force: true })
         }
       }
@@ -322,7 +337,7 @@ function prunePackagedNodePty(resourcesDir, electronPlatformName, electronArch) 
   }
 }
 
-function prunePackagedParcelWatcher(resourcesDir, electronPlatformName) {
+function prunePackagedParcelWatcher(resourcesDir, electronPlatformName, electronArch) {
   const parcelDir = join(resourcesDir, 'node_modules', '@parcel')
   if (!existsSync(parcelDir)) {
     return
@@ -330,9 +345,10 @@ function prunePackagedParcelWatcher(resourcesDir, electronPlatformName) {
 
   // Why: we package every installed @parcel/watcher-<platform> optional
   // subpackage (supportedArchitectures fetches all), but each build only needs
-  // its own platform's binary. Keep the core package and the matching platform
-  // subpackages; drop the rest so a Linux serve doesn't ship macOS/Windows .node.
+  // its own target binary. Keep the core package and matching platform/arch
+  // subpackages; drop the rest so a package doesn't ship foreign .node files.
   const keepPrefix = PARCEL_WATCHER_PLATFORM_PREFIX_BY_PLATFORM[electronPlatformName]
+  const targetArchitecture = normalizeElectronTargetArchitecture(electronArch)
   for (const entry of readdirSync(parcelDir, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === 'watcher') {
       continue
@@ -342,7 +358,9 @@ function prunePackagedParcelWatcher(resourcesDir, electronPlatformName) {
     if (!entry.name.startsWith('watcher-')) {
       continue
     }
-    if (keepPrefix && entry.name.startsWith(keepPrefix)) {
+    const targetPrefix =
+      keepPrefix && targetArchitecture ? `${keepPrefix}-${targetArchitecture}` : keepPrefix
+    if (targetPrefix && entry.name.startsWith(targetPrefix)) {
       continue
     }
     rmSync(join(parcelDir, entry.name), { recursive: true, force: true })
@@ -390,7 +408,7 @@ function prunePackagedZodSources(resourcesDir) {
 
 function prunePackagedRuntimeNodeModules(resourcesDir, electronPlatformName, electronArch) {
   prunePackagedNodePty(resourcesDir, electronPlatformName, electronArch)
-  prunePackagedParcelWatcher(resourcesDir, electronPlatformName)
+  prunePackagedParcelWatcher(resourcesDir, electronPlatformName, electronArch)
   prunePackagedRuntimeTypeDeclarations(resourcesDir)
   prunePackagedSherpaOnnx(resourcesDir, electronPlatformName)
   prunePackagedZodSources(resourcesDir)
@@ -412,6 +430,7 @@ module.exports = {
   createPackagedRuntimeNodeModuleResources,
   findAsarEntry,
   isPackagedExternalSpecifier,
+  normalizeElectronTargetArchitecture,
   packageNameFromSpecifier,
   prunePackagedNodePty,
   prunePackagedParcelWatcher,

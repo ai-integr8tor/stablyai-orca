@@ -3,6 +3,8 @@ export type SpeechModelProvider = 'local' | 'openai'
 
 export type ModelingUnit = 'bpe' | 'cjkchar' | 'cjkchar+bpe'
 
+export const LOCAL_SPEECH_UNAVAILABLE_ERROR_CODE = 'voice_local_dictation_unavailable'
+
 export type SpeechModelManifest = {
   id: string
   label: string

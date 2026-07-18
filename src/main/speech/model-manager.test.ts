@@ -65,6 +65,20 @@ describe('ModelManager', () => {
     }
   })
 
+  it('does not report x64-only local model states on Windows ARM64', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-model-manager-arm64-'))
+    try {
+      const manager = new ModelManager(dir)
+      const states = await manager.getModelStates('win32', 'arm64')
+
+      expect(states.map((state) => state.id)).toEqual(
+        SPEECH_MODEL_CATALOG.filter((model) => model.provider === 'openai').map((model) => model.id)
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('verifies downloaded archive hashes before extraction', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-manager-'))
     try {
@@ -211,7 +225,9 @@ describe('ModelManager', () => {
       netRequestMock.mockReturnValue(request)
       const manager = new ModelManager(dir)
 
-      const download = manager.downloadModel(manifest.id)
+      // Why: pin a supported platform so the cancellation path is exercised
+      // even when the test host itself is Windows ARM64.
+      const download = manager.downloadModel(manifest.id, 'win32', 'x64')
       manager.cancelDownload(manifest.id)
       await expect(download).resolves.toBeUndefined()
 
