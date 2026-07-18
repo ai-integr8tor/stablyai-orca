@@ -172,10 +172,14 @@ test('resumes an agent session after a warm restart followed by daemon death', a
     const secondPtyId = await waitForActivePanePtyId(secondLaunch.page)
     expect(secondPtyId).toBe(firstPtyId)
 
-    // This is the red/green pivot: pre-fix, the warm-reattached pane's first
-    // spontaneous title-detection event carries no providerSession, and
-    // setAgentStatus deletes the persisted record on that event. Post-fix,
-    // the record survives hydration plus any such event.
+    // Verifies the persisted record survives the hydration round-trip across
+    // an app close/reopen with a live daemon (no hook/status traffic sent).
+    // NOTE: the title-event deletion path itself (a session-less title-derived
+    // setAgentStatus call wiping a persisted record's providerSession) is
+    // regression-guarded by the 'adopts the persisted record session for a
+    // same-agent session-less status event' test in agent-status.test.ts's
+    // 'provider session rehydration from persisted sleeping record' describe
+    // block, not by this e2e — this hermetic harness never emits that event.
     const recordId = await secondLaunch.page.evaluate(
       (paneKey) =>
         window.__store?.getState().sleepingAgentSessionsByPaneKey[paneKey]?.providerSession?.id,
