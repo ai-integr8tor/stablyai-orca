@@ -6,8 +6,10 @@ import {
 } from './native-chat-agent-support'
 
 describe('resolveNativeChatTranscriptAgent', () => {
-  it('maps OpenClaude onto the Claude transcript format', () => {
+  it('maps OpenClaude, CodeBuddy and CCB onto the Claude transcript format', () => {
     expect(resolveNativeChatTranscriptAgent('openclaude')).toBe('claude')
+    expect(resolveNativeChatTranscriptAgent('codebuddy')).toBe('claude')
+    expect(resolveNativeChatTranscriptAgent('ccb')).toBe('claude')
     expect(resolveNativeChatTranscriptAgent('claude')).toBe('claude')
   })
 
@@ -24,6 +26,8 @@ describe('isNativeChatSupportedAgent', () => {
   it('recognizes the parseable agents and rejects unknown / nullish input', () => {
     expect(isNativeChatSupportedAgent('claude')).toBe(true)
     expect(isNativeChatSupportedAgent('openclaude')).toBe(true)
+    expect(isNativeChatSupportedAgent('codebuddy')).toBe(true)
+    expect(isNativeChatSupportedAgent('ccb')).toBe(true)
     expect(isNativeChatSupportedAgent('cursor')).toBe(false)
     expect(isNativeChatSupportedAgent(null)).toBe(false)
     expect(isNativeChatSupportedAgent(undefined)).toBe(false)
@@ -31,9 +35,11 @@ describe('isNativeChatSupportedAgent', () => {
 })
 
 describe('shouldStepNativeChatAskAnswer', () => {
-  it('steps only the Claude-format agents (Claude, OpenClaude)', () => {
+  it('steps only the Claude-format agents (Claude, OpenClaude, CodeBuddy, CCB)', () => {
     expect(shouldStepNativeChatAskAnswer('claude')).toBe(true)
     expect(shouldStepNativeChatAskAnswer('openclaude')).toBe(true)
+    expect(shouldStepNativeChatAskAnswer('codebuddy')).toBe(true)
+    expect(shouldStepNativeChatAskAnswer('ccb')).toBe(true)
   })
 
   it('does not step other or unknown agents', () => {

@@ -55,3 +55,4 @@ Source-control and review changes must consider GitLab and other supported git p
 Be mindful of the user's `gh` CLI API rate limit — batch requests where possible and avoid unnecessary calls. All code, commands, and scripts must be compatible with macOS, Linux, and Windows.
 
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
+

@@ -7,6 +7,10 @@ import {
 import type { TuiAgent } from './types'
 import type { ExecutionHostId, ExecutionHostScope } from './execution-host'
 
+// Why: `ccb` (Claude Code Best) is intentionally omitted. It reuses Claude Code's
+// `~/.claude/projects` (shared `CLAUDE_CONFIG_DIR`), so its transcripts are already
+// scanned and labeled `claude`. Listing `ccb` here would duplicate every session
+// under a second identity with no new files to discover.
 export const AI_VAULT_AGENTS = [
   'claude',
   'codex',
@@ -23,7 +27,8 @@ export const AI_VAULT_AGENTS = [
   'openclaw',
   'devin',
   'droid',
-  'kimi'
+  'kimi',
+  'codebuddy'
 ] as const satisfies readonly TuiAgent[]
 
 // Why: the aiVault.listSessions RPC schema CLAMPS scopePaths to this bound
@@ -52,7 +57,8 @@ export const AI_VAULT_AGENT_LABELS = {
   openclaw: 'OpenClaw',
   devin: 'Devin',
   droid: 'Droid',
-  kimi: 'Kimi'
+  kimi: 'Kimi',
+  codebuddy: 'CodeBuddy'
 } as const satisfies Record<AiVaultAgent, string>
 
 export type AiVaultSessionPreviewMessage = {
@@ -321,6 +327,7 @@ function buildAgentResumeInvocation(
     case 'devin':
     case 'openclaw':
     case 'droid':
+    case 'codebuddy':
     // Why: OMP resumes by absolute transcript path (see buildAiVaultResumeCommand),
     // but the `--resume <arg>` invocation form is identical to the others here.
     case 'omp':

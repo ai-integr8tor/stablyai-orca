@@ -33,6 +33,7 @@ import type { AgentProviderSessionMetadata } from './agent-session-resume'
 // that consumes it from the relay side).
 export type AgentHookSource =
   | 'claude'
+  | 'codebuddy'
   | 'codex'
   | 'gemini'
   | 'antigravity'
