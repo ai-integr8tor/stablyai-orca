@@ -4449,7 +4449,7 @@ function SourceControlInner(): React.JSX.Element {
         })
         return
       }
-      const language = detectLanguage(entry.path)
+      const language = /\.markdown$/i.test(entry.path) ? 'markdown' : detectLanguage(entry.path)
       const filePath = joinPath(worktreePath, entry.path)
       // Why: unstaged markdown diffs open as a normal edit tab in Changes
       // view mode rather than a dedicated diff tab. This unifies sidebar
