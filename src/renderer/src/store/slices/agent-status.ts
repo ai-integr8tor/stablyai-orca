@@ -1977,14 +1977,25 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
             // Why: a hook-confirmed session change fulfills the cold-restore
             // claim (pty-connection.ts); release it so a later sleeping
             // session on this tab is not blocked by a stale claim.
+            const tabClaim = statusTabId
+              ? s.automaticAgentResumeClaimsByTabId[statusTabId]
+              : undefined
+            // Why: split panes share one tab-keyed claim slot, so only release it
+            // when it still belongs to the record actually being replaced here.
             if (
               statusTabId &&
               existingSleepingRecord &&
+              tabClaim &&
+              tabClaim.worktreeId === existingSleepingRecord.worktreeId &&
+              tabClaim.launchAgent === existingSleepingRecord.agent &&
+              providerSessionsEqual(
+                tabClaim.providerSession,
+                existingSleepingRecord.providerSession
+              ) &&
               !providerSessionsEqual(
                 existingSleepingRecord.providerSession,
                 liveRecoveryRecord.providerSession
-              ) &&
-              statusTabId in s.automaticAgentResumeClaimsByTabId
+              )
             ) {
               nextAutomaticAgentResumeClaimsByTabId = { ...s.automaticAgentResumeClaimsByTabId }
               delete nextAutomaticAgentResumeClaimsByTabId[statusTabId]
