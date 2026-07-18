@@ -598,6 +598,12 @@ export class AgentHookServer {
     if (agentType === 'droid' && request.intent === 'ctrl-c') {
       return false
     }
+    // Why: OMP and Pi consume plain Escape for TUI navigation. Their real
+    // turn interruptions still arrive through hook updates, so input-intent
+    // fallback must not synthesize a false stop from a lone Escape.
+    if ((agentType === 'omp' || agentType === 'pi') && request.intent === 'plain-escape') {
+      return false
+    }
     // Why: these agents use the first Escape as a TUI/editor cancel. A single
     // Escape can leave the turn running, so only a deliberate double Escape
     // may infer an interrupted turn.
