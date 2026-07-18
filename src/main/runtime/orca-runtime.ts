@@ -135,6 +135,7 @@ import type {
   MemorySnapshot,
   Tab,
   TabGroupLayoutNode,
+  TerminalQuickCommand,
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
   TerminalTab,
@@ -893,6 +894,7 @@ type RuntimeStore = {
     minimaxGroupId?: GlobalSettings['minimaxGroupId']
     minimaxUsageModels?: GlobalSettings['minimaxUsageModels']
     prBotAuthorOverrides?: GlobalSettings['prBotAuthorOverrides']
+    terminalQuickCommands?: GlobalSettings['terminalQuickCommands']
     gitlabProjects?: GlobalSettings['gitlabProjects']
     mobileAutoRestoreFitMs?: number | null
     mobileEmulatorEnabled?: boolean
@@ -2866,6 +2868,21 @@ export class OrcaRuntimeService {
       applyAgentStatusHooksEnabled(updates.agentStatusHooksEnabled)
     }
     return this.getClientSettings()
+  }
+
+  getClientTerminalQuickCommands(): TerminalQuickCommand[] {
+    if (!this.store?.getSettings) {
+      throw new Error('runtime_unavailable')
+    }
+    return this.store.getSettings().terminalQuickCommands ?? []
+  }
+
+  updateClientTerminalQuickCommands(commands: TerminalQuickCommand[]): TerminalQuickCommand[] {
+    if (!this.store?.getSettings || !this.store.updateSettings) {
+      throw new Error('runtime_unavailable')
+    }
+    this.store.updateSettings({ terminalQuickCommands: commands }, { notifyListeners: true })
+    return this.getClientTerminalQuickCommands()
   }
 
   updateClientPRBotAuthorOverride(args: { author: string; isBot: boolean }) {
@@ -19132,6 +19149,7 @@ export class OrcaRuntimeService {
       env?: Record<string, string>
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
+      agentPrompt?: string
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
@@ -19177,6 +19195,7 @@ export class OrcaRuntimeService {
       env?: Record<string, string>
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
+      agentPrompt?: string
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
@@ -19371,6 +19390,7 @@ export class OrcaRuntimeService {
       env?: Record<string, string>
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       agent?: TuiAgent
+      agentPrompt?: string
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
     }
@@ -19410,7 +19430,7 @@ export class OrcaRuntimeService {
     })
     const startupPlan = buildAgentStartupPlan({
       agent: opts.agent,
-      prompt: '',
+      prompt: opts.agentPrompt ?? '',
       cmdOverrides: settings.agentCmdOverrides ?? {},
       agentArgs: resolveTuiAgentLaunchArgs(opts.agent, settings.agentDefaultArgs),
       agentEnv: resolveTuiAgentLaunchEnv(opts.agent, settings.agentDefaultEnv),
@@ -19421,6 +19441,9 @@ export class OrcaRuntimeService {
     })
     if (!startupPlan) {
       throw new Error(`Could not build launch command for ${opts.agent}.`)
+    }
+    if (opts.agentPrompt && startupPlan.followupPrompt) {
+      throw new Error(`Agent ${opts.agent} does not support startup prompt quick commands.`)
     }
     if (workspace.connectionId) {
       await this.markRemoteWorkspaceTrustedForAgent(

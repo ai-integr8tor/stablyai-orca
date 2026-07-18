@@ -1,0 +1,202 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { RpcClient } from '../transport/rpc-client'
+import type { RpcFailure, RpcSuccess } from '../transport/types'
+import type { TerminalQuickCommand } from '../../../src/shared/types'
+
+type Args = {
+  client: RpcClient | null
+  // Fetch only while the sheet is open — quick commands are settings data we
+  // don't need to keep hydrated for every session screen.
+  enabled: boolean
+}
+
+type QuickCommandsState = {
+  commands: TerminalQuickCommand[]
+  loading: boolean
+  ready: boolean
+  error: string | null
+  // Optimistically apply against the latest local list, then serialize writes.
+  // The server re-normalizes and returns the canonical list, which we adopt.
+  persist: (update: (current: TerminalQuickCommand[]) => TerminalQuickCommand[]) => Promise<boolean>
+}
+
+type QuickCommandsUpdate = (current: TerminalQuickCommand[]) => TerminalQuickCommand[]
+
+type PendingMutation = {
+  id: number
+  update: QuickCommandsUpdate
+}
+
+type MutationContext = {
+  client: RpcClient
+  confirmed: TerminalQuickCommand[]
+  pending: PendingMutation[]
+  queue: Promise<void>
+  nextMutationId: number
+}
+
+function readQuickCommands(result: unknown): TerminalQuickCommand[] {
+  const list = (result as { terminalQuickCommands?: unknown } | null)?.terminalQuickCommands
+  return Array.isArray(list) ? (list as TerminalQuickCommand[]) : []
+}
+
+export function useQuickCommands({ client, enabled }: Args): QuickCommandsState {
+  const [commands, setCommands] = useState<TerminalQuickCommand[]>([])
+  const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const commandsRef = useRef<TerminalQuickCommand[]>([])
+  const operationIdRef = useRef(0)
+  const mutationContextRef = useRef<MutationContext | null>(null)
+
+  useEffect(() => {
+    if (!enabled || !client) {
+      setReady(false)
+      return
+    }
+    let mutationContext = mutationContextRef.current
+    if (mutationContext?.client !== client) {
+      // A request for an old host must not delay or update mutations on a new one.
+      mutationContext = {
+        client,
+        confirmed: [],
+        pending: [],
+        queue: Promise.resolve(),
+        nextMutationId: 0
+      }
+      mutationContextRef.current = mutationContext
+      commandsRef.current = []
+      setCommands([])
+    }
+    let stale = false
+    const operationId = operationIdRef.current + 1
+    operationIdRef.current = operationId
+    setLoading(true)
+    setReady(false)
+    setError(null)
+
+    void (async () => {
+      try {
+        // A close/reopen can overlap an in-flight save. Read only after that
+        // save settles so an older snapshot cannot replace its canonical result.
+        await mutationContext.queue
+        if (
+          stale ||
+          operationId !== operationIdRef.current ||
+          mutationContextRef.current !== mutationContext
+        ) {
+          return
+        }
+        const response = await client.sendRequest('settings.getTerminalQuickCommands')
+        if (
+          stale ||
+          operationId !== operationIdRef.current ||
+          mutationContextRef.current !== mutationContext
+        ) {
+          return
+        }
+        if (!response.ok) {
+          setError((response as RpcFailure).error.message || 'Failed to load quick commands')
+          return
+        }
+        const next = readQuickCommands((response as RpcSuccess).result)
+        mutationContext.confirmed = next
+        commandsRef.current = next
+        setCommands(next)
+        setReady(true)
+      } catch (err) {
+        if (
+          !stale &&
+          operationId === operationIdRef.current &&
+          mutationContextRef.current === mutationContext
+        ) {
+          setError(err instanceof Error ? err.message : 'Failed to load quick commands')
+        }
+      } finally {
+        if (
+          !stale &&
+          operationId === operationIdRef.current &&
+          mutationContextRef.current === mutationContext
+        ) {
+          setLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      stale = true
+    }
+  }, [client, enabled])
+
+  const persist = useCallback(
+    async (update: QuickCommandsUpdate) => {
+      // Mutating before the latest remote read completes could overwrite
+      // commands created by desktop while this sheet was closed.
+      const mutationContext = mutationContextRef.current
+      if (!client || loading || !ready || mutationContext?.client !== client) {
+        return false
+      }
+      const mutation: PendingMutation = {
+        id: mutationContext.nextMutationId + 1,
+        update
+      }
+      mutationContext.nextMutationId = mutation.id
+      mutationContext.pending.push(mutation)
+      const optimistic = update(commandsRef.current)
+      commandsRef.current = optimistic
+      setCommands(optimistic)
+      setError(null)
+
+      const send = async (): Promise<boolean> => {
+        let succeeded = false
+        let failureMessage: string | null = null
+        try {
+          // Why: an earlier queued save can fail or be normalized by the server.
+          // Rebase at send time so this caller's result matches what is persisted.
+          const rebased = update(mutationContext.confirmed)
+          const response = await client.sendRequest('settings.updateTerminalQuickCommands', {
+            terminalQuickCommands: rebased
+          })
+          if (!response.ok) {
+            throw new Error(
+              (response as RpcFailure).error.message || 'Failed to save quick command'
+            )
+          }
+          mutationContext.confirmed = readQuickCommands((response as RpcSuccess).result)
+          succeeded = true
+          return true
+        } catch (err) {
+          failureMessage = err instanceof Error ? err.message : 'Failed to save quick command'
+          return false
+        } finally {
+          mutationContext.pending = mutationContext.pending.filter(
+            (pending) => pending.id !== mutation.id
+          )
+          if (mutationContextRef.current === mutationContext) {
+            const next = mutationContext.pending.reduce(
+              (current, pending) => pending.update(current),
+              mutationContext.confirmed
+            )
+            commandsRef.current = next
+            setCommands(next)
+            const hasNewerMutation = mutationContext.pending.some(
+              (pending) => pending.id > mutation.id
+            )
+            if (!hasNewerMutation) {
+              setError(succeeded ? null : failureMessage)
+            }
+          }
+        }
+      }
+      const request = mutationContext.queue.then(send, send)
+      mutationContext.queue = request.then(
+        () => undefined,
+        () => undefined
+      )
+      return await request
+    },
+    [client, loading, ready]
+  )
+
+  return { commands, loading, ready, error, persist }
+}

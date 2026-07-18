@@ -41,6 +41,7 @@ import {
   RefreshCw,
   Send,
   Smartphone,
+  SquareChevronRight,
   SquareTerminal,
   X
 } from 'lucide-react-native'
@@ -75,6 +76,8 @@ import { useMobilePrBranchContext } from '../../../../src/session/use-mobile-pr-
 import { SessionDockColumn } from '../../../../src/session/SessionDockColumn'
 import { MobileSessionHeaderIconButton } from '../../../../src/session/MobileSessionHeaderIconButton'
 import { MobileSessionHeaderMoreActionsSheet } from '../../../../src/session/MobileSessionHeaderMoreActionsSheet'
+import { QuickCommandsSheet } from '../../../../src/session/QuickCommandsSheet'
+import { buildMobileQuickCommandLaunch } from '../../../../src/terminal/quick-commands'
 import { MOBILE_AI_VAULT_CAPABILITY } from '../../../../src/agent-history/agent-history-capability'
 import type { ConnectionState, RpcFailure, RpcSuccess } from '../../../../src/transport/types'
 import { headlessActivationNeedsHostRenderer } from '../../../../src/worktree/worktree-activation-result'
@@ -233,7 +236,7 @@ import {
 } from '../../../../src/session/mobile-session-create-warning-state'
 import { colors, spacing } from '../../../../src/theme/mobile-theme'
 import { styles } from './mobile-session-styles'
-import type { DiffComment } from '../../../../../src/shared/types'
+import type { DiffComment, TerminalQuickCommand } from '../../../../../src/shared/types'
 import type {
   DiffCommentActions,
   DiffNotesDelivery,
@@ -924,6 +927,7 @@ export default function SessionScreen() {
     createMobileSessionCreateWarningState(initialCreateWarning)
   )
   const [showCreateTabDrawer, setShowCreateTabDrawer] = useState(false)
+  const [showQuickCommands, setShowQuickCommands] = useState(false)
   const [createTabAgentLoadState, setCreateTabAgentLoadState] =
     useState<MobileNewTabAgentLoadState>('idle')
   const [createTabAgentOptions, setCreateTabAgentOptions] = useState<MobileNewTabAgentOption[]>([])
@@ -3939,7 +3943,17 @@ export default function SessionScreen() {
 
   async function handleCreateTerminal(
     agent?: MobileNewTabAgentOption['agent'],
-    options?: { initialPrompt?: string; onPromptSent?: () => void }
+    options?: {
+      initialPrompt?: string
+      onPromptSent?: () => void
+      startupCommand?: string
+      agentPrompt?: string
+      // Whether post-create text is submitted (Enter) or only inserted.
+      // Defaults to true for diff-note delivery.
+      enter?: boolean
+      successToast?: string
+      errorToast?: string
+    }
   ) {
     if (!client || creatingTerminalRef.current) {
       return
@@ -3962,6 +3976,8 @@ export default function SessionScreen() {
         worktree: `id:${worktreeId}`,
         afterTabId: activeSessionTabId ?? undefined,
         clientMutationId,
+        ...(options?.startupCommand ? { command: options.startupCommand } : {}),
+        ...(options?.agentPrompt ? { agentPrompt: options.agentPrompt } : {}),
         ...(agent ? { agent } : {})
       })
       if (response.ok) {
@@ -4019,7 +4035,7 @@ export default function SessionScreen() {
               .sendRequest('terminal.send', {
                 terminal: createdHandle,
                 text: options.initialPrompt,
-                enter: true,
+                enter: options.enter !== false,
                 ...(deviceTokenRef.current
                   ? { client: { id: deviceTokenRef.current, type: 'mobile' as const } }
                   : {})
@@ -4037,13 +4053,20 @@ export default function SessionScreen() {
                   throw new Error('Terminal input is locked by another client.')
                 }
                 triggerSuccess()
-                showToast('Notes sent')
+                showToast(options.successToast ?? 'Notes sent')
                 options.onPromptSent?.()
               })
               .catch((err) => {
                 triggerError()
-                showToast(err instanceof Error ? err.message : "Couldn't send notes", 1800)
+                showToast(
+                  options.errorToast ??
+                    (err instanceof Error ? err.message : "Couldn't send notes"),
+                  1800
+                )
               })
+          } else if (options?.successToast) {
+            triggerSuccess()
+            showToast(options.successToast)
           }
         } else {
           // Why: a prior pending handle must not outlive a create that returned
@@ -4054,14 +4077,51 @@ export default function SessionScreen() {
         }
         scheduleDelayedAction(() => void fetchSessionTabs(), 500)
       } else {
-        setCreateError('Failed to create terminal')
+        const message = options?.errorToast ?? 'Failed to create terminal'
+        setCreateError(message)
+        if (options?.errorToast) {
+          triggerError()
+          showToast(message, 1800)
+        }
       }
     } catch {
-      setCreateError('Failed to create terminal')
+      const message = options?.errorToast ?? 'Failed to create terminal'
+      setCreateError(message)
+      if (options?.errorToast) {
+        triggerError()
+        showToast(message, 1800)
+      }
     } finally {
       creatingTerminalRef.current = false
       setCreating(false)
     }
+  }
+
+  // Quick commands spawn a fresh terminal tab, mirroring desktop's
+  // run-quick-command-in-new-tab: agent prompts and runnable terminal commands
+  // use the host's shell-ready startup path; insert-only commands stay drafts.
+  function launchQuickCommand(command: TerminalQuickCommand): boolean {
+    if (
+      !client ||
+      connState !== 'connected' ||
+      creatingTerminalRef.current ||
+      creatingBrowser ||
+      creatingMarkdown
+    ) {
+      return false
+    }
+    const launch = buildMobileQuickCommandLaunch(command)
+    if (!launch) {
+      triggerError()
+      showToast('Edit this quick command before running it', 1800)
+      return false
+    }
+    const label = command.label.trim() || 'Quick command'
+    void handleCreateTerminal(launch.agent, {
+      ...launch.options,
+      errorToast: `Couldn't run ${label}`
+    })
+    return true
   }
 
   async function handleCreateMarkdownNote() {
@@ -4715,6 +4775,25 @@ export default function SessionScreen() {
               >
                 <Plus size={16} color={colors.textSecondary} strokeWidth={2.2} />
               </Pressable>
+              {/* Quick Commands launcher: sits with the new-tab button because,
+                  like +, it spawns a new terminal tab (running a saved command
+                  or launching an agent with a prompt). */}
+              <View style={styles.tabActionDivider} />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.newTerminalButton,
+                  pressed && styles.newTerminalButtonPressed,
+                  (creating || creatingBrowser || creatingMarkdown || connState !== 'connected') &&
+                    styles.newTerminalButtonDisabled
+                ]}
+                disabled={
+                  creating || creatingBrowser || creatingMarkdown || connState !== 'connected'
+                }
+                onPress={() => setShowQuickCommands(true)}
+                accessibilityLabel="Quick commands"
+              >
+                <SquareChevronRight size={16} color={colors.textSecondary} strokeWidth={2.2} />
+              </Pressable>
             </View>
           )}
         </SafeAreaView>
@@ -5259,6 +5338,15 @@ export default function SessionScreen() {
         onOpenAgentSessionHistory={openAgentSessionHistory}
         onOpenChecks={() => handlePanelTap('pr')}
         onClose={() => setShowHeaderMoreActions(false)}
+      />
+
+      <QuickCommandsSheet
+        visible={showQuickCommands}
+        onClose={() => setShowQuickCommands(false)}
+        client={client}
+        repoId={getRepoIdFromMobileWorktreeId(worktreeId) || null}
+        repoName={worktreeName || null}
+        onLaunch={launchQuickCommand}
       />
 
       <ActionSheetModal
