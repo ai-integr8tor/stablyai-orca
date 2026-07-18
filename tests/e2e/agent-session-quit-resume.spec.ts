@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { ElectronApplication } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
@@ -14,8 +14,64 @@ import {
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { attachRepoAndOpenTerminal, createRestartSession } from './helpers/orca-restart'
 import { PROTOCOL_VERSION } from '../../src/main/daemon/types'
+import { DEFAULT_LOCAL_ORCA_PROFILE_ID } from '../../src/shared/orca-profiles'
 
 const PROVIDER_SESSION_ID = 'e2e-quit-resume-session'
+
+type PersistedWorkspaceSession = {
+  sleepingAgentSessionsByPaneKey?: Record<
+    string,
+    {
+      providerSession?: { id?: unknown }
+      launchConfig?: {
+        agentCommand?: string
+        agentArgs?: string
+        agentEnv?: Record<string, string>
+      }
+    }
+  >
+}
+
+type PersistedData = {
+  workspaceSession?: PersistedWorkspaceSession
+}
+
+function dataFilePath(userDataDir: string): string {
+  // Fresh sessions migrate the seeded legacy file, then persist only here.
+  return path.join(userDataDir, 'profiles', DEFAULT_LOCAL_ORCA_PROFILE_ID, 'orca-data.json')
+}
+
+function readPersistedData(userDataDir: string): PersistedData {
+  return JSON.parse(readFileSync(dataFilePath(userDataDir), 'utf8')) as PersistedData
+}
+
+function writePersistedData(userDataDir: string, data: PersistedData): void {
+  writeFileSync(dataFilePath(userDataDir), `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+}
+
+// Why: the e2e proof should verify Orca launches the resumed command, not
+// depend on a developer machine having a real Codex CLI installed (mirrors
+// agent-session-live-force-exit-resume.spec.ts's stripPersistedPtyOwnership).
+function overrideResumeLaunchCommand(userDataDir: string, providerSessionId: string): void {
+  const data = readPersistedData(userDataDir)
+  const records = data.workspaceSession?.sleepingAgentSessionsByPaneKey
+  if (!records) {
+    throw new Error('Expected a persisted sleeping agent session record after quit')
+  }
+  let found = false
+  for (const record of Object.values(records)) {
+    if (record.providerSession?.id === providerSessionId) {
+      record.launchConfig = { agentCommand: 'echo', agentArgs: '', agentEnv: {} }
+      found = true
+    }
+  }
+  if (!found) {
+    throw new Error(
+      `No persisted sleeping agent record found for provider session ${providerSessionId}`
+    )
+  }
+  writePersistedData(userDataDir, data)
+}
 
 function readDaemonPid(userDataDir: string): number {
   const raw = readFileSync(
@@ -38,7 +94,6 @@ test('resumes an agent session after quit when its daemon PTY died while the app
     test.skip(true, 'Global setup did not produce a seeded test repo')
     return
   }
-  test.skip(process.platform === 'win32', 'Uses POSIX SIGKILL to simulate daemon death')
 
   const session = createRestartSession(testInfo)
   let firstApp: ElectronApplication | null = null
@@ -91,8 +146,12 @@ test('resumes an agent session after quit when its daemon PTY died while the app
 
     // Why: simulates the daemon (and the agent CLI inside it) dying while the
     // app is closed — reboot, crash, or update kill. SIGKILL leaves history
-    // checkpoints unclean so the relaunch takes the cold-restore path.
+    // checkpoints unclean so the relaunch takes the cold-restore path. On
+    // Windows, Node maps SIGKILL to TerminateProcess, giving the same abrupt
+    // "no clean shutdown" semantics as POSIX SIGKILL.
     process.kill(daemonPid, 'SIGKILL')
+
+    overrideResumeLaunchCommand(session.userDataDir, PROVIDER_SESSION_ID)
 
     const secondLaunch = await session.launch()
     secondApp = secondLaunch.app
