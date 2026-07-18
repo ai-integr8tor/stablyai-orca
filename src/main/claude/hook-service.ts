@@ -83,7 +83,7 @@ function getManagedScript(
       // spaces); a PowerShell post on top of that meant two interpreter
       // startups per hook. The post runs inside the .cmd (cmd.exe context), so
       // curl works the same here as for the POSIX/Codex hooks.
-      buildWindowsAgentHookCurlPostCommand('claude'),
+      buildWindowsAgentHookCurlPostCommand(hookSource),
       'exit /b 0',
       ...buildWindowsHookStdinDrainEpilogue(),
       ''

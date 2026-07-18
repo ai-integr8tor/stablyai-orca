@@ -7,6 +7,10 @@ import {
 import type { TuiAgent } from './types'
 import type { ExecutionHostId, ExecutionHostScope } from './execution-host'
 
+// Why: `ccb` (Claude Code Best) is intentionally omitted. It reuses Claude Code's
+// `~/.claude/projects` (shared `CLAUDE_CONFIG_DIR`), so its transcripts are already
+// scanned and labeled `claude`. Listing `ccb` here would duplicate every session
+// under a second identity with no new files to discover.
 export const AI_VAULT_AGENTS = [
   'claude',
   'codex',

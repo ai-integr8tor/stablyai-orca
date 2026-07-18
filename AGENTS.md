@@ -56,11 +56,3 @@ Be mindful of the user's `gh` CLI API rate limit — batch requests where possib
 
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
 
-
-<claude-mem-context>
-# Memory Context
-
-# [orca] recent context, 2026-07-17 10:45pm GMT+8
-
-No previous sessions found.
-</claude-mem-context>
