@@ -1715,9 +1715,24 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           existing?.agentType === identity.agentType &&
           !isAgentCompletionState(existing.state) &&
           !isAgentCompletionState(payload.state)
+        const existingSleepingRecord = s.sleepingAgentSessionsByPaneKey[paneKey]
+        // Why: after a warm app restart the in-memory map is empty and an idle
+        // reattached agent's first title-derived event ('waiting'/'blocked', so
+        // gate on payload.state !== 'done' rather than isAgentCompletionState)
+        // carries no hook session metadata; the persisted record is the only
+        // surviving source of its session id. Adopting it here also prevents the
+        // record-deletion branch below from wiping a still-valid resume record.
+        const rehydratedProviderSession =
+          existingSleepingRecord &&
+          existingSleepingRecord.agent === identity.agentType &&
+          existingSleepingRecord.state !== 'done' &&
+          payload.state !== 'done'
+            ? existingSleepingRecord.providerSession
+            : undefined
         const providerSession =
           metadata?.providerSession ??
-          (canReuseExistingIdentity ? existing.providerSession : undefined)
+          (canReuseExistingIdentity ? existing.providerSession : undefined) ??
+          rehydratedProviderSession
         const existingProviderSession = canReuseExistingIdentity
           ? existing.providerSession
           : undefined
@@ -1745,7 +1760,6 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         })
           ? registryEntry?.launchConfig
           : undefined
-        const existingSleepingRecord = s.sleepingAgentSessionsByPaneKey[paneKey]
         const retainsPiRecoveryIdentity =
           payload.state === 'done' &&
           identity.agentType === 'pi' &&
