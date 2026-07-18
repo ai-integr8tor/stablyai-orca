@@ -8476,8 +8476,29 @@ export class OrcaRuntimeService {
     return this.requireAccountServices().claudeAccounts.removeAccount(accountId)
   }
 
+  // Why: register a managed Claude account from a CLAUDE_CONFIG_DIR the caller
+  // already logged into. Lets the `orca account add` CLI drive `claude login` in
+  // the user's terminal on a headless host, then capture the credentials here —
+  // the desktop GUI's interactive add flow is unreachable over a remote runtime.
+  addClaudeAccountFromConfigDir(
+    configDir: string,
+    target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null }
+  ): Promise<ClaudeRateLimitAccountsState> {
+    return this.requireAccountServices().claudeAccounts.addAccountFromConfigDir(configDir, target)
+  }
+
   removeCodexAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
     return this.requireAccountServices().codexAccounts.removeAccount(accountId)
+  }
+
+  // Why: Codex counterpart of addClaudeAccountFromConfigDir — register a managed
+  // Codex account from a CODEX_HOME the caller already logged into, so headless
+  // hosts can add accounts via `orca account add --agent codex`.
+  addCodexAccountFromHome(
+    sourceHome: string,
+    target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null }
+  ): Promise<CodexRateLimitAccountsState> {
+    return this.requireAccountServices().codexAccounts.addAccountFromHome(sourceHome, target)
   }
 
   // Why: rate-limit polling fires every 5 minutes and on account switch.
