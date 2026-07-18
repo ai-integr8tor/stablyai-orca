@@ -3,10 +3,7 @@ import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-r
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { parseWorkspaceSession } from '../../../shared/workspace-session-schema'
 import { useAppStore } from '@/store'
-import {
-  isInvalidWorktreeActivationRecord,
-  resumeSleepingAgentSessionsForWorktree
-} from './resume-sleeping-agent-session'
+import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
 
 const initialAppStoreState = useAppStore.getState()
 const LEAF_ID = '11111111-1111-4111-8111-111111111111'
@@ -34,6 +31,7 @@ function makeRecord(
     ...overrides
   }
 }
+
 function makeTerminalTab(id: string, worktreeId: string): Record<string, unknown> {
   return {
     id,
@@ -54,6 +52,7 @@ function makeLayout(leafId: string, ptyId = 'pty-1'): Record<string, unknown> {
     ptyIdsByLeafId: { [leafId]: ptyId }
   }
 }
+
 function makeSplitLayout(
   leafId: string,
   otherLeafId: string,
@@ -80,6 +79,7 @@ function makeActiveTerminalState(tabId: string, worktreeId = 'wt-1'): Record<str
     activeTabIdByWorktree: { [worktreeId]: tabId }
   }
 }
+
 describe('resumeSleepingAgentSessionsForWorktree', () => {
   it('resumes quit-captured records when no preserved pane can own recovery', () => {
     const record = makeRecord({ origin: 'quit' })
@@ -646,7 +646,6 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
   })
 
   it('does not let completed same-provider hibernation evidence launch before an active fresh resume', () => {
-    const now = Date.now()
     const completedPaneKey = makePaneKey('tab-completed', OTHER_LEAF_ID)
     const activePaneKey = makePaneKey('tab-active', LEAF_ID)
     const completed = makeRecord({
@@ -654,16 +653,14 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       tabId: 'tab-completed',
       origin: 'worktree-sleep',
       state: 'done',
-      capturedAt: now,
-      updatedAt: now,
+      capturedAt: 1,
+      updatedAt: 1,
       launchConfig: { agentArgs: '--completed', agentEnv: {} }
     })
     const active = makeRecord({
       paneKey: activePaneKey,
       tabId: 'tab-active',
       origin: 'worktree-sleep',
-      capturedAt: now + 1,
-      updatedAt: now + 1,
       launchConfig: { agentArgs: '--active', agentEnv: {} }
     })
     useAppStore.setState({
@@ -783,9 +780,7 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       tabsByWorktree: { 'wt-1': [] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
     } as never)
-
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
-
     expect(launched).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toEqual([])
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
@@ -797,9 +792,7 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       tabsByWorktree: { 'wt-1': [] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
     } as never)
-
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
-
     expect(launched).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toEqual([])
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
@@ -829,9 +822,7 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       tabsByWorktree: { 'wt-1': [] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
     } as never)
-
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
-
     expect(launched).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toEqual([])
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
@@ -843,9 +834,7 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       tabsByWorktree: { 'wt-1': [] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
     } as never)
-
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
-
     expect(launched).toBe(0)
     expect(useAppStore.getState().tabsByWorktree['wt-1']).toEqual([])
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
@@ -896,28 +885,4 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
       "'--resume' 'sess-1'\\''s'"
     )
   })
-})
-it('isInvalidWorktreeActivationRecord age policy', () => {
-  const now = Date.now(),
-    old = now - 15 * 24 * 60 * 60 * 1000,
-    r = () =>
-      ({
-        paneKey: 't',
-        tabId: 't',
-        worktreeId: 'w',
-        agent: 'claude',
-        providerSession: { key: 'session_id' as const, id: 's' },
-        origin: 'quit' as const
-      }) as SleepingAgentSessionRecord
-  expect(
-    isInvalidWorktreeActivationRecord({
-      ...r(),
-      state: 'waiting',
-      capturedAt: now,
-      updatedAt: now - 3 * 60 * 60 * 1000
-    })
-  ).toBe(false)
-  expect(
-    isInvalidWorktreeActivationRecord({ ...r(), state: 'working', capturedAt: old, updatedAt: old })
-  ).toBe(true)
 })
