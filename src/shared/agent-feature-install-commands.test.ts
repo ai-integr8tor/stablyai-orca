@@ -12,6 +12,18 @@ import {
 } from './agent-feature-install-commands'
 
 describe('agent feature skill commands', () => {
+  it('builds a global install command by default', () => {
+    expect(buildAgentFeatureSkillInstallCommand(['orca-cli'])).toBe(
+      'npx skills add https://github.com/stablyai/orca --skill orca-cli --global'
+    )
+  })
+
+  it('drops --global when installing locally', () => {
+    expect(buildAgentFeatureSkillInstallCommand(['orca-cli'], { global: false })).toBe(
+      'npx skills add https://github.com/stablyai/orca --skill orca-cli'
+    )
+  })
+
   it('builds single-skill update commands', () => {
     expect(buildAgentFeatureSkillUpdateCommand('orchestration')).toBe(
       'npx skills update orchestration --global'
