@@ -46,6 +46,7 @@ import { ActionSheetModal, type ActionSheetAction } from '../src/components/Acti
 import { ConfirmModal } from '../src/components/ConfirmModal'
 import { setCachedWorktrees, getCachedWorktrees } from '../src/cache/worktree-cache'
 import { loadHomeSnapshot, saveHomeSnapshot } from '../src/cache/home-snapshot-cache'
+import { HomeUpdateSurface } from '../src/app-update/HomeUpdateSurface'
 import { colors, spacing, radii } from '../src/theme/mobile-theme'
 import {
   filterAvailableTaskProviders,
@@ -740,6 +741,8 @@ export default function HomeScreen() {
           <Settings size={18} color={colors.textSecondary} />
         </Pressable>
       </View>
+
+      <HomeUpdateSurface />
 
       {hosts.length === 0 ? (
         /* ─── Empty state: onboarding ─── */

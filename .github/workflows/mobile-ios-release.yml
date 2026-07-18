@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       bump_patch_version:
-        description: 'Bump the iOS marketing version patch number before release. Tick this after a version has shipped to the App Store (the release fails fast if the current version''s train is already closed).'
+        description: "Bump the iOS marketing version patch number before release. Tick this after a version has shipped to the App Store (the release fails fast if the current version's train is already closed)."
         required: false
         default: false
         type: boolean
@@ -30,6 +30,13 @@ jobs:
     # (@MainActor isolation). Xcode 16.x (macos-15) can't even parse it
     # ("unknown attribute 'MainActor'"), so we need Xcode 26.x → macos-26.
     runs-on: macos-26
+
+    # Why: this job builds + uploads only; it never pushes to the repo, so it
+    # runs on the default read-only token. The repo push lives in the separate
+    # publish-manifest job, which is the only one granted contents:write.
+    outputs:
+      released_version: ${{ steps.released_version.outputs.version }}
+      released_build_number: ${{ steps.released_version.outputs.build_number }}
 
     defaults:
       run:
@@ -125,6 +132,17 @@ jobs:
           FASTLANE_HIDE_CHANGELOG: '1'
         run: bundle exec fastlane ios release
 
+      - name: Capture released version
+        # Why: export the just-shipped marketing version + iOS build number
+        # (fastlane wrote both into app.json during prepare) so the manifest can
+        # detect TestFlight uploads that reuse the same x.y.z version.
+        id: released_version
+        run: |
+          VERSION="$(node -e "console.log(require('./app.json').expo.version)")"
+          BUILD_NUMBER="$(node -e "console.log(require('./app.json').expo.ios.buildNumber)")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
       - name: Upload .ipa artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -132,3 +150,87 @@ jobs:
           name: orca-mobile-ipa
           path: mobile/build/*.ipa
           if-no-files-found: ignore
+
+  # Why: isolated into its own job so the expensive macOS build keeps the
+  # default read-only token (least privilege) and only this cheap ubuntu job
+  # holds contents:write. Best-effort by design: a lagging manifest must never
+  # turn a successful TestFlight upload into a red run.
+  publish-manifest:
+    runs-on: ubuntu-latest
+    needs: ios-build
+    permissions:
+      contents: write
+    continue-on-error: true
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Bump latest-version.json
+        # Why: advance mobile/latest-version.json on main so installed apps can
+        # detect the new TestFlight build (iTunes Lookup only reports production
+        # versions). Reads the version/build exported by the build job. Retries
+        # the push once on non-fast-forward (main may advance meanwhile).
+        env:
+          RELEASED_VERSION: ${{ needs.ios-build.outputs.released_version }}
+          RELEASED_BUILD_NUMBER: ${{ needs.ios-build.outputs.released_build_number }}
+          TESTFLIGHT_CHANGELOG: ${{ github.event.inputs.testflight_changelog }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASED_VERSION" ]; then
+            echo "No released_version output from ios-build; skipping."
+            exit 0
+          fi
+          if [ -z "$RELEASED_BUILD_NUMBER" ]; then
+            echo "No released_build_number output from ios-build; skipping."
+            exit 0
+          fi
+          NOTES="${TESTFLIGHT_CHANGELOG:-Latest Orca Mobile updates and fixes.}"
+
+          write_manifest() {
+            node scripts/write-version-manifest.mjs "$RELEASED_VERSION" "$RELEASED_BUILD_NUMBER" "$NOTES"
+          }
+
+          commit_manifest() {
+            if git diff --quiet -- latest-version.json; then
+              echo "latest-version.json already at $RELEASED_VERSION ($RELEASED_BUILD_NUMBER); nothing to commit."
+              return 1
+            fi
+
+            git add latest-version.json
+            git commit -m "chore(mobile): bump latest-version manifest to $RELEASED_VERSION"
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          write_manifest
+          if ! commit_manifest; then
+            exit 0
+          fi
+
+          if ! git push origin main; then
+            # Why: another release can advance main first. Regenerate against
+            # fresh main instead of rebasing the stale JSON commit, which can
+            # conflict and drop the newer releaser's manifest update.
+            git fetch origin main
+            git checkout -B main origin/main
+            write_manifest
+            if ! commit_manifest; then
+              exit 0
+            fi
+            git push origin main
+          fi

@@ -68,7 +68,25 @@ jobs:
         run: npx expo prebuild --platform android --no-install
 
       - name: Build Android release APK
-        run: cd android && ./gradlew assembleRelease
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          ANDROID_VERSION_CODE: ${{ steps.release.outputs.android_version_code }}
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew assembleRelease
+          cd ..
+
+          apk_path="$(find android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
+          if [ -z "$apk_path" ]; then
+            echo "No release APK found"
+            exit 1
+          fi
+
+          # Why: same-version Android releases can differ only by versionCode,
+          # so clients parse this filename to detect versionCode-only APK bumps.
+          named_apk="android/app/build/outputs/apk/release/orca-mobile-android-v${RELEASE_VERSION}-${ANDROID_VERSION_CODE}.apk"
+          mv "$apk_path" "$named_apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7

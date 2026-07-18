@@ -5,6 +5,7 @@ import { ChevronLeft, Globe } from 'lucide-react-native'
 import Svg, { Path } from 'react-native-svg'
 import Constants from 'expo-constants'
 import { OrcaLogo } from '../src/components/OrcaLogo'
+import { useAppUpdateStore } from '../src/app-update/app-update-store'
 import { colors, spacing, typography } from '../src/theme/mobile-theme'
 
 // Why: read version + native build identifier from expo-constants at
@@ -15,8 +16,12 @@ function getVersionLabel(): string {
   const version = Constants.expoConfig?.version ?? '?.?.?'
   const build =
     Platform.OS === 'ios'
-      ? Constants.expoConfig?.ios?.buildNumber
-      : String(Constants.expoConfig?.android?.versionCode ?? '')
+      ? (Constants.platform?.ios?.buildNumber ?? Constants.expoConfig?.ios?.buildNumber)
+      : String(
+          Constants.platform?.android?.versionCode ??
+            Constants.expoConfig?.android?.versionCode ??
+            ''
+        )
   return build ? `v${version} (${build})` : `v${version}`
 }
 
@@ -39,6 +44,12 @@ function XIcon({ size = 16, color = colors.textSecondary }) {
 export default function AboutScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const updateAvailable = useAppUpdateStore((s) => s.status === 'available')
+  const latestVersion = useAppUpdateStore((s) => s.latestVersion)
+  const latestBuildNumber = useAppUpdateStore((s) => s.latestBuildNumber)
+  const latestVersionLabel = latestBuildNumber
+    ? `${latestVersion} (${latestBuildNumber})`
+    : latestVersion
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
@@ -82,6 +93,9 @@ export default function AboutScreen() {
       </View>
 
       <Text style={styles.versionText}>{getVersionLabel()}</Text>
+      {updateAvailable && latestVersion ? (
+        <Text style={styles.updateAvailableText}>Update available · v{latestVersionLabel}</Text>
+      ) : null}
     </View>
   )
 }
@@ -163,5 +177,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: typography.metaSize,
     color: colors.textMuted
+  },
+  updateAvailableText: {
+    marginTop: spacing.xs,
+    textAlign: 'center',
+    fontSize: typography.metaSize,
+    color: colors.accentBlue,
+    fontWeight: '600'
   }
 })
