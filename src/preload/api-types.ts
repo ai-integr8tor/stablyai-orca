@@ -364,6 +364,8 @@ import type {
   ClaudeUsageBreakdownKind,
   ClaudeUsageBreakdownRow,
   ClaudeUsageDailyPoint,
+  ClaudeUsageHourlyQuery,
+  ClaudeUsageHourlyResult,
   ClaudeUsageRange,
   ClaudeUsageScanState,
   ClaudeUsageScope,
@@ -408,6 +410,8 @@ import type {
   CodexUsageBreakdownKind,
   CodexUsageBreakdownRow,
   CodexUsageDailyPoint,
+  CodexUsageHourlyQuery,
+  CodexUsageHourlyResult,
   CodexUsageRange,
   CodexUsageScanState,
   CodexUsageScope,
@@ -419,6 +423,8 @@ import type {
   OpenCodeUsageBreakdownKind,
   OpenCodeUsageBreakdownRow,
   OpenCodeUsageDailyPoint,
+  OpenCodeUsageHourlyQuery,
+  OpenCodeUsageHourlyResult,
   OpenCodeUsageRange,
   OpenCodeUsageScanState,
   OpenCodeUsageScope,
@@ -426,6 +432,11 @@ import type {
   OpenCodeUsageSnapshot,
   OpenCodeUsageSummary
 } from '../shared/opencode-usage-types'
+import type {
+  LocalUsageHistoryHourlyQuery,
+  LocalUsageHistoryHourlyResult,
+  LocalUsageHistoryScanState
+} from '../shared/local-usage-history-types'
 import type {
   AiVaultListArgs,
   AiVaultListResult,
@@ -764,6 +775,7 @@ export type ClaudeUsageApi = {
     scope: ClaudeUsageScope
     range: ClaudeUsageRange
   }) => Promise<ClaudeUsageDailyPoint[]>
+  getHourly: (args: ClaudeUsageHourlyQuery) => Promise<ClaudeUsageHourlyResult>
   getBreakdown: (args: {
     scope: ClaudeUsageScope
     range: ClaudeUsageRange
@@ -793,6 +805,7 @@ export type CodexUsageApi = {
     scope: CodexUsageScope
     range: CodexUsageRange
   }) => Promise<CodexUsageDailyPoint[]>
+  getHourly: (args: CodexUsageHourlyQuery) => Promise<CodexUsageHourlyResult>
   getBreakdown: (args: {
     scope: CodexUsageScope
     range: CodexUsageRange
@@ -822,6 +835,7 @@ export type OpenCodeUsageApi = {
     scope: OpenCodeUsageScope
     range: OpenCodeUsageRange
   }) => Promise<OpenCodeUsageDailyPoint[]>
+  getHourly: (args: OpenCodeUsageHourlyQuery) => Promise<OpenCodeUsageHourlyResult>
   getBreakdown: (args: {
     scope: OpenCodeUsageScope
     range: OpenCodeUsageRange
@@ -832,6 +846,13 @@ export type OpenCodeUsageApi = {
     range: OpenCodeUsageRange
     limit?: number
   }) => Promise<OpenCodeUsageSessionRow[]>
+}
+
+export type LocalUsageHistoryApi = {
+  getScanState: () => Promise<LocalUsageHistoryScanState>
+  setEnabled: (args: { enabled: boolean }) => Promise<LocalUsageHistoryScanState>
+  refresh: (args?: { force?: boolean }) => Promise<LocalUsageHistoryScanState>
+  getHourly: (args: LocalUsageHistoryHourlyQuery) => Promise<LocalUsageHistoryHourlyResult>
 }
 
 export type AiVaultApi = {
@@ -2455,6 +2476,8 @@ export type PreloadApi = {
   claudeUsage: ClaudeUsageApi
   codexUsage: CodexUsageApi
   openCodeUsage: OpenCodeUsageApi
+  geminiUsage: LocalUsageHistoryApi
+  kimiUsage: LocalUsageHistoryApi
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
   fs: {
