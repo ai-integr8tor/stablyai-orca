@@ -31,6 +31,7 @@ import {
   AGENT_HOOK_REQUEST_REPLAY_METHOD,
   isRemoteAgentHooksEnabled
 } from '../../shared/agent-hook-relay'
+import type { RemoteAgentHookInstallReport } from '../../shared/agent-hook-types'
 import { _internals as openCodeInternals } from '../opencode/hook-service'
 import { getPiAgentStatusExtensionSource } from '../pi/agent-status-extension-source'
 import {
@@ -228,6 +229,7 @@ export class SshRelaySession {
   private hostPlatform: RemoteHostPlatform | null = null
   private remoteCliBridgeEnv: RemoteCliBridgeEnv | null = null
   private forwardedReattachReplayByPty = new Map<string, ForwardedReplayFingerprint>()
+  private agentHookInstallReport: RemoteAgentHookInstallReport | null = null
 
   constructor(
     readonly targetId: string,
@@ -307,6 +309,13 @@ export class SshRelaySession {
       remoteHome: env.remoteHome,
       hostPlatform: env.hostPlatform
     }
+  }
+
+  // Why: `agent hooks status` must report the host that runs the agent, not
+  // the local install it never reads (#8711). Null until the first install
+  // attempt of this session completes.
+  getAgentHookInstallReport(): RemoteAgentHookInstallReport | null {
+    return this.agentHookInstallReport
   }
 
   getPortScanner(): PortScanner | null {
@@ -643,7 +652,7 @@ export class SshRelaySession {
       return false
     }
 
-    await this.installManagedHooksOnRemote(mux)
+    await this.installManagedHooksOnRemote(mux, shouldContinue)
     if (shouldContinue && !shouldContinue()) {
       return false
     }
@@ -725,8 +734,18 @@ export class SshRelaySession {
   // files on the remote host to call Orca's managed script. Install those
   // configs before registering the PTY provider so newly spawned agent panes
   // report status from their first prompt.
-  private async installManagedHooksOnRemote(mux: SshChannelMultiplexer): Promise<void> {
+  private async installManagedHooksOnRemote(
+    mux: SshChannelMultiplexer,
+    shouldContinue?: () => boolean
+  ): Promise<void> {
     if (!isRemoteAgentHooksEnabled() || !this.areAgentStatusHooksEnabled()) {
+      this.recordAgentHookInstallReport(
+        null,
+        'skipped',
+        'agent status hooks are disabled',
+        [],
+        shouldContinue
+      )
       return
     }
     if (
@@ -735,6 +754,13 @@ export class SshRelaySession {
     ) {
       // Why: managed hook installers currently emit POSIX hook scripts and paths.
       // Windows remotes still get relay-injected env plus plugin overlays.
+      this.recordAgentHookInstallReport(
+        null,
+        'skipped',
+        'managed hook installers do not support Windows remotes',
+        [],
+        shouldContinue
+      )
       return
     }
 
@@ -747,15 +773,22 @@ export class SshRelaySession {
         console.warn(
           `[ssh-relay-session] skipped remote managed hook install for ${this.targetId}: could not resolve remote home`
         )
+        this.recordAgentHookInstallReport(
+          null,
+          'error',
+          'could not resolve remote home',
+          [],
+          shouldContinue
+        )
         return
       }
       remoteHome = result.resolvedPath
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
       console.warn(
-        `[ssh-relay-session] skipped remote managed hook install for ${this.targetId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+        `[ssh-relay-session] skipped remote managed hook install for ${this.targetId}: ${detail}`
       )
+      this.recordAgentHookInstallReport(null, 'error', detail, [], shouldContinue)
       return
     }
 
@@ -764,15 +797,50 @@ export class SshRelaySession {
       const connection = this.requireReadyConnection()
       const remoteGrokHome = await resolveRemoteGrokHome(connection, remoteHome)
       sftp = await connection.sftp()
-      await installRemoteManagedAgentHooks(sftp, remoteHome, { grokHomeDir: remoteGrokHome })
-    } catch (error) {
-      console.warn(
-        `[ssh-relay-session] remote managed hook install failed for ${this.targetId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+      const statuses = await installRemoteManagedAgentHooks(sftp, remoteHome, {
+        grokHomeDir: remoteGrokHome
+      })
+      const failed = statuses.filter((status) => status.state === 'error')
+      this.recordAgentHookInstallReport(
+        remoteHome,
+        failed.length === 0 ? 'installed' : 'partial',
+        failed.length === 0
+          ? null
+          : `${failed.length} agent hook install(s) failed on the remote host`,
+        statuses,
+        shouldContinue
       )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.warn(
+        `[ssh-relay-session] remote managed hook install failed for ${this.targetId}: ${detail}`
+      )
+      this.recordAgentHookInstallReport(remoteHome, 'error', detail, [], shouldContinue)
     } finally {
       ;(sftp as { end?: () => void } | null)?.end?.()
+    }
+  }
+
+  private recordAgentHookInstallReport(
+    remoteHome: string | null,
+    state: RemoteAgentHookInstallReport['state'],
+    detail: string | null,
+    statuses: RemoteAgentHookInstallReport['statuses'],
+    shouldContinue?: () => boolean
+  ): void {
+    // Why: an aborted reconnect can resolve its awaits after a newer attempt
+    // already reinstalled hooks; committing its stale outcome would misreport
+    // the newer attempt's state. Only the attempt that still owns the session
+    // may write the report.
+    if (shouldContinue && !shouldContinue()) {
+      return
+    }
+    this.agentHookInstallReport = {
+      targetId: this.targetId,
+      remoteHome,
+      state,
+      detail,
+      statuses
     }
   }
 

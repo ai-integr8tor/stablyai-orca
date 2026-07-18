@@ -18,6 +18,7 @@ import type {
 } from '../../shared/ssh-types'
 import { SSH_TERMINATE_RECONNECT_REQUIRED } from '../../shared/constants'
 import { isRuntimeOwnedSshTargetId } from '../../shared/execution-host'
+import type { RemoteAgentHookInstallReport } from '../../shared/agent-hook-types'
 import { isAuthError } from '../ssh/ssh-connection-utils'
 import { forceStopRelayForTarget } from '../ssh/ssh-relay-reset'
 import { isSshPtyNotFoundError } from '../providers/ssh-pty-provider'
@@ -149,6 +150,15 @@ export function getActiveSshAiVaultHostInfos(): SshRelayAiVaultHostInfo[] {
     }
     const info = session.getAiVaultHostInfo()
     return info ? [info] : []
+  })
+}
+
+// Why: host-aware `agent hooks status` (#8711) — each relay session records
+// where (and whether) managed hooks actually landed on its remote host.
+export function getActiveSshAgentHookInstallReports(): RemoteAgentHookInstallReport[] {
+  return [...activeSessions.values()].flatMap((session) => {
+    const report = session.getAgentHookInstallReport()
+    return report ? [report] : []
   })
 }
 
