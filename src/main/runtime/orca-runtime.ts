@@ -19998,7 +19998,7 @@ export class OrcaRuntimeService {
     if (pty) {
       const tabId = pty.pty.tabId
       if (!tabId) {
-        throw new Error('terminal_tab_not_found')
+        return this.closeTerminal(handle)
       }
       await this.closeMobileSessionTab(`id:${pty.pty.worktreeId}`, tabId)
       this.claudeAgentTeams.removeTeamForLeaderHandle(handle)
