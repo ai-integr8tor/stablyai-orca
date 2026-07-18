@@ -50,6 +50,7 @@ import {
   type TaskProvider
 } from '../src/tasks/mobile-task-providers'
 import { useResponsiveLayout } from '../src/layout/responsive-layout'
+import { useNow } from '../src/hooks/use-now'
 
 function endpointLabel(endpoint: string): string {
   try {
@@ -310,6 +311,7 @@ export default function HomeScreen() {
   const [worktreeInfo, setWorktreeInfo] = useState<Record<string, HostWorktreeInfo>>({})
   const [accountsByHost, setAccountsByHost] = useState<Record<string, AccountsSnapshot>>({})
   const visibleUsageProviders = useVisibleUsageProviders()
+  const now = useNow(60_000)
   const [taskProvidersByHost, setTaskProvidersByHost] = useState<Record<string, TaskProvider[]>>({})
   const [lastVisited, setLastVisited] = useState<{ hostId: string; worktreeId: string } | null>(
     null
@@ -942,6 +944,7 @@ export default function HomeScreen() {
                       visibleProviders={visibleUsageProviders}
                       showHostName={accountsHosts.length > 1}
                       hostName={host.name}
+                      now={now}
                       onPress={() => router.push(`/h/${host.id}/accounts`)}
                     />
                   ))}
