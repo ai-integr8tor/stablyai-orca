@@ -1716,12 +1716,8 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           !isAgentCompletionState(existing.state) &&
           !isAgentCompletionState(payload.state)
         const existingSleepingRecord = s.sleepingAgentSessionsByPaneKey[paneKey]
-        // Why: after a warm app restart the in-memory map is empty and an idle
-        // reattached agent's first title-derived event ('waiting'/'blocked', so
-        // gate on payload.state !== 'done' rather than isAgentCompletionState)
-        // carries no hook session metadata; the persisted record is the only
-        // surviving source of its session id. Adopting it here also prevents the
-        // record-deletion branch below from wiping a still-valid resume record.
+        // Why: after a warm restart a reattached agent's first event carries no
+        // session; rehydrating here also stops the deletion branch below from wiping it.
         const rehydratedProviderSession =
           existingSleepingRecord &&
           existingSleepingRecord.agent === identity.agentType &&
