@@ -66,6 +66,7 @@ import type {
 import type { TerminalViewAttributes } from '../shared/terminal-view-attributes'
 import type { WriteTerminalRenderDesyncEvidenceArgs } from '../shared/terminal-render-desync-evidence'
 import type { PtyMainDeliveryDiagnostics } from '../shared/pty-delivery-diagnostics'
+import type { PtyCleanupInspection, PtyInactiveCleanupResult } from '../shared/pty-inactive-cleanup'
 import type {
   WarpThemeImportPreview,
   WarpThemeImportSource
@@ -977,6 +978,10 @@ const api = {
 
     kill: (id: string, opts?: { keepHistory?: boolean }): Promise<void> =>
       ipcRenderer.invoke('pty:kill', { id, keepHistory: opts?.keepHistory ?? false }),
+    inspectInactiveCleanup: (ids: string[]): Promise<PtyCleanupInspection[]> =>
+      ipcRenderer.invoke('pty:inspectInactiveCleanup', { ids }),
+    killInactiveSessions: (ids: string[]): Promise<PtyInactiveCleanupResult[]> =>
+      ipcRenderer.invoke('pty:killInactiveSessions', { ids }),
 
     listSessions: (): Promise<{ id: string; cwd: string; title: string }[]> =>
       ipcRenderer.invoke('pty:listSessions'),

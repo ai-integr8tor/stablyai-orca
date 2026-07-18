@@ -64,6 +64,14 @@ import {
   isSshPtyNotFoundError
 } from '../providers/ssh-pty-provider'
 import { parseAppSshPtyId, toAppSshPtyId, toRelaySshPtyId } from '../providers/ssh-pty-id'
+import {
+  normalizePtyInactiveCleanupIds,
+  type PtyInactiveCleanupResult
+} from '../../shared/pty-inactive-cleanup'
+import {
+  inspectPtyInactiveCleanupTargets,
+  revalidatePtyInactiveCleanupTargets
+} from './pty-inactive-cleanup'
 import { createPtySpawnTiming } from './pty-spawn-timing'
 import { mintPtySessionId, isSafePtySessionId } from '../daemon/pty-session-id'
 import { addNodePtyRecoveryHint } from '../daemon/node-pty-error-hints'
@@ -466,6 +474,20 @@ function getProviderForStartupTerminalColorReply(ptyId: string): IPtyProvider | 
   const parsedSshId = parseAppSshPtyId(ptyId)
   if (parsedSshId) {
     return getProvider(parsedSshId.connectionId)
+  }
+  return localProvider
+}
+
+function resolveInactiveCleanupProvider(ptyId: string): IPtyProvider | null {
+  const ownedConnectionId = ptyOwnership.get(ptyId)
+  if (ownedConnectionId !== undefined) {
+    return ownedConnectionId ? (sshProviders.get(ownedConnectionId) ?? null) : localProvider
+  }
+  const parsedSshId = parseAppSshPtyId(ptyId)
+  if (parsedSshId) {
+    // Why: disconnected remote sessions must never be inspected or killed through
+    // the local provider merely because their SSH provider is temporarily absent.
+    return sshProviders.get(parsedSshId.connectionId) ?? null
   }
   return localProvider
 }
@@ -1550,6 +1572,8 @@ export function registerPtyHandlers(
   // (e.g. when macOS re-activates the app and creates a new window).
   ipcMain.removeHandler('pty:spawn')
   ipcMain.removeHandler('pty:kill')
+  ipcMain.removeHandler('pty:inspectInactiveCleanup')
+  ipcMain.removeHandler('pty:killInactiveSessions')
   ipcMain.removeHandler('pty:listSessions')
   ipcMain.removeHandler('pty:hasPty')
   ipcMain.removeHandler('pty:hasChildProcesses')
@@ -5118,12 +5142,11 @@ export function registerPtyHandlers(
     runtime?.clearHeadlessTerminalBuffer(args.id).catch(() => {})
   })
 
-  ipcMain.handle('pty:kill', async (_event, args: { id: string; keepHistory?: boolean }) => {
-    if (typeof args?.id !== 'string' || !args.id || args.id.startsWith('remote:')) {
-      // Why: runtime terminal handles belong to terminal.close; allowing them
-      // to fall through unowned PTY routing could target the local provider.
-      throw new Error('Invalid PTY provider id')
-    }
+  const shutdownPty = async (args: {
+    id: string
+    keepHistory?: boolean
+    disconnectedSshPolicy: 'tombstone' | 'fail-closed'
+  }): Promise<void> => {
     const ownedConnectionId = ptyOwnership.get(args.id)
     const parsedSshId = ownedConnectionId === undefined ? parseAppSshPtyId(args.id) : null
     const connectionId = ownedConnectionId ?? parsedSshId?.connectionId
@@ -5135,6 +5158,11 @@ export function registerPtyHandlers(
     }
     const provider = connectionId ? sshProviders.get(connectionId) : tryGetProviderForPty(args.id)
     if (!provider && connectionId) {
+      if (args.disconnectedSshPolicy === 'fail-closed') {
+        // Why: guarded cleanup cannot prove a disconnected remote PTY stopped;
+        // tombstoning it would report success while the agent may still run.
+        throw new Error('PTY provider disconnected before guarded shutdown')
+      }
       // Why: detached SSH PTYs intentionally keep ownership after their
       // provider is unregistered; hydrated app-scoped ids can also arrive
       // before ownership is rebuilt. Tombstone instead of falling back local.
@@ -5168,7 +5196,58 @@ export function registerPtyHandlers(
       rememberSyntheticKillExit(args.id)
       sendPtyExitToRenderer({ id: args.id, code: -1 })
     }
+  }
+
+  ipcMain.handle('pty:kill', async (_event, args: { id: string; keepHistory?: boolean }) => {
+    if (typeof args?.id !== 'string' || !args.id || args.id.startsWith('remote:')) {
+      // Why: runtime terminal handles belong to terminal.close; allowing them
+      // to fall through unowned PTY routing could target the local provider.
+      throw new Error('Invalid PTY provider id')
+    }
+    await shutdownPty({ ...args, disconnectedSshPolicy: 'tombstone' })
   })
+
+  ipcMain.handle('pty:inspectInactiveCleanup', async (_event, args: { ids?: unknown }) => {
+    const ids = normalizePtyInactiveCleanupIds(args?.ids)
+    return inspectPtyInactiveCleanupTargets(
+      ids.map((id) => ({ id, provider: resolveInactiveCleanupProvider(id) }))
+    )
+  })
+
+  ipcMain.handle(
+    'pty:killInactiveSessions',
+    async (_event, args: { ids?: unknown }): Promise<PtyInactiveCleanupResult[]> => {
+      const ids = normalizePtyInactiveCleanupIds(args?.ids)
+      // Why: classification is repeated at the destructive boundary because a
+      // reviewed shell may have started an agent while the dialog was open.
+      const inspections = await revalidatePtyInactiveCleanupTargets(
+        ids.map((id) => ({ id, provider: resolveInactiveCleanupProvider(id) }))
+      )
+      return Promise.all(
+        inspections.map(async ({ id, safety }): Promise<PtyInactiveCleanupResult> => {
+          if (safety === 'active') {
+            return { id, outcome: 'protected-active' }
+          }
+          if (safety === 'unknown') {
+            return { id, outcome: 'protected-unknown' }
+          }
+          if (safety === 'gone') {
+            return { id, outcome: 'gone' }
+          }
+          try {
+            await shutdownPty({
+              id,
+              keepHistory: false,
+              disconnectedSshPolicy: 'fail-closed'
+            })
+            return { id, outcome: 'killed' }
+          } catch {
+            return { id, outcome: 'failed' }
+          }
+        })
+      )
+    }
+  )
 
   ipcMain.handle(
     'pty:listSessions',
