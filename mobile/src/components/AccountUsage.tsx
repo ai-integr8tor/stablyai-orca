@@ -27,6 +27,7 @@ export {
   getInactiveProviderUsage,
   getProviderUsageWindows,
   getUsageBarState,
+  getWindowResetLabel,
   hasActiveProviderUsage,
   hasRenderableUsage
 } from './account-usage-state'
@@ -39,13 +40,15 @@ export function UsageBar({
   usedPercent,
   unavailable,
   loading,
-  labelWidth
+  labelWidth,
+  resetText
 }: {
   label: string
   usedPercent: number | null
   unavailable: boolean
   loading?: boolean
   labelWidth?: number
+  resetText?: string | null
 }) {
   // Round+clamp so width/color/label share one value (desktop parity); a
   // non-finite value counts as no data so the bar never renders `width: "NaN%"`.
@@ -63,29 +66,40 @@ export function UsageBar({
           ? colors.statusAmber
           : colors.statusGreen
   return (
-    <View style={styles.usageBar}>
-      <Text
-        style={[styles.usageLabel, labelWidth != null ? { width: labelWidth } : null]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-      <View style={styles.usageTrack}>
-        <View
-          style={[
-            styles.usageFill,
-            {
-              width: `${used ?? 0}%`,
-              backgroundColor: unavailable ? colors.textMuted : barColor
-            }
-          ]}
-        />
+    <View style={styles.usageBarColumn}>
+      <View style={styles.usageBar}>
+        <Text
+          style={[styles.usageLabel, labelWidth != null ? { width: labelWidth } : null]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+        <View style={styles.usageTrack}>
+          <View
+            style={[
+              styles.usageFill,
+              {
+                width: `${used ?? 0}%`,
+                backgroundColor: unavailable ? colors.textMuted : barColor
+              }
+            ]}
+          />
+        </View>
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={colors.textSecondary}
+            style={styles.usageSpinner}
+          />
+        ) : (
+          <Text style={styles.usageValue}>{unavailable || used == null ? '—' : `${used}%`}</Text>
+        )}
       </View>
-      {loading ? (
-        <ActivityIndicator size="small" color={colors.textSecondary} style={styles.usageSpinner} />
-      ) : (
-        <Text style={styles.usageValue}>{unavailable || used == null ? '—' : `${used}%`}</Text>
-      )}
+      {resetText ? (
+        <Text style={styles.usageResetText} numberOfLines={1}>
+          {resetText}
+        </Text>
+      ) : null}
     </View>
   )
 }
@@ -128,11 +142,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center'
   },
+  usageBarColumn: {
+    flex: 1,
+    gap: 2
+  },
   usageBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    flex: 1
+    gap: spacing.xs
   },
   usageLabel: {
     fontSize: typography.metaSize,
@@ -158,5 +175,12 @@ const styles = StyleSheet.create({
   },
   usageSpinner: {
     width: 36
+  },
+  // Why: indented past the window label so the countdown aligns with the
+  // start of the track above it.
+  usageResetText: {
+    fontSize: typography.metaSize,
+    color: colors.textMuted,
+    marginLeft: 22 + spacing.xs
   }
 })

@@ -20,6 +20,7 @@ import {
   LifeBuoy,
   Mic,
   Globe,
+  MessageSquare,
   Terminal as TerminalIcon,
   KeyRound,
   Gauge
@@ -112,6 +113,15 @@ export default function SettingsScreen() {
           >
             <TerminalIcon size={16} color={colors.textSecondary} />
             <Text style={styles.rowLabel}>Terminal</Text>
+            <ChevronRight size={16} color={colors.textMuted} />
+          </Pressable>
+          <View style={styles.separator} />
+          <Pressable
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            onPress={() => router.push('/native-chat-settings')}
+          >
+            <MessageSquare size={16} color={colors.textSecondary} />
+            <Text style={styles.rowLabel}>Native chat</Text>
             <ChevronRight size={16} color={colors.textMuted} />
           </Pressable>
           <View style={styles.separator} />
