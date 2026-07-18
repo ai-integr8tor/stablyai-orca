@@ -79,6 +79,22 @@ function getAgentStatusTabId(entry: {
   return separatorIndex === -1 ? null : entry.paneKey.slice(0, separatorIndex)
 }
 
+// Why: a pane's own cold-restore claim covers its still-present record until
+// a hook event replaces it (Task 2) — it must not read as a stale duplicate.
+function ownTabResumeClaimMatchesProviderSession(
+  record: SleepingAgentSessionRecord,
+  state: ReturnType<typeof useAppStore.getState>
+): boolean {
+  const tabId = getAgentStatusTabId(record)
+  const claim = tabId ? state.automaticAgentResumeClaimsByTabId[tabId] : undefined
+  return Boolean(
+    claim &&
+    claim.worktreeId === record.worktreeId &&
+    claim.launchAgent === record.agent &&
+    providerSessionsMatch(claim.providerSession, record.providerSession)
+  )
+}
+
 function activeOrQueuedResumeClaimsProviderSession(
   record: SleepingAgentSessionRecord,
   state: ReturnType<typeof useAppStore.getState>
@@ -112,8 +128,12 @@ function activeOrQueuedResumeClaimsProviderSession(
     }
   }
 
+  // Why: the record's own tab is handled by ownTabResumeClaimMatchesProviderSession
+  // instead — excluded here so its claim never triggers the clear-as-duplicate path.
+  const recordTabId = getAgentStatusTabId(record)
   for (const [tabId, claim] of Object.entries(state.automaticAgentResumeClaimsByTabId)) {
     if (
+      tabId !== recordTabId &&
       worktreeTabIds.has(tabId) &&
       claim.worktreeId === record.worktreeId &&
       claim.launchAgent === record.agent &&
@@ -179,6 +199,11 @@ export function resumeSleepingAgentSessionsForWorktree(
       if (!isPaneOwned || activeClaimKeys.has(claimKey)) {
         state.clearSleepingAgentSession(record.paneKey)
       }
+      continue
+    }
+    if (ownTabResumeClaimMatchesProviderSession(record, currentState)) {
+      // Why: the pane's own claim already covers this session (Task 2) — skip
+      // launching without clearing; the resumed agent's hook event replaces it.
       continue
     }
     if (activeOrQueuedResumeClaimsProviderSession(record, currentState)) {
