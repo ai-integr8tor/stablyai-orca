@@ -15,7 +15,15 @@ export type RateLimitWindow = {
 }
 
 export type ProviderRateLimits = {
-  provider: 'claude' | 'codex' | 'gemini' | 'opencode-go' | 'kimi'
+  provider:
+    | 'claude'
+    | 'codex'
+    | 'gemini'
+    | 'antigravity'
+    | 'opencode-go'
+    | 'kimi'
+    | 'minimax'
+    | 'grok'
   session: RateLimitWindow | null
   weekly: RateLimitWindow | null
   monthly?: RateLimitWindow | null
@@ -44,18 +52,90 @@ export type CodexAccountSummary = {
   workspaceLabel?: string | null
 }
 
+// Why: the host sends the full RateLimitState in every snapshot, so the extra
+// providers' data already arrives on the phone. The new fields are optional so
+// an old cached snapshot (home-snapshot-cache v1) that predates them stays a
+// valid value — selectors normalize a missing field to null via `?? null`.
 export type AccountsSnapshot = {
   claude: { accounts: ClaudeAccountSummary[]; activeAccountId: string | null }
   codex: { accounts: CodexAccountSummary[]; activeAccountId: string | null }
   rateLimits: {
     claude: ProviderRateLimits | null
     codex: ProviderRateLimits | null
+    gemini?: ProviderRateLimits | null
+    antigravity?: ProviderRateLimits | null
+    opencodeGo?: ProviderRateLimits | null
+    kimi?: ProviderRateLimits | null
+    minimax?: ProviderRateLimits | null
+    grok?: ProviderRateLimits | null
     inactiveClaudeAccounts: InactiveAccountUsage[]
     inactiveCodexAccounts: InactiveAccountUsage[]
   }
 }
 
-export type ProviderKey = 'claude' | 'codex'
+// Why: only Claude and Codex have Orca-managed accounts and interactive
+// switching (add/re-auth stays desktop-only). Everything else is display-only
+// usage, so account-switching selectors accept only this narrow type — a
+// display-only provider can never route to accounts.selectClaude/selectCodex.
+export type ManagedAccountProviderKey = 'claude' | 'codex'
+export type UsageProviderKey =
+  | ManagedAccountProviderKey
+  | 'gemini'
+  | 'antigravity'
+  | 'opencode-go'
+  | 'kimi'
+  | 'minimax'
+  | 'grok'
+
+// Kept as an alias so existing switching call sites stay constrained to the
+// two managed providers.
+export type ProviderKey = ManagedAccountProviderKey
+
+// The snapshot rateLimits field a provider's usage lives under. Distinct from
+// the wire id: OpenCode Go's id is 'opencode-go' but its field is 'opencodeGo'.
+type ProviderSnapshotField =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'antigravity'
+  | 'opencodeGo'
+  | 'kimi'
+  | 'minimax'
+  | 'grok'
+
+export type UsageProviderDescriptor = {
+  id: UsageProviderKey
+  label: string
+  snapshotField: ProviderSnapshotField
+  managed: boolean
+}
+
+// Single source that maps the stable preference/wire id to its snapshot field,
+// label, and whether it supports account switching. Drives iteration order,
+// visibility toggles, and field lookup.
+export const USAGE_PROVIDERS: readonly UsageProviderDescriptor[] = [
+  { id: 'claude', label: 'Claude', snapshotField: 'claude', managed: true },
+  { id: 'codex', label: 'Codex', snapshotField: 'codex', managed: true },
+  { id: 'gemini', label: 'Gemini', snapshotField: 'gemini', managed: false },
+  { id: 'antigravity', label: 'Antigravity', snapshotField: 'antigravity', managed: false },
+  { id: 'opencode-go', label: 'OpenCode Go', snapshotField: 'opencodeGo', managed: false },
+  { id: 'kimi', label: 'Kimi', snapshotField: 'kimi', managed: false },
+  { id: 'minimax', label: 'MiniMax', snapshotField: 'minimax', managed: false },
+  { id: 'grok', label: 'Grok', snapshotField: 'grok', managed: false }
+]
+
+export const USAGE_PROVIDER_IDS: readonly UsageProviderKey[] = USAGE_PROVIDERS.map((p) => p.id)
+
+// Providers shown by default when the user has never opened the filter — the
+// two primary agents, matching the phone's historical behavior and the rule
+// that the phone must not surface every provider at once.
+export const DEFAULT_VISIBLE_USAGE_PROVIDERS: readonly UsageProviderKey[] = ['claude', 'codex']
+
+export function getUsageProviderDescriptor(
+  provider: UsageProviderKey
+): UsageProviderDescriptor | null {
+  return USAGE_PROVIDERS.find((p) => p.id === provider) ?? null
+}
 
 export type UsageBarState = {
   usedPercent: number | null
@@ -65,14 +145,19 @@ export type UsageBarState = {
 
 export function getActiveProviderRateLimits(
   snapshot: AccountsSnapshot,
-  provider: ProviderKey
+  provider: UsageProviderKey
 ): ProviderRateLimits | null {
-  return provider === 'claude' ? snapshot.rateLimits.claude : snapshot.rateLimits.codex
+  const field = getUsageProviderDescriptor(provider)?.snapshotField
+  if (!field) {
+    return null
+  }
+  // `?? null` normalizes a field missing from an old cached snapshot.
+  return snapshot.rateLimits[field] ?? null
 }
 
 export function getInactiveProviderUsage(
   snapshot: AccountsSnapshot,
-  provider: ProviderKey,
+  provider: ManagedAccountProviderKey,
   accountId: string
 ): InactiveAccountUsage | null {
   const list =
@@ -119,6 +204,66 @@ export function getUsageBarState(
   }
 }
 
+export type UsageWindowRow = {
+  key: string
+  label: string
+  usedPercent: number
+  resetsAt: number | null
+}
+
+// Why: providers do not share one fixed pair of windows. Gemini reports named
+// per-model buckets, OpenCode Go reports a monthly window, others report
+// session (5h) / weekly (7d). Return the labelled rows a provider actually has
+// so display-only sections render each provider's real usage instead of two
+// hardcoded 5h/7d bars that would show dashes for buckets/monthly.
+export function getProviderUsageWindows(limits: ProviderRateLimits | null): UsageWindowRow[] {
+  if (!limits) {
+    return []
+  }
+  const buckets = limits.buckets ?? []
+  const rows: UsageWindowRow[] = []
+  // Why: named buckets replace only the synthesized session summary; independent
+  // weekly/monthly windows still belong beside them, matching desktop behavior.
+  if (buckets.length > 0) {
+    rows.push(
+      ...buckets.map((bucket, index) => ({
+        key: `bucket:${index}:${bucket.name}`,
+        label: bucket.name,
+        usedPercent: bucket.usedPercent,
+        resetsAt: bucket.resetsAt
+      }))
+    )
+  } else if (limits.session) {
+    rows.push({
+      key: 'session',
+      label: '5h',
+      usedPercent: limits.session.usedPercent,
+      resetsAt: limits.session.resetsAt
+    })
+  }
+  if (limits.weekly) {
+    rows.push({
+      key: 'weekly',
+      label: '7d',
+      usedPercent: limits.weekly.usedPercent,
+      resetsAt: limits.weekly.resetsAt
+    })
+  }
+  if (limits.monthly) {
+    rows.push({
+      key: 'monthly',
+      label: '30d',
+      usedPercent: limits.monthly.usedPercent,
+      resetsAt: limits.monthly.resetsAt
+    })
+  }
+  return rows
+}
+
+export function getUsageWindowResetLabel(window: UsageWindowRow, now: number): string | null {
+  return window.resetsAt == null ? null : formatResetCountdown(window.resetsAt - now)
+}
+
 /**
  * Reset countdown for one window, e.g. "Resets in 3h 54m" / "Resets now",
  * or null when the window has no reset timestamp (so the UI degrades to
@@ -143,10 +288,20 @@ export function getWindowResetLabel(
 // Why: the usage UI must render for the system-default login, not only for
 // Orca-managed accounts. Show a provider when it has at least one managed
 // account OR active rate-limit data for the system-default target.
-export function hasRenderableUsage(snapshot: AccountsSnapshot, provider: ProviderKey): boolean {
-  const accounts = provider === 'claude' ? snapshot.claude.accounts : snapshot.codex.accounts
-  if (accounts.length > 0) {
+export function hasRenderableUsage(
+  snapshot: AccountsSnapshot,
+  provider: UsageProviderKey
+): boolean {
+  const descriptor = getUsageProviderDescriptor(provider)
+  if (descriptor?.managed) {
+    const accounts = provider === 'claude' ? snapshot.claude.accounts : snapshot.codex.accounts
+    if (accounts.length > 0) {
+      return true
+    }
+  }
+  const limits = getActiveProviderRateLimits(snapshot, provider)
+  if (!descriptor?.managed && (limits?.status === 'fetching' || limits?.status === 'error')) {
     return true
   }
-  return hasActiveProviderUsage(getActiveProviderRateLimits(snapshot, provider))
+  return hasActiveProviderUsage(limits)
 }

@@ -13,13 +13,17 @@ import {
   loadPushNotificationsEnabled,
   loadTerminalAutocompleteEnabled,
   loadTerminalLinkOpenMode,
+  loadVisibleUsageProviders,
+  loadVisibleUsageProvidersSettled,
   readPushNotificationsPreference,
   readDisabledTerminalLiveInputHandlesPreference,
   saveDisabledTerminalLiveInputHandles,
   saveHostSidebarWidth,
   savePushNotificationsEnabled,
   saveTerminalAutocompleteEnabled,
-  saveTerminalLinkOpenMode
+  saveTerminalLinkOpenMode,
+  saveVisibleUsageProviders,
+  setUsageProviderVisible
 } from './preferences'
 import {
   loadDefaultSessionView,
@@ -453,5 +457,155 @@ describe('terminal link open mode preference', () => {
     await saveTerminalLinkOpenMode('phone-browser')
 
     expect(AsyncStorage.setItem).toHaveBeenCalledWith('orca:terminalLinkOpenMode', 'phone-browser')
+  })
+})
+
+describe('visible usage providers preference', () => {
+  beforeEach(() => {
+    vi.mocked(AsyncStorage.getItem).mockReset()
+    vi.mocked(AsyncStorage.setItem).mockReset()
+  })
+
+  it('defaults to Claude + Codex when never set', async () => {
+    vi.mocked(AsyncStorage.getItem).mockResolvedValue(null)
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex']))
+    expect(AsyncStorage.getItem).toHaveBeenCalledWith('orca:visibleUsageProviders')
+  })
+
+  it('round-trips a saved set in canonical order', async () => {
+    await saveVisibleUsageProviders(new Set(['grok', 'antigravity', 'claude', 'gemini']))
+
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      'orca:visibleUsageProviders',
+      JSON.stringify(['claude', 'gemini', 'antigravity', 'grok'])
+    )
+  })
+
+  it('drops unknown or stale ids on load', async () => {
+    vi.mocked(AsyncStorage.getItem).mockResolvedValue(
+      JSON.stringify(['claude', 'opencodeGo', 'bogus', 'grok'])
+    )
+
+    // 'opencodeGo' (field name, not the wire id) and 'bogus' are dropped.
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'grok']))
+  })
+
+  it('preserves an explicit empty set as "show none"', async () => {
+    vi.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify([]))
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set())
+  })
+
+  it('falls back to the default set for non-array corrupted JSON', async () => {
+    vi.mocked(AsyncStorage.getItem).mockResolvedValue(JSON.stringify({}))
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex']))
+  })
+
+  it('falls back to the default set when storage cannot be read', async () => {
+    vi.mocked(AsyncStorage.getItem).mockRejectedValue(new Error('storage unavailable'))
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex']))
+  })
+})
+
+describe('setUsageProviderVisible (serialized read-modify-write)', () => {
+  // Back the mock with an in-memory value so a toggle's read sees the prior
+  // write — the whole point of the serialized read-modify-write.
+  let store: string | null
+  beforeEach(() => {
+    store = null
+    vi.mocked(AsyncStorage.getItem)
+      .mockReset()
+      .mockImplementation(async () => store)
+    vi.mocked(AsyncStorage.setItem)
+      .mockReset()
+      .mockImplementation(async (_key, value) => {
+        store = value as string
+      })
+  })
+
+  // The bug: a toggle that persisted the whole set against a stale base dropped
+  // a provider it never touched. Re-reading the latest set keeps it.
+  it('adds a provider without dropping a stored-only one (the Grok race)', async () => {
+    store = JSON.stringify(['claude', 'codex', 'grok'])
+
+    const result = await setUsageProviderVisible('gemini', true)
+
+    expect(result).toEqual(new Set(['claude', 'codex', 'gemini', 'grok']))
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(
+      new Set(['claude', 'codex', 'gemini', 'grok'])
+    )
+  })
+
+  it('removes only the toggled provider', async () => {
+    store = JSON.stringify(['claude', 'codex', 'grok'])
+
+    await setUsageProviderVisible('grok', false)
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex']))
+  })
+
+  it('serializes concurrent toggles so neither is lost', async () => {
+    store = JSON.stringify(['claude', 'codex'])
+
+    await Promise.all([
+      setUsageProviderVisible('grok', true),
+      setUsageProviderVisible('gemini', true)
+    ])
+
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(
+      new Set(['claude', 'codex', 'gemini', 'grok'])
+    )
+  })
+
+  it('aborts the write (keeps the stored set) when the read fails', async () => {
+    store = JSON.stringify(['claude', 'codex', 'grok'])
+    vi.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('read blip'))
+
+    await expect(setUsageProviderVisible('gemini', true)).rejects.toThrow()
+    // The stored set is untouched — a transient read failure must not persist
+    // the default and drop Grok.
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex', 'grok']))
+  })
+
+  it('self-heals malformed stored JSON by re-basing on the default', async () => {
+    store = 'not json{'
+
+    await setUsageProviderVisible('grok', true)
+
+    // Malformed content is corrupt, not an I/O failure: re-base on the default
+    // and rewrite so the toggle repairs the stored value instead of rejecting.
+    await expect(loadVisibleUsageProviders()).resolves.toEqual(new Set(['claude', 'codex', 'grok']))
+  })
+
+  it('loadVisibleUsageProvidersSettled waits for an in-flight toggle', async () => {
+    store = JSON.stringify(['claude', 'codex'])
+
+    const pending = setUsageProviderVisible('grok', true)
+    const settled = await loadVisibleUsageProvidersSettled()
+    await pending
+
+    expect(settled).toEqual(new Set(['claude', 'codex', 'grok']))
+  })
+
+  it('waits again when a toggle is queued while the settled read is in progress', async () => {
+    store = JSON.stringify(['claude', 'codex'])
+    const staleRead = deferred<string | null>()
+    let readCount = 0
+    vi.mocked(AsyncStorage.getItem).mockImplementation(async () => {
+      readCount += 1
+      return readCount === 1 ? staleRead.promise : store
+    })
+
+    const settled = loadVisibleUsageProvidersSettled()
+    await vi.waitFor(() => expect(AsyncStorage.getItem).toHaveBeenCalledTimes(1))
+
+    const pending = setUsageProviderVisible('grok', true)
+    staleRead.resolve(JSON.stringify(['claude', 'codex']))
+
+    await pending
+    await expect(settled).resolves.toEqual(new Set(['claude', 'codex', 'grok']))
   })
 })
