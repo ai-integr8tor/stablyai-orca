@@ -59,6 +59,7 @@ function renderMenu(overrides: Record<string, unknown> = {}): void {
     menuPaneIsExpanded: false,
     onCopy: vi.fn(),
     onPaste: vi.fn(),
+    canSplitPane: true,
     onSplitRight: vi.fn(),
     onSplitDown: vi.fn(),
     keybindings: {},
@@ -131,5 +132,34 @@ describe('TerminalContextMenu', () => {
     expect(shortcuts.list).toContain('Ctrl+Shift+D')
     expect(shortcuts.list).toContain('Alt+Shift+D')
     expect(shortcuts.list.some((shortcut) => shortcut.includes(','))).toBe(false)
+  })
+
+  it('omits split actions from fixed maintained-grid context menus', () => {
+    renderMenu({ canSplitPane: false })
+
+    expect(items.list.find((item) => childrenText(item.children) === 'Split Terminal Right')).toBe(
+      undefined
+    )
+    expect(items.list.find((item) => childrenText(item.children) === 'Split Terminal Down')).toBe(
+      undefined
+    )
+  })
+
+  it('keeps ordinary context-menu split actions enabled', () => {
+    const onSplitRight = vi.fn()
+    const onSplitDown = vi.fn()
+    renderMenu({ canSplitPane: true, onSplitRight, onSplitDown })
+
+    const splitRight = items.list.find(
+      (item) => childrenText(item.children) === 'Split Terminal Right'
+    )
+    const splitDown = items.list.find(
+      (item) => childrenText(item.children) === 'Split Terminal Down'
+    )
+    splitRight?.onSelect?.()
+    splitDown?.onSelect?.()
+
+    expect(onSplitRight).toHaveBeenCalledOnce()
+    expect(onSplitDown).toHaveBeenCalledOnce()
   })
 })

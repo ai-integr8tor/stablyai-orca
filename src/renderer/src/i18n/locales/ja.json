@@ -13360,6 +13360,11 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    },
+    "terminal": {
+      "pane": {
+        "fixedGridSplitExplanation": "Pane layout is managed by this grid"
+      }
     }
   },
   "browser": {

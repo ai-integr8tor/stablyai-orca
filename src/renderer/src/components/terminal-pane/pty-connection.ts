@@ -969,10 +969,37 @@ function isSetupSplitGeometryReady(
  * Establishes a binding between a terminal pane and its corresponding PTY stream,
  * managing input, output, title synchronization, and agent status tracking.
  */
+type PanePtyConnectionDeps = PtyConnectionDeps & {
+  /** A split acknowledgement created this pane for an already-running PTY. */
+  trustedAdoptPtyId?: string
+  /** Keeps a partially-disposed binding reachable by pane rollback cleanup. */
+  retainFailedBinding?: (binding: PanePtyBinding) => void
+}
+
+function runPtyConnectionCleanupLedger(cleanups: (() => void)[]): void {
+  const cleanupErrors: unknown[] = []
+  const failedCleanups: (() => void)[] = []
+  for (const cleanup of cleanups) {
+    try {
+      cleanup()
+    } catch (error) {
+      cleanupErrors.push(error)
+      failedCleanups.push(cleanup)
+    }
+  }
+  cleanups.splice(0, cleanups.length, ...failedCleanups)
+  if (cleanupErrors.length === 1) {
+    throw cleanupErrors[0]
+  }
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, 'PTY connection resource cleanup failed')
+  }
+}
+
 export function connectPanePty(
   pane: ManagedPane,
   manager: PaneManager,
-  deps: PtyConnectionDeps
+  deps: PanePtyConnectionDeps
 ): PanePtyBinding {
   const shouldRefreshForegroundSynchronously = (): boolean => !manager.hasWebglRenderer(pane.id)
   // Why: recovery ownership belongs to this xterm instance. A request that
@@ -981,6 +1008,8 @@ export function connectPanePty(
   const terminalRecoveryInstance = registerTerminalPaneRecoveryInstance(deps.tabId)
   exposeE2eTerminalPtyOutputDebug()
   let disposed = false
+  let pendingDisposeSteps: (() => void)[] | null = null
+  let clearStartupLaunchConfigOnDispose = false
   const structuralReplayCoordinator = createTerminalStructuralReplayCoordinator(pane.terminal)
   let connectFrame: number | null = null
   let connectFallbackTimer: ReturnType<typeof setTimeout> | null = null
@@ -1061,6 +1090,10 @@ export function connectPanePty(
   // mutation does not propagate back.
   const paneStartup = deps.startup ?? null
   deps.startup = undefined
+  const trustedAdoptPtyId =
+    deps.trustedAdoptPtyId && !isRemoteRuntimePtyId(deps.trustedAdoptPtyId)
+      ? deps.trustedAdoptPtyId
+      : null
 
   // Why: paneKey crosses PTY env, hook IPC, retained rows, and reload/replay.
   // Use the stable layout leaf UUID, not the renderer-local numeric pane id.
@@ -2733,8 +2766,10 @@ export function connectPanePty(
     ptyId: string,
     options: {
       seedInitialAgentStatus?: boolean
-      updateTabPtyId?: 'always' | 'if-missing'
+      syncPanePtyLayoutBinding?: 'always' | 'if-missing' | 'never'
+      updateTabPtyId?: 'always' | 'if-missing' | 'never'
       sampleVisibleForegroundAgent?: boolean
+      publishRuntimeGraph?: boolean
     } = {}
   ): void => {
     if (activePanePtyBinding && activePanePtyBinding !== ptyId) {
@@ -2748,17 +2783,30 @@ export function connectPanePty(
     activePanePtyBindingBoundAt = performance.now()
     registerSideEffectFactConsumerForPty(ptyId)
     syncHiddenRendererPtyDelivery()
-    deps.syncPanePtyLayoutBinding(pane.id, ptyId)
-    const tabPtyIds = useAppStore.getState().ptyIdsByTabId?.[deps.tabId] ?? []
-    if (options.updateTabPtyId !== 'if-missing' || !tabPtyIds.includes(ptyId)) {
+    const currentState = useAppStore.getState()
+    const publishedLeafPtyId =
+      currentState.terminalLayoutsByTabId?.[deps.tabId]?.ptyIdsByLeafId?.[pane.leafId]
+    if (
+      options.syncPanePtyLayoutBinding !== 'never' &&
+      (options.syncPanePtyLayoutBinding !== 'if-missing' || publishedLeafPtyId !== ptyId)
+    ) {
+      deps.syncPanePtyLayoutBinding(pane.id, ptyId)
+    }
+    const tabPtyIds = currentState.ptyIdsByTabId?.[deps.tabId] ?? []
+    if (
+      options.updateTabPtyId !== 'never' &&
+      (options.updateTabPtyId !== 'if-missing' || !tabPtyIds.includes(ptyId))
+    ) {
       deps.updateTabPtyId(deps.tabId, ptyId)
     }
     if (options.seedInitialAgentStatus) {
       applyInitialAgentStatus()
     }
-    // Spawn/attach completion is when a pane gains a concrete PTY ID. The initial
-    // frame-level sync often runs before that async result arrives.
-    scheduleRuntimeGraphSync()
+    // Spawn/attach completion is when a pane gains a concrete PTY ID. Main-owned
+    // staged splits publish only from the renderer acknowledgement's afterCommit.
+    if (options.publishRuntimeGraph !== false) {
+      scheduleRuntimeGraphSync()
+    }
     agentCompletionCoordinator.startProcessTracking()
     // Why: fresh spawns normally rely on a future OSC 133 command-start read to
     // identify the launched agent; only adopted or restored PTYs may already be
@@ -4126,11 +4174,12 @@ export function connectPanePty(
         pane.terminal.onTitleChange(handler)
       )
       const origOnDataDisposableDispose = onDataDisposable.dispose.bind(onDataDisposable)
-      onDataDisposable.dispose = () => {
-        unregisterTitleSource()
-        unregisterSerializer()
-        origOnDataDisposableDispose()
-      }
+      const serializerCleanupLedger = [
+        unregisterTitleSource,
+        unregisterSerializer,
+        origOnDataDisposableDispose
+      ]
+      onDataDisposable.dispose = () => runPtyConnectionCleanupLedger(serializerCleanupLedger)
     }
 
     let replayWriteQueue = Promise.resolve()
@@ -4178,7 +4227,7 @@ export function connectPanePty(
     // writes via the shell-ready barrier. terminal-paste and SSH startup
     // commands stay renderer-delivered so xterm/relay can apply their handling.
     let pendingStartupCommand: PendingStartupCommand | null =
-      shouldDeliverStartupViaTerminalPaste || connectionId
+      !trustedAdoptPtyId && (shouldDeliverStartupViaTerminalPaste || connectionId)
         ? paneStartup?.command
           ? { command: paneStartup.command }
           : null
@@ -7480,6 +7529,34 @@ export function connectPanePty(
       return true
     }
 
+    if (trustedAdoptPtyId) {
+      // Why: main still owns this staged PTY until this synchronous call returns;
+      // attach failure must reject the split acknowledgement, never surface later.
+      clearPaneMode2031State()
+      clearHiddenOutputRestoreState()
+      transport.attach({
+        existingPtyId: trustedAdoptPtyId,
+        cols,
+        rows,
+        callbacks: {
+          onData: dataCallback,
+          onReplayData: replayDataCallback,
+          onError: reportError
+        }
+      })
+      const attachedPtyId = transport.getPtyId() ?? trustedAdoptPtyId
+      bindActivePanePty(attachedPtyId, {
+        // Why: main commits the acknowledged layout after this call; adoption
+        // must not publish or persist the staged identity from the renderer.
+        syncPanePtyLayoutBinding: 'never',
+        updateTabPtyId: 'never',
+        publishRuntimeGraph: false,
+        sampleVisibleForegroundAgent: true
+      })
+      registerPaneSerializerFor(attachedPtyId)
+      return
+    }
+
     // Why: if this tab has a deferred SSH session ID, trigger the SSH
     // connection now that the user has focused the tab. We check per-tab
     // (not per-target) because multiple tabs for the same target each need
@@ -8106,11 +8183,6 @@ export function connectPanePty(
     scheduleRuntimeGraphSync()
   }
 
-  // Why: Wayland/CI compositors can keep timers and CDP responsive while the
-  // next rAF never arrives; the terminal must still start its PTY once.
-  connectFallbackTimer = setTimeout(runDeferredConnect, 250)
-  connectFrame = requestAnimationFrame(runDeferredConnect)
-
   // Why: on visibility resume a pane may still be bound to a daemon session
   // reaped while hidden (the missed-exit defect). Route it through the SAME
   // teardown a real onExit runs. Re-validate identity at apply time so a
@@ -8189,7 +8261,7 @@ export function connectPanePty(
       .catch(() => {})
   }
 
-  return {
+  const binding: PanePtyBinding = {
     syncProcessTracking() {
       agentCompletionCoordinator.startProcessTracking()
       // Why: the lifecycle hook calls this on every pane visibility flip —
@@ -8268,120 +8340,210 @@ export function connectPanePty(
     reconcileIfSessionDead,
     reconcileIfSessionMissing,
     dispose() {
+      if (pendingDisposeSteps?.length === 0) {
+        return
+      }
+      if (pendingDisposeSteps) {
+        runPtyConnectionCleanupLedger(pendingDisposeSteps)
+        return
+      }
       disposed = true
+      const cleanups: (() => void)[] = []
       cancelPendingSafeFitContinuations(pane)
       pendingHiddenSnapshotFit = null
       pendingReattachFit = null
       // A normal park/reconnect/remount does not advance the recovery epoch;
       // invalidate this concrete xterm so its delayed retry cannot hit the next.
-      terminalRecoveryInstance.unregister()
-      unregisterUndeliverableWriteHandler()
-      cancelHiddenOutputSnapshotScrollRestore()
-      structuralReplayCoordinator.dispose()
-      cancelFreshSpawnFollowReset()
+      cleanups.push(
+        () => terminalRecoveryInstance.unregister(),
+        unregisterUndeliverableWriteHandler,
+        cancelHiddenOutputSnapshotScrollRestore,
+        () => structuralReplayCoordinator.dispose(),
+        cancelFreshSpawnFollowReset
+      )
       // Why: the post-spawn reconcile polls across frames; cancel its pending
       // rAF so a torn-down pane cannot keep fitting/resizing after disposal.
-      ptySizeReconcileHandle?.cancel()
+      const activePtySizeReconcile = ptySizeReconcileHandle
       ptySizeReconcileHandle = null
-      startupGridSettleHandle?.cancel()
+      if (activePtySizeReconcile) {
+        cleanups.push(() => activePtySizeReconcile.cancel())
+      }
+      const activeStartupGridSettle = startupGridSettleHandle
       startupGridSettleHandle = null
-      ptySizeReassertion.dispose()
+      if (activeStartupGridSettle) {
+        cleanups.push(() => activeStartupGridSettle.cancel())
+      }
+      cleanups.push(() => ptySizeReassertion.dispose())
       if (pendingForegroundGridDriftCheckRaf !== null) {
-        cancelAnimationFrame(pendingForegroundGridDriftCheckRaf)
+        const rafId = pendingForegroundGridDriftCheckRaf
         pendingForegroundGridDriftCheckRaf = null
+        cleanups.push(() => cancelAnimationFrame(rafId))
       }
       // Why: a pane unmount (tab move, parking teardown) must never leave its
       // PTY gated — the parked watcher or the remounted pane re-decides.
-      releaseHiddenRendererPtyDelivery()
+      cleanups.push(releaseHiddenRendererPtyDelivery)
       if (terminalKeyTargetSupportsEvents) {
-        terminalKeyTarget.removeEventListener('keydown', onTerminalKeyDown, { capture: true })
+        cleanups.push(() =>
+          terminalKeyTarget.removeEventListener('keydown', onTerminalKeyDown, { capture: true })
+        )
       }
-      clearPendingTerminalInputIntent()
+      cleanups.push(clearPendingTerminalInputIntent)
       pendingTerminalInputWrite = null
-      interruptInference.dispose()
-      clearTitleOnlyInterruptTimer()
-      clearCommandCodeOutputDoneTimer()
+      cleanups.push(
+        () => interruptInference.dispose(),
+        clearTitleOnlyInterruptTimer,
+        clearCommandCodeOutputDoneTimer
+      )
       if (shiftEnterReconfirmTimer !== null) {
-        clearTimeout(shiftEnterReconfirmTimer)
+        const timer = shiftEnterReconfirmTimer
         shiftEnterReconfirmTimer = null
+        cleanups.push(() => clearTimeout(timer))
       }
       // Why: actively resolve any in-flight passphrase-gate waits so their
       // zustand subscribers + async IIFEs don't hang for the rest of the
       // session when the pane is torn down before SSH state changes.
       while (waitTeardowns.length > 0) {
         const teardown = waitTeardowns.pop()
-        teardown?.()
+        if (teardown) {
+          cleanups.push(teardown)
+        }
       }
       if (startupInjectTimer !== null) {
-        clearTimeout(startupInjectTimer)
+        const timer = startupInjectTimer
         startupInjectTimer = null
+        cleanups.push(() => clearTimeout(timer))
       }
       if (sshShellReadyFallbackTimer !== null) {
-        clearTimeout(sshShellReadyFallbackTimer)
+        const timer = sshShellReadyFallbackTimer
         sshShellReadyFallbackTimer = null
+        cleanups.push(() => clearTimeout(timer))
       }
-      cleanupStartupDraftPasteTimers()
-      releaseUnattemptedStartupDraftPasteDelivery()
-      unregisterAgentHookTerminalLifecycle()
-      clearSuppressedTitleSideEffects()
-      clearPendingAgentTaskCompleteNotification()
+      cleanups.push(
+        cleanupStartupDraftPasteTimers,
+        releaseUnattemptedStartupDraftPasteDelivery,
+        unregisterAgentHookTerminalLifecycle,
+        clearSuppressedTitleSideEffects,
+        clearPendingAgentTaskCompleteNotification
+      )
+      if (clearStartupLaunchConfigOnDispose && paneStartup?.launchConfig) {
+        cleanups.push(clearRegisteredStartupLaunchConfig)
+      }
       pendingTerminalBellNotification = false
-      clearTerminalBellNotificationTimer()
-      clearReattachIdleAgentCursorResetTimer()
+      cleanups.push(clearTerminalBellNotificationTimer, clearReattachIdleAgentCursorResetTimer)
       if (alternateScreenBackgroundRepaintTimer !== null) {
-        clearTimeout(alternateScreenBackgroundRepaintTimer)
+        const timer = alternateScreenBackgroundRepaintTimer
         alternateScreenBackgroundRepaintTimer = null
+        cleanups.push(() => clearTimeout(timer))
       }
-      cleanupHiddenOutputRestoreDeferredRetry()
-      cleanupHiddenOutputRestoreForegroundDeadline()
-      cleanupHiddenOutputRestoreFloodRepaint()
-      unregisterBacklogRecovery?.()
+      cleanups.push(
+        cleanupHiddenOutputRestoreDeferredRetry,
+        cleanupHiddenOutputRestoreForegroundDeadline,
+        cleanupHiddenOutputRestoreFloodRepaint
+      )
+      const activeBacklogRecovery = unregisterBacklogRecovery
       unregisterBacklogRecovery = null
-      unregisterDocumentVisibilityRecovery?.()
+      if (activeBacklogRecovery) {
+        cleanups.push(activeBacklogRecovery)
+      }
+      const activeDocumentVisibilityRecovery = unregisterDocumentVisibilityRecovery
       unregisterDocumentVisibilityRecovery = null
-      releaseRendererPtyVisibilityClaim(transport)
+      if (activeDocumentVisibilityRecovery) {
+        cleanups.push(activeDocumentVisibilityRecovery)
+      }
+      cleanups.push(() => releaseRendererPtyVisibilityClaim(transport))
       // Why: a parked-tab watcher may take over this PTY's facts in the same
       // effect flush; the pane's consumer must be gone before that handoff.
-      dropSideEffectFactConsumer()
-      clearPanePtyFitBinding()
-      discardTerminalOutput(pane.terminal)
-      unregisterE2ePtyDataInjection()
+      cleanups.push(
+        dropSideEffectFactConsumer,
+        clearPanePtyFitBinding,
+        () => discardTerminalOutput(pane.terminal),
+        unregisterE2ePtyDataInjection
+      )
       if (agentTaskCompleteSettingsUnsubscribe !== null) {
-        agentTaskCompleteSettingsUnsubscribe()
+        const unsubscribe = agentTaskCompleteSettingsUnsubscribe
         agentTaskCompleteSettingsUnsubscribe = null
+        cleanups.push(unsubscribe)
       }
       if (unsubscribeWindowsDoneTerminalModeReset !== null) {
-        unsubscribeWindowsDoneTerminalModeReset()
+        const unsubscribe = unsubscribeWindowsDoneTerminalModeReset
         unsubscribeWindowsDoneTerminalModeReset = null
+        cleanups.push(unsubscribe)
       }
       if (connectFrame !== null) {
         // Why: StrictMode and split-group remounts can dispose a pane binding
         // before its deferred PTY attach/spawn work runs. Cancel that queued
         // frame so stale bindings cannot reattach the PTY and steal the live
         // handler wiring from the current pane.
-        cancelScheduledConnectFrame()
+        const frame = connectFrame
+        connectFrame = null
+        if (typeof cancelAnimationFrame === 'function') {
+          cleanups.push(() => cancelAnimationFrame(frame))
+        }
       }
       if (connectFallbackTimer !== null) {
-        clearTimeout(connectFallbackTimer)
+        const timer = connectFallbackTimer
         connectFallbackTimer = null
+        cleanups.push(() => clearTimeout(timer))
       }
-      onDataDisposable.dispose()
-      userInputActivityDisposable?.dispose()
-      terminalCapabilityRepliesDisposable.dispose()
-      onResizeDisposable.dispose()
-      onBufferChangeDisposable?.dispose()
-      pane.container.removeEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)
-      geometryReportObserver?.disconnect()
+      cleanups.push(() => onDataDisposable.dispose())
+      if (userInputActivityDisposable) {
+        cleanups.push(() => userInputActivityDisposable.dispose())
+      }
+      cleanups.push(
+        () => terminalCapabilityRepliesDisposable.dispose(),
+        () => onResizeDisposable.dispose()
+      )
+      if (onBufferChangeDisposable) {
+        cleanups.push(() => onBufferChangeDisposable.dispose())
+      }
+      cleanups.push(() =>
+        pane.container.removeEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)
+      )
+      if (geometryReportObserver) {
+        cleanups.push(() => geometryReportObserver.disconnect())
+      }
       if (pendingGeometryReportRaf !== null) {
-        cancelAnimationFrame(pendingGeometryReportRaf)
+        const rafId = pendingGeometryReportRaf
         pendingGeometryReportRaf = null
+        cleanups.push(() => cancelAnimationFrame(rafId))
       }
-      commandLifecycle.dispose()
+      cleanups.push(() => commandLifecycle.dispose())
       deferredCommandFinishedStatusDrop = null
       visibleForegroundSamplePending = false
       visibleForegroundSampleSettled = false
-      paneForegroundAgentTracker.dispose()
-      agentCompletionCoordinator.dispose()
+      cleanups.push(
+        () => paneForegroundAgentTracker.dispose(),
+        () => agentCompletionCoordinator.dispose()
+      )
+      pendingDisposeSteps = cleanups
+      runPtyConnectionCleanupLedger(pendingDisposeSteps)
     }
   }
+
+  if (trustedAdoptPtyId) {
+    try {
+      runDeferredConnect()
+    } catch (error) {
+      // Why: attach failure rolls the staged pane back, so its launch metadata
+      // must join the same retryable listener/timer cleanup ledger.
+      clearStartupLaunchConfigOnDispose = true
+      try {
+        binding.dispose()
+      } catch (cleanupError) {
+        deps.retainFailedBinding?.(binding)
+        throw new AggregateError(
+          [error, cleanupError],
+          'Trusted PTY attach failed and its connection resources could not be cleaned'
+        )
+      }
+      throw error
+    }
+  } else {
+    // Why: Wayland/CI compositors can keep timers and CDP responsive while the
+    // next rAF never arrives; ordinary connect/spawn work still needs both paths.
+    connectFallbackTimer = setTimeout(runDeferredConnect, 250)
+    connectFrame = requestAnimationFrame(runDeferredConnect)
+  }
+
+  return binding
 }

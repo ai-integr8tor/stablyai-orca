@@ -3,9 +3,9 @@ import type { IPtyProvider, PtyProcessInfo, PtySpawnOptions, PtySpawnResult } fr
 import { toAppSshPtyId, toRelaySshPtyId } from './ssh-pty-id'
 import { seedPowerlevel10kWizardEnv } from '../pty/powerlevel10k-wizard-env'
 
-type DataCallback = (payload: { id: string; data: string }) => void
+type DataCallback = (payload: { id: string; data: string; terminalHandle?: string }) => void
 type ReplayCallback = (payload: { id: string; data: string }) => void
-type ExitCallback = (payload: { id: string; code: number }) => void
+type ExitCallback = (payload: { id: string; code: number; terminalHandle?: string }) => void
 type RemoteCliBridgeEnv = {
   binDir: string
   relayDir: string
@@ -56,7 +56,13 @@ export class SshPtyProvider implements IPtyProvider {
       switch (method) {
         case 'pty.data':
           for (const cb of this.dataListeners) {
-            cb({ id: this.toAppPtyId(params.id as string), data: params.data as string })
+            cb({
+              id: this.toAppPtyId(params.id as string),
+              data: params.data as string,
+              ...(typeof params.terminalHandle === 'string'
+                ? { terminalHandle: params.terminalHandle }
+                : {})
+            })
           }
           break
 
@@ -68,7 +74,13 @@ export class SshPtyProvider implements IPtyProvider {
 
         case 'pty.exit':
           for (const cb of this.exitListeners) {
-            cb({ id: this.toAppPtyId(params.id as string), code: params.code as number })
+            cb({
+              id: this.toAppPtyId(params.id as string),
+              code: params.code as number,
+              ...(typeof params.terminalHandle === 'string'
+                ? { terminalHandle: params.terminalHandle }
+                : {})
+            })
           }
           break
       }

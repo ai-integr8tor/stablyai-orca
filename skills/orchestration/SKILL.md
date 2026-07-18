@@ -186,12 +186,14 @@ Wait only for `tui-idle` when needed to avoid losing the prompt. Do not monitor 
 Choose the worker location before creating a terminal. `Fresh worker` means a fresh agent session, not a new git worktree. If the task says current worktree only, depends on uncommitted files/artifacts, or must validate/PR the current branch, create the worker in the active worktree:
 
 ```bash
-orca terminal create --worktree active --title <task-name> --command "codex" --json
+orca terminal create --worktree active --title <task-name> --command "codex" --placement orchestration-grid --json
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
 orca orchestration dispatch --task <task_id> --to <handle> --inject --json
 ```
 
 Reuse an idle agent in the required worktree only if the prompt allows reuse; otherwise create a fresh terminal there. Use a new worktree only when explicitly requested or when independent isolated checkout state is intended. For supervised new-worktree workers, decide the desired Orca lineage before creation: use child lineage only when the work is conceptually stacked under or dependent on the active worktree, and use `--no-parent` for independent repo-wide fixes, standalone feature work, or unrelated follow-up tasks. Decide the Git base separately from lineage: `--no-parent` makes the worktree top-level in Orca, while omitted `--base-branch` uses the repo default base.
+
+`--placement orchestration-grid` is the default placement policy for supervised same-worktree workers: each create returns a distinct worker handle but reuses one visible terminal tab, with equal-size panes in rows of at most six. Use `--placement tab` only when a supervised worker needs an isolated tab; omit `--placement` for ordinary non-orchestrated terminal creation, which remains backward-compatible and creates a tab.
 
 ```bash
 orca worktree create --name <task-name> --agent codex --json
@@ -213,7 +215,7 @@ Other terminal commands coordinators often need:
 
 ```bash
 orca terminal list [--worktree <selector>] [--json]
-orca terminal create [--worktree <selector>] [--title <text>] [--command <cmd>] [--json]
+orca terminal create [--worktree <selector>] [--title <text>] [--command <cmd>] [--placement tab|orchestration-grid] [--json]
 orca terminal split --terminal <handle> [--direction horizontal|vertical] [--command <cmd>] [--json]
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms <n> --json
 orca terminal read --terminal <handle> --json
@@ -239,7 +241,7 @@ Wait for `tui-idle` before dispatching. Always pass `--timeout-ms`; real coding 
 ## Example
 
 ```bash
-orca terminal create --worktree active --title login-css-worker --command "claude" --json
+orca terminal create --worktree active --title login-css-worker --command "claude" --placement orchestration-grid --json
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
 orca orchestration task-create --spec "Fix the login button CSS" --json
 orca orchestration dispatch --task <task_id> --to <handle> --inject --json

@@ -462,6 +462,9 @@ function chooseRemoteTerminalLayout(
     }),
     activeLeafId,
     expandedLeafId,
+    // Why: paired-web and SSH clients must keep the host's grid marker so
+    // later add/close operations continue to reflow equal worker panes.
+    ...(parentLayout?.layoutMode ? { layoutMode: parentLayout.layoutMode } : {}),
     ptyIdsByLeafId,
     // Why: surface.title is the tab/PTY label ("Terminal 2", agent title,
     // etc.). Restoring it as a pane title makes the web client render a fake
@@ -1375,6 +1378,9 @@ function terminalLayoutEqual(
   b: TerminalLayoutSnapshot
 ): boolean {
   return (
+    // Why: an absent mode means ordinary layout; crossing the grid boundary
+    // must replace the record so the live pane can acquire or release ownership.
+    a?.layoutMode === b.layoutMode &&
     terminalLayoutNodeEqual(a?.root, b.root) &&
     (a?.activeLeafId ?? null) === b.activeLeafId &&
     (a?.expandedLeafId ?? null) === b.expandedLeafId &&
@@ -2131,6 +2137,11 @@ export function applyWebSessionTabsSnapshot(
 
   let nextTerminalLayoutsByTabId = state.terminalLayoutsByTabId
   for (const removedId of removedTerminalIds) {
+    // Why: mirrored tabs are rebuilt from every authoritative snapshot; keep
+    // their layout entry long enough for semantic equality to preserve identity.
+    if (mirroredTerminalIds.has(removedId)) {
+      continue
+    }
     if (nextTerminalLayoutsByTabId[removedId]) {
       nextTerminalLayoutsByTabId =
         nextTerminalLayoutsByTabId === state.terminalLayoutsByTabId

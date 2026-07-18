@@ -2418,18 +2418,20 @@ function makeProjectHostSetupId(
 function createMinimalPersistedTerminalTab(args: {
   worktreeId: string
   tabId: string
-  ptyId: string
+  ptyId?: string
   existingTabCount: number
   startupCwd?: string
+  title?: string | null
 }): TerminalTab {
   const ordinal = args.existingTabCount + 1
   const defaultTitle = `Terminal ${ordinal}`
+  const title = args.title?.trim() || defaultTitle
   return {
     id: args.tabId,
-    ptyId: args.ptyId,
+    ptyId: args.ptyId ?? null,
     worktreeId: args.worktreeId,
-    title: defaultTitle,
-    defaultTitle,
+    title,
+    defaultTitle: title,
     customTitle: null,
     color: null,
     sortOrder: args.existingTabCount,
@@ -3985,6 +3987,13 @@ export class Store {
 
   getRepo(id: string): Repo | undefined {
     const repo = this.state.repos.find((r) => r.id === id)
+    return repo ? this.hydrateRepo(repo) : undefined
+  }
+
+  getRepoForHost(id: string, hostId: ExecutionHostId): Repo | undefined {
+    const repo = this.state.repos.find(
+      (candidate) => candidate.id === id && getRepoExecutionHostId(candidate) === hostId
+    )
     return repo ? this.hydrateRepo(repo) : undefined
   }
 
@@ -5708,12 +5717,72 @@ export class Store {
     return normalizeExecutionHostId(hostId) ?? LOCAL_EXECUTION_HOST_ID
   }
 
+  private setWorkspaceSessionInMemory(
+    hostId: ExecutionHostId,
+    session: WorkspaceSessionState
+  ): void {
+    if (hostId === LOCAL_EXECUTION_HOST_ID) {
+      this.state.workspaceSession = session
+      return
+    }
+    this.state.workspaceSessionsByHostId = {
+      ...this.state.workspaceSessionsByHostId,
+      [hostId]: session
+    }
+  }
+
+  private removeWorkspaceSessionPartitionInMemory(hostId: ExecutionHostId): void {
+    if (hostId === LOCAL_EXECUTION_HOST_ID) {
+      return
+    }
+    const next = { ...this.state.workspaceSessionsByHostId }
+    delete next[hostId]
+    this.state.workspaceSessionsByHostId = next
+  }
+
+  private resolvePtyBindingHostId(args: {
+    hostId?: string | null
+    worktreeId: string
+    tabId: string
+  }): ExecutionHostId {
+    const explicitHostId = normalizeExecutionHostId(args.hostId)
+    if (explicitHostId) {
+      return explicitHostId
+    }
+    const containsParent = (session: WorkspaceSessionState | undefined): boolean =>
+      session?.tabsByWorktree?.[args.worktreeId]?.some((tab) => tab.id === args.tabId) === true ||
+      session?.terminalLayoutsByTabId?.[args.tabId] !== undefined
+    // Why: legacy callers wrote SSH bindings to the local blob. Prefer an
+    // existing local parent, then an existing host partition, so old tabs stay put.
+    if (containsParent(this.state.workspaceSession)) {
+      return LOCAL_EXECUTION_HOST_ID
+    }
+    for (const [rawHostId, session] of Object.entries(this.state.workspaceSessionsByHostId ?? {})) {
+      const hostId = normalizeExecutionHostId(rawHostId)
+      if (hostId && containsParent(session)) {
+        return hostId
+      }
+    }
+    return LOCAL_EXECUTION_HOST_ID
+  }
+
   getWorkspaceSession(hostId?: string | null): PersistedState['workspaceSession'] {
     const resolved = this.resolveHostId(hostId)
     if (resolved === LOCAL_EXECUTION_HOST_ID) {
       return this.state.workspaceSession ?? getDefaultWorkspaceSession()
     }
     return this.state.workspaceSessionsByHostId?.[resolved] ?? getDefaultWorkspaceSession()
+  }
+
+  getWorkspaceSessionHostIds(): ExecutionHostId[] {
+    const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
+    for (const rawHostId of Object.keys(this.state.workspaceSessionsByHostId ?? {})) {
+      const hostId = normalizeExecutionHostId(rawHostId)
+      if (hostId) {
+        hostIds.add(hostId)
+      }
+    }
+    return [...hostIds]
   }
 
   readTerminalScrollbackSnapshot(ref: string): string | null {
@@ -6044,6 +6113,113 @@ export class Store {
     return this.state.repos.find((repo) => repo.id === repoId)?.connectionId ?? null
   }
 
+  persistOrchestrationGridPtyBinding(args: {
+    hostId: ExecutionHostId
+    sshTargetId?: string | null
+    worktreeId: string
+    tabId: string
+    leafId: string
+    ptyId: string
+    layout: TerminalLayoutSnapshot
+    title?: string | null
+    startupCwd?: string
+    activate?: boolean
+  }): void {
+    if (
+      args.layout.layoutMode !== 'orchestration-grid' ||
+      !layoutContainsLeafId(args.layout.root, args.leafId)
+    ) {
+      throw new Error('Invalid orchestration grid layout transaction')
+    }
+    const hostId = normalizeExecutionHostId(args.hostId)
+    if (!hostId) {
+      throw new Error('Invalid orchestration grid execution host')
+    }
+    const executionHost = parseExecutionHostId(hostId)
+    const sshTargetId = args.sshTargetId?.trim() || null
+    if (executionHost?.kind === 'ssh') {
+      if (!sshTargetId || sshTargetId !== executionHost.targetId) {
+        throw new Error('Orchestration grid SSH target does not match its execution host')
+      }
+    } else if (sshTargetId) {
+      throw new Error('Orchestration grid SSH target requires an SSH execution host')
+    }
+    const hadPartition =
+      hostId === LOCAL_EXECUTION_HOST_ID ||
+      this.state.workspaceSessionsByHostId?.[hostId] !== undefined
+    const previous = cloneWorkspaceSessionState(this.getWorkspaceSession(hostId))
+    const previousLeases = structuredClone(this.state.sshRemotePtyLeases ?? [])
+    try {
+      const next = cloneWorkspaceSessionState(previous)
+      const tabs = [...(next.tabsByWorktree?.[args.worktreeId] ?? [])]
+      const tab = tabs.find((candidate) => candidate.id === args.tabId)
+      if (tab) {
+        tab.ptyId = args.ptyId
+      } else {
+        // Why: the single flush must contain the parent and canonical grid;
+        // there is no renderer debounce to repair a crash between the two.
+        tabs.push(
+          createMinimalPersistedTerminalTab({
+            worktreeId: args.worktreeId,
+            tabId: args.tabId,
+            ptyId: args.ptyId,
+            existingTabCount: tabs.length,
+            ...(args.startupCwd ? { startupCwd: args.startupCwd } : {}),
+            ...(args.title ? { title: args.title } : {})
+          })
+        )
+      }
+      next.tabsByWorktree = {
+        ...next.tabsByWorktree,
+        [args.worktreeId]: tabs
+      }
+      next.terminalLayoutsByTabId = {
+        ...next.terminalLayoutsByTabId,
+        [args.tabId]: {
+          ...structuredClone(args.layout),
+          ptyIdsByLeafId: {
+            ...args.layout.ptyIdsByLeafId,
+            [args.leafId]: args.ptyId
+          }
+        }
+      }
+      if (args.activate) {
+        next.activeWorktreeId = args.worktreeId
+        next.activeTabId = args.tabId
+      } else {
+        next.activeWorktreeId ??= args.worktreeId
+        next.activeTabId ??= args.tabId
+      }
+      next.activeTabIdByWorktree = {
+        ...next.activeTabIdByWorktree,
+        [args.worktreeId]: args.activate
+          ? args.tabId
+          : (next.activeTabIdByWorktree?.[args.worktreeId] ?? args.tabId)
+      }
+      this.setWorkspaceSessionInMemory(hostId, next)
+      if (sshTargetId) {
+        this.upsertSshRemotePtyLeaseInMemory({
+          targetId: sshTargetId,
+          ptyId: args.ptyId,
+          worktreeId: args.worktreeId,
+          tabId: args.tabId,
+          leafId: args.leafId,
+          state: 'attached',
+          lastAttachedAt: Date.now()
+        })
+      }
+      this.flushOrThrow()
+    } catch (error) {
+      if (hadPartition) {
+        this.setWorkspaceSessionInMemory(hostId, previous)
+      } else {
+        this.removeWorkspaceSessionPartitionInMemory(hostId)
+      }
+      this.state.sshRemotePtyLeases = previousLeases
+      throw error
+    }
+  }
+
   // Why: closes the SIGKILL-between-spawn-and-persist race (Issue #217). The
   // renderer's debounced session writer (~450 ms total) is normally the only
   // path that writes tab.ptyId / ptyIdsByLeafId; a force-quit inside that
@@ -6056,12 +6232,11 @@ export class Store {
     leafId: string
     ptyId: string
     startupCwd?: string
+    hostId?: string | null
   }): void {
-    const session = this.state.workspaceSession
-    if (!session) {
-      return
-    }
-    const sessionBeforeBinding = cloneWorkspaceSessionState(session)
+    const hostId = this.resolvePtyBindingHostId(args)
+    const sessionBeforeBinding = cloneWorkspaceSessionState(this.getWorkspaceSession(hostId))
+    const session = cloneWorkspaceSessionState(sessionBeforeBinding)
     const tabs = session.tabsByWorktree?.[args.worktreeId]
     const tab = tabs?.find((t) => t.id === args.tabId)
     if (tab) {
@@ -6091,10 +6266,11 @@ export class Store {
     if (!isTerminalLeafId(args.leafId)) {
       // Why: legacy renderer-local pane ids may arrive from older callers; keep
       // them out of durable leaf-keyed layout state after the UUID migration.
+      this.setWorkspaceSessionInMemory(hostId, session)
       try {
         this.flushOrThrow()
       } catch (err) {
-        this.state.workspaceSession = sessionBeforeBinding
+        this.setWorkspaceSessionInMemory(hostId, sessionBeforeBinding)
         throw err
       }
       return
@@ -6143,10 +6319,11 @@ export class Store {
         }
       }
     }
+    this.setWorkspaceSessionInMemory(hostId, session)
     try {
       this.flushOrThrow()
     } catch (err) {
-      this.state.workspaceSession = sessionBeforeBinding
+      this.setWorkspaceSessionInMemory(hostId, sessionBeforeBinding)
       throw err
     }
   }
@@ -6393,7 +6570,7 @@ export class Store {
     return leases.filter((lease) => targetId === undefined || lease.targetId === targetId)
   }
 
-  upsertSshRemotePtyLease(
+  private upsertSshRemotePtyLeaseInMemory(
     lease: Omit<SshRemotePtyLease, 'createdAt' | 'updatedAt'> &
       Partial<Pick<SshRemotePtyLease, 'createdAt' | 'updatedAt'>>
   ): void {
@@ -6425,6 +6602,13 @@ export class Store {
     } else {
       this.state.sshRemotePtyLeases.push(next)
     }
+  }
+
+  upsertSshRemotePtyLease(
+    lease: Omit<SshRemotePtyLease, 'createdAt' | 'updatedAt'> &
+      Partial<Pick<SshRemotePtyLease, 'createdAt' | 'updatedAt'>>
+  ): void {
+    this.upsertSshRemotePtyLeaseInMemory(lease)
     this.flush()
   }
 
@@ -6528,10 +6712,30 @@ export class Store {
     targetId: string,
     leases: SshRemotePtyLease[]
   ): boolean {
-    const session = this.state.workspaceSession
-    if (!leases?.length || !session) {
+    if (!leases?.length) {
       return false
     }
+    const sessions = [
+      this.state.workspaceSession,
+      this.state.workspaceSessionsByHostId?.[toSshExecutionHostId(targetId)]
+    ].filter((session, index, all): session is WorkspaceSessionState => {
+      return session !== undefined && all.indexOf(session) === index
+    })
+    let changed = false
+    for (const session of sessions) {
+      changed = this.clearSshRemotePtyBindingsInSession(targetId, leases, session) || changed
+    }
+    if (changed) {
+      this.scheduleSave()
+    }
+    return changed
+  }
+
+  private clearSshRemotePtyBindingsInSession(
+    targetId: string,
+    leases: SshRemotePtyLease[],
+    session: WorkspaceSessionState
+  ): boolean {
     let changed = false
     for (const [worktreeId, tabs] of Object.entries(session.tabsByWorktree ?? {})) {
       for (const tab of tabs) {
@@ -6577,9 +6781,6 @@ export class Store {
         layout.ptyIdsByLeafId = nextBindings
         changed = true
       }
-    }
-    if (changed) {
-      this.scheduleSave()
     }
     return changed
   }

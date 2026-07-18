@@ -6,6 +6,7 @@ import type { BrowserWindow } from 'electron'
 import type { Store } from '../persistence'
 import type {
   CreateWorktreeResult,
+  TerminalLayoutSnapshot,
   UpdateCheckOptions,
   WorktreeStartupLaunch
 } from '../../shared/types'
@@ -47,6 +48,7 @@ import {
   setWorktreeBaseDirectoryWatcherSyncContext
 } from '../ipc/worktree-base-directory-watcher'
 import { logStartupMilestone } from '../startup/startup-diagnostics'
+import { requestTerminalGridAppendRollback } from './terminal-grid-append-rollback-relay'
 
 const UPDATER_SETUP_FALLBACK_MS = 15_000
 
@@ -256,10 +258,12 @@ function registerRuntimeWindowLifecycle(
   const notifierToken = ++runtimeNotifierTokenCounter
   activeRuntimeNotifierToken = notifierToken
   runtime.attachWindow(mainWindow.id)
-  const send = (channel: string, ...args: unknown[]): void => {
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(channel, ...args)
+  const send = (channel: string, ...args: unknown[]): boolean => {
+    if (mainWindow.isDestroyed()) {
+      return false
     }
+    mainWindow.webContents.send(channel, ...args)
+    return true
   }
   runtime.setNotifier({
     worktreesChanged: (repoId, renamed) => {
@@ -297,6 +301,10 @@ function registerRuntimeWindowLifecycle(
       }),
     revealTerminalSession: (worktreeId, opts) =>
       new Promise((resolve, reject) => {
+        if (mainWindow.isDestroyed()) {
+          reject(new Error('Terminal reveal window is no longer available'))
+          return
+        }
         const requestId = randomUUID()
         const timer = setTimeout(() => {
           ipcMain.removeListener('terminal:tabCreateReply', handler)
@@ -304,7 +312,14 @@ function registerRuntimeWindowLifecycle(
         }, 10_000)
         const handler = (
           event: Electron.IpcMainEvent,
-          reply: { requestId: string; tabId?: string; title?: string; error?: string }
+          reply: {
+            requestId: string
+            tabId?: string
+            leafId?: string
+            layout?: TerminalLayoutSnapshot
+            title?: string
+            error?: string
+          }
         ): void => {
           // Why: requestId is renderer-supplied; only the targeted main window
           // may satisfy the reveal and provide the tab handle.
@@ -317,32 +332,87 @@ function registerRuntimeWindowLifecycle(
             reject(new Error(reply.error))
             return
           }
-          resolve({ tabId: reply.tabId!, title: reply.title })
+          if (!reply.tabId) {
+            reject(new Error('Terminal reveal reply did not include a tab id'))
+            return
+          }
+          const rollbackIdentity =
+            opts.placement === 'orchestration-grid' &&
+            opts.splitFromLeafId !== undefined &&
+            opts.tabId !== undefined &&
+            opts.leafId !== undefined
+              ? {
+                  transactionId: requestId,
+                  tabId: opts.tabId,
+                  leafId: opts.leafId
+                }
+              : null
+          if (
+            rollbackIdentity &&
+            (reply.tabId !== rollbackIdentity.tabId || reply.leafId !== rollbackIdentity.leafId)
+          ) {
+            reject(new Error('Terminal grid reply did not match its staged identity'))
+            return
+          }
+          resolve({
+            tabId: reply.tabId,
+            leafId: reply.leafId,
+            layout: reply.layout,
+            title: reply.title,
+            ...(rollbackIdentity
+              ? {
+                  rollback: () => requestTerminalGridAppendRollback(mainWindow, rollbackIdentity),
+                  complete: () => {
+                    send('ui:commitTerminalGridAppend', rollbackIdentity)
+                  }
+                }
+              : {})
+          })
         }
         ipcMain.on('terminal:tabCreateReply', handler)
-        send('ui:createTerminal', {
-          requestId,
-          worktreeId,
-          ptyId: opts.ptyId,
-          title: opts.title ?? undefined,
-          ...(opts.cwd ? { cwd: opts.cwd } : {}),
-          ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
-          ...(opts.launchToken ? { launchToken: opts.launchToken } : {}),
-          ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
-          ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
-          activate: opts.activate !== false,
-          ...(opts.presentation ? { presentation: opts.presentation } : {}),
-          // Why: pre-minted tabId from main keeps the renderer's tab id aligned
-          // with the paneKey baked into the PTY env at spawn time, so hook
-          // events route to the right slot.
-          ...(opts.tabId !== undefined ? { tabId: opts.tabId } : {}),
-          ...(opts.leafId !== undefined ? { leafId: opts.leafId } : {}),
-          ...(opts.splitFromLeafId !== undefined ? { splitFromLeafId: opts.splitFromLeafId } : {}),
-          ...(opts.splitDirection !== undefined ? { splitDirection: opts.splitDirection } : {}),
-          ...(opts.splitTelemetrySource !== undefined
-            ? { splitTelemetrySource: opts.splitTelemetrySource }
-            : {})
-        })
+        try {
+          const sent = send('ui:createTerminal', {
+            requestId,
+            worktreeId,
+            ptyId: opts.ptyId,
+            ...(opts.command ? { command: opts.command } : {}),
+            title: opts.title ?? undefined,
+            ...(opts.cwd ? { cwd: opts.cwd } : {}),
+            ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
+            ...(opts.launchToken ? { launchToken: opts.launchToken } : {}),
+            ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
+            ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+            activate: opts.activate !== false,
+            ...(opts.presentation ? { presentation: opts.presentation } : {}),
+            // Why: pre-minted tabId from main keeps the renderer's tab id aligned
+            // with the paneKey baked into the PTY env at spawn time, so hook
+            // events route to the right slot.
+            ...(opts.tabId !== undefined ? { tabId: opts.tabId } : {}),
+            ...(opts.leafId !== undefined ? { leafId: opts.leafId } : {}),
+            ...(opts.splitFromLeafId !== undefined
+              ? { splitFromLeafId: opts.splitFromLeafId }
+              : {}),
+            ...(opts.splitSourceLeafIds !== undefined
+              ? { splitSourceLeafIds: opts.splitSourceLeafIds }
+              : {}),
+            ...(opts.splitDirection !== undefined ? { splitDirection: opts.splitDirection } : {}),
+            ...(opts.splitTelemetrySource !== undefined
+              ? { splitTelemetrySource: opts.splitTelemetrySource }
+              : {}),
+            ...(opts.placement ? { placement: opts.placement } : {})
+          })
+          if (!sent) {
+            clearTimeout(timer)
+            ipcMain.removeListener('terminal:tabCreateReply', handler)
+            reject(new Error('Terminal reveal window is no longer available'))
+          }
+        } catch (error) {
+          // Why: a synchronous webContents failure must not leave the transaction
+          // listener/timer alive after the staged PTY owner receives rejection.
+          clearTimeout(timer)
+          ipcMain.removeListener('terminal:tabCreateReply', handler)
+          reject(error)
+        }
       }),
     splitTerminal: (tabId, paneRuntimeId, opts) => {
       send('ui:splitTerminal', {

@@ -152,7 +152,9 @@ describe('SshRelaySession', () => {
     expect(runtime.onPtyData).toHaveBeenCalledWith(
       'ssh-pty-1',
       'hidden ssh output',
-      expect.any(Number)
+      expect.any(Number),
+      17,
+      undefined
     )
     expect(mockWindow.webContents.send).toHaveBeenCalledTimes(1)
     // Why out-of-band: an in-band empty pty:data sentinel is ambiguous with

@@ -531,6 +531,36 @@ describe('SshPtyProvider', () => {
       expect(handler).toHaveBeenCalledWith({ id: scopedPty1, data: 'output' })
     })
 
+    it('preserves the provider-issued terminal handle on lifecycle notifications', () => {
+      const dataHandler = vi.fn()
+      const exitHandler = vi.fn()
+      provider.onData(dataHandler)
+      provider.onExit(exitHandler)
+
+      const notifHandler = mux.onNotification.mock.calls[0][0]
+      notifHandler('pty.data', {
+        id: 'pty-grid',
+        data: 'early output',
+        terminalHandle: 'term_grid_target'
+      })
+      notifHandler('pty.exit', {
+        id: 'pty-grid',
+        code: 17,
+        terminalHandle: 'term_grid_target'
+      })
+
+      expect(dataHandler).toHaveBeenCalledWith({
+        id: 'ssh:conn-1@@pty-grid',
+        data: 'early output',
+        terminalHandle: 'term_grid_target'
+      })
+      expect(exitHandler).toHaveBeenCalledWith({
+        id: 'ssh:conn-1@@pty-grid',
+        code: 17,
+        terminalHandle: 'term_grid_target'
+      })
+    })
+
     it('forwards pty.replay notifications to replay listeners', () => {
       const handler = vi.fn()
       provider.onReplay(handler)
