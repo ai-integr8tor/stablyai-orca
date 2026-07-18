@@ -138,9 +138,11 @@ hook runner spawns command
        -> script consumes payload
        -> refreshes endpoint / evaluates guards
        -> posts or exits zero
-  -> OR launcher cannot start script
+  -> OR interpreter-backed launcher cannot start script
        -> launcher drains payload
        -> exits zero
+  -> OR bare `.cmd` fast path cannot start script
+       -> spawn/shell reports failure (no drain wrapper)
 ```
 
 Local, WSL, and SSH installs serialize the same POSIX template. Windows local
@@ -152,8 +154,13 @@ path syntax or shell.
 - Missing Orca environment: consume input, exit zero, emit only protocol-required
   output.
 - Empty payload: consume EOF, then follow the agent's existing empty-event rule.
-- Missing/unreadable/non-executable script: launcher consumes input and exits
-  zero.
+- Missing/unreadable/non-executable script:
+  - **Interpreter-backed launchers** (encoded PowerShell, POSIX shell compounds
+    with an explicit missing-file drain): consume stdin and exit zero.
+  - **Direct bare `.cmd` fast paths** (Windows cmd safe-path and Claude/Git Bash
+    bare forward-slash `.cmd`): there is no drain wrapper — a missing script fails
+    at spawn time like a normal process launch. Missing-script drain for those
+    agents lives only on the encoded-PowerShell fallback used for unsafe paths.
 - Endpoint parse/read failure: preserve the existing fail-open behavior after
   stdin ownership has been satisfied.
 - Existing script returns nonzero: propagate its status; do not drain again or
