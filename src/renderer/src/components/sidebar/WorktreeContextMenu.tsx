@@ -48,6 +48,16 @@ import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
 import { WorktreeParentPickerPopover } from './WorktreeParentPickerPopover'
 import { getEligibleWorktreeParents } from './worktree-parent-candidates'
 import { isEventTargetInsideCurrentTarget } from './worktree-card-dom-events'
+import {
+  readAgentRowOrchestrationTarget,
+  WorktreeAgentOrchestrationMenuSection,
+  type AgentRowOrchestrationTarget
+} from './worktree-agent-orchestration-menu'
+import {
+  AgentRowOrchestrationActionDialog,
+  type AgentRowOrchestrationActionDialogState
+} from './agent-row-orchestration-action-dialog'
+import type { OrchestrationActionKind } from './agent-row-orchestration-actions'
 import { translate } from '@/i18n/i18n'
 import {
   folderWorkspaceKey,
@@ -285,6 +295,14 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const deleteState = useAppStore((s) => s.deleteStateByWorktreeId[worktree.id])
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
+  // Why: right-click on an agent row still uses this menu; stash the target so
+  // the Orchestration submenu can resolve terminal handles for that pane.
+  const [agentOrchestrationTarget, setAgentOrchestrationTarget] =
+    useState<AgentRowOrchestrationTarget | null>(null)
+  // Why: action dialogs must outlive the dropdown close (which clears the
+  // menu-scoped agent target) so Dispatch/Send/Ask can collect input.
+  const [orchestrationActionDialog, setOrchestrationActionDialog] =
+    useState<AgentRowOrchestrationActionDialogState | null>(null)
   const [contextWorktrees, setContextWorktrees] = useState<readonly Worktree[]>(
     effectiveSelectedWorktrees
   )
@@ -404,9 +422,24 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const setMenuOpenState = useCallback(
     (open: boolean) => {
       setMenuOpen(open)
+      if (!open) {
+        setAgentOrchestrationTarget(null)
+      }
       onOpenChange?.(open)
     },
     [onOpenChange]
+  )
+
+  const handleOrchestrationAction = useCallback(
+    (kind: OrchestrationActionKind) => {
+      if (!agentOrchestrationTarget) {
+        return
+      }
+      // Snapshot target before menu close clears agentOrchestrationTarget.
+      setOrchestrationActionDialog({ kind, target: agentOrchestrationTarget })
+      setMenuOpenState(false)
+    },
+    [agentOrchestrationTarget, setMenuOpenState]
   )
 
   useEffect(() => {
@@ -659,6 +692,17 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
         contextMenuOpenedAtRef.current = Date.now()
         window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
         setContextWorktrees(onContextMenuSelect?.(event) ?? effectiveSelectedWorktrees)
+        const agentTarget = readAgentRowOrchestrationTarget(event.target, event.nativeEvent)
+        // Why: agent status sometimes omits worktreeId; the enclosing card always
+        // knows it, so fill in for @worktree:<id> copy actions.
+        setAgentOrchestrationTarget(
+          agentTarget
+            ? {
+                ...agentTarget,
+                worktreeId: agentTarget.worktreeId ?? worktree.id
+              }
+            : null
+        )
         const bounds = event.currentTarget.getBoundingClientRect()
         setMenuPoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top })
         setMenuOpenState(true)
@@ -691,6 +735,12 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
           onClickCapture={suppressOpeningPointerEvent}
           onCloseAutoFocus={handleCloseAutoFocus}
         >
+          {agentOrchestrationTarget ? (
+            <WorktreeAgentOrchestrationMenuSection
+              target={agentOrchestrationTarget}
+              onRequestAction={handleOrchestrationAction}
+            />
+          ) : null}
           <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
             {translate('auto.components.sidebar.WorktreeContextMenu.workspaceSection', 'Workspace')}
           </DropdownMenuLabel>
@@ -960,6 +1010,14 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
         onOpenChange={(open) => {
           if (!open) {
             setParentPicker(null)
+          }
+        }}
+      />
+      <AgentRowOrchestrationActionDialog
+        state={orchestrationActionDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOrchestrationActionDialog(null)
           }
         }}
       />
