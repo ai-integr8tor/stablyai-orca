@@ -39,6 +39,7 @@ import {
   getSshPtyProvider,
   getPtyIdsForConnection,
   clearPtyOwnershipForConnection,
+  clearAgentHookStatusesForConnection,
   clearProviderPtyState,
   deletePtyOwnership,
   setPtyOwnership,
@@ -999,6 +1000,11 @@ export class SshRelaySession {
     })
   }
 
+  /**
+   * Disposes relay-backed providers using lifecycle-specific identity cleanup.
+   *
+   * @param reason Whether the remote identity is retiring or may reconnect.
+   */
   private teardownProviders(reason: 'shutdown' | 'connection_lost'): void {
     this.muxDisposeCleanup?.()
     this.muxDisposeCleanup = null
@@ -1011,6 +1017,10 @@ export class SshRelaySession {
 
     if (reason === 'shutdown') {
       clearPtyOwnershipForConnection(this.targetId)
+    } else {
+      // Why: detach hook notifications before clearing status so an in-flight
+      // relay event cannot recreate a ghost row during connection teardown.
+      clearAgentHookStatusesForConnection(this.targetId)
     }
 
     const ptyProvider = getSshPtyProvider(this.targetId)

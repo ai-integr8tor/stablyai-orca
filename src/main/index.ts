@@ -875,6 +875,11 @@ function syncMacMenuBarIcon(showMenuBarIcon: boolean): Tray | null {
   return options ? setMacMenuBarIconVisible(showMenuBarIcon, options) : null
 }
 
+/**
+ * Creates the primary application window and wires its main-process event bridges.
+ *
+ * @returns The created or restored main window.
+ */
 function openMainWindow(): BrowserWindow {
   logStartupMilestone('open-main-window-start')
   if (!store) {
@@ -1202,11 +1207,14 @@ function openMainWindow(): BrowserWindow {
       }
     }
   )
-  agentHookServer.setPaneStatusClearListener((paneKey) => {
+  agentHookServer.setPaneStatusClearListener((paneKey, options) => {
     if (mainWindow?.isDestroyed()) {
       return
     }
-    mainWindow?.webContents.send('agentStatus:clear', { paneKey })
+    mainWindow?.webContents.send('agentStatus:clear', {
+      paneKey,
+      ...(options?.transient ? { transient: true } : {})
+    })
   })
   setMigrationUnsupportedPtyListener((event) => {
     if (mainWindow?.isDestroyed()) {

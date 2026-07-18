@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
+import { getSshDisconnectWorktreeIds } from './ssh-disconnect-worktree-selection'
 import { shouldRetryPaneSpawnOnSshReconnect } from './ssh-reconnect-pane-retry'
 import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
@@ -838,6 +839,7 @@ function getWorktreeRuntimeEnvironmentId(worktreeId: string | null | undefined):
   return getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId)
 }
 
+/** Registers renderer subscriptions for main-process lifecycle and state events. */
 export function useIpcEvents(): void {
   useEffect(() => {
     const unsubs: (() => void)[] = []
@@ -2797,13 +2799,11 @@ export function useIpcEvents(): void {
         // PTY provider without emitting per-PTY exit events. Clear the stale
         // PTY ids in renderer state so a later reconnect remounts TerminalPane
         // instead of keeping a dead remote PTY attached to the tab.
-        const remoteWorktreeIds = new Set(
-          Object.values(store.worktreesByRepo)
-            .flat()
-            .filter((w) => remoteRepos.some((r) => r.id === w.repoId))
-            .map((w) => w.id)
-        )
+        const remoteWorktreeIds = getSshDisconnectWorktreeIds(store, targetId)
         for (const worktreeId of remoteWorktreeIds) {
+          // Why: connection loss is reversible, so purge only live status;
+          // replay on reconnect can repopulate the same pane identities.
+          useAppStore.getState().removeAgentStatusByWorktree(worktreeId)
           const tabs = useAppStore.getState().tabsByWorktree[worktreeId] ?? []
           for (const tab of tabs) {
             if (tab.ptyId) {
@@ -3336,11 +3336,30 @@ export function useIpcEvents(): void {
       if (typeof data?.paneKey !== 'string') {
         return
       }
+      const clearedPaneKey = resolveAgentPaneAuthorityKey(data.paneKey)
+      // Why: a clear can arrive before tab hydration. Evict the queued push too,
+      // or the next store update can resurrect status that main already dropped.
+      for (let index = pendingAgentStatusEvents.length - 1; index >= 0; index -= 1) {
+        const pendingPaneKey = resolveAgentPaneAuthorityKey(
+          pendingAgentStatusEvents[index].data.paneKey
+        )
+        if (pendingPaneKey === clearedPaneKey) {
+          pendingAgentStatusEvents.splice(index, 1)
+        }
+      }
+      if (pendingAgentStatusEvents.length === 0 && pendingAgentStatusRetryTimer !== null) {
+        globalThis.clearTimeout(pendingAgentStatusRetryTimer)
+        pendingAgentStatusRetryTimer = null
+      }
       const store = useAppStore.getState()
-      if (store.agentStatusByPaneKey[data.paneKey]?.state === 'done') {
+      if (data.transient === true) {
+        store.removeTransientAgentStatus(clearedPaneKey)
         return
       }
-      store.removeAgentStatus(data.paneKey)
+      if (store.agentStatusByPaneKey[clearedPaneKey]?.state === 'done') {
+        return
+      }
+      store.removeAgentStatus(clearedPaneKey)
     })
     if (unsubscribeAgentStatusClear) {
       unsubs.push(unsubscribeAgentStatusClear)
