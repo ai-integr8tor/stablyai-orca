@@ -9182,11 +9182,11 @@
         "MobilePairingSetupSection": {
           "title": "スマートフォンをペアリング",
           "automaticDescription": "ペアリングコードには、直接接続と暗号化されたOrca Relayのフォールバックが含まれます。",
-          "localDescription": "ペアリングコードは、下のローカルネットワークアドレスだけを使用します。",
+          "localDescription": "ペアリングコードは、下の直接接続エンドポイントだけを使用します。",
           "regenerate": "再生成",
           "generate": "QRコードを生成",
-          "localSettings": "ローカル接続設定",
-          "localAddressDescription": "Orca Mobileからこのコンピューターへ直接接続できるLANまたはプライベートネットワークのアドレスを選択します。",
+          "localSettings": "直接接続設定",
+          "localAddressDescription": "LANまたはプライベートネットワークのアドレスを選択するか、安全なWebSocketトンネルのエンドポイントを指定します。",
           "refresh": "ネットワークインターフェースを更新",
           "tailnet": "自分のtailnetで接続",
           "tailnetDescription": "このコンピューターとスマートフォンにTailscaleをインストールし、同じtailnetにサインインして、上で100.x.y.zアドレスを選択します。",
@@ -10835,18 +10835,18 @@
           }
         },
         "CustomNetworkAddressDialog": {
-          "title": "カスタムネットワークアドレス",
-          "description": "同じ Wi-Fi に接続していないときにスマートフォンから到達できるアドレスを指定します。たとえば Tailscale のホスト名や静的 IP です。",
+          "title": "カスタム直接接続エンドポイント",
+          "description": "スマートフォンから到達できるIPアドレス、ホスト名、または安全なWebSocketトンネルを指定します。",
           "label": "アドレス",
-          "placeholder": "my-mac.ts.net、home.example.com、または 192.168.1.50",
-          "hint": "IP アドレスまたはホスト名（Tailscale の MagicDNS 名、DDNS ドメイン、LAN のホスト名など）を入力してください。必要に応じて :ポート を付けられます。",
+          "placeholder": "wss://orca.example.com、my-mac.ts.net、または192.168.1.50",
+          "hint": "IPアドレス、ホスト名、任意の:ポート、またはパスのないws(s)://オリジンを入力します。",
           "cancel": "キャンセル",
           "use": "アドレスを使用"
         },
         "NetworkInterfacePicker": {
           "trigger-label": "通知するネットワークアドレス",
           "custom-option": "{{address}}（カスタム）",
-          "add-custom": "カスタムアドレスを追加…"
+          "add-custom": "カスタムエンドポイントを追加…"
         },
         "WindowsFirewallNotice": {
           "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
