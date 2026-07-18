@@ -181,12 +181,18 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     path: ['terminal', 'list'],
     summary: 'List live Orca-managed terminals',
     usage: 'orca terminal list [--worktree <selector>] [--limit <n>] [--json]',
+    notes: [
+      'Each terminal reports its current surface: "visible" (adopted as a renderer tab) or "background".'
+    ],
     allowedFlags: [...GLOBAL_FLAGS, 'worktree', 'limit']
   },
   {
     path: ['terminal', 'show'],
     summary: 'Show terminal metadata and preview',
     usage: 'orca terminal show [--terminal <handle>] [--json]',
+    notes: [
+      'Reports the terminal\'s current surface ("visible" or "background"), so scripts can re-verify visibility after create.'
+    ],
     allowedFlags: [...GLOBAL_FLAGS, 'terminal']
   },
   {

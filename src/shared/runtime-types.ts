@@ -392,6 +392,10 @@ export type RuntimeTerminalSummary = {
   writable: boolean
   lastOutputAt: number | null
   preview: string
+  /** Current visibility: adopted as a renderer tab ('visible') or running as a
+   *  background PTY handle. Lets orchestrators re-audit workers after create
+   *  instead of trusting the one-shot terminal.create surface (#8771). */
+  surface: 'background' | 'visible'
 }
 
 export type RuntimeTerminalVisualTerminalNode = {

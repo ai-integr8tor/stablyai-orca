@@ -2007,12 +2007,14 @@ describe('OrcaRuntimeService', () => {
       branch: 'feature/foo',
       ptyId: 'pty-1',
       title: 'Claude',
-      preview: 'hello from terminal'
+      preview: 'hello from terminal',
+      surface: 'visible'
     })
 
     const shown = await runtime.showTerminal(terminals.terminals[0].handle)
     expect(shown.handle).toBe(terminals.terminals[0].handle)
     expect(shown.ptyId).toBe('pty-1')
+    expect(shown.surface).toBe('visible')
   })
 
   it('surfaces stale terminal handles for stranded panes and recovers after same-pane wake', async () => {
@@ -7110,7 +7112,8 @@ describe('OrcaRuntimeService', () => {
     runtime.markGraphReady(1)
 
     expect((await runtime.listTerminals()).terminals[0]).toMatchObject({
-      title: null
+      title: null,
+      surface: 'background'
     })
 
     runtime.onPtyData(ptyId, '\x1b]0;Codex\x07', 123)

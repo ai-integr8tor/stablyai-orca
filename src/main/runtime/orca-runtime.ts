@@ -21632,7 +21632,9 @@ export class OrcaRuntimeService {
       connected: leaf.connected,
       writable: leaf.writable,
       lastOutputAt: leaf.lastOutputAt,
-      preview: leaf.preview
+      preview: leaf.preview,
+      // Why: a renderer-graph leaf is by definition an adopted visible tab.
+      surface: 'visible'
     }
   }
 
@@ -22868,7 +22870,11 @@ export class OrcaRuntimeService {
       connected: pty.connected,
       writable: pty.connected,
       lastOutputAt: pty.lastOutputAt,
-      preview: pty.preview
+      preview: pty.preview,
+      // Why: terminal.show can resolve a PTY handle whose process was later
+      // adopted as a renderer tab; report the current visibility, not the
+      // handle's origin, so orchestrators can audit workers (#8771).
+      surface: this.leafExistsForPty(pty.ptyId) ? 'visible' : 'background'
     }
   }
 
