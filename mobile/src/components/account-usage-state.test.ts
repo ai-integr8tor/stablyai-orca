@@ -32,6 +32,7 @@ function makeSnapshot(
     claudeLimits?: ProviderRateLimits | null
     codexLimits?: ProviderRateLimits | null
     geminiLimits?: ProviderRateLimits | null
+    antigravityLimits?: ProviderRateLimits | null
     grokLimits?: ProviderRateLimits | null
     claudeAccounts?: AccountsSnapshot['claude']['accounts']
     codexAccounts?: AccountsSnapshot['codex']['accounts']
@@ -46,6 +47,7 @@ function makeSnapshot(
       claude: overrides.claudeLimits ?? null,
       codex: overrides.codexLimits ?? null,
       gemini: overrides.geminiLimits ?? null,
+      antigravity: overrides.antigravityLimits ?? null,
       grok: overrides.grokLimits ?? null,
       inactiveClaudeAccounts: overrides.inactiveClaudeAccounts ?? [],
       inactiveCodexAccounts: overrides.inactiveCodexAccounts ?? []
@@ -228,6 +230,17 @@ describe('getActiveProviderRateLimits', () => {
     expect(getActiveProviderRateLimits(snapshot, 'opencode-go')).toBe(openCode)
   })
 
+  it('reads Antigravity from its dedicated snapshot field', () => {
+    const antigravity = makeLimits({
+      provider: 'antigravity',
+      status: 'ok',
+      session: window(27)
+    })
+    expect(
+      getActiveProviderRateLimits(makeSnapshot({ antigravityLimits: antigravity }), 'antigravity')
+    ).toBe(antigravity)
+  })
+
   // Old home-snapshot-cache v1 entries predate these fields; a missing field
   // must normalize to null instead of undefined so cold-start hydration can't
   // throw when a selector dereferences it.
@@ -243,6 +256,7 @@ describe('getActiveProviderRateLimits', () => {
       }
     } as AccountsSnapshot
     expect(getActiveProviderRateLimits(legacy, 'gemini')).toBeNull()
+    expect(getActiveProviderRateLimits(legacy, 'antigravity')).toBeNull()
     expect(getActiveProviderRateLimits(legacy, 'minimax')).toBeNull()
   })
 })
@@ -320,11 +334,12 @@ describe('hasRenderableUsage for display-only providers', () => {
 })
 
 describe('USAGE_PROVIDER_IDS', () => {
-  it('covers all seven providers the desktop tracks', () => {
+  it('covers all eight providers in desktop status-bar order', () => {
     expect(USAGE_PROVIDER_IDS).toEqual([
       'claude',
       'codex',
       'gemini',
+      'antigravity',
       'opencode-go',
       'kimi',
       'minimax',
