@@ -675,27 +675,27 @@ export class SshRelaySession {
     const ptyProvider = new SshPtyProvider(this.targetId, mux, this.remoteCliBridgeEnv ?? undefined)
     registerSshPtyProvider(this.targetId, ptyProvider)
 
-    const fsProvider = new SshFilesystemProvider(
-      this.targetId,
-      mux,
-      () => this.requireReadyConnection().sftp(),
-      {
-        downloadFile: (sourcePath, destinationPath) =>
-          this.requireReadyConnection().downloadFile(sourcePath, destinationPath, {
-            hostPlatform: this.remoteCliBridgeEnv?.hostPlatform
-          }),
-        openFileUploadSession: () =>
-          this.requireReadyConnection().openFileUploadSession({
-            hostPlatform: this.remoteCliBridgeEnv?.hostPlatform
-          }),
-        writeBuffer: (remotePath, contents, options) =>
-          this.requireReadyConnection().writeBuffer(remotePath, contents, {
-            hostPlatform: this.remoteCliBridgeEnv?.hostPlatform,
-            append: options.append,
-            exclusive: options.exclusive
-          })
-      }
-    )
+    const connection = this.requireReadyConnection()
+    const createSftp =
+      connection.usesSystemSshTransport?.() === true
+        ? undefined
+        : (options?: { signal?: AbortSignal }) => this.requireReadyConnection().sftp(options)
+    const fsProvider = new SshFilesystemProvider(this.targetId, mux, createSftp, {
+      downloadFile: (sourcePath, destinationPath) =>
+        this.requireReadyConnection().downloadFile(sourcePath, destinationPath, {
+          hostPlatform: this.remoteCliBridgeEnv?.hostPlatform
+        }),
+      openFileUploadSession: () =>
+        this.requireReadyConnection().openFileUploadSession({
+          hostPlatform: this.remoteCliBridgeEnv?.hostPlatform
+        }),
+      writeBuffer: (remotePath, contents, options) =>
+        this.requireReadyConnection().writeBuffer(remotePath, contents, {
+          hostPlatform: this.remoteCliBridgeEnv?.hostPlatform,
+          append: options.append,
+          exclusive: options.exclusive
+        })
+    })
     registerSshFilesystemProvider(this.targetId, fsProvider)
 
     const gitProvider = new SshGitProvider(

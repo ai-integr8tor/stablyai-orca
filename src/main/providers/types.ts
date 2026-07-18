@@ -258,6 +258,8 @@ export type FileReadResult = {
   mimeType?: string
 }
 
+export type FolderDownloadOptions = { signal?: AbortSignal }
+
 export type IFilesystemProvider = {
   readDir(dirPath: string): Promise<DirEntry[]>
   readFile(filePath: string): Promise<FileReadResult>
@@ -266,6 +268,7 @@ export type IFilesystemProvider = {
     options: TerminalArtifactAccessOptions
   ): Promise<FileReadResult>
   downloadFile?(sourcePath: string, destinationPath: string): Promise<void>
+  downloadFolder?: (src: string, dest: string, options?: FolderDownloadOptions) => Promise<void>
   openFileUploadSession?(): Promise<FileUploadSession>
   getTempDir?(): Promise<string>
   writeFile(filePath: string, content: string): Promise<void>

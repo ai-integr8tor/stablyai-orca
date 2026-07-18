@@ -1,12 +1,13 @@
 import type { SshChannelMultiplexer } from '../ssh/ssh-channel-multiplexer'
 import { isMethodNotFoundError, readFileViaStream } from '../ssh/ssh-filesystem-stream-reader'
 import { uploadBuffer } from '../ssh/sftp-upload'
-import { fastGetViaSftp, lstatViaSftp } from './ssh-filesystem-provider-sftp'
+import { lstatViaSftp } from './ssh-filesystem-provider-sftp'
 import {
-  openSshFileUploadSession,
-  type SftpFactory,
-  type SshRawTransferOptions
-} from './ssh-filesystem-file-upload'
+  downloadFileViaSftp,
+  downloadFolderViaSftp,
+  type SftpFactory
+} from './ssh-filesystem-download'
+import { openSshFileUploadSession, type SshRawTransferOptions } from './ssh-filesystem-file-upload'
 import {
   closeSshFilesystemWatch,
   registerSshFilesystemWatch,
@@ -33,6 +34,7 @@ export class SshFilesystemProvider implements IFilesystemProvider {
   private tempDirPromise: Promise<string> | null = null
   private disposed = false
   private loggedStreamFallback = false
+  readonly downloadFolder?: IFilesystemProvider['downloadFolder']
 
   constructor(
     connectionId: string,
@@ -42,6 +44,13 @@ export class SshFilesystemProvider implements IFilesystemProvider {
   ) {
     this.connectionId = connectionId
     this.mux = mux
+
+    if (createSftp) {
+      // Why: system SSH has raw single-file transfer but no ssh2 SFTP channel;
+      // omitting this method makes folder capability truthful at the provider boundary.
+      this.downloadFolder = (sourcePath, destinationPath, options) =>
+        downloadFolderViaSftp(createSftp, sourcePath, destinationPath, options)
+    }
 
     this.unsubscribeNotifications = mux.onNotification((method, params) =>
       routeSshFilesystemWatchNotification(this.watchListeners, method, params)
@@ -115,19 +124,12 @@ export class SshFilesystemProvider implements IFilesystemProvider {
   }
 
   async downloadFile(sourcePath: string, destinationPath: string): Promise<void> {
+    // Why: system SSH targets cannot open an ssh2-owned SFTP channel.
     if (this.rawTransfer?.downloadFile) {
       await this.rawTransfer.downloadFile(sourcePath, destinationPath)
       return
     }
-    if (!this.createSftp) {
-      throw new Error('Remote file download is unavailable. Reconnect the SSH target and retry.')
-    }
-    const sftp = await this.createSftp()
-    try {
-      await fastGetViaSftp(sftp, sourcePath, destinationPath)
-    } finally {
-      sftp.end()
-    }
+    await downloadFileViaSftp(this.createSftp, sourcePath, destinationPath)
   }
 
   async openFileUploadSession(): Promise<FileUploadSession> {
