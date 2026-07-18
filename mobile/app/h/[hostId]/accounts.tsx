@@ -31,6 +31,7 @@ import {
   getUsageBarState,
   getWindowResetLabel,
   hasActiveProviderUsage,
+  hasRenderableUsage,
   UsageBar,
   UsageWindowBars
 } from '../../../src/components/AccountUsage'
@@ -294,9 +295,7 @@ export default function AccountsScreen() {
     // Why: show a configured provider that is still loading or transiently
     // failing (spinner / error copy below); only hide a genuinely
     // unconfigured provider (no data and not fetching/error).
-    const renderable =
-      hasActiveProviderUsage(usage) || usage?.status === 'fetching' || usage?.status === 'error'
-    if (!renderable) {
+    if (!hasRenderableUsage(snapshot, descriptor.id)) {
       return null
     }
     const windows = getProviderUsageWindows(usage)
@@ -311,7 +310,7 @@ export default function AccountsScreen() {
           <View style={styles.row}>
             <View style={styles.rowMain}>
               <Text style={styles.rowTitle}>System default</Text>
-              <UsageWindowBars windows={windows} fetching={fetching} />
+              <UsageWindowBars windows={windows} fetching={fetching} now={now} />
               {usage?.error ? (
                 <Text style={styles.errorText} numberOfLines={1}>
                   {usage.error}
