@@ -185,9 +185,18 @@ describe('OpenCodeHookService buildPtyEnv / clearPty round-trip', () => {
     '50c010a2-bc8e-4eb1-8847-5812133ad6df::/Users/thebr/ghostx/workspaces/noqa/autoheal@@a1b2c3d4'
   const plainUuidId = 'c0ffee00-0000-4000-8000-000000000000'
   let userDataDir: string
+  let savedXdgConfigHome: string | undefined
+  let fakeXdgConfigHome: string
 
   beforeAll(() => {
     userDataDir = mkdtempSync(join(tmpdir(), 'orca-opencode-hooks-'))
+    // Why: prevent the real ~/.config/opencode from leaking into these tests.
+    // When a default config dir exists on disk, buildPtyEnv creates an overlay
+    // instead of falling back to the shared directory. By pointing XDG_CONFIG_HOME
+    // at an empty temp dir we force the fallback path the older tests expect.
+    savedXdgConfigHome = process.env.XDG_CONFIG_HOME
+    fakeXdgConfigHome = mkdtempSync(join(tmpdir(), 'orca-fake-xdg-'))
+    process.env.XDG_CONFIG_HOME = fakeXdgConfigHome
     getPathMock.mockImplementation((name: string) => {
       if (name === 'userData') {
         return userDataDir
@@ -197,6 +206,12 @@ describe('OpenCodeHookService buildPtyEnv / clearPty round-trip', () => {
   })
 
   afterAll(() => {
+    if (savedXdgConfigHome !== undefined) {
+      process.env.XDG_CONFIG_HOME = savedXdgConfigHome
+    } else {
+      delete process.env.XDG_CONFIG_HOME
+    }
+    rmSync(fakeXdgConfigHome, { recursive: true, force: true })
     rmSync(userDataDir, { recursive: true, force: true })
   })
 
@@ -267,6 +282,38 @@ describe('OpenCodeHookService buildPtyEnv / clearPty round-trip', () => {
 
     service.clearPty(plainUuidId)
     expect(existsSync(env.OPENCODE_CONFIG_DIR!)).toBe(true)
+  })
+
+  it('mirrors the default ~/.config/opencode into an overlay when no explicit OPENCODE_CONFIG_DIR is set', () => {
+    // Why: when the user has not set OPENCODE_CONFIG_DIR, Orca should detect
+    // the default XDG config dir and mirror it into an overlay so plugins,
+    // auth, and oh-my-openagent.json are not silently dropped.
+    const savedXdg = process.env.XDG_CONFIG_HOME
+    const fakeXdg = mkdtempSync(join(tmpdir(), 'orca-fake-xdg-'))
+    const fakeOpenCodeDir = join(fakeXdg, 'opencode')
+    mkdirSync(fakeOpenCodeDir, { recursive: true })
+    writeFileSync(join(fakeOpenCodeDir, 'opencode.json'), '{"model":"test"}')
+
+    try {
+      process.env.XDG_CONFIG_HOME = fakeXdg
+      const service = new OpenCodeHookService()
+      const env = service.buildPtyEnv(daemonSessionId)
+
+      expect(env.OPENCODE_CONFIG_DIR).toBeTruthy()
+      expect(env.OPENCODE_CONFIG_DIR).not.toBe(join(userDataDir, 'opencode-hooks', 'shared'))
+      expect(env.OPENCODE_CONFIG_DIR).toContain('opencode-config-overlays')
+      expect(existsSync(join(env.OPENCODE_CONFIG_DIR!, 'opencode.json'))).toBe(true)
+      expect(existsSync(join(env.OPENCODE_CONFIG_DIR!, 'plugins', 'orca-opencode-status.js'))).toBe(
+        true
+      )
+    } finally {
+      if (savedXdg !== undefined) {
+        process.env.XDG_CONFIG_HOME = savedXdg
+      } else {
+        delete process.env.XDG_CONFIG_HOME
+      }
+      rmSync(fakeXdg, { recursive: true, force: true })
+    }
   })
 })
 
