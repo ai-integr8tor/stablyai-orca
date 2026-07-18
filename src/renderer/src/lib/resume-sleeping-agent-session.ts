@@ -3,7 +3,7 @@ import {
   agentProviderSessionsEqual,
   type SleepingAgentSessionRecord
 } from '../../../shared/agent-session-resume'
-import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
+import { SLEEPING_AGENT_RECORD_MAX_AGE_MS } from '../../../shared/agent-session-resume'
 import {
   getProviderSessionClaimKey,
   isPassiveCompletedHibernationEvidence,
@@ -145,7 +145,7 @@ function activeOrQueuedResumeClaimsProviderSession(
   return false
 }
 
-function isInvalidWorktreeActivationRecord(record: SleepingAgentSessionRecord): boolean {
+export function isInvalidWorktreeActivationRecord(record: SleepingAgentSessionRecord): boolean {
   if (record.interrupted === true) {
     return true
   }
@@ -153,7 +153,7 @@ function isInvalidWorktreeActivationRecord(record: SleepingAgentSessionRecord): 
     return true
   }
   return (
-    record.state !== 'done' && record.capturedAt - record.updatedAt > AGENT_STATUS_STALE_AFTER_MS
+    record.state !== 'done' && Date.now() - record.capturedAt > SLEEPING_AGENT_RECORD_MAX_AGE_MS
   )
 }
 
