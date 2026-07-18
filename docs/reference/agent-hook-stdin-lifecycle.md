@@ -117,11 +117,15 @@ path. This mirrors POSIX ownership without starting an additional process.
   (argv[0]), not through cmd.exe, so the launcher cannot lead with a cmd builtin
   such as `if` — that argv[0] is unspawnable and fails every hook. A missing
   script therefore surfaces a normal launch failure on this fast path; only
-  launchers that already require a real interpreter (encoded PowerShell, Git
-  Bash) drain a missing script. Paths cmd.exe cannot invoke verbatim fall back to
-  the encoded PowerShell launcher, which owns stdin for the missing case.
-- Claude's Git Bash fast path uses a POSIX file guard and drain while continuing
-  to execute the `.cmd` directly rather than interpreting it as shell source.
+  launchers that already require a real interpreter (encoded PowerShell) drain a
+  missing script. Paths cmd.exe cannot invoke verbatim fall back to the encoded
+  PowerShell launcher, which owns stdin for the missing case.
+- Claude's Git Bash fast path is likewise a bare forward-slash `.cmd` path.
+  Claude Code can execute it under Git Bash; Grok may also load the same
+  `~/.claude/settings.json` command via harness compatibility and must
+  CreateProcess a single spawnable token — a bash `if [ -f … ]` guard fails under
+  cmd/direct spawn. Spaced or metacharacter paths fall back to encoded
+  PowerShell (which drains a missing script).
 - Agent-specific direct launchers, including Antigravity event wrappers and
   Copilot's PowerShell-file command, adopt the same missing-file behavior.
 
@@ -134,9 +138,11 @@ hook runner spawns command
        -> script consumes payload
        -> refreshes endpoint / evaluates guards
        -> posts or exits zero
-  -> OR launcher cannot start script
+  -> OR interpreter-backed launcher cannot start script
        -> launcher drains payload
        -> exits zero
+  -> OR bare `.cmd` fast path cannot start script
+       -> spawn/shell reports failure (no drain wrapper)
 ```
 
 Local, WSL, and SSH installs serialize the same POSIX template. Windows local
@@ -148,8 +154,13 @@ path syntax or shell.
 - Missing Orca environment: consume input, exit zero, emit only protocol-required
   output.
 - Empty payload: consume EOF, then follow the agent's existing empty-event rule.
-- Missing/unreadable/non-executable script: launcher consumes input and exits
-  zero.
+- Missing/unreadable/non-executable script:
+  - **Interpreter-backed launchers** (encoded PowerShell, POSIX shell compounds
+    with an explicit missing-file drain): consume stdin and exit zero.
+  - **Direct bare `.cmd` fast paths** (Windows cmd safe-path and Claude/Git Bash
+    bare forward-slash `.cmd`): there is no drain wrapper — a missing script fails
+    at spawn time like a normal process launch. Missing-script drain for those
+    agents lives only on the encoded-PowerShell fallback used for unsafe paths.
 - Endpoint parse/read failure: preserve the existing fail-open behavior after
   stdin ownership has been satisfied.
 - Existing script returns nonzero: propagate its status; do not drain again or
